@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-17T22:46:42.253Z",
+  "timestamp": "2026-05-17T22:57:41.430Z",
   "chart": {
     "success": true,
     "symbol": "CME_MINI:MNQ1!",
@@ -27,24 +27,24 @@
   "visible_range": {
     "success": true,
     "visible_range": {
-      "from": 1778868420,
-      "to": 1779061260
+      "from": 1778875140,
+      "to": 1779063780
     },
     "bars_range": {
-      "from": 1778868420,
-      "to": 1779057960
+      "from": 1778875140,
+      "to": 1779058620
     }
   },
   "quote": {
     "success": true,
     "symbol": "CME_MINI:MNQ1!",
-    "time": 1779057960,
-    "open": 29264,
-    "high": 29265.25,
-    "low": 29253.5,
-    "close": 29254.25,
-    "last": 29254.25,
-    "volume": 512,
+    "time": 1779058620,
+    "open": 29227.5,
+    "high": 29237.5,
+    "low": 29223,
+    "close": 29232.5,
+    "last": 29232.5,
+    "volume": 701,
     "description": "Micro E-mini Nasdaq-100 Index Futures",
     "exchange": "CME",
     "type": "futures"
@@ -53,57 +53,57 @@
     "success": true,
     "bar_count": 100,
     "period": {
-      "from": 1778875560,
-      "to": 1779057960
+      "from": 1778876220,
+      "to": 1779058620
     },
-    "open": 29151.25,
-    "close": 29254.25,
+    "open": 29146.5,
+    "close": 29232.5,
     "high": 29283.75,
-    "low": 29110.75,
-    "range": 173,
-    "change": 103,
-    "change_pct": "0.35%",
-    "avg_volume": 1147,
+    "low": 29112,
+    "range": 171.75,
+    "change": 86,
+    "change_pct": "0.3%",
+    "avg_volume": 1002,
     "last_5_bars": [
       {
-        "time": 1779057720,
-        "open": 29266.25,
-        "high": 29266.5,
-        "low": 29252.75,
-        "close": 29261.75,
-        "volume": 800
+        "time": 1779058380,
+        "open": 29241.25,
+        "high": 29256.75,
+        "low": 29238.75,
+        "close": 29252.75,
+        "volume": 904
       },
       {
-        "time": 1779057780,
-        "open": 29261.5,
-        "high": 29274.5,
-        "low": 29255.25,
-        "close": 29264.75,
-        "volume": 994
+        "time": 1779058440,
+        "open": 29252.25,
+        "high": 29257.5,
+        "low": 29250,
+        "close": 29253,
+        "volume": 516
       },
       {
-        "time": 1779057840,
-        "open": 29264.25,
-        "high": 29267,
-        "low": 29257.25,
-        "close": 29262,
-        "volume": 468
+        "time": 1779058500,
+        "open": 29253.75,
+        "high": 29258.25,
+        "low": 29216.25,
+        "close": 29218.25,
+        "volume": 1643
       },
       {
-        "time": 1779057900,
-        "open": 29263,
-        "high": 29265.75,
-        "low": 29257.25,
-        "close": 29264.5,
-        "volume": 358
+        "time": 1779058560,
+        "open": 29218,
+        "high": 29232.5,
+        "low": 29200,
+        "close": 29227.75,
+        "volume": 2485
       },
       {
-        "time": 1779057960,
-        "open": 29264,
-        "high": 29265.25,
-        "low": 29253.5,
-        "close": 29254.25,
-        "volume": 512
+        "time": 1779058620,
+        "open": 29227.5,
+        "high": 29237.5,
+        "low": 29223,
+        "close": 29232.5,
+        "volume": 701
       }
     ]
   },
@@ -116,13 +116,13 @@
         "to": 1779055200
       },
       "open": 26027.5,
-      "close": 29259,
+      "close": 29235,
       "high": 29783.75,
       "low": 22960.5,
       "range": 6823.25,
-      "change": 3231.5,
-      "change_pct": "12.42%",
-      "avg_volume": 1927869,
+      "change": 3207.5,
+      "change_pct": "12.32%",
+      "avg_volume": 1927980,
       "last_5_bars": [
         {
           "time": 1778536800,
@@ -161,8 +161,8 @@
           "open": 29135.25,
           "high": 29283.75,
           "low": 29112,
-          "close": 29259,
-          "volume": 61194
+          "close": 29235,
+          "volume": 72203
         }
       ],
       "tv_resolution": "D"
@@ -175,13 +175,13 @@
         "to": 1779055200
       },
       "open": 26941.75,
-      "close": 29257.75,
+      "close": 29231.75,
       "high": 29783.75,
       "low": 26680,
       "range": 3103.75,
-      "change": 2316,
-      "change_pct": "8.6%",
-      "avg_volume": 341870,
+      "change": 2290,
+      "change_pct": "8.5%",
+      "avg_volume": 341980,
       "last_5_bars": [
         {
           "time": 1778824800,
@@ -220,8 +220,8 @@
           "open": 29135.25,
           "high": 29283.75,
           "low": 29112,
-          "close": 29257.75,
-          "volume": 61221
+          "close": 29231.75,
+          "volume": 72256
         }
       ],
       "tv_resolution": "240"
@@ -234,13 +234,13 @@
         "to": 1779055200
       },
       "open": 29311.25,
-      "close": 29256.75,
+      "close": 29232,
       "high": 29783.75,
       "low": 28741.25,
       "range": 1042.5,
-      "change": -54.5,
-      "change_pct": "-0.19%",
-      "avg_volume": 106352,
+      "change": -79.25,
+      "change_pct": "-0.27%",
+      "avg_volume": 106462,
       "last_5_bars": [
         {
           "time": 1778864400,
@@ -279,8 +279,8 @@
           "open": 29135.25,
           "high": 29283.75,
           "low": 29112,
-          "close": 29256.75,
-          "volume": 61234
+          "close": 29232,
+          "volume": 72272
         }
       ],
       "tv_resolution": "60"
@@ -293,13 +293,13 @@
         "to": 1779057900
       },
       "open": 29686.75,
-      "close": 29255.75,
+      "close": 29232.75,
       "high": 29739,
       "low": 29089.5,
       "range": 649.5,
-      "change": -431,
-      "change_pct": "-1.45%",
-      "avg_volume": 29495,
+      "change": -454,
+      "change_pct": "-1.53%",
+      "avg_volume": 29605,
       "last_5_bars": [
         {
           "time": 1778877900,
@@ -336,10 +336,10 @@
         {
           "time": 1779057900,
           "open": 29263,
-          "high": 29265.75,
-          "low": 29254.25,
-          "close": 29255.75,
-          "volume": 792
+          "high": 29268,
+          "low": 29200,
+          "close": 29232.75,
+          "volume": 11820
         }
       ],
       "tv_resolution": "15"
@@ -348,34 +348,18 @@
       "success": true,
       "bar_count": 100,
       "period": {
-        "from": 1778851800,
-        "to": 1779057900
+        "from": 1778852400,
+        "to": 1779058500
       },
-      "open": 29278,
-      "close": 29253.75,
+      "open": 29167,
+      "close": 29232,
       "high": 29487,
       "low": 29089.5,
       "range": 397.5,
-      "change": -24.25,
-      "change_pct": "-0.08%",
-      "avg_volume": 18813,
+      "change": 65,
+      "change_pct": "0.22%",
+      "avg_volume": 17759,
       "last_5_bars": [
-        {
-          "time": 1779056700,
-          "open": 29198,
-          "high": 29226.75,
-          "low": 29192.5,
-          "close": 29223,
-          "volume": 4957
-        },
-        {
-          "time": 1779057000,
-          "open": 29222.5,
-          "high": 29241.25,
-          "low": 29214.5,
-          "close": 29214.5,
-          "volume": 5200
-        },
         {
           "time": 1779057300,
           "open": 29214.5,
@@ -395,10 +379,26 @@
         {
           "time": 1779057900,
           "open": 29263,
-          "high": 29265.75,
-          "low": 29253.75,
-          "close": 29253.75,
-          "volume": 837
+          "high": 29268,
+          "low": 29248.5,
+          "close": 29250,
+          "volume": 2837
+        },
+        {
+          "time": 1779058200,
+          "open": 29250.25,
+          "high": 29257.5,
+          "low": 29229.75,
+          "close": 29253,
+          "volume": 4187
+        },
+        {
+          "time": 1779058500,
+          "open": 29253.75,
+          "high": 29258.25,
+          "low": 29200,
+          "close": 29232,
+          "volume": 4800
         }
       ],
       "tv_resolution": "5"
@@ -407,57 +407,57 @@
       "success": true,
       "bar_count": 100,
       "period": {
-        "from": 1778875560,
-        "to": 1779057960
+        "from": 1778876220,
+        "to": 1779058620
       },
-      "open": 29151.25,
-      "close": 29253.75,
+      "open": 29146.5,
+      "close": 29232.5,
       "high": 29283.75,
-      "low": 29110.75,
-      "range": 173,
-      "change": 102.5,
-      "change_pct": "0.35%",
-      "avg_volume": 1146,
+      "low": 29112,
+      "range": 171.75,
+      "change": 86,
+      "change_pct": "0.3%",
+      "avg_volume": 1002,
       "last_5_bars": [
         {
-          "time": 1779057720,
-          "open": 29266.25,
-          "high": 29266.5,
-          "low": 29252.75,
-          "close": 29261.75,
-          "volume": 800
+          "time": 1779058380,
+          "open": 29241.25,
+          "high": 29256.75,
+          "low": 29238.75,
+          "close": 29252.75,
+          "volume": 904
         },
         {
-          "time": 1779057780,
-          "open": 29261.5,
-          "high": 29274.5,
-          "low": 29255.25,
-          "close": 29264.75,
-          "volume": 994
+          "time": 1779058440,
+          "open": 29252.25,
+          "high": 29257.5,
+          "low": 29250,
+          "close": 29253,
+          "volume": 516
         },
         {
-          "time": 1779057840,
-          "open": 29264.25,
-          "high": 29267,
-          "low": 29257.25,
-          "close": 29262,
-          "volume": 468
+          "time": 1779058500,
+          "open": 29253.75,
+          "high": 29258.25,
+          "low": 29216.25,
+          "close": 29218.25,
+          "volume": 1643
         },
         {
-          "time": 1779057900,
-          "open": 29263,
-          "high": 29265.75,
-          "low": 29257.25,
-          "close": 29264.5,
-          "volume": 358
+          "time": 1779058560,
+          "open": 29218,
+          "high": 29232.5,
+          "low": 29200,
+          "close": 29227.75,
+          "volume": 2485
         },
         {
-          "time": 1779057960,
-          "open": 29264,
-          "high": 29265.25,
-          "low": 29253.5,
-          "close": 29253.75,
-          "volume": 505
+          "time": 1779058620,
+          "open": 29227.5,
+          "high": 29237.5,
+          "low": 29223,
+          "close": 29232.5,
+          "volume": 692
         }
       ],
       "tv_resolution": "1"
@@ -478,7 +478,7 @@
   "pine": {
     "lines": {
       "success": true,
-      "study_count": 3,
+      "study_count": 2,
       "studies": [
         {
           "name": "ICT Anchored Market Structures with Validation [LuxAlgo]",
@@ -954,374 +954,366 @@
             29089.5,
             28741.25
           ]
-        },
-        {
-          "name": "Balanced Price Range | Flux Charts",
-          "total_lines": 2,
-          "horizontal_levels": [
-            29430.5,
-            29232.63
-          ]
         }
       ]
     },
     "labels": {
       "success": true,
-      "study_count": 3,
+      "study_count": 2,
       "studies": [
         {
           "name": "ICT Anchored Market Structures with Validation [LuxAlgo]",
-          "total_labels": 502,
+          "total_labels": 501,
           "showing": 50,
           "labels": [
-            {
-              "id": 8487,
-              "text": "ST-LL",
-              "price": 29135,
-              "x": 1470,
-              "textColor": 0
-            },
-            {
-              "id": 8488,
-              "text": "ST-HL",
-              "price": 29155,
-              "x": 1471,
-              "textColor": 0
-            },
-            {
-              "id": 8489,
-              "text": "LT-LL",
-              "price": 29110.75,
-              "x": 1472,
-              "textColor": 4282726130
-            },
-            {
-              "id": 8490,
-              "text": "ST-LH",
-              "price": 29136.75,
-              "x": 1473,
-              "textColor": 0
-            },
-            {
-              "id": 8491,
-              "text": "ST-HH",
-              "price": 29158.75,
-              "x": 1474,
-              "textColor": 0
-            },
             {
               "id": 8492,
               "text": "ST-LH",
               "price": 29141.5,
-              "x": 1475,
+              "x": 1471,
               "textColor": 0
             },
             {
               "id": 8493,
               "text": "IT-HL",
               "price": 29199,
-              "x": 1476,
+              "x": 1472,
               "textColor": 4286683400
             },
             {
               "id": 8494,
               "text": "ST-LH",
               "price": 29146,
-              "x": 1477,
+              "x": 1473,
               "textColor": 0
             },
             {
               "id": 8495,
               "text": "ST-HL",
               "price": 29174,
-              "x": 1478,
+              "x": 1474,
               "textColor": 0
             },
             {
               "id": 8496,
               "text": "ST-LH",
               "price": 29158.75,
-              "x": 1479,
+              "x": 1475,
               "textColor": 0
             },
             {
               "id": 8497,
               "text": "ST-HL",
               "price": 29172,
-              "x": 1480,
+              "x": 1476,
               "textColor": 0
             },
             {
               "id": 8498,
               "text": "IT-LH",
               "price": 29150.75,
-              "x": 1481,
+              "x": 1477,
               "textColor": 4282726130
             },
             {
               "id": 8499,
               "text": "ST-LH",
               "price": 29159.25,
-              "x": 1482,
+              "x": 1478,
               "textColor": 0
             },
             {
               "id": 8500,
               "text": "IT-HL",
               "price": 29182.5,
-              "x": 1482,
+              "x": 1478,
               "textColor": 4286683400
             },
             {
               "id": 8501,
               "text": "ST-LH",
               "price": 29166,
-              "x": 1483,
+              "x": 1479,
               "textColor": 0
             },
             {
               "id": 8502,
               "text": "ST-HL",
               "price": 29180.75,
-              "x": 1484,
+              "x": 1480,
               "textColor": 0
             },
             {
               "id": 8503,
               "text": "ST-LH",
               "price": 29171.25,
-              "x": 1485,
+              "x": 1481,
               "textColor": 0
             },
             {
               "id": 8504,
               "text": "ST-LL",
               "price": 29167.5,
-              "x": 1486,
+              "x": 1482,
               "textColor": 0
             },
             {
               "id": 8505,
               "text": "ST-HL",
               "price": 29179.25,
-              "x": 1486,
+              "x": 1482,
               "textColor": 0
             },
             {
               "id": 8506,
               "text": "IT-LH",
               "price": 29166.75,
-              "x": 1487,
+              "x": 1483,
               "textColor": 4282726130
             },
             {
               "id": 8507,
               "text": "ST-HL",
               "price": 29178.25,
-              "x": 1487,
+              "x": 1483,
               "textColor": 0
             },
             {
               "id": 8508,
               "text": "ST-HL",
               "price": 29176.75,
-              "x": 1488,
+              "x": 1484,
               "textColor": 0
             },
             {
               "id": 8509,
               "text": "ST-LH",
               "price": 29167.25,
-              "x": 1489,
+              "x": 1485,
               "textColor": 0
             },
             {
               "id": 8510,
               "text": "ST-HL",
               "price": 29175.75,
-              "x": 1490,
+              "x": 1486,
               "textColor": 0
             },
             {
               "id": 8511,
               "text": "ST-LH",
               "price": 29167.25,
-              "x": 1491,
+              "x": 1487,
               "textColor": 0
             },
             {
               "id": 8512,
               "text": "IT-HL",
               "price": 29180.25,
-              "x": 1492,
+              "x": 1488,
               "textColor": 4286683400
             },
             {
               "id": 8513,
               "text": "ST-LH",
               "price": 29168,
-              "x": 1493,
+              "x": 1489,
               "textColor": 0
             },
             {
               "id": 8514,
               "text": "ST-HL",
               "price": 29174.5,
-              "x": 1494,
+              "x": 1490,
               "textColor": 0
             },
             {
               "id": 8515,
               "text": "ST-HH",
               "price": 29175.5,
-              "x": 1495,
+              "x": 1491,
               "textColor": 0
             },
             {
               "id": 8516,
               "text": "ST-LL",
               "price": 29165.5,
-              "x": 1496,
+              "x": 1492,
               "textColor": 0
             },
             {
               "id": 8523,
               "text": "ST-LL",
               "price": 29160,
-              "x": 1498,
+              "x": 1494,
               "textColor": 0
             },
             {
               "id": 8556,
               "text": "LT-LH",
               "price": 29112,
-              "x": 1499,
+              "x": 1495,
               "textColor": 4282726130
             },
             {
               "id": 8557,
               "text": "ST-HH",
               "price": 29222.5,
-              "x": 1499,
+              "x": 1495,
               "textColor": 0
             },
             {
               "id": 8674,
               "text": "ST-LH",
               "price": 29188.75,
-              "x": 1500,
+              "x": 1496,
               "textColor": 0
             },
             {
               "id": 8748,
               "text": "LT-HL",
               "price": 29283.75,
-              "x": 1501,
+              "x": 1497,
               "textColor": 4286683400
             },
             {
               "id": 8767,
               "text": "ST-LH",
               "price": 29254.75,
-              "x": 1502,
+              "x": 1498,
               "textColor": 0
             },
             {
               "id": 8768,
               "text": "ST-HL",
               "price": 29281,
-              "x": 1502,
+              "x": 1498,
               "textColor": 0
             },
             {
               "id": 8863,
               "text": "ST-HL",
               "price": 29280.75,
-              "x": 1503,
+              "x": 1499,
               "textColor": 0
             },
             {
               "id": 8920,
               "text": "ST-HL",
               "price": 29255,
-              "x": 1504,
+              "x": 1500,
               "textColor": 0
             },
             {
               "id": 8977,
               "text": "ST-LL",
               "price": 29227.75,
-              "x": 1505,
+              "x": 1501,
               "textColor": 0
             },
             {
               "id": 9057,
               "text": "IT-HL",
               "price": 29264,
-              "x": 1506,
+              "x": 1502,
               "textColor": 4286683400
             },
             {
               "id": 9152,
               "text": "IT-LH",
               "price": 29188.75,
-              "x": 1507,
+              "x": 1503,
               "textColor": 4282726130
             },
             {
               "id": 9175,
               "text": "ST-LH",
               "price": 29210.25,
-              "x": 1508,
+              "x": 1504,
               "textColor": 0
             },
             {
               "id": 9176,
               "text": "ST-HL",
               "price": 29226.75,
-              "x": 1508,
+              "x": 1504,
               "textColor": 0
             },
             {
               "id": 9286,
               "text": "ST-HH",
               "price": 29241.25,
-              "x": 1509,
+              "x": 1505,
               "textColor": 0
             },
             {
               "id": 9353,
               "text": "IT-LH",
               "price": 29198,
-              "x": 1510,
+              "x": 1506,
               "textColor": 4282726130
             },
             {
               "id": 9445,
               "text": "ST-LH",
               "price": 29246.75,
-              "x": 1511,
+              "x": 1507,
               "textColor": 0
             },
             {
               "id": 9488,
               "text": "ST-HH",
               "price": 29271.75,
-              "x": 1512,
+              "x": 1508,
               "textColor": 0
             },
             {
               "id": 9507,
               "text": "ST-LH",
               "price": 29252.75,
-              "x": 1513,
+              "x": 1509,
               "textColor": 0
             },
             {
               "id": 9526,
-              "text": "ST-HH",
+              "text": "IT-HH",
               "price": 29274.5,
+              "x": 1510,
+              "textColor": 4286683400
+            },
+            {
+              "id": 9579,
+              "text": "ST-LH",
+              "price": 29253.5,
+              "x": 1511,
+              "textColor": 0
+            },
+            {
+              "id": 9630,
+              "text": "ST-HL",
+              "price": 29268,
+              "x": 1512,
+              "textColor": 0
+            },
+            {
+              "id": 9697,
+              "text": "ST-LL",
+              "price": 29229.75,
               "x": 1514,
+              "textColor": 0
+            },
+            {
+              "id": 9800,
+              "text": "ST-HL",
+              "price": 29258.25,
+              "x": 1515,
+              "textColor": 0
+            },
+            {
+              "id": 9819,
+              "text": "ST-LL",
+              "price": 29200,
+              "x": 1516,
               "textColor": 0
             }
           ]
@@ -1402,41 +1394,6 @@
               "textColor": 2571782730
             }
           ]
-        },
-        {
-          "name": "Balanced Price Range | Flux Charts",
-          "total_labels": 4,
-          "showing": 4,
-          "labels": [
-            {
-              "id": 194,
-              "text": "",
-              "price": 29410.75,
-              "x": 2,
-              "textColor": 4294967295
-            },
-            {
-              "id": 195,
-              "text": "",
-              "price": 29414.5,
-              "x": 3,
-              "textColor": 4294967295
-            },
-            {
-              "id": 196,
-              "text": "",
-              "price": 29398.75,
-              "x": 4,
-              "textColor": 4294967295
-            },
-            {
-              "id": 215,
-              "text": "",
-              "price": 29268.5,
-              "x": 7,
-              "textColor": 4294967295
-            }
-          ]
         }
       ]
     },
@@ -1458,11 +1415,11 @@
     },
     "boxes": {
       "success": true,
-      "study_count": 4,
+      "study_count": 3,
       "studies": [
         {
           "name": "FVG/iFVG (Nephew_Sam_)",
-          "total_boxes": 15,
+          "total_boxes": 17,
           "zones": [
             {
               "high": 29322.5,
@@ -1485,12 +1442,20 @@
               "low": 29260
             },
             {
-              "high": 29248.25,
-              "low": 29217
+              "high": 29255.5,
+              "low": 29254.75
             },
             {
-              "high": 29239.75,
-              "low": 29229.25
+              "high": 29250,
+              "low": 29244
+            },
+            {
+              "high": 29250,
+              "low": 29232.5
+            },
+            {
+              "high": 29248.25,
+              "low": 29217
             },
             {
               "high": 29219.75,
@@ -3375,20 +3340,6 @@
             {
               "high": 29283.75,
               "low": 29112
-            }
-          ]
-        },
-        {
-          "name": "Balanced Price Range | Flux Charts",
-          "total_boxes": 4,
-          "zones": [
-            {
-              "high": 29445.75,
-              "low": 29415.25
-            },
-            {
-              "high": 29248.25,
-              "low": 29217
             }
           ]
         }
@@ -6545,7 +6496,7 @@
             "showing": 12,
             "all_boxes": [
               {
-                "id": 4435,
+                "id": 4433,
                 "high": 29246.75,
                 "low": 29241.25,
                 "x1": 18,
@@ -7336,28 +7287,55 @@
       "tv_resolution": "1",
       "boxes": {
         "success": true,
-        "study_count": 4,
+        "study_count": 3,
         "studies": [
           {
             "name": "FVG/iFVG (Nephew_Sam_)",
-            "total_boxes": 15,
-            "showing": 15,
+            "total_boxes": 17,
+            "showing": 17,
             "all_boxes": [
               {
-                "id": 7562,
+                "id": 8034,
+                "high": 29250,
+                "low": 29232.5,
+                "x1": 22,
+                "x2": 28,
+                "borderColor": 4536050,
+                "bgColor": 610226935
+              },
+              {
+                "id": 7962,
+                "high": 29250,
+                "low": 29244,
+                "x1": 21,
+                "x2": 27,
+                "borderColor": 4536050,
+                "bgColor": 606513151
+              },
+              {
+                "id": 7691,
+                "high": 29255.5,
+                "low": 29254.75,
+                "x1": 20,
+                "x2": 26,
+                "borderColor": 4536050,
+                "bgColor": 610226935
+              },
+              {
+                "id": 7632,
                 "high": 29262.25,
                 "low": 29260,
-                "x1": 20,
-                "x2": 23,
-                "borderColor": 7792128,
-                "bgColor": 613722914
+                "x1": 19,
+                "x2": 25,
+                "borderColor": 4536050,
+                "bgColor": 606513151
               },
               {
                 "id": 7426,
                 "high": 29248.25,
                 "low": 29217,
-                "x1": 19,
-                "x2": 22,
+                "x1": 18,
+                "x2": 24,
                 "borderColor": 7792128,
                 "bgColor": 613722914
               },
@@ -7365,8 +7343,8 @@
                 "id": 7134,
                 "high": 29207,
                 "low": 29205,
-                "x1": 18,
-                "x2": 21,
+                "x1": 17,
+                "x2": 23,
                 "borderColor": 7792128,
                 "bgColor": 613722914
               },
@@ -7374,8 +7352,8 @@
                 "id": 7135,
                 "high": 29214.5,
                 "low": 29205,
-                "x1": 17,
-                "x2": 21,
+                "x1": 16,
+                "x2": 23,
                 "borderColor": 7792128,
                 "bgColor": 603289905
               },
@@ -7383,17 +7361,8 @@
                 "id": 7136,
                 "high": 29217,
                 "low": 29216.25,
-                "x1": 16,
-                "x2": 21,
-                "borderColor": 7792128,
-                "bgColor": 603289905
-              },
-              {
-                "id": 7137,
-                "high": 29239.75,
-                "low": 29229.25,
-                "x1": 14,
-                "x2": 21,
+                "x1": 15,
+                "x2": 23,
                 "borderColor": 7792128,
                 "bgColor": 603289905
               },
@@ -7402,7 +7371,7 @@
                 "high": 29172,
                 "low": 29169.75,
                 "x1": 12,
-                "x2": 15,
+                "x2": 14,
                 "borderColor": 7792128,
                 "bgColor": 613722914
               },
@@ -7438,7 +7407,7 @@
                 "high": 29219.75,
                 "low": 29187.75,
                 "x1": 4,
-                "x2": 17,
+                "x2": 16,
                 "borderColor": 7792128,
                 "bgColor": 603289905
               },
@@ -7489,8 +7458,8 @@
                 "id": 9434,
                 "high": 29274.5,
                 "low": 29264,
-                "x1": 1511,
-                "x2": 1515,
+                "x1": 1507,
+                "x2": 1513,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7498,8 +7467,8 @@
                 "id": 9423,
                 "high": 29264,
                 "low": 29264,
-                "x1": 1506,
-                "x2": 1511,
+                "x1": 1502,
+                "x2": 1507,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7507,8 +7476,8 @@
                 "id": 8521,
                 "high": 29191.01,
                 "low": 29180.25,
-                "x1": 1498,
-                "x2": 1499,
+                "x1": 1494,
+                "x2": 1495,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7516,8 +7485,8 @@
                 "id": 8518,
                 "high": 29166.75,
                 "low": 29164,
-                "x1": 1497,
-                "x2": 1498,
+                "x1": 1493,
+                "x2": 1494,
                 "borderColor": 1162163954,
                 "bgColor": 1162163954
               },
@@ -7525,8 +7494,8 @@
                 "id": 8522,
                 "high": 29180.25,
                 "low": 29180.25,
-                "x1": 1492,
-                "x2": 1498,
+                "x1": 1488,
+                "x2": 1494,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7534,8 +7503,8 @@
                 "id": 8519,
                 "high": 29166.75,
                 "low": 29166.75,
-                "x1": 1487,
-                "x2": 1497,
+                "x1": 1483,
+                "x2": 1493,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7543,8 +7512,8 @@
                 "id": 8483,
                 "high": 29208,
                 "low": 29208,
-                "x1": 1467,
-                "x2": 1467,
+                "x1": 1463,
+                "x2": 1463,
                 "borderColor": 1162163954,
                 "bgColor": 1162163954
               },
@@ -7552,8 +7521,8 @@
                 "id": 8484,
                 "high": 29208,
                 "low": 29208,
-                "x1": 1464,
-                "x2": 1467,
+                "x1": 1460,
+                "x2": 1463,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7561,8 +7530,8 @@
                 "id": 8475,
                 "high": 29282.25,
                 "low": 29282.25,
-                "x1": 1462,
-                "x2": 1462,
+                "x1": 1458,
+                "x2": 1458,
                 "borderColor": 1162163954,
                 "bgColor": 1162163954
               },
@@ -7570,8 +7539,8 @@
                 "id": 8465,
                 "high": 29340.25,
                 "low": 29324,
-                "x1": 1455,
-                "x2": 1458,
+                "x1": 1451,
+                "x2": 1454,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7579,8 +7548,8 @@
                 "id": 8466,
                 "high": 29324,
                 "low": 29324,
-                "x1": 1452,
-                "x2": 1455,
+                "x1": 1448,
+                "x2": 1451,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7588,8 +7557,8 @@
                 "id": 8476,
                 "high": 29282.25,
                 "low": 29282.25,
-                "x1": 1451,
-                "x2": 1462,
+                "x1": 1447,
+                "x2": 1458,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7597,8 +7566,8 @@
                 "id": 8449,
                 "high": 29316.25,
                 "low": 29297.79,
-                "x1": 1440,
-                "x2": 1448,
+                "x1": 1436,
+                "x2": 1444,
                 "borderColor": 1162163954,
                 "bgColor": 1162163954
               },
@@ -7606,8 +7575,8 @@
                 "id": 8446,
                 "high": 29352.5,
                 "low": 29335.48,
-                "x1": 1438,
-                "x2": 1439,
+                "x1": 1434,
+                "x2": 1435,
                 "borderColor": 1162163954,
                 "bgColor": 1162163954
               },
@@ -7615,8 +7584,8 @@
                 "id": 8447,
                 "high": 29352.5,
                 "low": 29352.5,
-                "x1": 1430,
-                "x2": 1438,
+                "x1": 1426,
+                "x2": 1434,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7624,8 +7593,8 @@
                 "id": 8450,
                 "high": 29316.25,
                 "low": 29316.25,
-                "x1": 1422,
-                "x2": 1440,
+                "x1": 1418,
+                "x2": 1436,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7633,8 +7602,8 @@
                 "id": 8425,
                 "high": 29425.25,
                 "low": 29409.71,
-                "x1": 1419,
-                "x2": 1420,
+                "x1": 1415,
+                "x2": 1416,
                 "borderColor": 1162163954,
                 "bgColor": 1162163954
               },
@@ -7642,8 +7611,8 @@
                 "id": 8417,
                 "high": 29460.16,
                 "low": 29446.5,
-                "x1": 1412,
-                "x2": 1415,
+                "x1": 1408,
+                "x2": 1411,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7651,8 +7620,8 @@
                 "id": 8426,
                 "high": 29425.25,
                 "low": 29425.25,
-                "x1": 1411,
-                "x2": 1419,
+                "x1": 1407,
+                "x2": 1415,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7660,8 +7629,8 @@
                 "id": 8410,
                 "high": 29447.9,
                 "low": 29434.5,
-                "x1": 1408,
-                "x2": 1412,
+                "x1": 1404,
+                "x2": 1408,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7669,8 +7638,8 @@
                 "id": 8411,
                 "high": 29434.5,
                 "low": 29434.5,
-                "x1": 1403,
-                "x2": 1408,
+                "x1": 1399,
+                "x2": 1404,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7678,8 +7647,8 @@
                 "id": 8418,
                 "high": 29446.5,
                 "low": 29446.5,
-                "x1": 1397,
-                "x2": 1412,
+                "x1": 1393,
+                "x2": 1408,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7687,8 +7656,8 @@
                 "id": 8395,
                 "high": 29444.09,
                 "low": 29429.75,
-                "x1": 1395,
-                "x2": 1400,
+                "x1": 1391,
+                "x2": 1396,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7696,8 +7665,8 @@
                 "id": 8396,
                 "high": 29429.75,
                 "low": 29429.75,
-                "x1": 1392,
-                "x2": 1395,
+                "x1": 1388,
+                "x2": 1391,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7705,8 +7674,8 @@
                 "id": 8388,
                 "high": 29396.13,
                 "low": 29380.25,
-                "x1": 1390,
-                "x2": 1391,
+                "x1": 1386,
+                "x2": 1387,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7714,8 +7683,8 @@
                 "id": 8383,
                 "high": 29363.5,
                 "low": 29361,
-                "x1": 1386,
-                "x2": 1388,
+                "x1": 1382,
+                "x2": 1384,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7723,8 +7692,8 @@
                 "id": 8377,
                 "high": 29361,
                 "low": 29352.25,
-                "x1": 1383,
-                "x2": 1384,
+                "x1": 1379,
+                "x2": 1380,
                 "borderColor": 1166121224,
                 "bgColor": 1166121224
               },
@@ -7732,8 +7701,8 @@
                 "id": 8384,
                 "high": 29361,
                 "low": 29361,
-                "x1": 1383,
-                "x2": 1386,
+                "x1": 1379,
+                "x2": 1382,
                 "borderColor": 0,
                 "bgColor": 0
               },
@@ -7741,8 +7710,8 @@
                 "id": 8366,
                 "high": 29316.25,
                 "low": 29301.75,
-                "x1": 1374,
-                "x2": 1375,
+                "x1": 1370,
+                "x2": 1371,
                 "borderColor": 1162163954,
                 "bgColor": 1162163954
               },
@@ -7750,8 +7719,8 @@
                 "id": 8378,
                 "high": 29352.25,
                 "low": 29352.25,
-                "x1": 1370,
-                "x2": 1383,
+                "x1": 1366,
+                "x2": 1379,
                 "borderColor": 0,
                 "bgColor": 0
               }
@@ -7790,270 +7759,227 @@
                 "bgColor": null
               }
             ]
-          },
-          {
-            "name": "Balanced Price Range | Flux Charts",
-            "total_boxes": 4,
-            "showing": 4,
-            "all_boxes": [
-              {
-                "id": 213,
-                "high": 29248.25,
-                "low": 29217,
-                "x1": 6,
-                "x2": 8,
-                "borderColor": 4294926889,
-                "bgColor": 1333893384
-              },
-              {
-                "id": 212,
-                "high": 29248.25,
-                "low": 29217,
-                "x1": 5,
-                "x2": 6,
-                "borderColor": 4294926889,
-                "bgColor": 1719769352
-              },
-              {
-                "id": 199,
-                "high": 29445.75,
-                "low": 29415.25,
-                "x1": 1,
-                "x2": 8,
-                "borderColor": 4294926889,
-                "bgColor": 1330001650
-              },
-              {
-                "id": 198,
-                "high": 29445.75,
-                "low": 29415.25,
-                "x1": 0,
-                "x2": 1,
-                "borderColor": 4294926889,
-                "bgColor": 1715877618
-              }
-            ]
           }
         ]
       },
       "labels": {
         "success": true,
-        "study_count": 3,
+        "study_count": 2,
         "studies": [
           {
             "name": "ICT Anchored Market Structures with Validation [LuxAlgo]",
-            "total_labels": 502,
+            "total_labels": 501,
             "showing": 30,
             "labels": [
               {
-                "id": 9526,
-                "text": "ST-HH",
-                "price": 29274.5,
+                "id": 9819,
+                "text": "ST-LL",
+                "price": 29200,
+                "x": 1516,
+                "textColor": 0
+              },
+              {
+                "id": 9800,
+                "text": "ST-HL",
+                "price": 29258.25,
+                "x": 1515,
+                "textColor": 0
+              },
+              {
+                "id": 9697,
+                "text": "ST-LL",
+                "price": 29229.75,
                 "x": 1514,
                 "textColor": 0
+              },
+              {
+                "id": 9630,
+                "text": "ST-HL",
+                "price": 29268,
+                "x": 1512,
+                "textColor": 0
+              },
+              {
+                "id": 9579,
+                "text": "ST-LH",
+                "price": 29253.5,
+                "x": 1511,
+                "textColor": 0
+              },
+              {
+                "id": 9526,
+                "text": "IT-HH",
+                "price": 29274.5,
+                "x": 1510,
+                "textColor": 4286683400
               },
               {
                 "id": 9507,
                 "text": "ST-LH",
                 "price": 29252.75,
-                "x": 1513,
+                "x": 1509,
                 "textColor": 0
               },
               {
                 "id": 9488,
                 "text": "ST-HH",
                 "price": 29271.75,
-                "x": 1512,
+                "x": 1508,
                 "textColor": 0
               },
               {
                 "id": 9445,
                 "text": "ST-LH",
                 "price": 29246.75,
-                "x": 1511,
+                "x": 1507,
                 "textColor": 0
               },
               {
                 "id": 9353,
                 "text": "IT-LH",
                 "price": 29198,
-                "x": 1510,
+                "x": 1506,
                 "textColor": 4282726130
               },
               {
                 "id": 9286,
                 "text": "ST-HH",
                 "price": 29241.25,
-                "x": 1509,
+                "x": 1505,
                 "textColor": 0
               },
               {
                 "id": 9175,
                 "text": "ST-LH",
                 "price": 29210.25,
-                "x": 1508,
+                "x": 1504,
                 "textColor": 0
               },
               {
                 "id": 9176,
                 "text": "ST-HL",
                 "price": 29226.75,
-                "x": 1508,
+                "x": 1504,
                 "textColor": 0
               },
               {
                 "id": 9152,
                 "text": "IT-LH",
                 "price": 29188.75,
-                "x": 1507,
+                "x": 1503,
                 "textColor": 4282726130
               },
               {
                 "id": 9057,
                 "text": "IT-HL",
                 "price": 29264,
-                "x": 1506,
+                "x": 1502,
                 "textColor": 4286683400
               },
               {
                 "id": 8977,
                 "text": "ST-LL",
                 "price": 29227.75,
-                "x": 1505,
+                "x": 1501,
                 "textColor": 0
               },
               {
                 "id": 8920,
                 "text": "ST-HL",
                 "price": 29255,
-                "x": 1504,
+                "x": 1500,
                 "textColor": 0
               },
               {
                 "id": 8863,
                 "text": "ST-HL",
                 "price": 29280.75,
-                "x": 1503,
+                "x": 1499,
                 "textColor": 0
               },
               {
                 "id": 8767,
                 "text": "ST-LH",
                 "price": 29254.75,
-                "x": 1502,
+                "x": 1498,
                 "textColor": 0
               },
               {
                 "id": 8768,
                 "text": "ST-HL",
                 "price": 29281,
-                "x": 1502,
+                "x": 1498,
                 "textColor": 0
               },
               {
                 "id": 8748,
                 "text": "LT-HL",
                 "price": 29283.75,
-                "x": 1501,
+                "x": 1497,
                 "textColor": 4286683400
               },
               {
                 "id": 8674,
                 "text": "ST-LH",
                 "price": 29188.75,
-                "x": 1500,
+                "x": 1496,
                 "textColor": 0
               },
               {
                 "id": 8556,
                 "text": "LT-LH",
                 "price": 29112,
-                "x": 1499,
+                "x": 1495,
                 "textColor": 4282726130
               },
               {
                 "id": 8557,
                 "text": "ST-HH",
                 "price": 29222.5,
-                "x": 1499,
+                "x": 1495,
                 "textColor": 0
               },
               {
                 "id": 8523,
                 "text": "ST-LL",
                 "price": 29160,
-                "x": 1498,
+                "x": 1494,
                 "textColor": 0
               },
               {
                 "id": 8516,
                 "text": "ST-LL",
                 "price": 29165.5,
-                "x": 1496,
+                "x": 1492,
                 "textColor": 0
               },
               {
                 "id": 8515,
                 "text": "ST-HH",
                 "price": 29175.5,
-                "x": 1495,
+                "x": 1491,
                 "textColor": 0
               },
               {
                 "id": 8514,
                 "text": "ST-HL",
                 "price": 29174.5,
-                "x": 1494,
+                "x": 1490,
                 "textColor": 0
               },
               {
                 "id": 8513,
                 "text": "ST-LH",
                 "price": 29168,
-                "x": 1493,
+                "x": 1489,
                 "textColor": 0
               },
               {
                 "id": 8512,
                 "text": "IT-HL",
                 "price": 29180.25,
-                "x": 1492,
-                "textColor": 4286683400
-              },
-              {
-                "id": 8511,
-                "text": "ST-LH",
-                "price": 29167.25,
-                "x": 1491,
-                "textColor": 0
-              },
-              {
-                "id": 8510,
-                "text": "ST-HL",
-                "price": 29175.75,
-                "x": 1490,
-                "textColor": 0
-              },
-              {
-                "id": 8509,
-                "text": "ST-LH",
-                "price": 29167.25,
-                "x": 1489,
-                "textColor": 0
-              },
-              {
-                "id": 8508,
-                "text": "ST-HL",
-                "price": 29176.75,
                 "x": 1488,
-                "textColor": 0
-              },
-              {
-                "id": 8506,
-                "text": "IT-LH",
-                "price": 29166.75,
-                "x": 1487,
-                "textColor": 4282726130
+                "textColor": 4286683400
               }
             ]
           },
@@ -8133,41 +8059,6 @@
                 "textColor": 2571782730
               }
             ]
-          },
-          {
-            "name": "Balanced Price Range | Flux Charts",
-            "total_labels": 4,
-            "showing": 4,
-            "labels": [
-              {
-                "id": 215,
-                "text": "",
-                "price": 29268.5,
-                "x": 7,
-                "textColor": 4294967295
-              },
-              {
-                "id": 196,
-                "text": "",
-                "price": 29398.75,
-                "x": 4,
-                "textColor": 4294967295
-              },
-              {
-                "id": 195,
-                "text": "",
-                "price": 29414.5,
-                "x": 3,
-                "textColor": 4294967295
-              },
-              {
-                "id": 194,
-                "text": "",
-                "price": 29410.75,
-                "x": 2,
-                "textColor": 4294967295
-              }
-            ]
           }
         ]
       }
@@ -8175,37 +8066,67 @@
   },
   "gates": {
     "session": {
-      "label": "Weekend/Closed",
-      "timestamp_et": "Sun, 05/17/2026, 18:46",
+      "label": "Asia",
+      "timestamp_et": "Sun, 05/17/2026, 18:57",
       "is_weekend": true,
+      "is_market_closed": false,
       "in_ny_open_window": false,
       "in_killzone": false,
       "in_killzone_detail": {
         "london_open": false,
         "ny_am": false,
         "ny_pm": false
+      },
+      "replay": {
+        "active": false,
+        "autoplay": false,
+        "current_date": null
       }
     },
     "price_context": {
-      "last": 29254.25,
+      "last": 29232.5,
       "inside_boxes": [
         {
-          "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
-          "zone_index": 341,
-          "high": 29267,
-          "low": 29246.5
+          "study": "FVG/iFVG (Nephew_Sam_)",
+          "zone_index": 7,
+          "high": 29250,
+          "low": 29232.5
+        },
+        {
+          "study": "FVG/iFVG (Nephew_Sam_)",
+          "zone_index": 8,
+          "high": 29248.25,
+          "low": 29217
         },
         {
           "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
-          "zone_index": 343,
-          "high": 29266,
-          "low": 29252
+          "zone_index": 353,
+          "high": 29247.75,
+          "low": 29230.86
         },
         {
           "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
-          "zone_index": 347,
-          "high": 29262.25,
-          "low": 29245.57
+          "zone_index": 355,
+          "high": 29247.25,
+          "low": 29226.47
+        },
+        {
+          "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
+          "zone_index": 358,
+          "high": 29244.75,
+          "low": 29230.06
+        },
+        {
+          "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
+          "zone_index": 360,
+          "high": 29240,
+          "low": 29212.29
+        },
+        {
+          "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
+          "zone_index": 363,
+          "high": 29238.91,
+          "low": 29230.5
         },
         {
           "study": "ICT Killzones & Pivots [TFO]",
@@ -8263,7 +8184,7 @@
           "label": "AS.L",
           "price": 29112,
           "position_vs_price": "below",
-          "taken": true
+          "taken": false
         },
         "LO_H": {
           "label": "LO.H",
@@ -8303,6 +8224,13 @@
         }
       },
       "untaken_sell_side_below": [
+        {
+          "key": "AS_L",
+          "label": "AS.L",
+          "price": 29112,
+          "position_vs_price": "below",
+          "taken": false
+        },
         {
           "key": "PDL",
           "label": "PDL",
@@ -8365,36 +8293,36 @@
       "bias_labels": []
     },
     "pillar2": {
-      "range_value": 173,
-      "range_per_bar": 1.73,
+      "range_value": 171.75,
+      "range_per_bar": 1.7175,
       "range_acceptable": true,
-      "avg_body_ratio_last_5": 0.35,
+      "avg_body_ratio_last_5": 0.45,
       "candle_quality_heuristic": "marginal",
       "current_tf": {
         "body_ratios_last_5": [
-          0.33,
-          0.17,
-          0.23,
-          0.18,
-          0.83
+          0.64,
+          0.1,
+          0.85,
+          0.3,
+          0.34
         ],
-        "avg_body_ratio_last_5": 0.35,
+        "avg_body_ratio_last_5": 0.45,
         "candle_quality_heuristic": "marginal",
-        "engulfing_count_last_5": 0,
-        "doji_count_last_5": 0
+        "engulfing_count_last_5": 1,
+        "doji_count_last_5": 1
       },
       "m5": {
         "body_ratios_last_5": [
-          0.73,
-          0.3,
           0.69,
           0.22,
-          0.77
+          0.67,
+          0.1,
+          0.37
         ],
-        "avg_body_ratio_last_5": 0.54,
+        "avg_body_ratio_last_5": 0.41,
         "candle_quality_heuristic": "marginal",
         "engulfing_count_last_5": 2,
-        "doji_count_last_5": 0
+        "doji_count_last_5": 1
       },
       "m15": {
         "body_ratios_last_5": [
@@ -8402,9 +8330,9 @@
           0.68,
           0.38,
           0.52,
-          0.63
+          0.44
         ],
-        "avg_body_ratio_last_5": 0.45,
+        "avg_body_ratio_last_5": 0.41,
         "candle_quality_heuristic": "marginal",
         "engulfing_count_last_5": 2,
         "doji_count_last_5": 1
@@ -8414,38 +8342,38 @@
       "most_recent_structure": {
         "ST_HH": {
           "label": "ST-HH",
-          "price": 29274.5,
-          "x": 1514
+          "price": 29271.75,
+          "x": 1508
         },
         "ST_HL": {
           "label": "ST-HL",
-          "price": 29226.75,
-          "x": 1508
+          "price": 29258.25,
+          "x": 1515
         },
         "ST_LH": {
           "label": "ST-LH",
-          "price": 29252.75,
-          "x": 1513
+          "price": 29253.5,
+          "x": 1511
         },
         "ST_LL": {
           "label": "ST-LL",
-          "price": 29227.75,
-          "x": 1505
+          "price": 29200,
+          "x": 1516
         },
         "IT_HH": {
           "label": "IT-HH",
-          "price": null,
-          "x": null
+          "price": 29274.5,
+          "x": 1510
         },
         "IT_HL": {
           "label": "IT-HL",
           "price": 29264,
-          "x": 1506
+          "x": 1502
         },
         "IT_LH": {
           "label": "IT-LH",
           "price": 29198,
-          "x": 1510
+          "x": 1506
         },
         "IT_LL": {
           "label": "IT-LL",
@@ -8460,50 +8388,50 @@
         "LT_HL": {
           "label": "LT-HL",
           "price": 29283.75,
-          "x": 1501
+          "x": 1497
         },
         "LT_LH": {
           "label": "LT-LH",
           "price": 29112,
-          "x": 1499
+          "x": 1495
         },
         "LT_LL": {
           "label": "LT-LL",
-          "price": 29110.75,
-          "x": 1472
+          "price": null,
+          "x": null
         }
       },
       "fvg_by_type": {
-        "bullish_fvg": 5,
-        "bullish_ifvg": 6,
-        "bearish_fvg": 3,
-        "bearish_ifvg": 1,
+        "bullish_fvg": 4,
+        "bullish_ifvg": 5,
+        "bearish_fvg": 5,
+        "bearish_ifvg": 3,
         "unknown": 0
       },
       "fvg_by_type_above": {
-        "bullish_fvg": 1,
+        "bullish_fvg": 0,
         "bullish_ifvg": 0,
-        "bearish_fvg": 3,
-        "bearish_ifvg": 1,
+        "bearish_fvg": 4,
+        "bearish_ifvg": 3,
         "unknown": 0
       },
       "fvg_by_type_below": {
-        "bullish_fvg": 4,
-        "bullish_ifvg": 6,
+        "bullish_fvg": 3,
+        "bullish_ifvg": 5,
         "bearish_fvg": 0,
         "bearish_ifvg": 0,
         "unknown": 0
       },
       "last_bar": {
-        "time": 1779057960,
-        "open": 29264,
-        "high": 29265.25,
-        "low": 29253.5,
-        "close": 29254.25,
-        "body_ratio": 0.83,
-        "direction": "bearish",
-        "range": 11.75,
-        "close_position_in_range": 0.06
+        "time": 1779058620,
+        "open": 29227.5,
+        "high": 29237.5,
+        "low": 29223,
+        "close": 29232.5,
+        "body_ratio": 0.34,
+        "direction": "bullish",
+        "range": 14.5,
+        "close_position_in_range": 0.66
       },
       "last_bar_age_seconds": 0
     }

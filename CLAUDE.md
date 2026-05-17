@@ -126,7 +126,11 @@ tests/
     boxes:       [{ high, low, label }]     price zones (FVGs, order blocks, ranges)
   }
   gates: {
-    session:        { label, timestamp_et, is_weekend, in_ny_open_window, in_killzone, in_killzone_detail }
+    session: {
+      label, timestamp_et, is_weekend, is_market_closed,
+      in_ny_open_window, in_killzone, in_killzone_detail,
+      replay: { active, autoplay, current_date }      replay state at the moment of capture; non-active when chart shows live data
+    }
     price_context:  { last, inside_boxes[] }
     pillar1: {
       session_levels: { PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L }
@@ -185,7 +189,7 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.
 - Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
 - **Deterministic gates in `tv analyze` (extended).** Top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
-  - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend).
+  - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend, market-closed including the Fri 17:00 ET → Sun 18:00 ET CME pause and the daily 17:00–18:00 ET settlement break) + replay state at the moment of capture.
   - `gates.price_context.*` — which Pine boxes contain current price.
   - `gates.pillar1.session_levels.*` — full session liquidity (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L plus PWH/PWL/NYPM_H/NYPM_L when set) with `taken / untaken` derived from bars.high/low.
   - `gates.pillar1.untaken_sell_side_below[]` + `untaken_buy_side_above[]` — sorted draw targets.

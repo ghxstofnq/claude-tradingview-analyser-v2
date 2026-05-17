@@ -1,6 +1,7 @@
 import { register } from '../router.js';
 import * as chart from '@tvmcp/core/chart';
 import * as data from '@tvmcp/core/data';
+import * as replay from '@tvmcp/core/replay';
 
 /**
  * Deterministic gate computations. Everything in here must be derivable
@@ -125,7 +126,7 @@ function computeCandleStats(last5) {
   };
 }
 
-function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf }) {
+function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStatus }) {
   const last = quote?.last ?? null;
 
   // -- Session / time classification (purely from quote.time) --
@@ -148,22 +149,35 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf }) {
   const weekday = parts.weekday;
   const etMinutesTotal = etHour * 60 + etMinute;
   const isWeekend = weekday === 'Sat' || weekday === 'Sun';
+
+  // CME Globex futures schedule (ET clock):
+  //   Sunday 18:00 ET → Friday 17:00 ET, with a daily break 17:00-18:00 ET.
+  // Saturday is entirely closed; Sunday is closed BEFORE 18:00 ET; Friday is
+  // closed AFTER 17:00 ET. Plus the 1h daily settlement break on weekdays.
+  const isSaturday = weekday === 'Sat';
+  const isFridayAfterClose = weekday === 'Fri' && etMinutesTotal >= 17 * 60;
+  const isSundayBeforeOpen = weekday === 'Sun' && etMinutesTotal < 18 * 60;
+  const isDailyBreak =
+    !isSaturday && !isFridayAfterClose && !isSundayBeforeOpen
+    && etMinutesTotal >= 17 * 60 && etMinutesTotal < 18 * 60;
+  const isMarketClosed = isSaturday || isFridayAfterClose || isSundayBeforeOpen || isDailyBreak;
+
   const inRange = (start, end) => etMinutesTotal >= start && etMinutesTotal < end;
   const NY_OPEN_WINDOW = [9 * 60 + 30, 10 * 60];
   const NY_AM_KILLZONE = [8 * 60 + 30, 11 * 60];
   const NY_PM_KILLZONE = [13 * 60 + 30, 16 * 60];
   const LONDON_OPEN_KZ = [3 * 60, 5 * 60];
-  const inNyOpenWindow = !isWeekend && inRange(...NY_OPEN_WINDOW);
-  const inNyAmKillzone = !isWeekend && inRange(...NY_AM_KILLZONE);
-  const inNyPmKillzone = !isWeekend && inRange(...NY_PM_KILLZONE);
-  const inLondonOpenKillzone = !isWeekend && inRange(...LONDON_OPEN_KZ);
+  const inNyOpenWindow = !isMarketClosed && inRange(...NY_OPEN_WINDOW);
+  const inNyAmKillzone = !isMarketClosed && inRange(...NY_AM_KILLZONE);
+  const inNyPmKillzone = !isMarketClosed && inRange(...NY_PM_KILLZONE);
+  const inLondonOpenKillzone = !isMarketClosed && inRange(...LONDON_OPEN_KZ);
   const inAnyKillzone = inNyAmKillzone || inNyPmKillzone || inLondonOpenKillzone;
   let sessionLabel;
-  if (isWeekend) sessionLabel = 'Weekend/Closed';
+  if (isMarketClosed) sessionLabel = 'Closed';
   else if (inNyAmKillzone) sessionLabel = inNyOpenWindow ? 'NY Open' : 'NY AM';
   else if (inNyPmKillzone) sessionLabel = 'NY PM';
   else if (inLondonOpenKillzone) sessionLabel = 'London Open';
-  else if (etMinutesTotal >= 20 * 60 || etMinutesTotal < 3 * 60) sessionLabel = 'Asia';
+  else if (etMinutesTotal >= 18 * 60 || etMinutesTotal < 3 * 60) sessionLabel = 'Asia';
   else sessionLabel = 'Inter-session';
 
   // -- Price-vs-pine-box context (inside-box checks) --
@@ -312,6 +326,7 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf }) {
       label: sessionLabel,
       timestamp_et: fmt.format(new Date(ts)),
       is_weekend: isWeekend,
+      is_market_closed: isMarketClosed,
       in_ny_open_window: inNyOpenWindow,
       in_killzone: inAnyKillzone,
       in_killzone_detail: {
@@ -319,6 +334,7 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf }) {
         ny_am: inNyAmKillzone,
         ny_pm: inNyPmKillzone,
       },
+      replay: replayStatus,
     },
     price_context: {
       last,
@@ -467,9 +483,27 @@ register('analyze', {
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
   },
   handler: async (opts) => {
-    // 1. Capture chart state (needed before TF-switching to know original TF).
+    // 1. Capture chart state + replay status BEFORE any chart-switching,
+    //    so we know the original TF and we record replay state at the
+    //    moment of capture (multi-TF switching can disturb replay state).
     const state = await chart.getState();
     const originalTf = state.resolution;
+    let replayStatus = { active: false, autoplay: false, current_date: null };
+    try {
+      const r = await replay.status();
+      replayStatus = {
+        active: r.is_replay_started === true,
+        autoplay: r.is_autoplay_started === true,
+        current_date: r.current_date || null,
+      };
+      if (replayStatus.active && replayStatus.autoplay) {
+        process.stderr.write(
+          'warning: replay autoplay is ON during analyze; chart bar position will drift during the multi-TF capture (10-15s). pause replay first for a stable snapshot.\n',
+        );
+      }
+    } catch (e) {
+      // replay API not available (no replay session active); leave defaults
+    }
 
     // 2. Multi-TF bar + Pine collection (optional). Done FIRST so the
     //    original-TF extraction below happens after restore.
@@ -502,7 +536,7 @@ register('analyze', {
     ]);
 
     const pine = { lines, labels, tables, boxes };
-    const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf: bars_by_tf });
+    const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf: bars_by_tf, replayStatus });
 
     const bundle = {
       timestamp: new Date().toISOString(),
