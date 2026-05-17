@@ -21,6 +21,11 @@ Multi-TF bars now in bundle (`bars_by_tf.*`):
 
 **HTF bias: `bullish`** — Daily and 4H both up >+8%; the 1H/15m pullback is a counter-trend dip *within* a clear HTF uptrend. The buy-side draws above (PDH, AS_H, LO_H, NYAM_H) are the longer-horizon magnets; current LTF action is a retracement into the trend, not a reversal.
 
+**HTF FVGs (from `pine_by_tf.*.boxes`, FVG/iFVG study at studies[0]):**
+- **4H bearish FVG immediately above price:** high 29513.25 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].high), low 29469.5 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].low). **This bottom price (29469.5) is identical to LO_H** — buy-side liquidity stop-pool + 4H bearish FVG at the same level = strong confluence resistance if price retraces up. Next bearish FVGs above continue at 29528 / 29496.25 (bearish IFVG, studies[0].all_boxes[2]) and 29636.75 / 29598.5 (bearish FVG, studies[0].all_boxes[1]).
+- **Daily FVGs:** no bullish or bearish daily FVGs above current price — the Daily uptrend has fully mitigated overhead. Nearest unmitigated daily bullish FVG below is 28553.5 / 28247 (pine_by_tf.daily.boxes.studies[0].all_boxes[1].high / .low) — well below current price; it's a long-horizon support shelf, not a near-term factor.
+- Net read: HTF says trend up but the next ~340 ticks of upside are blocked by stacked 4H bearish FVGs starting at LO_H. The strategy's "main HTF draw" given confluence: either NYAM_L 29089.5 (sell-side completion below) OR a retrace up to test 29469.5–29513.25 (the LO_H confluence zone) — both are plausible until LTF picks a direction.
+
 Untaken liquidity (from `gates.pillar1.untaken_*`):
 - **Sell-side below (1):** NYAM_L 29089.5 (gates.pillar1.session_levels.NYAM_L.price) — the only sell-side pool below current price not yet taken. Could be a final draw before bullish continuation.
 - **Buy-side above (4, ascending):** NYAM_H 29382.5, LO_H 29469.5, AS_H 29733.5, PDH 29783.75. PDH is the longest-horizon target.

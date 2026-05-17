@@ -16,23 +16,26 @@ The structure below mirrors the strategy's 7-step checklist directly. Every sect
 ## How to run
 
 ```bash
-./bin/tv analyze
+./bin/tv analyze --out state/last-analyze.json
 ```
 
-It prints one JSON bundle. Read it, then apply the rules and produce the analysis below.
+The `--out` flag writes the (often >200KB) bundle to disk and prints only the file path to stdout. This is required because the bundle exceeds Bash output truncation limits when multi-TF Pine is included. After the command returns, use the `Read` tool on `state/last-analyze.json` to load the bundle into context.
 
-JSON fields you'll use:
+(For interactive debugging without the file step, `./bin/tv analyze` still prints the full bundle to stdout, but it will be truncated for any non-trivial bundle. Always use `--out` from inside `/analyze`.)
+
+The bundle is a single JSON object with:
 
 - `chart` — symbol, timeframe, indicators on chart
 - `visible_range` / `bars.period` — currently-visible date range
 - `quote` — last price snapshot
 - `bars` — OHLCV summary + `last_5_bars` at the chart's *current* timeframe
 - `bars_by_tf` — OHLCV summaries at multiple resolutions: `daily` (D), `h4` (240), `h1` (60), `m15` (15), `m5` (5), `m1` (1). Each entry has `{bar_count, period, range, change_pct, open, close, high, low, avg_volume, last_5_bars, tv_resolution}`. Use these for Pillar 1a HTF bias (compare `bars_by_tf.daily.change_pct` and `.h4.change_pct`) and Pillar 2 HTF displacement. Cite as e.g. `29302 (bars_by_tf.m1.open)`, `29709 (bars_by_tf.m15.open)`. If a TF errored, that key has `{error, tv_resolution}` only.
+- `pine_by_tf` — Pine **boxes + labels** at each resolution (`daily / h4 / h1 / m15 / m5 / m1`), trimmed to the four tracked studies (FVG/iFVG, Anchored Structures, Killzones, BPR) and capped at ~30 most-recent entries per study per TF. This is where **HTF FVGs and HTF structure points** live — the strategy's "scan Daily/4H/1H for best imbalances" runs against these. Each entry: `{tv_resolution, boxes: { studies[].{ name, total_boxes, showing, all_boxes[] } }, labels: { studies[].{ name, total_labels, showing, labels[] } }}`. Box entries include verbose fields `{id, high, low, x1, x2, borderColor, bgColor}` — `bgColor` decodes to FVG direction via the same ABGR mapping as `gates.pillar3.fvg_by_type` (bullish_fvg 0x94ab22, bullish_ifvg 0xf57931, bearish_fvg 0x5f52f7, bearish_ifvg 0x26a7ff). Label entries include `{id, text, price, x, textColor}`. Cite as `29513.25 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].high)`.
 - `indicators` — data-window numeric values
-- `pine.lines` — horizontal price levels (PDH/PDL, swing levels, equal highs/lows, session highs/lows)
-- `pine.labels` — text annotations with prices (bias readouts, level names)
-- `pine.tables` — table data (session stats, analytics dashboards)
-- `pine.boxes` — price zones (FVGs, order blocks, killzone boxes, ranges)
+- `pine.lines` — horizontal price levels (PDH/PDL, swing levels, equal highs/lows, session highs/lows) — *current TF only*
+- `pine.labels` — text annotations with prices (bias readouts, level names) — *current TF only*
+- `pine.tables` — table data (session stats, analytics dashboards) — *current TF only*
+- `pine.boxes` — price zones (FVGs, order blocks, killzone boxes, ranges) — *current TF only*
 - `gates` — deterministic facts computed in code (not LLM-judged). Read these FIRST and don't recompute them:
   - `gates.session.{label, in_ny_open_window, in_killzone, in_killzone_detail, is_weekend, timestamp_et}` — what session is active right now, clock-based.
   - `gates.price_context.{last, inside_boxes[]}` — which pine boxes contain current price.
@@ -91,7 +94,11 @@ JSON fields you'll use:
 ### Pillar 1 — Draw & Bias
 
 **a. HTF Bias (Daily / 4H / 1H).**
-First check `gates.pillar1.bias_labels[]`. If non-empty, the chart publishes explicit Bias readouts — cite them directly (e.g. `"Bias Long" (gates.pillar1.bias_labels[0].text)`) and use that as HTF bias. If empty (current state), *infer* HTF bias from `bars_by_tf.daily`, `bars_by_tf.h4`, `bars_by_tf.h1` by comparing `change_pct` across the three HTF resolutions — agreement = directional bias; mixed signs = no clear HTF bias. Cite the relevant numeric values (e.g. `25916.75 (bars_by_tf.daily.open)`, `29231.75 (bars_by_tf.daily.close)`). For HTF PD arrays (FVGs/BPRs), the current bundle's `pine.boxes` reflects the *original (current) TF*; HTF FVGs/structure would require switching the chart to that TF manually — note the limitation if needed. The strategy's "main HTF draw" is whichever untaken session level is the most likely magnet — cross-reference `gates.pillar1.untaken_sell_side_below[0]` and `untaken_buy_side_above[0]` against the HTF direction.
+First check `gates.pillar1.bias_labels[]`. If non-empty, the chart publishes explicit Bias readouts — cite them directly and use as HTF bias. If empty (current state), *infer* HTF bias from `bars_by_tf.daily / .h4 / .h1` by comparing `change_pct` across the three HTF resolutions — agreement = directional bias; mixed signs = no clear HTF bias. Cite e.g. `25916.75 (bars_by_tf.daily.open)`, `29231.75 (bars_by_tf.daily.close)`.
+
+For the **HTF PD arrays** the strategy actually trades around, read `pine_by_tf.daily.boxes`, `pine_by_tf.h4.boxes`, `pine_by_tf.h1.boxes`. Filter to the FVG/iFVG study to identify HTF FVGs (decode `bgColor` to direction); filter to Anchored Structures to see HTF swing zones. Pick the most material HTF FVG (large size, recent x1, opposite to current price for a retrace target) as the "primary HTF draw." Cite as e.g. `29513.25 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].high)`.
+
+The strategy's "main HTF draw" is the intersection of: HTF direction (from bars_by_tf) + nearest untaken session level (from `gates.pillar1.untaken_*`) + nearest material HTF FVG (from `pine_by_tf.*.boxes`). State it explicitly.
 
 **b. Overnight & Session Correlation.**
 Read `gates.pillar1.session_levels.*` and the two pre-sorted arrays `gates.pillar1.untaken_sell_side_below` / `untaken_buy_side_above`. Cite each level you reference by its safe key (e.g. `29089.5 (gates.pillar1.session_levels.NYAM_L.price)`). State which liquidity is `taken` and which remains untaken — the untaken pools are the strategy's "draw" per §2.2. State whether overnight is *extending* the HTF move (lots of taken levels on one side) or *consolidating* (mixed). If `PWH` / `PWL` are null, note that weekly markers aren't published on this chart resolution.

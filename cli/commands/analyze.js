@@ -323,31 +323,89 @@ const HTF_LTF_TIMEFRAMES = [
   { tv: '1',   key: 'm1' },
 ];
 
+// Studies we extract per-TF Pine surfaces for. Filters out noise from any
+// other indicators that happen to be loaded.
+const TRACKED_STUDY_PATTERNS = [
+  /Killzones/i,
+  /FVG/i,
+  /Anchored/i,
+  /Balanced Price Range|BPR/i,
+];
+const isTrackedStudy = (name) => TRACKED_STUDY_PATTERNS.some((re) => re.test(name || ''));
+
+// Cap per-study entries to keep bundle size manageable. Top-N by recency
+// (highest Pine x-index). 30 is plenty for HTF FVG / structure analysis.
+const PER_STUDY_LIMIT = 30;
+
+function trimBoxes(boxesResult) {
+  const studies = (boxesResult?.studies || [])
+    .filter((s) => isTrackedStudy(s.name))
+    .map((s) => {
+      const all = (s.all_boxes || []).slice().sort((a, b) => (b.x1 || 0) - (a.x1 || 0));
+      return {
+        name: s.name,
+        total_boxes: s.total_boxes,
+        showing: Math.min(all.length, PER_STUDY_LIMIT),
+        all_boxes: all.slice(0, PER_STUDY_LIMIT),
+      };
+    });
+  return { success: true, study_count: studies.length, studies };
+}
+
+function trimLabels(labelsResult) {
+  const studies = (labelsResult?.studies || [])
+    .filter((s) => isTrackedStudy(s.name))
+    .map((s) => {
+      const all = (s.labels || []).slice().sort((a, b) => (b.x || 0) - (a.x || 0));
+      return {
+        name: s.name,
+        total_labels: s.total_labels,
+        showing: Math.min(all.length, PER_STUDY_LIMIT),
+        labels: all.slice(0, PER_STUDY_LIMIT),
+      };
+    });
+  return { success: true, study_count: studies.length, studies };
+}
+
 /**
- * Switch the chart through each target timeframe, fetch bars summary at each,
- * then restore the original timeframe. Pine surfaces are NOT re-fetched per TF
- * (they're left at the original TF for the main bundle); only bar summaries.
+ * Switch the chart through each target timeframe; at each, fetch bars summary
+ * + Pine boxes (verbose, for bgColor → FVG direction at HTF) + Pine labels
+ * (verbose, for x-index ordering of HTF structure points). Restores the
+ * original timeframe when done.
  *
- * Cost: ~1-2s per TF switch (chart redraws on screen). Total ~10-15s.
- * Strategy mandates this for Pillar 1a HTF bias + Pillar 2 displacement.
+ * Cost: ~2-3s per TF switch (chart redraws + Pine re-renders + 3 reads).
+ * Total ~15-25s.
+ * Strategy mandates this for Pillar 1a (HTF FVGs/structure) + Pillar 2 (HTF
+ * displacement) + entry-model walkthroughs that reference HTF imbalances.
  *
- * Implementation note: always call setTimeframe explicitly on every iteration,
- * including when tv equals the previous TF or the original. Skipping has caused
- * "stuck on previous TF" bugs where getOhlcv reads bars at the wrong resolution.
- * A small extra settle delay after each switch helps when the data feed lags
- * (e.g. when the market is closed and TradingView doesn't push new data).
+ * Returns: { bars: {<key>: ...}, pine: {<key>: { boxes, labels }} }
+ *
+ * Implementation note: always call setTimeframe explicitly on every iteration
+ * and on the final restore. Skipping based on "same as previous TF" has caused
+ * "stuck on previous TF" bugs where reads return data at the wrong resolution.
  */
 const TF_SETTLE_MS = 400;
-async function captureMultiTfBars(originalTf) {
-  const result = {};
+async function captureMultiTf(originalTf) {
+  const bars_by_tf = {};
+  const pine_by_tf = {};
   for (const { tv, key } of HTF_LTF_TIMEFRAMES) {
     try {
       await chart.setTimeframe({ timeframe: tv });
       await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
-      const bars = await data.getOhlcv({ summary: true });
-      result[key] = { ...bars, tv_resolution: tv };
+      const [bars, boxesVerbose, labelsVerbose] = await Promise.all([
+        data.getOhlcv({ summary: true }),
+        data.getPineBoxes({ verbose: true }),
+        data.getPineLabels({ verbose: true }),
+      ]);
+      bars_by_tf[key] = { ...bars, tv_resolution: tv };
+      pine_by_tf[key] = {
+        tv_resolution: tv,
+        boxes: trimBoxes(boxesVerbose),
+        labels: trimLabels(labelsVerbose),
+      };
     } catch (e) {
-      result[key] = { error: e.message, tv_resolution: tv };
+      bars_by_tf[key] = { error: e.message, tv_resolution: tv };
+      pine_by_tf[key] = { error: e.message, tv_resolution: tv };
     }
   }
   // Restore original timeframe explicitly, regardless of the last iterated TF.
@@ -357,23 +415,26 @@ async function captureMultiTfBars(originalTf) {
   } catch (e) {
     // best-effort restore; fall through
   }
-  return result;
+  return { bars_by_tf, pine_by_tf };
 }
 
 register('analyze', {
-  description: 'Bundle current chart state, quote, multi-TF OHLCV summaries, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
+  description: 'Bundle current chart state, quote, multi-TF OHLCV summaries + Pine surfaces, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
   options: {
-    'current-tf-only': { type: 'boolean', description: 'Skip multi-TF bar collection (faster; no chart flashing)' },
+    'current-tf-only': { type: 'boolean', description: 'Skip multi-TF capture (faster; no chart flashing)' },
+    out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
   },
   handler: async (opts) => {
     // 1. Capture chart state (needed before TF-switching to know original TF).
     const state = await chart.getState();
     const originalTf = state.resolution;
 
-    // 2. Multi-TF bar collection (optional). Done FIRST so Pine extraction
-    //    happens at the original TF after restore.
+    // 2. Multi-TF bar + Pine collection (optional). Done FIRST so the
+    //    original-TF extraction below happens after restore.
     const skipMultiTf = opts?.['current-tf-only'] === true;
-    const barsByTf = skipMultiTf ? null : await captureMultiTfBars(originalTf);
+    const { bars_by_tf, pine_by_tf } = skipMultiTf
+      ? { bars_by_tf: null, pine_by_tf: null }
+      : await captureMultiTf(originalTf);
 
     // 3. At the (restored) original TF, fetch everything else in parallel.
     const [
@@ -401,16 +462,30 @@ register('analyze', {
     const pine = { lines, labels, tables, boxes };
     const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose });
 
-    return {
+    const bundle = {
       timestamp: new Date().toISOString(),
       chart: state,
       visible_range: visibleRange,
       quote,
       bars,
-      bars_by_tf: barsByTf,
+      bars_by_tf,
       indicators: indicatorValues,
       pine,
+      pine_by_tf,
       gates,
     };
+
+    // 4. Optional file output: write bundle to disk and print only the path.
+    //    Lets the slash command Read the file instead of relying on Bash
+    //    captured stdout, which has 30K-100K truncation limits depending on env.
+    if (opts?.out) {
+      const { writeFileSync, mkdirSync } = await import('node:fs');
+      const { dirname, resolve } = await import('node:path');
+      const absPath = resolve(opts.out);
+      mkdirSync(dirname(absPath), { recursive: true });
+      writeFileSync(absPath, JSON.stringify(bundle, null, 2));
+      return { saved_to: absPath, bytes: JSON.stringify(bundle).length };
+    }
+    return bundle;
   },
 });

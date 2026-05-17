@@ -114,6 +114,10 @@ tests/
   bars:          OHLCV summary at the chart's current TF
   bars_by_tf:    { daily, h4, h1, m15, m5, m1 }   per-TF OHLCV summaries (D / 240 / 60 / 15 / 5 / 1)
                                                   captured by switching chart through each TF and restoring
+  pine_by_tf:    { daily, h4, h1, m15, m5, m1 }   per-TF Pine boxes + labels (verbose), trimmed to
+                                                  tracked studies (FVG/iFVG, Anchored Structures,
+                                                  Killzones, BPR) with ~30 most-recent entries per study.
+                                                  This is where HTF FVGs and HTF structure points live.
   indicators:    [{ name, values: {...} }]  (current values of every visible indicator)
   pine: {
     lines:       [{ price, label, ... }]    horizontal levels (PDH, PDL, swing levels, equal highs/lows)
@@ -150,6 +154,8 @@ Gates are pre-computed in `cli/commands/analyze.js`. The LLM consumes them direc
 
 **Key-naming note.** Session and structure-point keys use underscore form (`AS_H`, `ST_LH`) so they're citation-safe under the verifier's path syntax. The original chart label text (`AS.H`, `ST-LH`) is preserved in each entry's `label` field for human readability.
 
+**File output.** Pass `--out <path>` to `tv analyze` to write the bundle to a file instead of stdout (mandatory for `/analyze` invocations because the multi-TF bundle exceeds Bash output truncation limits). The slash command runs `./bin/tv analyze --out state/last-analyze.json` and then `Read`s the file.
+
 The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabulary, the behavioral rules (cite-or-reject, no arithmetic, prose-first, confidence enum), and the trailing JSON template. Read that file when invoked, not this one.
 
 ## Status
@@ -158,7 +164,9 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - **Research bound.** Hard constraints 5–10 cite the research files as authority. Future design changes must do the same.
 - **Strategy bound.** Hard constraint #11 makes `docs/strategy/*.md` the authoritative spec for trade framing. `/analyze` mirrors the 7-step checklist. A+ examples for all three entry models are embedded.
 - **Harness operational.** `npm run smoke:fixtures` runs schema + citation checks across every fixture. Verifier mechanically enforces constraint #6.
-- **Gates emitting (richer).** `tv analyze` now returns a `gates` object covering: clock-based session, price-in-box checks, **full session liquidity map (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L with taken/untaken)**, **most-recent ICT swing structure points (ST/IT/LT × HH/HL/LH/LL) ordered by Pine x-index**, **FVG counts classified by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) via bgColor**, plus the original range / candle-quality stats. LLM no longer has to compute any of these.
+- **Gates emitting (richer).** `tv analyze` now returns a `gates` object covering: clock-based session, price-in-box checks, **full session liquidity map (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L with taken/untaken)**, **most-recent ICT swing structure points (ST/IT/LT × HH/HL/LH/LL) ordered by Pine x-index**, **FVG counts classified by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) via bgColor**, **bias-label scan** (auto-populates if any indicator publishes /bias/i text), **single-bar last_bar confirmation facts**, plus the original range / candle-quality stats. LLM no longer has to compute any of these.
+- **Multi-TF bundle.** `bars_by_tf` and `pine_by_tf` provide Daily/4H/1H/15m/5m/1m bar summaries and trimmed Pine surfaces (boxes + labels for tracked studies). Captured via chart-switching with original-TF restore.
+- **File output.** `./bin/tv analyze --out <path>` for bundles too large to pipe via stdout.
 
 ## Pending implementation
 
@@ -192,16 +200,17 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 
 Remaining LLM-interpretive territory:
 
-- `pillar1.htf_bias_direction` — strategy expects an explicit "Bias Long" / "Bias Short" label. The user's chart doesn't load such an indicator; bias is inferred from session-level liquidity, HTF bar direction (`bars_by_tf.daily.change_pct` etc.), and HTF structure.
-- **HTF Pine surfaces.** `pine.boxes` / `pine.labels` / `pine.lines` reflect the *current TF* only. HTF FVGs, HTF structure points, HTF killzone boxes from the chart's indicators at 4H or Daily are NOT in the bundle — switching the chart's TF re-renders Pine but `tv analyze` re-fetches Pine only at the original TF post-restore. To get HTF Pine context, the user would need to manually switch the chart to that TF and re-run. Future enhancement: capture Pine at each TF during the multi-TF sweep (doubles bundle size; deferred).
 - `pillar3.entry_model_candidate` — *which* of MSS / Trend / Inversion is in play remains interpretive. Mechanical detection would need an ICT-detector Pine script (smart-money-concepts on GitHub is the closest reference). Out of scope right now.
-- `pillar3.confirmation_status` — candle-close confirmation within 10-15 min is partly mechanical (body ratio, range) and partly judgment (retest vs chop). Heuristic only at present.
+- `pillar3.confirmation_status` (the verdict, not the underlying facts) — `gates.pillar3.last_bar.*` provides single-bar discipline (body_ratio, direction, close_position_in_range); judging "confirmed vs candidate vs invalidated" still requires the LLM to combine those facts with setup context.
 
 **No longer deferred (resolved in earlier commits):**
 - ~~Overnight liquidity~~ — `gates.pillar1.session_levels.*` (mechanical from ICT Killzones labels).
 - ~~Structure points~~ — `gates.pillar3.most_recent_structure.*` (mechanical from Anchored Structures verbose labels).
 - ~~FVG direction~~ — `gates.pillar3.fvg_by_type_*` (mechanical from Nephew_Sam_'s bgColor mapping).
 - ~~Multi-timeframe bar data~~ — `bars_by_tf.{daily,h4,h1,m15,m5,m1}` (chart switches through each TF, restores original).
+- ~~HTF Pine surfaces~~ — `pine_by_tf.{daily,h4,h1,m15,m5,m1}.{boxes,labels}` (verbose, trimmed to tracked studies, ~30 most-recent entries per study per TF). HTF FVGs and HTF structure points now in-bundle.
+- ~~Explicit Bias label scan~~ — `gates.pillar1.bias_labels[]` (auto-populates if any indicator publishes a label matching /bias/i).
+- ~~Last-bar confirmation facts~~ — `gates.pillar3.last_bar.{body_ratio, direction, close_position_in_range, ...}` + `gates.pillar3.last_bar_age_seconds`.
 
 ## Open questions for the user
 

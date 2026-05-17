@@ -15,7 +15,7 @@ import { join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const FIXTURES = 'tests/fixtures';
-const REQUIRED_TOP = ['timestamp', 'chart', 'visible_range', 'quote', 'bars', 'bars_by_tf', 'indicators', 'pine', 'gates'];
+const REQUIRED_TOP = ['timestamp', 'chart', 'visible_range', 'quote', 'bars', 'bars_by_tf', 'indicators', 'pine', 'pine_by_tf', 'gates'];
 const REQUIRED_NESTED = {
   chart: ['symbol', 'resolution', 'chartType', 'studies'],
   quote: ['last', 'time'],

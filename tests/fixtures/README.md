@@ -8,7 +8,7 @@ Regression baselines for `/analyze` and the project's analysis pipeline. Each fi
 ## How to add a fixture
 
 1. Set the chart on TradingView (CDP 9223) to the state you want to capture.
-2. `./bin/tv analyze > tests/fixtures/NNN-label.bundle.json` (pick the next free `NNN`).
+2. `./bin/tv analyze --out tests/fixtures/NNN-label.bundle.json` (pick the next free `NNN`). The `--out` flag is required for the multi-TF Pine bundle — piping `> bundle.json` works but the stdout buffer truncates at ~64KB and the bundle is well above that.
 3. Hand-grade the bundle using the strategy's 7-step checklist (`docs/strategy/trading-strategy-2026.md §7`). Write to `tests/fixtures/NNN-label.expected.md`. Cite every price with `<price> (<json.path>)`.
 4. `npm run smoke:fixtures` — verifies bundle schema and that every cited price resolves to a matching value in the paired bundle.
 
