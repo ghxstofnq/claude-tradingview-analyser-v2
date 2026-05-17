@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-17T18:27:11.729Z",
+  "timestamp": "2026-05-17T18:41:27.747Z",
   "chart": {
     "success": true,
     "symbol": "CME_MINI:MNQ1!",
@@ -2813,6 +2813,75 @@
           ]
         }
       ]
+    }
+  },
+  "gates": {
+    "session": {
+      "label": "Inter-session",
+      "timestamp_et": "Fri, 05/15/2026, 16:59",
+      "is_weekend": false,
+      "in_ny_open_window": false,
+      "in_killzone": false,
+      "in_killzone_detail": {
+        "london_open": false,
+        "ny_am": false,
+        "ny_pm": false
+      }
+    },
+    "price_context": {
+      "last": 29172.75,
+      "inside_boxes": [
+        {
+          "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
+          "zone_index": 385,
+          "high": 29180.25,
+          "low": 29165.5
+        },
+        {
+          "study": "ICT Anchored Market Structures with Validation [LuxAlgo]",
+          "zone_index": 387,
+          "high": 29176.5,
+          "low": 29170.5
+        },
+        {
+          "study": "ICT Killzones & Pivots [TFO]",
+          "zone_index": 1,
+          "high": 29469.5,
+          "low": 29140.75
+        },
+        {
+          "study": "ICT Killzones & Pivots [TFO]",
+          "zone_index": 2,
+          "high": 29382.5,
+          "low": 29089.5
+        }
+      ],
+      "fvgs_above": {
+        "count": 8,
+        "nearest": {
+          "study": "FVG/iFVG (Nephew_Sam_)",
+          "zone_index": 7,
+          "high": 29219.75,
+          "low": 29187.75
+        }
+      },
+      "fvgs_below": {
+        "count": 3,
+        "nearest": {
+          "study": "FVG/iFVG (Nephew_Sam_)",
+          "zone_index": 8,
+          "high": 29172,
+          "low": 29171
+        }
+      },
+      "fvgs_inside": 0
+    },
+    "pillar2": {
+      "range_value": 229.5,
+      "range_per_bar": 2.295,
+      "range_acceptable": true,
+      "avg_body_ratio_last_5": 0.5114576561476063,
+      "candle_quality_heuristic": "marginal"
     }
   }
 }

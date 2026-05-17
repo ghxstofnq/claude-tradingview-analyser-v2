@@ -15,12 +15,13 @@ import { join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const FIXTURES = 'tests/fixtures';
-const REQUIRED_TOP = ['timestamp', 'chart', 'visible_range', 'quote', 'bars', 'indicators', 'pine'];
+const REQUIRED_TOP = ['timestamp', 'chart', 'visible_range', 'quote', 'bars', 'indicators', 'pine', 'gates'];
 const REQUIRED_NESTED = {
   chart: ['symbol', 'resolution', 'chartType', 'studies'],
   quote: ['last', 'time'],
   bars: ['bar_count', 'period', 'range', 'last_5_bars'],
   pine: ['lines', 'labels', 'tables', 'boxes'],
+  gates: ['session', 'price_context', 'pillar2'],
 };
 
 const bundles = readdirSync(FIXTURES).filter((f) => f.endsWith('.bundle.json')).sort();

@@ -61,6 +61,12 @@ This project implements the user's documented trading methodology — **Lanto's 
 - Hooks: never bypass (`--no-verify` / `--no-gpg-sign` / `--force` / `--amend` forbidden unless explicitly asked).
 - Co-author tag on every commit: `Co-Authored-By: Claude <noreply@anthropic.com>`.
 
+## Workflow rules for Claude
+
+- **Re-read before each step.** Before starting any step in the "Pending implementation" sequence below (or any non-trivial behavioral / strategy change to `/analyze`, `tv analyze`, or the gates), re-read all four files: `docs/research/ai-consistency.md`, `docs/research/ai-trading-analysis.md`, `docs/strategy/trading-strategy-2026.md`, `docs/strategy/entry-models.md`. Confirm the planned approach against the documents and call out any tensions before writing code. *User-imposed standing rule, 2026-05-17.*
+- **Run the harness before claiming a step is done.** `npm run smoke:fixtures` must pass before committing any change to `cli/commands/analyze.js`, `.claude/commands/analyze.md`, or `scripts/verify-citations.js`. If a change invalidates an existing fixture (e.g. by adding a required field), update the fixture and the schema check together — do not weaken the schema.
+- **Cite every research / strategy claim.** When proposing a behavioral change, point at the exact section (file + heading) that supports it. "The research says…" without a citation is not acceptable.
+
 ## Layout
 
 ```
@@ -113,16 +119,25 @@ tests/
     tables:      [{ rows... }]              table data (session stats, analytics dashboards)
     boxes:       [{ high, low, label }]     price zones (FVGs, order blocks, ranges)
   }
+  gates: {
+    session:        { label, timestamp_et, is_weekend, in_ny_open_window, in_killzone, in_killzone_detail }
+    price_context:  { last, inside_boxes[], fvgs_above, fvgs_below, fvgs_inside }
+    pillar2:        { range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic }
+  }
 }
 ```
+
+Gates are pre-computed in `cli/commands/analyze.js`. The LLM consumes them directly and does not recompute. See "Workflow rules for Claude" above for the discipline.
 
 The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabulary, the behavioral rules (cite-or-reject, no arithmetic, prose-first, confidence enum), and the trailing JSON template. Read that file when invoked, not this one.
 
 ## Status
 
-- **Scaffolding pushed.** README + .gitignore on `main`. CLI vendored, port locked, `analyze` command in place, slash command in place, research saved.
+- **Scaffolding pushed.** README + .gitignore on `main`. CLI vendored, port locked, `analyze` command in place, slash command in place, research and strategy saved.
 - **Research bound.** Hard constraints 5–10 cite the research files as authority. Future design changes must do the same.
-- **Trading strategy: TBD.** User will provide after this scaffold is reviewed.
+- **Strategy bound.** Hard constraint #11 makes `docs/strategy/*.md` the authoritative spec for trade framing. `/analyze` mirrors the 7-step checklist. A+ examples for all three entry models are embedded.
+- **Harness operational.** `npm run smoke:fixtures` runs schema + citation checks across every fixture. Verifier mechanically enforces constraint #6.
+- **Gates emitting.** `tv analyze` now returns a `gates` object with deterministic facts (session, price-in-box, FVG counts, candle quality). LLM no longer has to compute these.
 
 ## Pending implementation
 
@@ -133,12 +148,28 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - Citation verifier (`scripts/verify-citations.js`) enforces constraint #6 mechanically against any paired `(analysis, bundle)` input.
 - Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.
 - Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
+- **Deterministic gates in `tv analyze`.** New top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
+  - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend).
+  - `gates.price_context.*` — which Pine boxes contain current price; FVG counts and nearest FVGs above/below.
+  - `gates.pillar2.*` — range value, range-per-bar, range-acceptable boolean, avg body ratio over last 5 bars, candle-quality heuristic verdict.
+  - The slash command is wired to consume these directly, not recompute them.
 
 ### Next (do in order)
 
-- **Emit strategy-specific gate booleans in `tv analyze`.** Pillar-by-pillar boolean fields computed in code so the grade is mechanical, not LLM-guessed: `pillar1_htf_bias_set`, `pillar1_overnight_liquidity_left_open`, `pillar1_in_ny_window`, `pillar2_range_acceptable`, `pillar2_displacement_present`, `pillar2_candle_quality`, `pillar3_model_candidate` (one of MSS / Trend / Inversion or `null`), `pillar3_confirmation_status`. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §7 checklist.* **Silent-risk:** wrong gate logic produces wrong grade without visible error. The fixture harness is now in place to catch this — every gate computation should be exercised by a fixture before the change ships.
-- **Grow the fixture corpus organically.** Aim for one fixture per varied chart state over the coming weeks: NY-open A+, NY-open B, NY-open no-trade, outside-NY, one A+ per entry model. Target ~10 by month-end, ~50 within a few months per [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.
+- **Grow the fixture corpus organically.** The current corpus has one fixture, captured post-NY-close (Inter-session). The gate logic that doesn't get exercised by this fixture — `in_ny_open_window = true`, `in_killzone = true`, weekend handling, different `candle_quality_heuristic` verdicts — is **untested**. Add fixtures over the coming weeks as varied chart states surface: NY-open A+, NY-open B, NY-open no-trade, London-open, A+ per entry model. Target ~10 by month-end. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.*
+- **Decide on heuristic thresholds per symbol/timeframe.** Current Pillar 2 thresholds (range ≥ 40, body-ratio ≥ 0.6 = good) are calibrated for MNQ 1-minute, from the seed fixture. If we add NQ / ES / other instruments or different timeframes, these need to become symbol-aware. Until then, the heuristic verdict is a hint, not a verdict — slash-command rule 5 already lets Claude override.
 - **LLM-as-judge for semantic regression.** Once the corpus exceeds ~10 fixtures, manual eyeball-grading becomes the bottleneck. Spawn a second Claude session that scores agreement between a captured `/analyze` output and the paired `.expected.md`. Until then, manual review is enough.
+
+### Known gaps (deferred, by design)
+
+These gates *could* be deterministic in principle but require Pine indicators the user's chart does not currently load. Adding them is a chart-side change, not a code change:
+
+- `pillar1.htf_bias_direction` — needs an indicator that publishes an explicit "Bias Long" / "Bias Short" label to `pine.labels`.
+- `pillar1.overnight_liquidity_left_open` — needs an indicator that draws Asia / London H/L markers (e.g. session-range indicator).
+- `pillar3.entry_model_candidate` — needs an indicator that flags MSS / sweep / displacement candidates programmatically. The closest reference is the deterministic ICT detector cited in [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) (IJNRD, smart-money-concepts on GitHub) — these are not in scope right now.
+- `pillar3.confirmation_status` — needs candle-pattern detection (body size, retest validity). Heuristic only at present.
+
+Until any of these chart-side indicators are added, the interpretive judgments above stay in the LLM's hands, gated by the harness's cite-or-reject discipline.
 
 ## Open questions for the user
 
