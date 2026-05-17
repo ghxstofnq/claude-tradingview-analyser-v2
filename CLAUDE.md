@@ -2,26 +2,45 @@
 
 This file extends the user's global working agreement at `~/.claude/CLAUDE.md`. The global agreement still applies in full. This file documents project-specific decisions, constraints, and context.
 
+## Research basis
+
+Behavioral rules in this project are grounded in two research passes, both saved in-repo:
+
+- [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — what produces consistent LLM behavior. Headline: "tool calling" is half-right; **grammar-constrained decoding against a schema** is the real mechanism. In a Claude Code session we approximate it via a tight slash-command schema, few-shot examples in `<example>` tags, self-check rules, and golden-set regression testing.
+- [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — accuracy of LLM-driven chart analysis. Headline: literature is uniformly skeptical; LLMs underperform buy-and-hold in published benchmarks; **no peer-reviewed work on LLMs + ICT structures.** Hybrid (deterministic extraction → LLM synthesis) consistently beats LLM-only.
+
+**Consult these before** designing a new analysis mode (tracker / scanner / backtester), changing `/analyze`, adding a new slash command that involves Claude reasoning over data, or modifying the hard constraints below. When proposing a behavioral change, cite the relevant research finding as authority.
+
 ## Hard constraints
 
 1. **CDP port 9223 only. Never 9222.** The vendored CLI under `cli/` has its core (`packages/core/connection.js`, `packages/core/tab.js`) hardcoded to 9223. Do not invoke upstream `~/tradingview-mcp-ict` from this project — that copy targets 9222 and is used by other projects on this machine.
 2. **CLI only — no MCP tools.** Do not use any `mcp__tradingview__*` tool when working in this project. Every TradingView interaction goes through `./bin/tv` (or directly `node ./cli/index.js`).
 3. **No edits to other projects.** Do not modify `~/Documents/ai-trading-agent` or `~/tradingview-mcp-ict`. This project is fully self-contained.
 4. **Local state only.** Project state lives under `./state/`. Never read or write `~/.tradingview-mcp/`. The two upstream commands that wrote there (`brief` and `session`) have been stripped from the vendored CLI; the corresponding core modules (`morning.js`, `paths.js`) deleted.
-5. **Screenshots are for verifications and tests only.** `./bin/tv screenshot` exists but its output never feeds analysis. Do not include screenshots in the `analyze` bundle.
+5. **Screenshots are for verifications and tests only.** `./bin/tv screenshot` exists but its output never feeds analysis. Do not include screenshots in the `analyze` bundle. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — multimodal LLMs can answer correctly while barely using the image; screenshots risk visual hallucination.*
+6. **Cite-or-reject.** Every numeric price in any analysis output MUST reference an ID from the `tv analyze` JSON bundle (e.g. `pine.boxes[i]`, `pine.lines[i].price`, `pine.labels[i].price`, `bars.last_5_bars[i].high`, `quote.last`). Bare prices not in the bundle are hallucinations and must be removed. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — top documented failure mode is hallucinated levels; verifiable post-hoc with a string check.*
+7. **No LLM arithmetic.** Stop distance, R:R, ATR, bar counts, range size, displacement magnitude — all computed in code and emitted in the JSON. Claude reads numbers, never produces one. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLM arithmetic error rises ~+14 percentage points with numerical magnitude; the cure is tool-use, not better prompting.*
+8. **Prose first, JSON last.** Analyses reason in prose; emit one structured JSON block at the end. Do not force JSON during the reasoning itself. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — forcing JSON output during reasoning degrades accuracy 10–15%.*
+9. **Confidence enum only.** Use `wait | conditional | actionable` exclusively in any structured analysis output. No "high-conviction" / "very likely" / "strong setup" — these vocabularies are systematically overconfident. Emit `actionable` only when rule gates pass (HTF bias aligned + price inside a Pine box + inside an active killzone window). *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLMs in finance show Expected Calibration Error 0.12–0.40.*
+10. **No backtesting on data Claude has seen.** When validating analyses on historical sessions, use post-cutoff dates or out-of-sample symbols. Frontier LLMs memorize prices and outcomes on widely-discussed pre-cutoff dates. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md).*
 
 ## Architecture decisions
 
-| Date | Decision | Why |
-|------|----------|-----|
-| 2026-05-17 | CLI-only consumption, no MCP tools | Ship without an MCP config requirement; CLI is the long-term canonical surface. |
-| 2026-05-17 | Vendor the `tv` CLI inside this project | Enables first-class custom `tv <foo>` commands sharing in-process core access. Accepted cost: maintaining a fork. |
-| 2026-05-17 | Lock to CDP port 9223 | Port 9222 is the default for `ai-trading-agent` and upstream `tradingview-mcp-ict`. 9223 is this project's lane. |
-| 2026-05-17 | ICT methodology | Analysis is framed in ICT vocabulary (HTF bias, liquidity, FVGs, order blocks, killzones, mitigation, IPDA). |
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| 2026-05-17 | CLI-only consumption, no MCP tools | Ship without MCP config requirement; CLI is the long-term canonical surface. |
+| 2026-05-17 | Vendor the `tv` CLI inside this project | Enables first-class custom `tv <foo>` commands sharing in-process core access. Cost: maintained fork. |
+| 2026-05-17 | Lock to CDP port 9223 | 9222 is the default for `ai-trading-agent` and upstream `tradingview-mcp-ict`. 9223 is this project's lane. |
+| 2026-05-17 | ICT methodology | Analysis framed in ICT vocabulary (HTF bias, liquidity, FVGs, order blocks, killzones, mitigation, IPDA). |
 | 2026-05-17 | Build order: live single-chart read first | Foundation primitive. Tracker, scanner, backtester build on top. |
 | 2026-05-17 | Claude Code session only — no Anthropic API in scripts | Project is `tv` recipes + this CLAUDE.md teaching Claude how to use them. No API key required. |
-| 2026-05-17 | Stripped `brief`, `session`, `morning.js`, `paths.js` from vendored copy | Removes footguns that would write to the shared `~/.tradingview-mcp/`. |
-| 2026-05-17 | Screenshots out of analysis input | Operator decision. Screenshots are sanity-check / regression-test material only. |
+| 2026-05-17 | Stripped `brief`, `session`, `morning.js`, `paths.js` | Removes footguns that would write to shared `~/.tradingview-mcp/`. |
+| 2026-05-17 | Screenshots out of analysis input | Source: research; multimodal hallucination risk on chart images. |
+| 2026-05-17 | Cite-or-reject rule (constraint #6) | Source: research; top documented failure mode is hallucinated levels. |
+| 2026-05-17 | No LLM arithmetic (constraint #7) | Source: research; arithmetic error grows with magnitude. |
+| 2026-05-17 | Prose-first, JSON-last output (constraint #8) | Source: research; JSON-during-reasoning costs ~10–15% accuracy. |
+| 2026-05-17 | Confidence enum (constraint #9) | Source: research; LLM verbal confidence does not track realized accuracy. |
+| 2026-05-17 | ICT vocabulary moved out of CLAUDE.md into the slash command body | Source: research rec #6; keeps CLAUDE.md under instruction ceiling, re-loads vocab per `/analyze` call. |
 
 ## Repo
 
@@ -36,7 +55,7 @@ This file extends the user's global working agreement at `~/.claude/CLAUDE.md`. 
 ```
 .claude/
   commands/
-    analyze.md            /analyze slash command (Claude Code)
+    analyze.md            /analyze slash command — includes ICT vocab and behavioral rules
 bin/
   tv                      shell wrapper around ./cli/index.js
 cli/
@@ -45,6 +64,10 @@ cli/
   commands/
     (vendored upstream commands)
     analyze.js            project-local: bundles JSON for /analyze
+docs/
+  research/
+    ai-consistency.md            evidence base for consistency rules
+    ai-trading-analysis.md       evidence base for accuracy rules
 packages/
   core/                   vendored @tvmcp/core; CDP_PORT = 9223
 package.json              workspaces, scripts, sole runtime dep: chrome-remote-interface
@@ -67,35 +90,26 @@ state/                    gitignored; created on demand
   pine: {
     lines:       [{ price, label, ... }]    horizontal levels (PDH, PDL, swing levels, equal highs/lows)
     labels:      [{ price, text, ... }]     text annotations (bias readouts, level names)
-    tables:      [{ rows... }]               table data (session stats, analytics dashboards)
+    tables:      [{ rows... }]              table data (session stats, analytics dashboards)
     boxes:       [{ high, low, label }]     price zones (FVGs, order blocks, ranges)
   }
 }
 ```
 
-The slash command body (`.claude/commands/analyze.md`) tells Claude how to interpret this JSON in ICT terms.
-
-## ICT vocabulary cheat-sheet (for Claude reading the JSON)
-
-- **HTF / LTF** — higher-timeframe (daily / 4h / 1h) and lower-timeframe (15m / 5m / 1m) context. HTF sets bias, LTF triggers entries.
-- **Liquidity** — pools of stops sitting above swing highs (buy-side) or below swing lows (sell-side). Price often runs liquidity before reversing.
-- **PDH / PDL** — previous day's high / low. Common liquidity targets.
-- **FVG (Fair Value Gap)** — a 3-bar imbalance where bar-1 high and bar-3 low don't overlap. Often acts as a retracement target / support-resistance zone. Appears in `pine.boxes` if an FVG indicator is loaded.
-- **BISI / SIBI** — Buy-side Imbalance Sell-side Inefficiency / Sell-side Imbalance Buy-side Inefficiency. Direction of an FVG.
-- **Order block** — last opposing candle before a strong displacement. Bullish OB = last bearish candle before an up-move; bearish OB inverse.
-- **Mitigation** — price returning to an FVG or OB. Mitigated = price has touched; unmitigated = still pristine.
-- **Killzone** — a session window where institutional flow concentrates (London Open, NY AM, NY PM). Setups inside killzones rate higher.
-- **IPDA** — Interbank Price Delivery Algorithm. ICT's framing for "what drives price"; for our purposes, the higher-TF range and PD arrays.
-- **Bias** — directional thesis for the day. Pulled from labels like "Bias Long" / "Bias Short" in `pine.labels`.
-- **Displacement** — strong directional move that creates an FVG. Signals intent.
-- **Sweep / liquidity raid** — wick above a swing high (or below a swing low) that reverses. Confirms a level was liquidity, not breakout.
+The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabulary, the behavioral rules (cite-or-reject, no arithmetic, prose-first, confidence enum), and the trailing JSON template. Read that file when invoked, not this one.
 
 ## Status
 
-- Scaffolding pushed (README + .gitignore on `main`).
-- CLI vendored under `cli/` and `packages/core/`, ports patched to 9223, `brief`/`session` commands removed, dead `morning.js`/`paths.js` deleted from core.
-- Custom command `tv analyze` and slash command `/analyze` in place.
-- Trading strategy is **TBD** — user will provide after this scaffold is reviewed.
+- **Scaffolding pushed.** README + .gitignore on `main`. CLI vendored, port locked, `analyze` command in place, slash command in place, research saved.
+- **Research bound.** Hard constraints 5–10 cite the research files as authority. Future design changes must do the same.
+- **Trading strategy: TBD.** User will provide after this scaffold is reviewed.
+
+## Pending implementation (research recs not yet applied to code)
+
+- **Rule-based co-signal gates in `tv analyze`.** Emit boolean fields `htf_bias_aligned`, `price_inside_pine_box`, `inside_killzone_window` computed in code, so the `actionable` confidence rule (constraint #9) is enforceable mechanically. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #3.*
+- **3 canonical examples in `.claude/commands/analyze.md`.** London sweep → NY reversal, Asia accumulation → London expansion, no-setup standstill. Wrapped in `<example>` tags. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — Anthropic-cited 72%→90% accuracy lift from Tool Use Examples; [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #5.*
+- **Golden dataset.** Capture 50 `tv analyze` outputs over the next few weeks, hand-grade the right read, regression-test on every model/prompt change. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.*
+- **Post-hoc citation verifier.** A small script that reads Claude's analysis output and confirms every cited price appears in the JSON bundle. Enforces constraint #6 mechanically. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — self-check / verification patterns.*
 
 ## Open questions for the user
 
