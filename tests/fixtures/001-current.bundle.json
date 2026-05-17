@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-17T18:41:27.747Z",
+  "timestamp": "2026-05-17T19:16:15.426Z",
   "chart": {
     "success": true,
     "symbol": "CME_MINI:MNQ1!",
@@ -27,11 +27,11 @@
   "visible_range": {
     "success": true,
     "visible_range": {
-      "from": 1778854380,
-      "to": 1779065160
+      "from": 1778869080,
+      "to": 1779061080
     },
     "bars_range": {
-      "from": 1778854380,
+      "from": 1778869080,
       "to": 1778878740
     }
   },
@@ -615,204 +615,354 @@
           "showing": 50,
           "labels": [
             {
+              "id": 8439,
               "text": "ST-HL",
-              "price": 29302.75
+              "price": 29302.75,
+              "x": 1469,
+              "textColor": 0
             },
             {
+              "id": 8440,
               "text": "IT-LL",
-              "price": 29282.25
+              "price": 29282.25,
+              "x": 1470,
+              "textColor": 4282726130
             },
             {
+              "id": 8441,
               "text": "IT-HH",
-              "price": 29324
+              "price": 29324,
+              "x": 1471,
+              "textColor": 4286683400
             },
             {
+              "id": 8442,
               "text": "ST-HL",
-              "price": 29317.5
+              "price": 29317.5,
+              "x": 1472,
+              "textColor": 0
             },
             {
+              "id": 8443,
               "text": "ST-LH",
-              "price": 29296
+              "price": 29296,
+              "x": 1473,
+              "textColor": 0
             },
             {
+              "id": 8447,
               "text": "ST-HH",
-              "price": 29329.75
+              "price": 29329.75,
+              "x": 1474,
+              "textColor": 0
             },
             {
+              "id": 8448,
               "text": "ST-LH",
-              "price": 29313.75
+              "price": 29313.75,
+              "x": 1475,
+              "textColor": 0
             },
             {
+              "id": 8449,
               "text": "ST-LH",
-              "price": 29317.5
+              "price": 29317.5,
+              "x": 1476,
+              "textColor": 0
             },
             {
+              "id": 8450,
               "text": "LT-HL",
-              "price": 29340.25
+              "price": 29340.25,
+              "x": 1476,
+              "textColor": 4286683400
             },
             {
+              "id": 8451,
               "text": "ST-LL",
-              "price": 29270
+              "price": 29270,
+              "x": 1478,
+              "textColor": 0
             },
             {
+              "id": 8452,
               "text": "ST-HL",
-              "price": 29307
+              "price": 29307,
+              "x": 1479,
+              "textColor": 0
             },
             {
+              "id": 8453,
               "text": "ST-HL",
-              "price": 29304.75
+              "price": 29304.75,
+              "x": 1480,
+              "textColor": 0
             },
             {
+              "id": 8457,
               "text": "ST-HL",
-              "price": 29285.25
+              "price": 29285.25,
+              "x": 1482,
+              "textColor": 0
             },
             {
+              "id": 8458,
               "text": "IT-LL",
-              "price": 29208
+              "price": 29208,
+              "x": 1483,
+              "textColor": 4282726130
             },
             {
+              "id": 8459,
               "text": "ST-LH",
-              "price": 29217
+              "price": 29217,
+              "x": 1484,
+              "textColor": 0
             },
             {
+              "id": 8460,
               "text": "ST-HL",
-              "price": 29249.25
+              "price": 29249.25,
+              "x": 1484,
+              "textColor": 0
             },
             {
+              "id": 8461,
               "text": "ST-HL",
-              "price": 29244.75
+              "price": 29244.75,
+              "x": 1485,
+              "textColor": 0
             },
             {
+              "id": 8465,
               "text": "ST-LL",
-              "price": 29138.25
+              "price": 29138.25,
+              "x": 1487,
+              "textColor": 0
             },
             {
+              "id": 8466,
               "text": "ST-HL",
-              "price": 29176
+              "price": 29176,
+              "x": 1488,
+              "textColor": 0
             },
             {
+              "id": 8467,
               "text": "ST-LL",
-              "price": 29135
+              "price": 29135,
+              "x": 1489,
+              "textColor": 0
             },
             {
+              "id": 8468,
               "text": "ST-HL",
-              "price": 29155
+              "price": 29155,
+              "x": 1490,
+              "textColor": 0
             },
             {
+              "id": 8469,
               "text": "LT-LL",
-              "price": 29110.75
+              "price": 29110.75,
+              "x": 1491,
+              "textColor": 4282726130
             },
             {
+              "id": 8470,
               "text": "ST-LH",
-              "price": 29136.75
+              "price": 29136.75,
+              "x": 1492,
+              "textColor": 0
             },
             {
+              "id": 8471,
               "text": "ST-HH",
-              "price": 29158.75
+              "price": 29158.75,
+              "x": 1493,
+              "textColor": 0
             },
             {
+              "id": 8472,
               "text": "ST-LH",
-              "price": 29141.5
+              "price": 29141.5,
+              "x": 1494,
+              "textColor": 0
             },
             {
+              "id": 8473,
               "text": "IT-HL",
-              "price": 29199
+              "price": 29199,
+              "x": 1495,
+              "textColor": 4286683400
             },
             {
+              "id": 8474,
               "text": "ST-LH",
-              "price": 29146
+              "price": 29146,
+              "x": 1496,
+              "textColor": 0
             },
             {
+              "id": 8475,
               "text": "ST-HL",
-              "price": 29174
+              "price": 29174,
+              "x": 1497,
+              "textColor": 0
             },
             {
+              "id": 8476,
               "text": "ST-LH",
-              "price": 29158.75
+              "price": 29158.75,
+              "x": 1498,
+              "textColor": 0
             },
             {
+              "id": 8477,
               "text": "ST-HL",
-              "price": 29172
+              "price": 29172,
+              "x": 1499,
+              "textColor": 0
             },
             {
+              "id": 8478,
               "text": "IT-LH",
-              "price": 29150.75
+              "price": 29150.75,
+              "x": 1500,
+              "textColor": 4282726130
             },
             {
+              "id": 8479,
               "text": "ST-LH",
-              "price": 29159.25
+              "price": 29159.25,
+              "x": 1501,
+              "textColor": 0
             },
             {
+              "id": 8480,
               "text": "IT-HL",
-              "price": 29182.5
+              "price": 29182.5,
+              "x": 1501,
+              "textColor": 4286683400
             },
             {
+              "id": 8481,
               "text": "ST-LH",
-              "price": 29166
+              "price": 29166,
+              "x": 1502,
+              "textColor": 0
             },
             {
+              "id": 8482,
               "text": "ST-HL",
-              "price": 29180.75
+              "price": 29180.75,
+              "x": 1503,
+              "textColor": 0
             },
             {
+              "id": 8483,
               "text": "ST-LH",
-              "price": 29171.25
+              "price": 29171.25,
+              "x": 1504,
+              "textColor": 0
             },
             {
+              "id": 8484,
               "text": "ST-LL",
-              "price": 29167.5
+              "price": 29167.5,
+              "x": 1505,
+              "textColor": 0
             },
             {
+              "id": 8485,
               "text": "ST-HL",
-              "price": 29179.25
+              "price": 29179.25,
+              "x": 1505,
+              "textColor": 0
             },
             {
+              "id": 8486,
               "text": "IT-LH",
-              "price": 29166.75
+              "price": 29166.75,
+              "x": 1506,
+              "textColor": 4282726130
             },
             {
+              "id": 8487,
               "text": "ST-HL",
-              "price": 29178.25
+              "price": 29178.25,
+              "x": 1506,
+              "textColor": 0
             },
             {
+              "id": 8488,
               "text": "ST-HL",
-              "price": 29176.75
+              "price": 29176.75,
+              "x": 1507,
+              "textColor": 0
             },
             {
+              "id": 8489,
               "text": "ST-LH",
-              "price": 29167.25
+              "price": 29167.25,
+              "x": 1508,
+              "textColor": 0
             },
             {
+              "id": 8490,
               "text": "ST-HL",
-              "price": 29175.75
+              "price": 29175.75,
+              "x": 1509,
+              "textColor": 0
             },
             {
+              "id": 8491,
               "text": "ST-LH",
-              "price": 29167.25
+              "price": 29167.25,
+              "x": 1510,
+              "textColor": 0
             },
             {
+              "id": 8492,
               "text": "IT-HL",
-              "price": 29180.25
+              "price": 29180.25,
+              "x": 1511,
+              "textColor": 4286683400
             },
             {
+              "id": 8493,
               "text": "ST-LH",
-              "price": 29168
+              "price": 29168,
+              "x": 1512,
+              "textColor": 0
             },
             {
+              "id": 8494,
               "text": "ST-HL",
-              "price": 29174.5
+              "price": 29174.5,
+              "x": 1513,
+              "textColor": 0
             },
             {
+              "id": 8495,
               "text": "ST-HH",
-              "price": 29175.5
+              "price": 29175.5,
+              "x": 1514,
+              "textColor": 0
             },
             {
+              "id": 8496,
               "text": "ST-LL",
-              "price": 29165.5
+              "price": 29165.5,
+              "x": 1515,
+              "textColor": 0
             },
             {
+              "id": 8503,
               "text": "ST-LL",
-              "price": 29160
+              "price": 29160,
+              "x": 1517,
+              "textColor": 0
             }
           ]
         },
@@ -822,44 +972,74 @@
           "showing": 10,
           "labels": [
             {
+              "id": 103,
               "text": "PWH",
-              "price": null
+              "price": null,
+              "x": 16,
+              "textColor": 2571782730
             },
             {
+              "id": 104,
               "text": "PWL",
-              "price": null
+              "price": null,
+              "x": 16,
+              "textColor": 2571782730
             },
             {
+              "id": 175,
               "text": "AS.H",
-              "price": 29733.5
+              "price": 29733.5,
+              "x": 2,
+              "textColor": 2571782730
             },
             {
+              "id": 176,
               "text": "AS.L",
-              "price": 29280
+              "price": 29280,
+              "x": 3,
+              "textColor": 2571782730
             },
             {
+              "id": 179,
               "text": "PDH",
-              "price": 29783.75
+              "price": 29783.75,
+              "x": 16,
+              "textColor": 2571782730
             },
             {
+              "id": 180,
               "text": "PDL",
-              "price": 29448.25
+              "price": 29448.25,
+              "x": 16,
+              "textColor": 2571782730
             },
             {
+              "id": 184,
               "text": "LO.H",
-              "price": 29469.5
+              "price": 29469.5,
+              "x": 6,
+              "textColor": 2571782730
             },
             {
+              "id": 185,
               "text": "LO.L",
-              "price": 29140.75
+              "price": 29140.75,
+              "x": 7,
+              "textColor": 2571782730
             },
             {
+              "id": 189,
               "text": "NYAM.H",
-              "price": 29382.5
+              "price": 29382.5,
+              "x": 12,
+              "textColor": 2571782730
             },
             {
+              "id": 190,
               "text": "NYAM.L",
-              "price": 29089.5
+              "price": 29089.5,
+              "x": 11,
+              "textColor": 2571782730
             }
           ]
         },
@@ -869,16 +1049,25 @@
           "showing": 3,
           "labels": [
             {
+              "id": 189,
               "text": "",
-              "price": 29410.75
+              "price": 29410.75,
+              "x": 2,
+              "textColor": 4294967295
             },
             {
+              "id": 190,
               "text": "",
-              "price": 29414.5
+              "price": 29414.5,
+              "x": 3,
+              "textColor": 4294967295
             },
             {
+              "id": 191,
               "text": "",
-              "price": 29398.75
+              "price": 29398.75,
+              "x": 4,
+              "textColor": 4294967295
             }
           ]
         }
@@ -2855,26 +3044,122 @@
           "high": 29382.5,
           "low": 29089.5
         }
+      ]
+    },
+    "pillar1": {
+      "session_levels": {
+        "PWH": {
+          "label": "PWH",
+          "price": null,
+          "position_vs_price": null,
+          "taken": null
+        },
+        "PWL": {
+          "label": "PWL",
+          "price": null,
+          "position_vs_price": null,
+          "taken": null
+        },
+        "PDH": {
+          "label": "PDH",
+          "price": 29783.75,
+          "position_vs_price": "above",
+          "taken": false
+        },
+        "PDL": {
+          "label": "PDL",
+          "price": 29448.25,
+          "position_vs_price": "above",
+          "taken": true
+        },
+        "AS_H": {
+          "label": "AS.H",
+          "price": 29733.5,
+          "position_vs_price": "above",
+          "taken": false
+        },
+        "AS_L": {
+          "label": "AS.L",
+          "price": 29280,
+          "position_vs_price": "above",
+          "taken": true
+        },
+        "LO_H": {
+          "label": "LO.H",
+          "price": 29469.5,
+          "position_vs_price": "above",
+          "taken": false
+        },
+        "LO_L": {
+          "label": "LO.L",
+          "price": 29140.75,
+          "position_vs_price": "below",
+          "taken": true
+        },
+        "NYAM_H": {
+          "label": "NYAM.H",
+          "price": 29382.5,
+          "position_vs_price": "above",
+          "taken": false
+        },
+        "NYAM_L": {
+          "label": "NYAM.L",
+          "price": 29089.5,
+          "position_vs_price": "below",
+          "taken": false
+        },
+        "NYPM_H": {
+          "label": "NYPM.H",
+          "price": null,
+          "position_vs_price": null,
+          "taken": null
+        },
+        "NYPM_L": {
+          "label": "NYPM.L",
+          "price": null,
+          "position_vs_price": null,
+          "taken": null
+        }
+      },
+      "untaken_sell_side_below": [
+        {
+          "key": "NYAM_L",
+          "label": "NYAM.L",
+          "price": 29089.5,
+          "position_vs_price": "below",
+          "taken": false
+        }
       ],
-      "fvgs_above": {
-        "count": 8,
-        "nearest": {
-          "study": "FVG/iFVG (Nephew_Sam_)",
-          "zone_index": 7,
-          "high": 29219.75,
-          "low": 29187.75
+      "untaken_buy_side_above": [
+        {
+          "key": "NYAM_H",
+          "label": "NYAM.H",
+          "price": 29382.5,
+          "position_vs_price": "above",
+          "taken": false
+        },
+        {
+          "key": "LO_H",
+          "label": "LO.H",
+          "price": 29469.5,
+          "position_vs_price": "above",
+          "taken": false
+        },
+        {
+          "key": "AS_H",
+          "label": "AS.H",
+          "price": 29733.5,
+          "position_vs_price": "above",
+          "taken": false
+        },
+        {
+          "key": "PDH",
+          "label": "PDH",
+          "price": 29783.75,
+          "position_vs_price": "above",
+          "taken": false
         }
-      },
-      "fvgs_below": {
-        "count": 3,
-        "nearest": {
-          "study": "FVG/iFVG (Nephew_Sam_)",
-          "zone_index": 8,
-          "high": 29172,
-          "low": 29171
-        }
-      },
-      "fvgs_inside": 0
+      ]
     },
     "pillar2": {
       "range_value": 229.5,
@@ -2882,6 +3167,91 @@
       "range_acceptable": true,
       "avg_body_ratio_last_5": 0.5114576561476063,
       "candle_quality_heuristic": "marginal"
+    },
+    "pillar3": {
+      "most_recent_structure": {
+        "ST_HH": {
+          "label": "ST-HH",
+          "price": 29175.5,
+          "x": 1514
+        },
+        "ST_HL": {
+          "label": "ST-HL",
+          "price": 29174.5,
+          "x": 1513
+        },
+        "ST_LH": {
+          "label": "ST-LH",
+          "price": 29168,
+          "x": 1512
+        },
+        "ST_LL": {
+          "label": "ST-LL",
+          "price": 29160,
+          "x": 1517
+        },
+        "IT_HH": {
+          "label": "IT-HH",
+          "price": 29324,
+          "x": 1471
+        },
+        "IT_HL": {
+          "label": "IT-HL",
+          "price": 29180.25,
+          "x": 1511
+        },
+        "IT_LH": {
+          "label": "IT-LH",
+          "price": 29166.75,
+          "x": 1506
+        },
+        "IT_LL": {
+          "label": "IT-LL",
+          "price": 29208,
+          "x": 1483
+        },
+        "LT_HH": {
+          "label": "LT-HH",
+          "price": null,
+          "x": null
+        },
+        "LT_HL": {
+          "label": "LT-HL",
+          "price": 29340.25,
+          "x": 1476
+        },
+        "LT_LH": {
+          "label": "LT-LH",
+          "price": null,
+          "x": null
+        },
+        "LT_LL": {
+          "label": "LT-LL",
+          "price": 29110.75,
+          "x": 1491
+        }
+      },
+      "fvg_by_type": {
+        "bullish_fvg": 1,
+        "bullish_ifvg": 2,
+        "bearish_fvg": 6,
+        "bearish_ifvg": 2,
+        "unknown": 0
+      },
+      "fvg_by_type_above": {
+        "bullish_fvg": 0,
+        "bullish_ifvg": 0,
+        "bearish_fvg": 6,
+        "bearish_ifvg": 2,
+        "unknown": 0
+      },
+      "fvg_by_type_below": {
+        "bullish_fvg": 1,
+        "bullish_ifvg": 2,
+        "bearish_fvg": 0,
+        "bearish_ifvg": 0,
+        "unknown": 0
+      }
     }
   }
 }

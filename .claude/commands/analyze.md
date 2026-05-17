@@ -34,9 +34,13 @@ JSON fields you'll use:
 - `pine.boxes` — price zones (FVGs, order blocks, killzone boxes, ranges)
 - `gates` — deterministic facts computed in code (not LLM-judged). Read these FIRST and don't recompute them:
   - `gates.session.{label, in_ny_open_window, in_killzone, in_killzone_detail, is_weekend, timestamp_et}` — what session is active right now, clock-based.
-  - `gates.price_context.{last, inside_boxes[], fvgs_above, fvgs_below, fvgs_inside}` — which pine boxes contain current price; counts and nearest unmitigated FVGs above/below price.
+  - `gates.price_context.{last, inside_boxes[]}` — which pine boxes contain current price.
+  - `gates.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L}` — each is `{label, price, position_vs_price, taken}`. The chart's original label text (e.g. `AS.H`) is preserved in `.label`; the JSON key uses underscore form (`AS_H`) so it's citation-safe. `taken` is true if `bars.high > price` for highs or `bars.low < price` for lows.
+  - `gates.pillar1.untaken_sell_side_below[]` and `gates.pillar1.untaken_buy_side_above[]` — sorted arrays of session levels that have NOT been taken yet. These are the strategy's "draw" targets per §2.2 ("which liquidity remains untaken").
   - `gates.pillar2.{range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic}` — mechanical Pillar 2 metrics.
-  - Numeric gate fields can be cited under rule 1 just like any other JSON value (e.g. `29187.75 (gates.price_context.fvgs_above.nearest.low)`). Boolean/string gates are referenced inline ("gates.session.in_ny_open_window = false") and don't need verifier-style citation.
+  - `gates.pillar3.most_recent_structure.{ST_HH, ST_HL, ST_LH, ST_LL, IT_HH, IT_HL, IT_LH, IT_LL, LT_HH, LT_HL, LT_LH, LT_LL}` — each is `{label, price, x}`. `x` is the Pine bar-index — *higher x = more recent*. Sort across keys by `x` to find the most-recent structural point overall, which tells you the current LTF structure state.
+  - `gates.pillar3.fvg_by_type{,_above,_below}` — counts of FVGs by direction: `bullish_fvg`, `bullish_ifvg`, `bearish_fvg`, `bearish_ifvg` (decoded from the indicator's bgColor). `_above` = boxes wholly above current price (potential resistance), `_below` = wholly below (potential support).
+  - Numeric gate fields can be cited under rule 1 just like any other JSON value (e.g. `29089.5 (gates.pillar1.session_levels.NYAM_L.price)` or `29160 (gates.pillar3.most_recent_structure.ST_LL.price)`). Boolean/string gates are referenced inline ("gates.session.in_ny_open_window = false") and don't need verifier-style citation.
 
 ## Rules (non-negotiable; derived from `docs/research/ai-trading-analysis.md`)
 
@@ -86,7 +90,7 @@ JSON fields you'll use:
 Mark the best imbalances on HTF — largest FVGs/BPRs that took liquidity in their creation (cite from `pine.boxes` / `pine.lines`). Pick one as the primary HTF draw and state which liquidity pool the market is drawing toward (price, cited). Note the most recent reaction off the HTF PD array: strong rejection → directional bias; no clear reaction → no HTF bias yet (downgrade).
 
 **b. Overnight & Session Correlation.**
-Asia high/low and London high/low (cite from `pine.lines` if session markers are loaded; otherwise `n/a — session indicator not on chart`). State which liquidity remains untaken and is still drawing price. State whether overnight is *extending* the HTF move or *consolidating* ahead of NY.
+Read `gates.pillar1.session_levels.*` and the two pre-sorted arrays `gates.pillar1.untaken_sell_side_below` / `untaken_buy_side_above`. Cite each level you reference by its safe key (e.g. `29089.5 (gates.pillar1.session_levels.NYAM_L.price)`). State which liquidity is `taken` and which remains untaken — the untaken pools are the strategy's "draw" per §2.2. State whether overnight is *extending* the HTF move (lots of taken levels on one side) or *consolidating* (mixed). If `PWH` / `PWL` are null, note that weekly markers aren't published on this chart resolution.
 
 **c. NY Open LTF Bias.**
 Read `gates.session.in_ny_open_window` and `gates.session.label`. If `in_ny_open_window = false` (or `label ∈ {Asia, Inter-session, Weekend/Closed, NY PM}`), write `n/a — not in NY open window (gates.session.label = <label>)`. If `true`, describe the reaction to overnight high/low: break + rejection in the direction of the HTF draw = LTF aligns with HTF (A+ potential). Break + continuation *against* the HTF draw = today is a retrace day; adapt intraday bias accordingly but keep the HTF draw for later. Never marry the HTF bias.
@@ -141,7 +145,11 @@ For the chosen model, walk its components from `docs/strategy/entry-models.md` *
 - `invalidated` — confirmation failed (chop > 10–15 min in FVG, or structural break against the read).
 - `n/a` — no model in play.
 
-When walking the components, leverage `gates.price_context.inside_boxes` to know exactly which Pine boxes contain price right now, and `gates.price_context.fvgs_above` / `fvgs_below` for FVG mitigation context. These are pre-computed; do not enumerate `pine.boxes.studies[*].zones[*]` manually to figure out which contain price.
+When walking the components, leverage:
+
+- `gates.price_context.inside_boxes` — which Pine boxes contain price right now (do not enumerate `pine.boxes.studies[*].zones[*]` manually).
+- `gates.pillar3.most_recent_structure.*` — the most recent labeled swing point of each kind, sorted by `x` (Pine bar-index). For MSS detection: find the structure point with the highest `x` overall (the freshest event), then check whether subsequent bars closed beyond the appropriate threshold. E.g. if the most-recent label is `ST_LL` and price subsequently closed above the most-recent `ST_LH`, that's an MSS up.
+- `gates.pillar3.fvg_by_type_above` / `fvg_by_type_below` — counts of FVGs by direction relative to current price. **Bullish IFVG below** = a bearish FVG that was violated bullish-ly; now acts as bullish support. **Bearish IFVG above** = a bullish FVG that was violated bearish-ly; now acts as bearish resistance. Use these counts to assess overhead supply vs underneath demand, and to identify Inversion-model candidates.
 
 ### Risk & Management (only if `confirmation_status = confirmed`)
 

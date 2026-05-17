@@ -21,7 +21,7 @@ const REQUIRED_NESTED = {
   quote: ['last', 'time'],
   bars: ['bar_count', 'period', 'range', 'last_5_bars'],
   pine: ['lines', 'labels', 'tables', 'boxes'],
-  gates: ['session', 'price_context', 'pillar2'],
+  gates: ['session', 'price_context', 'pillar1', 'pillar2', 'pillar3'],
 };
 
 const bundles = readdirSync(FIXTURES).filter((f) => f.endsWith('.bundle.json')).sort();

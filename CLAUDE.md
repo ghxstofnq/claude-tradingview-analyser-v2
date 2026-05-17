@@ -121,13 +121,28 @@ tests/
   }
   gates: {
     session:        { label, timestamp_et, is_weekend, in_ny_open_window, in_killzone, in_killzone_detail }
-    price_context:  { last, inside_boxes[], fvgs_above, fvgs_below, fvgs_inside }
+    price_context:  { last, inside_boxes[] }
+    pillar1: {
+      session_levels: { PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L }
+                                                 each { label, price, position_vs_price, taken }
+      untaken_sell_side_below: [{ key, label, price, ... }]   sorted by nearest first
+      untaken_buy_side_above:  [{ key, label, price, ... }]   sorted by nearest first
+    }
     pillar2:        { range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic }
+    pillar3: {
+      most_recent_structure: { ST_HH, ST_HL, ST_LH, ST_LL, IT_HH, IT_HL, IT_LH, IT_LL, LT_HH, LT_HL, LT_LH, LT_LL }
+                                                 each { label, price, x }   higher x = more recent
+      fvg_by_type:       { bullish_fvg, bullish_ifvg, bearish_fvg, bearish_ifvg, unknown }
+      fvg_by_type_above: same shape, FVGs above current price
+      fvg_by_type_below: same shape, FVGs below current price
+    }
   }
 }
 ```
 
 Gates are pre-computed in `cli/commands/analyze.js`. The LLM consumes them directly and does not recompute. See "Workflow rules for Claude" above for the discipline.
+
+**Key-naming note.** Session and structure-point keys use underscore form (`AS_H`, `ST_LH`) so they're citation-safe under the verifier's path syntax. The original chart label text (`AS.H`, `ST-LH`) is preserved in each entry's `label` field for human readability.
 
 The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabulary, the behavioral rules (cite-or-reject, no arithmetic, prose-first, confidence enum), and the trailing JSON template. Read that file when invoked, not this one.
 
@@ -137,7 +152,7 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - **Research bound.** Hard constraints 5–10 cite the research files as authority. Future design changes must do the same.
 - **Strategy bound.** Hard constraint #11 makes `docs/strategy/*.md` the authoritative spec for trade framing. `/analyze` mirrors the 7-step checklist. A+ examples for all three entry models are embedded.
 - **Harness operational.** `npm run smoke:fixtures` runs schema + citation checks across every fixture. Verifier mechanically enforces constraint #6.
-- **Gates emitting.** `tv analyze` now returns a `gates` object with deterministic facts (session, price-in-box, FVG counts, candle quality). LLM no longer has to compute these.
+- **Gates emitting (richer).** `tv analyze` now returns a `gates` object covering: clock-based session, price-in-box checks, **full session liquidity map (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L with taken/untaken)**, **most-recent ICT swing structure points (ST/IT/LT × HH/HL/LH/LL) ordered by Pine x-index**, **FVG counts classified by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) via bgColor**, plus the original range / candle-quality stats. LLM no longer has to compute any of these.
 
 ## Pending implementation
 
@@ -148,11 +163,15 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - Citation verifier (`scripts/verify-citations.js`) enforces constraint #6 mechanically against any paired `(analysis, bundle)` input.
 - Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.
 - Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
-- **Deterministic gates in `tv analyze`.** New top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
+- **Deterministic gates in `tv analyze` (extended).** Top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
   - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend).
-  - `gates.price_context.*` — which Pine boxes contain current price; FVG counts and nearest FVGs above/below.
-  - `gates.pillar2.*` — range value, range-per-bar, range-acceptable boolean, avg body ratio over last 5 bars, candle-quality heuristic verdict.
-  - The slash command is wired to consume these directly, not recompute them.
+  - `gates.price_context.*` — which Pine boxes contain current price.
+  - `gates.pillar1.session_levels.*` — full session liquidity (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L plus PWH/PWL/NYPM_H/NYPM_L when set) with `taken / untaken` derived from bars.high/low.
+  - `gates.pillar1.untaken_sell_side_below[]` + `untaken_buy_side_above[]` — sorted draw targets.
+  - `gates.pillar2.*` — range + candle-quality stats.
+  - `gates.pillar3.most_recent_structure.*` — ST/IT/LT × HH/HL/LH/LL latest by Pine x-index.
+  - `gates.pillar3.fvg_by_type{,_above,_below}` — FVG counts by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) decoded from Nephew_Sam_'s bgColor.
+  - The slash command is wired to consume all of these directly, not recompute them.
 
 ### Next (do in order)
 
@@ -162,14 +181,17 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 
 ### Known gaps (deferred, by design)
 
-These gates *could* be deterministic in principle but require Pine indicators the user's chart does not currently load. Adding them is a chart-side change, not a code change:
+Some gates remain LLM-interpretive because the chart's current indicators don't expose them, or because they need multi-TF data that the current `tv analyze` doesn't provide yet:
 
-- `pillar1.htf_bias_direction` — needs an indicator that publishes an explicit "Bias Long" / "Bias Short" label to `pine.labels`.
-- `pillar1.overnight_liquidity_left_open` — needs an indicator that draws Asia / London H/L markers (e.g. session-range indicator).
-- `pillar3.entry_model_candidate` — needs an indicator that flags MSS / sweep / displacement candidates programmatically. The closest reference is the deterministic ICT detector cited in [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) (IJNRD, smart-money-concepts on GitHub) — these are not in scope right now.
-- `pillar3.confirmation_status` — needs candle-pattern detection (body size, retest validity). Heuristic only at present.
+- **HTF / multi-timeframe context.** Pillar 1a's "reaction off the HTF PD array" and Pillar 2's "4H/1H displacement" require Daily / 4H / 1H candle data. The current bundle is single-TF (whatever the chart is on). *Next commit:* extend `tv analyze` to query multiple timeframes.
+- `pillar1.htf_bias_direction` — strategy expects an explicit "Bias Long" / "Bias Short" label. The user's chart doesn't load such an indicator; bias is inferred from session-level liquidity and HTF structure.
+- `pillar3.entry_model_candidate` — *which* of MSS / Trend / Inversion is in play remains interpretive. Mechanical detection would need an ICT-detector Pine script (smart-money-concepts on GitHub is the closest reference). Out of scope right now.
+- `pillar3.confirmation_status` — candle-close confirmation within 10-15 min is partly mechanical (body ratio, range) and partly judgment (retest vs chop). Heuristic only at present.
 
-Until any of these chart-side indicators are added, the interpretive judgments above stay in the LLM's hands, gated by the harness's cite-or-reject discipline.
+**No longer deferred (resolved in this PR):**
+- ~~Overnight liquidity~~ — ICT Killzones publishes AS/LO/NYAM/PD levels as labels; now mechanical via `gates.pillar1.session_levels.*`.
+- ~~Structure points~~ — ICT Anchored Structures publishes ST/IT/LT swing labels with bar-index ordering; now mechanical via `gates.pillar3.most_recent_structure.*`.
+- ~~FVG direction~~ — Nephew_Sam_'s FVG/iFVG indicator encodes type in bgColor; now mechanical via `gates.pillar3.fvg_by_type_*`.
 
 ## Open questions for the user
 
