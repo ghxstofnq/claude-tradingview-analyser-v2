@@ -135,7 +135,14 @@ tests/
       untaken_buy_side_above:  [{ key, label, price, ... }]   sorted by nearest first
       bias_labels: [{ text, price, study, x }]   labels matching /bias/i; empty if no indicator publishes them
     }
-    pillar2:        { range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic }
+    pillar2: {
+      range_value, range_per_bar, range_acceptable,
+      avg_body_ratio_last_5, candle_quality_heuristic,    current-TF body-ratio summary (backwards-compat)
+      current_tf, m5, m15                                 each { body_ratios_last_5, avg_body_ratio_last_5,
+                                                                  candle_quality_heuristic, engulfing_count_last_5,
+                                                                  doji_count_last_5 }
+                                                          m5 + m15 are the strategy-aligned TFs per §7 step 3
+    }
     pillar3: {
       most_recent_structure: { ST_HH, ST_HL, ST_LH, ST_LL, IT_HH, IT_HL, IT_LH, IT_LL, LT_HH, LT_HL, LT_LH, LT_LL }
                                                  each { label, price, x }   higher x = more recent
@@ -183,7 +190,7 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
   - `gates.pillar1.session_levels.*` — full session liquidity (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L plus PWH/PWL/NYPM_H/NYPM_L when set) with `taken / untaken` derived from bars.high/low.
   - `gates.pillar1.untaken_sell_side_below[]` + `untaken_buy_side_above[]` — sorted draw targets.
   - `gates.pillar1.bias_labels[]` — any Pine label matching /bias/i across all studies; empty when no indicator publishes them.
-  - `gates.pillar2.*` — range + candle-quality stats.
+  - `gates.pillar2.*` — range + candle-quality stats. Includes nested `current_tf`, `m5`, `m15` objects each with body_ratios array, avg body ratio, candle-quality heuristic, engulfing count, and doji count over the last 5 bars at that TF. **Strategy §7 step 3 asks for 5m/15m anatomy specifically**, so `m5` and `m15` are the authoritative gate values; the chart's current TF stats are a live LTF gauge.
   - `gates.pillar3.most_recent_structure.*` — ST/IT/LT × HH/HL/LH/LL latest by Pine x-index.
   - `gates.pillar3.fvg_by_type{,_above,_below}` — FVG counts by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) decoded from Nephew_Sam_'s bgColor.
   - `gates.pillar3.last_bar` — single most-recent bar facts (body_ratio, direction, close_position_in_range, etc.) for the strategy's confirmation discipline.

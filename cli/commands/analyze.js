@@ -80,7 +80,52 @@ const STRUCTURE_POINTS = [
   { key: 'LT_LL', label: 'LT-LL' },
 ];
 
-function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
+/**
+ * Compute body-ratio / engulfing / doji stats for the last 5 bars at some TF.
+ * Strategy §7 step 3 specifically wants this on 5m/15m bars. Body-ratio also
+ * computed for the chart's current TF as a live LTF gauge.
+ *
+ * Returns null when no bars are available.
+ *
+ * Engulfing: current candle's body fully covers the prior candle's body
+ *   (regardless of direction; strategy uses "engulfing" loosely to mean
+ *   "strong-bodied, decisive" rather than the strict reversal pattern).
+ * Doji: body_ratio < 0.15 (catches "doji-like" candles, not just pure dojis).
+ */
+function computeCandleStats(last5) {
+  if (!last5 || last5.length === 0) return null;
+  const rawRatios = last5.map((b) => {
+    const total = b.high - b.low;
+    return total > 0 ? Math.abs(b.close - b.open) / total : 0;
+  });
+  const avg = rawRatios.reduce((a, b) => a + b, 0) / rawRatios.length;
+  let quality;
+  if (avg >= 0.6) quality = 'good';
+  else if (avg >= 0.3) quality = 'marginal';
+  else quality = 'poor';
+  const dojiCount = rawRatios.filter((r) => r < 0.15).length;
+  let engulfingCount = 0;
+  for (let i = 1; i < last5.length; i++) {
+    const prev = last5[i - 1];
+    const cur = last5[i];
+    const prevBodyHigh = Math.max(prev.open, prev.close);
+    const prevBodyLow = Math.min(prev.open, prev.close);
+    const curBodyHigh = Math.max(cur.open, cur.close);
+    const curBodyLow = Math.min(cur.open, cur.close);
+    if (curBodyHigh >= prevBodyHigh && curBodyLow <= prevBodyLow) {
+      engulfingCount++;
+    }
+  }
+  return {
+    body_ratios_last_5: rawRatios.map((r) => Math.round(r * 100) / 100),
+    avg_body_ratio_last_5: Math.round(avg * 100) / 100,
+    candle_quality_heuristic: quality,
+    engulfing_count_last_5: engulfingCount,
+    doji_count_last_5: dojiCount,
+  };
+}
+
+function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf }) {
   const last = quote?.last ?? null;
 
   // -- Session / time classification (purely from quote.time) --
@@ -227,20 +272,11 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
   // Heuristic threshold for MNQ 1m (calibrated to seed fixture).
   const rangeAcceptable = rangeValue != null && rangeValue >= 40;
   const last5 = bars?.last_5_bars || [];
-  let avgBodyRatio = null;
-  if (last5.length > 0) {
-    const ratios = last5.map((b) => {
-      const total = b.high - b.low;
-      return total > 0 ? Math.abs(b.close - b.open) / total : 0;
-    });
-    avgBodyRatio = ratios.reduce((a, b) => a + b, 0) / ratios.length;
-  }
-  let candleQuality = 'unknown';
-  if (avgBodyRatio !== null) {
-    if (avgBodyRatio >= 0.6) candleQuality = 'good';
-    else if (avgBodyRatio >= 0.3) candleQuality = 'marginal';
-    else candleQuality = 'poor';
-  }
+  const currentTfStats = computeCandleStats(last5);
+  // Strategy §7 step 3: "15m/5m candles mainly engulfing; not dominated by dojis/wicks"
+  // — explicit per-TF stats so Pillar 2's candle check is on the right bars.
+  const m5Stats = computeCandleStats(barsByTf?.m5?.last_5_bars);
+  const m15Stats = computeCandleStats(barsByTf?.m15?.last_5_bars);
 
   // -- Pillar 3c: last-bar confirmation facts (single-bar discipline for strategy §5/§6) --
   let lastBar = null;
@@ -298,8 +334,14 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
       range_value: rangeValue,
       range_per_bar: rangePerBar,
       range_acceptable: rangeAcceptable,
-      avg_body_ratio_last_5: avgBodyRatio,
-      candle_quality_heuristic: candleQuality,
+      // Current-TF stats (backwards-compat; also available in the structured form below).
+      avg_body_ratio_last_5: currentTfStats?.avg_body_ratio_last_5 ?? null,
+      candle_quality_heuristic: currentTfStats?.candle_quality_heuristic ?? 'unknown',
+      // Full current-TF stats including ratios, engulfing, doji counts.
+      current_tf: currentTfStats,
+      // Strategy-aligned: 15m and 5m candle anatomy specifically.
+      m5: m5Stats,
+      m15: m15Stats,
     },
     pillar3: {
       most_recent_structure: mostRecentStructure,
@@ -460,7 +502,7 @@ register('analyze', {
     ]);
 
     const pine = { lines, labels, tables, boxes };
-    const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose });
+    const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf: bars_by_tf });
 
     const bundle = {
       timestamp: new Date().toISOString(),

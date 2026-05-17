@@ -42,7 +42,8 @@ The bundle is a single JSON object with:
   - `gates.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L}` — each is `{label, price, position_vs_price, taken}`. The chart's original label text (e.g. `AS.H`) is preserved in `.label`; the JSON key uses underscore form (`AS_H`) so it's citation-safe. `taken` is true if `bars.high > price` for highs or `bars.low < price` for lows.
   - `gates.pillar1.untaken_sell_side_below[]` and `gates.pillar1.untaken_buy_side_above[]` — sorted arrays of session levels that have NOT been taken yet. These are the strategy's "draw" targets per §2.2 ("which liquidity remains untaken").
   - `gates.pillar1.bias_labels[]` — any Pine label whose text matches `/bias/i` (e.g. "Bias Long", "Bias Short"). Empty array if no indicator publishes them; treat HTF bias as inferred from `bars_by_tf` + session-level structure in that case.
-  - `gates.pillar2.{range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic}` — mechanical Pillar 2 metrics.
+  - `gates.pillar2.{range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic}` — mechanical range + current-TF candle metrics.
+  - `gates.pillar2.current_tf.{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5}` — full current-TF stats. Same shape under `gates.pillar2.m5.*` (5m bars) and `gates.pillar2.m15.*` (15m bars) — the strategy-aligned TFs for Pillar 2 candle anatomy.
   - `gates.pillar3.most_recent_structure.{ST_HH, ST_HL, ST_LH, ST_LL, IT_HH, IT_HL, IT_LH, IT_LL, LT_HH, LT_HL, LT_LH, LT_LL}` — each is `{label, price, x}`. `x` is the Pine bar-index — *higher x = more recent*. Sort across keys by `x` to find the most-recent structural point overall, which tells you the current LTF structure state.
   - `gates.pillar3.fvg_by_type{,_above,_below}` — counts of FVGs by direction: `bullish_fvg`, `bullish_ifvg`, `bearish_fvg`, `bearish_ifvg` (decoded from the indicator's bgColor). `_above` = boxes wholly above current price (potential resistance), `_below` = wholly below (potential support).
   - `gates.pillar3.last_bar` — single-bar confirmation facts for the most recent bar: `{time, open, high, low, close, body_ratio, direction, range, close_position_in_range}`. `direction` is `bullish | bearish | doji`. `close_position_in_range` is 0 = closed at the low, 1 = closed at the high, 0.5 = midpoint — a fast read on whether the bar closed STRONG in its direction (>0.7 bull / <0.3 bear) or WEAK / rejected. `body_ratio` is the single-bar version of Pillar 2's 5-bar avg.
@@ -108,10 +109,14 @@ Read `gates.session.in_ny_open_window` and `gates.session.label`. If `in_ny_open
 
 ### Pillar 2 — Price Action Quality
 
-- **Range.** Cite `gates.pillar2.range_value` and `gates.pillar2.range_per_bar`. The heuristic `gates.pillar2.range_acceptable` is a starting point — if you disagree given the timeframe / instrument, override and explain.
-- **Displacement on HTF.** Read `bars_by_tf.h4.range` and `bars_by_tf.h1.range` and compare to recent norms for the symbol. Cite the range values. Large clean ranges with strong directional close (`change_pct` magnitude) = displacement present. Choppy bars (`change_pct` near zero with non-trivial range) = consolidation.
-- **Candle quality on LTF.** Read `gates.pillar2.avg_body_ratio_last_5` and `gates.pillar2.candle_quality_heuristic`. Reference individual bars from `bars.last_5_bars[i]` to support or override the heuristic.
-- **Verdict.** `good | marginal | poor`. Default to the heuristic unless you have a structural reason to disagree. If `marginal` or `poor`, downgrade or stand aside even if Pillar 1 is clean.
+Strategy §7 step 3 asks for three checks: 3-hour range, HTF (4H/1H) displacement, and **5m/15m candle anatomy** (NOT whichever TF the chart is on). The gates reflect that:
+
+- **Range.** Cite `gates.pillar2.range_value` and `gates.pillar2.range_per_bar`. `range_acceptable` heuristic; override if you disagree.
+- **Displacement on HTF.** Read `bars_by_tf.h4.range` + `change_pct` and `bars_by_tf.h1.range` + `change_pct`. Large clean range with strong directional close = displacement present. Choppy `change_pct` near zero with non-trivial range = consolidation.
+- **5m candle anatomy.** Read `gates.pillar2.m5.{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5}`. The strategy wants "mainly engulfing, not dominated by dojis" — interpret as: at least ~2 engulfings out of 4 transitions, doji_count ≤ 1.
+- **15m candle anatomy.** Same fields under `gates.pillar2.m15.*`.
+- **Current-TF stats** (`gates.pillar2.avg_body_ratio_last_5`, `gates.pillar2.candle_quality_heuristic`, `gates.pillar2.current_tf.*`) are a live LTF gauge — useful when chart is on 1m/3m as a "what's happening *right now*" read — but **do not use them in place of m5/m15** for the Pillar 2 verdict.
+- **Verdict.** `good | marginal | poor`. Synthesize from m5 and m15 stats together. If `marginal` or `poor` on either, downgrade or stand aside even if Pillar 1 is clean.
 
 ### Pillar 3 — Entry Model + Confirmation
 
