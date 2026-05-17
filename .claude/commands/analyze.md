@@ -2,6 +2,17 @@
 description: Read the chart on CDP 9223 via the project CLI and produce an ICT-framed analysis under the project's research-backed behavioral rules.
 ---
 
+## Strategy authority (read first)
+
+This project implements **Lanto's 3-pillar ICT framework**. The authoritative spec lives in two files you must consult when applying the strategy:
+
+- [docs/strategy/trading-strategy-2026.md](../../docs/strategy/trading-strategy-2026.md) — three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation), HTF/LTF/overnight framework, A+/B grading, full 7-step checklist.
+- [docs/strategy/entry-models.md](../../docs/strategy/entry-models.md) — MSS (reversal), Trend (continuation), Inversion (failed PD array) — each with components, A+ example, and stop/target logic.
+
+The sections below are the **current, transitional** structure of `/analyze`. They are generic ICT and will be restructured to mirror the 3-pillar framework directly (see "Pending implementation" in `CLAUDE.md`). Until that restructure lands, when you produce the analysis below, **frame every section against the strategy files above** — e.g. for "HTF bias" think Pillar 1, for "setup read" identify which of the three entry models (if any) is in play.
+
+---
+
 You are about to analyse whatever chart is currently focused on the user's TradingView Desktop instance attached to CDP port 9223.
 
 Run the project CLI:

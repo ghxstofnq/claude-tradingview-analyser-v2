@@ -11,6 +11,15 @@ Behavioral rules in this project are grounded in two research passes, both saved
 
 **Consult these before** designing a new analysis mode (tracker / scanner / backtester), changing `/analyze`, adding a new slash command that involves Claude reasoning over data, or modifying the hard constraints below. When proposing a behavioral change, cite the relevant research finding as authority.
 
+## Strategy basis
+
+This project implements the user's documented trading methodology — **Lanto's 3-pillar ICT framework**. The full specification lives in:
+
+- [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) — the three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation), the multi-timeframe framework (HTF Daily/4H/1H + Overnight Asia/London + NY open reaction), A+ vs B grading, and the 7-step trading checklist. **No trade unless all three pillars align.**
+- [docs/strategy/entry-models.md](docs/strategy/entry-models.md) — the three entry models in detail: **MSS (reversal after liquidity grab)**, **Trend (continuation in direction of displacement)**, **Inversion (failed opposing PD array)**. Each with core components, A+ example, stop placement, and target logic.
+
+**Consult these before** any strategy-related work: structuring analysis output, defining what counts as a setup, building the tracker / scanner / backtester, encoding grading logic, choosing what to read from the analyze JSON bundle, or proposing changes to `/analyze`. When proposing a strategy-related change, cite the relevant strategy file.
+
 ## Hard constraints
 
 1. **CDP port 9223 only. Never 9222.** The vendored CLI under `cli/` has its core (`packages/core/connection.js`, `packages/core/tab.js`) hardcoded to 9223. Do not invoke upstream `~/tradingview-mcp-ict` from this project — that copy targets 9222 and is used by other projects on this machine.
@@ -23,6 +32,7 @@ Behavioral rules in this project are grounded in two research passes, both saved
 8. **Prose first, JSON last.** Analyses reason in prose; emit one structured JSON block at the end. Do not force JSON during the reasoning itself. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — forcing JSON output during reasoning degrades accuracy 10–15%.*
 9. **Confidence enum only.** Use `wait | conditional | actionable` exclusively in any structured analysis output. No "high-conviction" / "very likely" / "strong setup" — these vocabularies are systematically overconfident. Emit `actionable` only when rule gates pass (HTF bias aligned + price inside a Pine box + inside an active killzone window). *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLMs in finance show Expected Calibration Error 0.12–0.40.*
 10. **No backtesting on data Claude has seen.** When validating analyses on historical sessions, use post-cutoff dates or out-of-sample symbols. Frontier LLMs memorize prices and outcomes on widely-discussed pre-cutoff dates. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md).*
+11. **Strategy authority — `docs/strategy/*.md` is the spec.** When interpreting setups, frame analyses, or define what counts as a trade, follow the 3-pillar framework and the three entry models (MSS / Trend / Inversion) exactly. Do not invent ICT concepts outside that scope or substitute generic TA. If the strategy is silent on a question, surface that gap rather than improvising.
 
 ## Architecture decisions
 
@@ -41,6 +51,7 @@ Behavioral rules in this project are grounded in two research passes, both saved
 | 2026-05-17 | Prose-first, JSON-last output (constraint #8) | Source: research; JSON-during-reasoning costs ~10–15% accuracy. |
 | 2026-05-17 | Confidence enum (constraint #9) | Source: research; LLM verbal confidence does not track realized accuracy. |
 | 2026-05-17 | ICT vocabulary moved out of CLAUDE.md into the slash command body | Source: research rec #6; keeps CLAUDE.md under instruction ceiling, re-loads vocab per `/analyze` call. |
+| 2026-05-17 | Trading strategy: Lanto's 3-pillar ICT framework | User's documented system; saved verbatim in `docs/strategy/` as the authoritative reference. Three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation) and three entry models (MSS, Trend, Inversion). |
 
 ## Repo
 
@@ -68,6 +79,9 @@ docs/
   research/
     ai-consistency.md            evidence base for consistency rules
     ai-trading-analysis.md       evidence base for accuracy rules
+  strategy/
+    trading-strategy-2026.md     Lanto 3-pillar framework + 7-step checklist (authoritative)
+    entry-models.md              MSS / Trend / Inversion entry models in detail (authoritative)
 packages/
   core/                   vendored @tvmcp/core; CDP_PORT = 9223
 package.json              workspaces, scripts, sole runtime dep: chrome-remote-interface
@@ -104,12 +118,20 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - **Research bound.** Hard constraints 5–10 cite the research files as authority. Future design changes must do the same.
 - **Trading strategy: TBD.** User will provide after this scaffold is reviewed.
 
-## Pending implementation (research recs not yet applied to code)
+## Pending implementation
+
+### From research recs (not yet applied to code)
 
 - **Rule-based co-signal gates in `tv analyze`.** Emit boolean fields `htf_bias_aligned`, `price_inside_pine_box`, `inside_killzone_window` computed in code, so the `actionable` confidence rule (constraint #9) is enforceable mechanically. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #3.*
-- **3 canonical examples in `.claude/commands/analyze.md`.** London sweep → NY reversal, Asia accumulation → London expansion, no-setup standstill. Wrapped in `<example>` tags. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — Anthropic-cited 72%→90% accuracy lift from Tool Use Examples; [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #5.*
-- **Golden dataset.** Capture 50 `tv analyze` outputs over the next few weeks, hand-grade the right read, regression-test on every model/prompt change. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.*
+- **3 canonical examples in `.claude/commands/analyze.md`.** Strategy-specific now: one A+ MSS, one A+ Trend, one A+ Inversion (taken from `docs/strategy/entry-models.md`). Wrapped in `<example>` tags. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — Anthropic-cited 72%→90% accuracy lift from Tool Use Examples; [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #5.*
+- **Golden dataset.** Capture 50 `tv analyze` outputs over the next few weeks, hand-grade the right read using the 3-pillar checklist, regression-test on every model/prompt change. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.*
 - **Post-hoc citation verifier.** A small script that reads Claude's analysis output and confirms every cited price appears in the JSON bundle. Enforces constraint #6 mechanically. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — self-check / verification patterns.*
+
+### From the strategy (not yet applied to code)
+
+- **Restructure `/analyze` around the 3-pillar framework.** Replace the current generic ICT sections (HTF bias, liquidity, FVGs, killzones, setup, invalidation) with: **Pillar 1** (HTF Draw + Overnight Asia/London + NY open reaction), **Pillar 2** (Price Action Quality filter: 3-hour range, HTF displacement & PD array size, candle anatomy), **Pillar 3** (Entry Model: MSS / Trend / Inversion, with the model's specific component checklist). The confidence enum (`wait | conditional | actionable`) should map onto the strategy's grading (`no-trade | B | A+`). *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §1, §7.*
+- **Emit strategy-specific gate booleans in `tv analyze`.** Pillar-by-pillar: `pillar1_htf_bias_set`, `pillar1_overnight_liquidity_left_open`, `pillar2_range_acceptable`, `pillar2_displacement_present`, `pillar3_model_candidate` (which of MSS / Trend / Inversion is in play, or `null`), `pillar3_confirmation_candle_closed`. These let `/analyze` deterministically grade A+ vs B vs no-trade. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §7 checklist.*
+- **Encode the 7-step intraday checklist as the prose-output skeleton.** Steps 1–7 in `trading-strategy-2026.md` are the user's actual decision sequence. The slash command's narrative structure should mirror that exactly, not the generic 7-section ICT structure currently in place.
 
 ## Open questions for the user
 
