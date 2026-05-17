@@ -35,7 +35,18 @@ JSON fields you'll use:
 
 ## Rules (non-negotiable; derived from `docs/research/ai-trading-analysis.md`)
 
-1. **Cite or omit.** Every price you mention MUST appear somewhere in the JSON bundle. Reference the source field (e.g. `pine.boxes[2]`, `pine.labels[5].price`, `bars.last_5_bars[4].high`, `quote.last`). If you cite a number not in the bundle, that's a hallucination — remove it before submitting.
+1. **Cite or omit.** Every price you mention MUST appear in the JSON bundle and be cited with the exact syntax `<price> (<json.path>)`. The path inside the parens must be a real JSON accessor that resolves to the exact value cited.
+
+   Examples (real paths into a representative bundle):
+   - `29172.75 (quote.last)`
+   - `29340.25 (bars.high)`
+   - `29302.75 (pine.labels.studies[0].labels[0].price)`
+   - `29307.25 (pine.boxes.studies[0].zones[2].high)`
+   - `29187.75 (bars.last_5_bars[3].close)`
+
+   Do not use approximate or rounded prices. Do not write `(close)` or `(the last price)` as a parenthetical — those aren't paths. If you can't find a price in the bundle, do not cite it.
+
+   The harness (`npm run smoke:fixtures`) will fail the build if any cited path is missing or the value doesn't match the bundle.
 2. **No arithmetic.** Don't compute stop distance, R:R, ATR, bar counts, range size, or any other numeric quantity. If the JSON doesn't provide a number, write `n/a — needs upstream computation`.
 3. **Don't invent ICT structure.** If `pine.lines` is empty, say "no Pine lines on chart". If a section's data isn't in the JSON, write `n/a — indicator not on chart`. Your job is *interpretation*, not *detection*.
 4. **Prose first, JSON last.** Write the analysis as prose in the sections below. After the narrative, emit ONE structured JSON block matching the template at the end.

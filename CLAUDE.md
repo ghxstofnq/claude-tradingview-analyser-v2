@@ -27,7 +27,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 3. **No edits to other projects.** Do not modify `~/Documents/ai-trading-agent` or `~/tradingview-mcp-ict`. This project is fully self-contained.
 4. **Local state only.** Project state lives under `./state/`. Never read or write `~/.tradingview-mcp/`. The two upstream commands that wrote there (`brief` and `session`) have been stripped from the vendored CLI; the corresponding core modules (`morning.js`, `paths.js`) deleted.
 5. **Screenshots are for verifications and tests only.** `./bin/tv screenshot` exists but its output never feeds analysis. Do not include screenshots in the `analyze` bundle. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — multimodal LLMs can answer correctly while barely using the image; screenshots risk visual hallucination.*
-6. **Cite-or-reject.** Every numeric price in any analysis output MUST reference an ID from the `tv analyze` JSON bundle (e.g. `pine.boxes[i]`, `pine.lines[i].price`, `pine.labels[i].price`, `bars.last_5_bars[i].high`, `quote.last`). Bare prices not in the bundle are hallucinations and must be removed. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — top documented failure mode is hallucinated levels; verifiable post-hoc with a string check.*
+6. **Cite-or-reject.** Every numeric price in any analysis output MUST be cited with the exact syntax `<price> (<json.path>)`, where the path is a real JSON accessor into the `tv analyze` bundle that resolves to the exact value cited. Examples: `29172.75 (quote.last)`, `29302.75 (pine.labels.studies[0].labels[0].price)`, `29307.25 (pine.boxes.studies[0].zones[2].high)`. Approximations, rounded prices, and prose-style parentheticals like `29172.75 (close)` are forbidden. The harness (`npm run smoke:fixtures` → `scripts/verify-citations.js`) mechanically enforces this rule against every paired fixture in `tests/fixtures/`. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — top documented failure mode is hallucinated levels; verifiable post-hoc with a string check.*
 7. **No LLM arithmetic.** Stop distance, R:R, ATR, bar counts, range size, displacement magnitude — all computed in code and emitted in the JSON. Claude reads numbers, never produces one. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLM arithmetic error rises ~+14 percentage points with numerical magnitude; the cure is tool-use, not better prompting.*
 8. **Prose first, JSON last.** Analyses reason in prose; emit one structured JSON block at the end. Do not force JSON during the reasoning itself. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — forcing JSON output during reasoning degrades accuracy 10–15%.*
 9. **Grade enum only.** Use `A+ | B | no-trade` exclusively in any structured analysis output. No "high-conviction" / "very likely" / "strong setup" — these vocabularies are systematically overconfident. Emit `A+` only when ALL six elements align (HTF bias + overnight context + NY reaction + price quality `good` + entry model identified + confirmation `confirmed`). `B` if one element is weaker. `no-trade` if multiple elements are weak/missing OR no entry model is in play. *Sources: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLMs in finance show Expected Calibration Error 0.12–0.40; [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §7 step 7 — strategy grading definition.*
@@ -84,9 +84,15 @@ docs/
     entry-models.md              MSS / Trend / Inversion entry models in detail (authoritative)
 packages/
   core/                   vendored @tvmcp/core; CDP_PORT = 9223
-package.json              workspaces, scripts, sole runtime dep: chrome-remote-interface
+package.json              workspaces, scripts (tv / smoke / smoke:fixtures), sole runtime dep
+scripts/
+  verify-citations.js     enforces constraint #6 on a paired (analysis, bundle)
+  smoke-fixtures.js       schema + citation regression across all fixtures
 state/                    gitignored; created on demand
   screenshots/            verification / tests only — NOT analysis input
+tests/
+  fixtures/               regression baselines (NNN-label.bundle.json + .expected.md)
+    README.md             how to add and grade fixtures
 ```
 
 ## The `analyze` recipe (what `/analyze` does)
@@ -120,27 +126,19 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 
 ## Pending implementation
 
-### From research recs (not yet applied to code)
+### Done so far
 
-- **Rule-based co-signal gates in `tv analyze`.** Emit boolean fields `htf_bias_aligned`, `price_inside_pine_box`, `inside_killzone_window` computed in code, so the `actionable` confidence rule (constraint #9) is enforceable mechanically. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #3.*
-- **3 canonical examples in `.claude/commands/analyze.md`.** Strategy-specific now: one A+ MSS, one A+ Trend, one A+ Inversion (taken from `docs/strategy/entry-models.md`). Wrapped in `<example>` tags. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — Anthropic-cited 72%→90% accuracy lift from Tool Use Examples; [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #5.*
-- **Golden dataset.** Capture 50 `tv analyze` outputs over the next few weeks, hand-grade the right read using the 3-pillar checklist, regression-test on every model/prompt change. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.*
-- **Post-hoc citation verifier.** A small script that reads Claude's analysis output and confirms every cited price appears in the JSON bundle. Enforces constraint #6 mechanically. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — self-check / verification patterns.*
+- Restructure `/analyze` around the 3-pillar framework, mirroring `trading-strategy-2026.md §7`.
+- Three A+ canonical examples (MSS / Trend / Inversion) embedded as `<example>` blocks in the slash command. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — 72%→90% accuracy lift from Tool Use Examples.*
+- Citation verifier (`scripts/verify-citations.js`) enforces constraint #6 mechanically against any paired `(analysis, bundle)` input.
+- Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.
+- Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
 
-### From the strategy
+### Next (do in order)
 
-- ~~**Restructure `/analyze` around the 3-pillar framework.**~~ **Done in this PR.** The slash command now mirrors `trading-strategy-2026.md §7` directly: Pillar 1 (HTF + Overnight + NY reaction) → Pillar 2 (Price Action Quality) → Pillar 3 (MSS / Trend / Inversion + confirmation) → grade. Three A+ examples (one per entry model) embedded as `<example>` blocks.
-- ~~**Encode the 7-step intraday checklist as the prose-output skeleton.**~~ **Done in this PR.**
-- **Emit strategy-specific gate booleans in `tv analyze` (step 3 of the planned sequence).** Pillar-by-pillar boolean fields computed in code so the grade is mechanical, not LLM-guessed: `pillar1_htf_bias_set`, `pillar1_overnight_liquidity_left_open`, `pillar1_in_ny_window`, `pillar2_range_acceptable`, `pillar2_displacement_present`, `pillar2_candle_quality`, `pillar3_model_candidate` (one of MSS / Trend / Inversion or `null`), `pillar3_confirmation_status`. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §7 checklist. **Silent-risk:** wrong gate computation produces wrong grade without visible error. Build harness (below) first.*
-
-### Verification harness (step 2 of the planned sequence — do BEFORE gate booleans land)
-
-- **Capture 3–5 `tv analyze` fixtures** across varied chart states (one in NY open window with active setup, one mid-session no-trade, one HTF-only outside NY hours, etc.). Save under `state/fixtures/` (gitignored) or `tests/fixtures/` (committed if you want them in regression).
-- **Hand-grade each** against the 3-pillar checklist; record expected pillar1/pillar2/pillar3 values and grade.
-- **Citation-verifier script** at `scripts/verify-citations.js` (or similar): reads a Claude `/analyze` output, extracts every cited price, confirms each appears in the corresponding JSON bundle. Enforces constraint #6 mechanically.
-- Re-run on every prompt or model change. Catch regressions before they affect trading.
-
-*Rationale: rec from [docs/research/ai-consistency.md](docs/research/ai-consistency.md) (golden-set + self-check is the verification gap fix) and [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7. Right-sized for a single-user in-development analyzer — scale up only as interesting chart states accumulate.*
+- **Emit strategy-specific gate booleans in `tv analyze`.** Pillar-by-pillar boolean fields computed in code so the grade is mechanical, not LLM-guessed: `pillar1_htf_bias_set`, `pillar1_overnight_liquidity_left_open`, `pillar1_in_ny_window`, `pillar2_range_acceptable`, `pillar2_displacement_present`, `pillar2_candle_quality`, `pillar3_model_candidate` (one of MSS / Trend / Inversion or `null`), `pillar3_confirmation_status`. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §7 checklist.* **Silent-risk:** wrong gate logic produces wrong grade without visible error. The fixture harness is now in place to catch this — every gate computation should be exercised by a fixture before the change ships.
+- **Grow the fixture corpus organically.** Aim for one fixture per varied chart state over the coming weeks: NY-open A+, NY-open B, NY-open no-trade, outside-NY, one A+ per entry model. Target ~10 by month-end, ~50 within a few months per [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.
+- **LLM-as-judge for semantic regression.** Once the corpus exceeds ~10 fixtures, manual eyeball-grading becomes the bottleneck. Spawn a second Claude session that scores agreement between a captured `/analyze` output and the paired `.expected.md`. Until then, manual review is enough.
 
 ## Open questions for the user
 
