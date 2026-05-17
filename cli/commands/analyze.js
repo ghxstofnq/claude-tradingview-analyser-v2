@@ -262,11 +262,71 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
   };
 }
 
+// Multi-timeframe set per strategy §2.1 (Daily / 4H / 1H), §3 (4H/1H/15m/5m),
+// §7 step 6 (1m/5m). TradingView resolution strings → safe citation keys.
+const HTF_LTF_TIMEFRAMES = [
+  { tv: 'D',   key: 'daily' },
+  { tv: '240', key: 'h4' },
+  { tv: '60',  key: 'h1' },
+  { tv: '15',  key: 'm15' },
+  { tv: '5',   key: 'm5' },
+  { tv: '1',   key: 'm1' },
+];
+
+/**
+ * Switch the chart through each target timeframe, fetch bars summary at each,
+ * then restore the original timeframe. Pine surfaces are NOT re-fetched per TF
+ * (they're left at the original TF for the main bundle); only bar summaries.
+ *
+ * Cost: ~1-2s per TF switch (chart redraws on screen). Total ~10-15s.
+ * Strategy mandates this for Pillar 1a HTF bias + Pillar 2 displacement.
+ *
+ * Implementation note: always call setTimeframe explicitly on every iteration,
+ * including when tv equals the previous TF or the original. Skipping has caused
+ * "stuck on previous TF" bugs where getOhlcv reads bars at the wrong resolution.
+ * A small extra settle delay after each switch helps when the data feed lags
+ * (e.g. when the market is closed and TradingView doesn't push new data).
+ */
+const TF_SETTLE_MS = 400;
+async function captureMultiTfBars(originalTf) {
+  const result = {};
+  for (const { tv, key } of HTF_LTF_TIMEFRAMES) {
+    try {
+      await chart.setTimeframe({ timeframe: tv });
+      await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+      const bars = await data.getOhlcv({ summary: true });
+      result[key] = { ...bars, tv_resolution: tv };
+    } catch (e) {
+      result[key] = { error: e.message, tv_resolution: tv };
+    }
+  }
+  // Restore original timeframe explicitly, regardless of the last iterated TF.
+  try {
+    await chart.setTimeframe({ timeframe: originalTf });
+    await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+  } catch (e) {
+    // best-effort restore; fall through
+  }
+  return result;
+}
+
 register('analyze', {
-  description: 'Bundle current chart state, quote, OHLCV summary, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
-  handler: async () => {
+  description: 'Bundle current chart state, quote, multi-TF OHLCV summaries, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
+  options: {
+    'current-tf-only': { type: 'boolean', description: 'Skip multi-TF bar collection (faster; no chart flashing)' },
+  },
+  handler: async (opts) => {
+    // 1. Capture chart state (needed before TF-switching to know original TF).
+    const state = await chart.getState();
+    const originalTf = state.resolution;
+
+    // 2. Multi-TF bar collection (optional). Done FIRST so Pine extraction
+    //    happens at the original TF after restore.
+    const skipMultiTf = opts?.['current-tf-only'] === true;
+    const barsByTf = skipMultiTf ? null : await captureMultiTfBars(originalTf);
+
+    // 3. At the (restored) original TF, fetch everything else in parallel.
     const [
-      state,
       visibleRange,
       quote,
       bars,
@@ -277,7 +337,6 @@ register('analyze', {
       boxes,
       fvgBoxesVerbose,
     ] = await Promise.all([
-      chart.getState(),
       chart.getVisibleRange(),
       data.getQuote(),
       data.getOhlcv({ summary: true }),
@@ -298,6 +357,7 @@ register('analyze', {
       visible_range: visibleRange,
       quote,
       bars,
+      bars_by_tf: barsByTf,
       indicators: indicatorValues,
       pine,
       gates,

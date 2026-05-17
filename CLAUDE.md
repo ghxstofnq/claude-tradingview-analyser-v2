@@ -111,7 +111,9 @@ tests/
   chart:         { symbol, resolution, chartType, indicators[] }
   visible_range: { from, to } (unix seconds)
   quote:         { last, ohlc, volume, ... }
-  bars:          OHLCV summary
+  bars:          OHLCV summary at the chart's current TF
+  bars_by_tf:    { daily, h4, h1, m15, m5, m1 }   per-TF OHLCV summaries (D / 240 / 60 / 15 / 5 / 1)
+                                                  captured by switching chart through each TF and restoring
   indicators:    [{ name, values: {...} }]  (current values of every visible indicator)
   pine: {
     lines:       [{ price, label, ... }]    horizontal levels (PDH, PDL, swing levels, equal highs/lows)
@@ -181,17 +183,18 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 
 ### Known gaps (deferred, by design)
 
-Some gates remain LLM-interpretive because the chart's current indicators don't expose them, or because they need multi-TF data that the current `tv analyze` doesn't provide yet:
+Remaining LLM-interpretive territory:
 
-- **HTF / multi-timeframe context.** Pillar 1a's "reaction off the HTF PD array" and Pillar 2's "4H/1H displacement" require Daily / 4H / 1H candle data. The current bundle is single-TF (whatever the chart is on). *Next commit:* extend `tv analyze` to query multiple timeframes.
-- `pillar1.htf_bias_direction` — strategy expects an explicit "Bias Long" / "Bias Short" label. The user's chart doesn't load such an indicator; bias is inferred from session-level liquidity and HTF structure.
+- `pillar1.htf_bias_direction` — strategy expects an explicit "Bias Long" / "Bias Short" label. The user's chart doesn't load such an indicator; bias is inferred from session-level liquidity, HTF bar direction (`bars_by_tf.daily.change_pct` etc.), and HTF structure.
+- **HTF Pine surfaces.** `pine.boxes` / `pine.labels` / `pine.lines` reflect the *current TF* only. HTF FVGs, HTF structure points, HTF killzone boxes from the chart's indicators at 4H or Daily are NOT in the bundle — switching the chart's TF re-renders Pine but `tv analyze` re-fetches Pine only at the original TF post-restore. To get HTF Pine context, the user would need to manually switch the chart to that TF and re-run. Future enhancement: capture Pine at each TF during the multi-TF sweep (doubles bundle size; deferred).
 - `pillar3.entry_model_candidate` — *which* of MSS / Trend / Inversion is in play remains interpretive. Mechanical detection would need an ICT-detector Pine script (smart-money-concepts on GitHub is the closest reference). Out of scope right now.
 - `pillar3.confirmation_status` — candle-close confirmation within 10-15 min is partly mechanical (body ratio, range) and partly judgment (retest vs chop). Heuristic only at present.
 
-**No longer deferred (resolved in this PR):**
-- ~~Overnight liquidity~~ — ICT Killzones publishes AS/LO/NYAM/PD levels as labels; now mechanical via `gates.pillar1.session_levels.*`.
-- ~~Structure points~~ — ICT Anchored Structures publishes ST/IT/LT swing labels with bar-index ordering; now mechanical via `gates.pillar3.most_recent_structure.*`.
-- ~~FVG direction~~ — Nephew_Sam_'s FVG/iFVG indicator encodes type in bgColor; now mechanical via `gates.pillar3.fvg_by_type_*`.
+**No longer deferred (resolved in earlier commits):**
+- ~~Overnight liquidity~~ — `gates.pillar1.session_levels.*` (mechanical from ICT Killzones labels).
+- ~~Structure points~~ — `gates.pillar3.most_recent_structure.*` (mechanical from Anchored Structures verbose labels).
+- ~~FVG direction~~ — `gates.pillar3.fvg_by_type_*` (mechanical from Nephew_Sam_'s bgColor mapping).
+- ~~Multi-timeframe bar data~~ — `bars_by_tf.{daily,h4,h1,m15,m5,m1}` (chart switches through each TF, restores original).
 
 ## Open questions for the user
 

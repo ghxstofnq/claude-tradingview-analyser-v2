@@ -26,7 +26,8 @@ JSON fields you'll use:
 - `chart` — symbol, timeframe, indicators on chart
 - `visible_range` / `bars.period` — currently-visible date range
 - `quote` — last price snapshot
-- `bars` — OHLCV summary + `last_5_bars`
+- `bars` — OHLCV summary + `last_5_bars` at the chart's *current* timeframe
+- `bars_by_tf` — OHLCV summaries at multiple resolutions: `daily` (D), `h4` (240), `h1` (60), `m15` (15), `m5` (5), `m1` (1). Each entry has `{bar_count, period, range, change_pct, open, close, high, low, avg_volume, last_5_bars, tv_resolution}`. Use these for Pillar 1a HTF bias (compare `bars_by_tf.daily.change_pct` and `.h4.change_pct`) and Pillar 2 HTF displacement. Cite as e.g. `29302 (bars_by_tf.m1.open)`, `29709 (bars_by_tf.m15.open)`. If a TF errored, that key has `{error, tv_resolution}` only.
 - `indicators` — data-window numeric values
 - `pine.lines` — horizontal price levels (PDH/PDL, swing levels, equal highs/lows, session highs/lows)
 - `pine.labels` — text annotations with prices (bias readouts, level names)
@@ -87,7 +88,7 @@ JSON fields you'll use:
 ### Pillar 1 — Draw & Bias
 
 **a. HTF Bias (Daily / 4H / 1H).**
-Mark the best imbalances on HTF — largest FVGs/BPRs that took liquidity in their creation (cite from `pine.boxes` / `pine.lines`). Pick one as the primary HTF draw and state which liquidity pool the market is drawing toward (price, cited). Note the most recent reaction off the HTF PD array: strong rejection → directional bias; no clear reaction → no HTF bias yet (downgrade).
+Read `bars_by_tf.daily`, `bars_by_tf.h4`, `bars_by_tf.h1` and `gates.pillar1.session_levels.*`. State HTF direction by comparing `change_pct` across the three HTF resolutions — agreement = directional bias; mixed signs = no clear HTF bias. Cite the relevant numeric values (e.g. `25916.75 (bars_by_tf.daily.open)`, `29231.75 (bars_by_tf.daily.close)`). For HTF PD arrays (FVGs/BPRs), the current bundle's `pine.boxes` reflects the *original (current) TF*; HTF FVGs/structure would require switching the chart to that TF manually — note the limitation if needed. The strategy's "main HTF draw" is whichever untaken session level is the most likely magnet — cross-reference `gates.pillar1.untaken_sell_side_below[0]` and `untaken_buy_side_above[0]` against the HTF direction.
 
 **b. Overnight & Session Correlation.**
 Read `gates.pillar1.session_levels.*` and the two pre-sorted arrays `gates.pillar1.untaken_sell_side_below` / `untaken_buy_side_above`. Cite each level you reference by its safe key (e.g. `29089.5 (gates.pillar1.session_levels.NYAM_L.price)`). State which liquidity is `taken` and which remains untaken — the untaken pools are the strategy's "draw" per §2.2. State whether overnight is *extending* the HTF move (lots of taken levels on one side) or *consolidating* (mixed). If `PWH` / `PWL` are null, note that weekly markers aren't published on this chart resolution.
@@ -98,7 +99,7 @@ Read `gates.session.in_ny_open_window` and `gates.session.label`. If `in_ny_open
 ### Pillar 2 — Price Action Quality
 
 - **Range.** Cite `gates.pillar2.range_value` and `gates.pillar2.range_per_bar`. The heuristic `gates.pillar2.range_acceptable` is a starting point — if you disagree given the timeframe / instrument, override and explain.
-- **Displacement on HTF.** Not directly computable from a single-timeframe bundle. Describe the largest visible displacement in `bars` (from `bars.high` to `bars.low` and back) and note this is LTF-only unless an HTF indicator gives more context.
+- **Displacement on HTF.** Read `bars_by_tf.h4.range` and `bars_by_tf.h1.range` and compare to recent norms for the symbol. Cite the range values. Large clean ranges with strong directional close (`change_pct` magnitude) = displacement present. Choppy bars (`change_pct` near zero with non-trivial range) = consolidation.
 - **Candle quality on LTF.** Read `gates.pillar2.avg_body_ratio_last_5` and `gates.pillar2.candle_quality_heuristic`. Reference individual bars from `bars.last_5_bars[i]` to support or override the heuristic.
 - **Verdict.** `good | marginal | poor`. Default to the heuristic unless you have a structural reason to disagree. If `marginal` or `poor`, downgrade or stand aside even if Pillar 1 is clean.
 
