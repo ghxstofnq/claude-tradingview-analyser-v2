@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-17T19:33:58.220Z",
+  "timestamp": "2026-05-17T19:57:16.316Z",
   "chart": {
     "success": true,
     "symbol": "CME_MINI:MNQ1!",
@@ -3515,7 +3515,8 @@
           "position_vs_price": "above",
           "taken": false
         }
-      ]
+      ],
+      "bias_labels": []
     },
     "pillar2": {
       "range_value": 229.5,
@@ -3607,7 +3608,19 @@
         "bearish_fvg": 0,
         "bearish_ifvg": 0,
         "unknown": 0
-      }
+      },
+      "last_bar": {
+        "time": 1778878740,
+        "open": 29187.75,
+        "high": 29198,
+        "low": 29172,
+        "close": 29172.75,
+        "body_ratio": 0.58,
+        "direction": "bearish",
+        "range": 26,
+        "close_position_in_range": 0.03
+      },
+      "last_bar_age_seconds": 0
     }
   }
 }

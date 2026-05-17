@@ -134,6 +134,24 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
     }
   }
 
+  // -- Pillar 1c: explicit Bias labels (auto-populates if user adds a bias indicator) --
+  // Scans every Pine label across all studies for text matching /bias/i. Strategy
+  // §2.1 references "Bias Long" / "Bias Short" readouts; this gate catches them
+  // wherever they live, without us hard-coding study names.
+  const biasLabels = [];
+  for (const study of pine?.labels?.studies || []) {
+    for (const lbl of study.labels || []) {
+      if (lbl.text && /bias/i.test(lbl.text)) {
+        biasLabels.push({
+          text: lbl.text,
+          price: lbl.price,
+          study: study.name,
+          x: typeof lbl.x === 'number' ? lbl.x : null,
+        });
+      }
+    }
+  }
+
   // -- Pillar 1: session liquidity from ICT Killzones labels --
   const kzStudy = (pine?.labels?.studies || []).find((s) => /Killzones/i.test(s.name));
   const kzLabels = kzStudy?.labels || [];
@@ -224,6 +242,35 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
     else candleQuality = 'poor';
   }
 
+  // -- Pillar 3c: last-bar confirmation facts (single-bar discipline for strategy §5/§6) --
+  let lastBar = null;
+  let lastBarAgeSeconds = null;
+  if (last5.length > 0) {
+    const lb = last5[last5.length - 1];
+    const totalRange = lb.high - lb.low;
+    const bodySize = Math.abs(lb.close - lb.open);
+    const bodyRatio = totalRange > 0 ? Math.round((bodySize / totalRange) * 100) / 100 : 0;
+    let direction;
+    if (bodyRatio < 0.1) direction = 'doji';
+    else if (lb.close > lb.open) direction = 'bullish';
+    else if (lb.close < lb.open) direction = 'bearish';
+    else direction = 'doji';
+    const closePosInRange =
+      totalRange > 0 ? Math.round(((lb.close - lb.low) / totalRange) * 100) / 100 : 0.5;
+    lastBar = {
+      time: lb.time,
+      open: lb.open,
+      high: lb.high,
+      low: lb.low,
+      close: lb.close,
+      body_ratio: bodyRatio,
+      direction,
+      range: Math.round(totalRange * 100) / 100,
+      close_position_in_range: closePosInRange,
+    };
+    if (quote?.time && lb.time) lastBarAgeSeconds = quote.time - lb.time;
+  }
+
   return {
     session: {
       label: sessionLabel,
@@ -245,6 +292,7 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
       session_levels: sessionLevels,
       untaken_sell_side_below: untakenSellSideBelow,
       untaken_buy_side_above: untakenBuySideAbove,
+      bias_labels: biasLabels,
     },
     pillar2: {
       range_value: rangeValue,
@@ -258,6 +306,8 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose }) {
       fvg_by_type: fvgByType,
       fvg_by_type_above: fvgByTypeAbove,
       fvg_by_type_below: fvgByTypeBelow,
+      last_bar: lastBar,
+      last_bar_age_seconds: lastBarAgeSeconds,
     },
   };
 }

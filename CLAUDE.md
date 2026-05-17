@@ -129,6 +129,7 @@ tests/
                                                  each { label, price, position_vs_price, taken }
       untaken_sell_side_below: [{ key, label, price, ... }]   sorted by nearest first
       untaken_buy_side_above:  [{ key, label, price, ... }]   sorted by nearest first
+      bias_labels: [{ text, price, study, x }]   labels matching /bias/i; empty if no indicator publishes them
     }
     pillar2:        { range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic }
     pillar3: {
@@ -137,6 +138,9 @@ tests/
       fvg_by_type:       { bullish_fvg, bullish_ifvg, bearish_fvg, bearish_ifvg, unknown }
       fvg_by_type_above: same shape, FVGs above current price
       fvg_by_type_below: same shape, FVGs below current price
+      last_bar: { time, open, high, low, close, body_ratio, direction, range, close_position_in_range }
+                                                 single most-recent bar facts for confirmation discipline
+      last_bar_age_seconds: quote.time - last_bar.time   staleness check
     }
   }
 }
@@ -170,9 +174,12 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
   - `gates.price_context.*` — which Pine boxes contain current price.
   - `gates.pillar1.session_levels.*` — full session liquidity (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L plus PWH/PWL/NYPM_H/NYPM_L when set) with `taken / untaken` derived from bars.high/low.
   - `gates.pillar1.untaken_sell_side_below[]` + `untaken_buy_side_above[]` — sorted draw targets.
+  - `gates.pillar1.bias_labels[]` — any Pine label matching /bias/i across all studies; empty when no indicator publishes them.
   - `gates.pillar2.*` — range + candle-quality stats.
   - `gates.pillar3.most_recent_structure.*` — ST/IT/LT × HH/HL/LH/LL latest by Pine x-index.
   - `gates.pillar3.fvg_by_type{,_above,_below}` — FVG counts by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) decoded from Nephew_Sam_'s bgColor.
+  - `gates.pillar3.last_bar` — single most-recent bar facts (body_ratio, direction, close_position_in_range, etc.) for the strategy's confirmation discipline.
+  - `gates.pillar3.last_bar_age_seconds` — staleness check.
   - The slash command is wired to consume all of these directly, not recompute them.
 
 ### Next (do in order)

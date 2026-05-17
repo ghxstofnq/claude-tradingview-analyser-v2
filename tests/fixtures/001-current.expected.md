@@ -42,7 +42,7 @@ Full session map mechanical (per gates above). Pattern read: overnight + early s
 
 - **Range (LTF).** 229.5 (gates.pillar2.range_value) across 100 bars on the 1m chart = 2.295 per bar (gates.pillar2.range_per_bar). `gates.pillar2.range_acceptable = true`.
 - **Displacement (HTF).** 4H range 3103.75 (bars_by_tf.h4.range) over 100 4H bars with +8.14% change — large clean direction = displacement present at HTF scale. 1H range 1042.5 (bars_by_tf.h1.range) with only −0.42% change — modest range, drifty.
-- **Candle quality (LTF, last 5 bars).** `gates.pillar2.avg_body_ratio_last_5 ≈ 0.51` → `candle_quality_heuristic = marginal`. Recent recovery bars (e.g. bars.last_5_bars[3] from 29166.5 → 29187.75) are wide-ish but bars.last_5_bars[4] fades back to 29172.75 (bars.last_5_bars[4].close). Mixed signal.
+- **Candle quality (LTF, last 5 bars).** `gates.pillar2.avg_body_ratio_last_5 ≈ 0.51` → `candle_quality_heuristic = marginal`. Recent recovery bars (e.g. bars.last_5_bars[3] from 29166.5 → 29187.75) are wide-ish. **Critically, the final bar (`gates.pillar3.last_bar`) is `direction: bearish` with `body_ratio: 0.58` and `close_position_in_range: 0.03`** — it opened at 29187.75 (gates.pillar3.last_bar.open), went up to 29198 (gates.pillar3.last_bar.high), and closed at 29172.75 (gates.pillar3.last_bar.close), essentially AT the low of its range (29172 = gates.pillar3.last_bar.low). The recovery has been rejected on the most recent bar.
 - **Verdict: `marginal`.** Range OK, HTF displacement present, but LTF candle quality is not strongly engulfing on the most recent bars.
 
 ## Pillar 3 — Entry Model + Confirmation
@@ -71,7 +71,7 @@ Reading: most-recent event is a fresh ST_LL @ 29160 (x=1517). Current price 2917
 2. **Liquidity Grab** — LT_LL @ 29110.75 cleanly swept LO_L. Direction-of-grab aligns with HTF bullish setup (a sweep down to capture stops before reversing up). **Yes.**
 3. **MSS with Displacement** — Closed above ST_LH 29168, but `candle_quality_heuristic = marginal`. **Partial.**
 4. **Retrace to Bullish FVG** — 1 bullish FVG sits below price (gates.pillar3.fvg_by_type_below.bullish_fvg = 1). Whether it's the *displacement* FVG from the recovery leg is not deterministic from the bundle. **Possibly present.**
-5. **Confirmation candle (1m/5m)** — `candle_quality_heuristic = marginal` and `gates.session.in_killzone = false` (no live killzone to confirm in). **Cannot confirm.**
+5. **Confirmation candle (1m/5m)** — `gates.pillar3.last_bar.direction = bearish` with `close_position_in_range: 0.03` — the most recent bar closed AT its low, *opposite* to a bullish-MSS confirmation requirement. `gates.pillar3.last_bar_age_seconds = 0` (most recent bar is the current/just-closed bar — live-ish data). For a clean bullish-MSS confirmation the strategy wants a `bullish` close with body and `close_position_in_range > 0.7`. **Confirmation NOT present — and the last bar is actively bearish.**
 
 **Entry model: `null` — MSS up *forming* (HTF bullish + LO_L swept + minor structure shift up) but NOT confirmed. NYAM_L below is a remaining downside draw target that could still play out; confirmation candle quality is marginal; we're outside the NY/killzone windows.**
 
