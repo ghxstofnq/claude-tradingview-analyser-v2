@@ -551,8 +551,9 @@ async function captureMultiTf(originalTf) {
 register('analyze', {
   description: 'Bundle current chart state, quote, multi-TF OHLCV summaries + Pine surfaces, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
   options: {
-    'current-tf-only': { type: 'boolean', description: 'Skip multi-TF capture (faster; no chart flashing)' },
-    'pillar3-only': { type: 'boolean', description: 'Lightweight Pillar-3-focused bundle for bar-close polling: skips multi-TF, indicators, pine.lines, pine.tables. Bundle ~25KB, runtime ~0.2s. Designed for the live-trading watchman loop.' },
+    'current-tf-only': { type: 'boolean', description: 'Skip multi-TF capture (faster; no chart flashing). All other data still captured.' },
+    'pillar3-only': { type: 'boolean', description: 'Alias for --current-tf-only. Skips multi-TF chart sweep but captures every other indicator (lines, tables, boxes, labels, study values). Bundle runtime ~0.4–0.6s. Used by the live-trading watchman loop.' },
+    'scan-tf': { type: 'string', description: 'Briefly switch chart to this TF (1, 5, 15, 60, 240, D) for the scan, then restore. Pairs with --pillar3-only for the watchman\'s multi-TF cadence. ~2–3s of chart flashing per call.' },
     baseline: { type: 'string', description: 'Path to a previously-captured full bundle. Reuses its bars_by_tf and pine_by_tf instead of re-running the multi-TF chart sweep. Pairs with --pillar3-only for fast candidate evaluation that still has full HTF context. Emits baseline_meta so the consumer can see how old the cached HTF data is.' },
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
   },
@@ -591,9 +592,25 @@ register('analyze', {
       };
     }
 
-    // 1. Capture chart state + replay status BEFORE any chart-switching,
-    //    so we know the original TF and we record replay state at the
-    //    moment of capture (multi-TF switching can disturb replay state).
+    // 0.5. --scan-tf support. Switch the chart to the requested TF before
+    //      capturing anything, so the bundle reflects scan-tf data. Restore
+    //      below after the bundle is built. Used by the watchman's 5m-boundary
+    //      cadence: chart stays on 1m, briefly flips to 5m, captures, flips
+    //      back. ~2-3s of flashing per scan.
+    const scanTf = opts?.['scan-tf'];
+    let preScanTf = null;
+    if (scanTf) {
+      const initial = await chart.getState();
+      preScanTf = initial.resolution;
+      if (preScanTf !== scanTf) {
+        await chart.setTimeframe({ timeframe: scanTf });
+        await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+      }
+    }
+
+    // 1. Capture chart state + replay status. Chart may already be at
+    //    scan-tf (if --scan-tf was supplied above). Multi-TF switching
+    //    happens below and can disturb replay state.
     const state = await chart.getState();
     const originalTf = state.resolution;
     let replayStatus = { active: false, autoplay: false, current_date: null };
@@ -635,6 +652,12 @@ register('analyze', {
     // 3. At the (restored) original TF, fetch what's needed for the
     //    requested bundle scope. --pillar3-only skips lines/tables/indicators
     //    (not used in any gate; only in the bundle output).
+    // Strategy uses all four loaded indicators (FVG/iFVG, Killzones,
+    // Anchored Structures, BPR). Watchman + /analyze need their data on
+    // every scan. The original pillar3-only mode dropped lines/tables/
+    // study values for speed — but the strategy reads them. Capture
+    // everything except the multi-TF chart-flash (which IS too slow for
+    // per-bar polling).
     const [
       visibleRange,
       quote,
@@ -649,10 +672,10 @@ register('analyze', {
       chart.getVisibleRange(),
       data.getQuote(),
       data.getOhlcv({ summary: true }),
-      pillar3Only ? Promise.resolve(null) : data.getStudyValues(),
-      pillar3Only ? Promise.resolve(null) : data.getPineLines({ verbose: false }),
+      data.getStudyValues(),
+      data.getPineLines({ verbose: false }),
       data.getPineLabels({ verbose: true }),  // verbose: x-index unlocks structure-point ordering
-      pillar3Only ? Promise.resolve(null) : data.getPineTables(),
+      data.getPineTables(),
       data.getPineBoxes({ verbose: false }),
       data.getPineBoxes({ verbose: true, study_filter: 'FVG' }),  // for color-based direction classification
     ]);
@@ -673,6 +696,18 @@ register('analyze', {
       gates,
       ...(baselineMeta ? { baseline_meta: baselineMeta } : {}),
     };
+
+    // 3.5. Restore the pre-scan TF if we switched for --scan-tf. Best-effort;
+    //      a failed restore leaves the chart on scan-tf which the watchman
+    //      detects and re-snaps on the next tick.
+    if (scanTf && preScanTf && preScanTf !== scanTf) {
+      try {
+        await chart.setTimeframe({ timeframe: preScanTf });
+        await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+      } catch (e) {
+        process.stderr.write(`warning: failed to restore TF ${preScanTf} after --scan-tf ${scanTf}: ${e.message}\n`);
+      }
+    }
 
     // 4. Optional file output: write bundle to disk and print only the path.
     //    Lets the slash command Read the file instead of relying on Bash

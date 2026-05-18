@@ -1,86 +1,88 @@
 import { register } from '../router.js';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 
 /**
- * tv watch — long-running watchman for live bar-close polling, with a
- * tap/confirmation/invalidation state machine per FVG zone.
+ * tv watch — long-running watchman with multi-TF tap/confirmation/invalidation
+ * state machine, strictly aligned with Lanto's 3-pillar ICT framework.
  *
- * Strategy basis:
- *   - trading-strategy-2026.md §5 + §6 step 6: "Price taps your chosen PD
- *     array. Within 10–15 minutes, you get a strong 1m/5m close in your
- *     direction." The strategy's hard rule is a TIMER from tap, not just a
- *     per-bar inside-FVG check.
- *   - entry-models.md: MSS / Trend / Inversion all share the same
- *     confirmation discipline — tap, wait, confirm or invalidate.
- *   - §2.4: HTF context reused intraday; per-tick we run pillar3-only
- *     against a 15-min-stale baseline.
+ * Strategy basis (re-read 2026-05-18):
+ *   - trading-strategy-2026.md §2.1: HTF tools = FVGs, BPRs, iFVGs, +
+ *     buy-side/sell-side liquidity. Watchman taps trigger on any PD array.
+ *   - §2.2/§2.3 + §3 + §7 step 3: context gates (killzone + price quality)
+ *     filter NEW tap creation; existing watches keep ticking through.
+ *   - §2.4: HTF context can sit intraday. No 15-min auto-refresh; baseline
+ *     refreshes once at startup + at session boundaries (03:00 / 09:00 /
+ *     13:00 ET) + on demand.
+ *   - §5 + §6 step 6 + entry-models.md: confirmation discipline is on 1m
+ *     AND 5m close. Watchman runs per-1m scan; switches to 5m for ~2-3s at
+ *     every 5m boundary. Cross-TF confirmation allowed: a 1m bar can
+ *     confirm a 5m watch and vice versa (MSS A+ example: 5m FVG + 1m
+ *     confirmation candle).
  *
- * Lifecycle per FVG zone (keyed by study + high + low — robust across
- * snapshots, unlike zone_index which shifts as new FVGs are added/removed):
- *   1. fvg_tap        — first bar with body_ratio >= --min-body-ratio
- *                       that closes inside the zone, while gates pass.
- *                       Opens a watch; arms the timer.
- *   2. fvg_confirmation — within --window-seconds, a subsequent bar
- *                         (a) with body_ratio >= --confirmation-body-ratio
- *                             AND
- *                         (b) whose close is within --confirmation-proximity
- *                             zone-heights of the FVG (default 1.0; "holds
- *                             above/within and pushes away" per the entry
- *                             models). The watch is closed.
- *   3. fvg_invalidation — --window-seconds elapse with no confirmation.
- *                         The watch is closed.
+ * Chart ownership: the chart MUST be on 1m. If the user changes the TF
+ * manually, the watchman snaps it back to 1m on the next tick and logs.
+ * The user's 5m visual view is not supported simultaneously — use a
+ * separate tab/pane if needed.
  *
- *   The state machine intentionally does NOT classify MSS vs Trend vs
- *   Inversion or check confirmation direction against FVG direction. Those
- *   decisions are in CLAUDE.md "Known gaps" — interpretive, deferred to
- *   the LLM via /analyze. The watchman fires candidate events; /analyze
- *   grades them.
+ * Lifecycle per PD-array zone (key = `${tf}:${study}:${high}:${low}`):
+ *   1. pd_array_tap        — wick overlap with zone + body >= --min-body-ratio,
+ *                            while context gates pass. Opens a watch keyed by
+ *                            the bar's TF (1m or 5m).
+ *   2. pd_array_confirmation — within --window-seconds, ANY new bar (1m or 5m)
+ *                            with body >= --confirmation-body-ratio whose
+ *                            close is within --confirmation-proximity zone-
+ *                            heights of the zone. Closes the watch.
+ *   3. pd_array_invalidation — --window-seconds elapse with no confirmation.
  *
- * Context gating only applies to new-tap creation. Existing watches keep
- * ticking through session boundaries — once the strategy has armed a
- * setup, the timer keeps running.
+ * Direction match and entry-model classification (MSS / Trend / Inversion)
+ * stay in the LLM via /analyze. The watchman fires candidates with full
+ * direction metadata (fvg_direction) for downstream grading.
  *
  * Persistence:
- *   - state/watch/baseline.json        — rolling full bundle (15-min TTL)
- *   - state/watch/last-scan.json       — rolling per-tick scan; NOT a
- *                                        valid citation target
- *   - state/watch/snapshots/<bar_time>.bundle.json — frozen per-event
- *                                        snapshots; alerts cite into these
- *   - state/watch/watches.json         — open watches; survives restart
- *   - state/watch/alerts.jsonl         — append-only history of all alerts
- *
- * Citation discipline (CLAUDE.md #6): every numeric field in an alert has
- * a `cites.<field>` path that resolves into the alert's `bundle_path`
- * snapshot file. The snapshot is frozen at emission time.
+ *   - state/watch/baseline.json        — captured at startup + session boundaries
+ *   - state/watch/last-scan.json       — rolling per-tick scan; NOT cited
+ *   - state/watch/snapshots/<bar_time>_<tf>.bundle.json — frozen per-event
+ *   - state/watch/watches.json         — open watches (schema_version 2)
+ *   - state/watch/alerts.jsonl         — append-only history
  */
 
 const DEFAULT_POLL_MS = 10_000;
-const DEFAULT_BASELINE_TTL_S = 900;
 const DEFAULT_BODY_RATIO_MIN = 0.5;
 const DEFAULT_CONFIRMATION_BODY_RATIO_MIN = 0.6;
 const DEFAULT_WINDOW_SECONDS = 900; // 15 min (strategy §6 upper bound)
-// How close the confirmation bar's close must be to the zone, expressed
-// in multiples of zone height. 1.0 = inside zone OR up to one zone-width
-// above/below. Strategy (entry-models.md) requires the confirmation candle
-// to "hold above/within the FVG and push away" / "close back up from that
-// zone" — anchored to the zone, not anywhere on the chart.
 const DEFAULT_CONFIRMATION_PROXIMITY = 1.0;
+
+// Session-boundary refresh times in ET. Strategy §2.1 + §2.4: HTF context
+// reused intraday EXCEPT at major session boundaries. User's chosen lead-in:
+// 30 min before each killzone opens.
+const SESSION_REFRESH_TIMES_ET = [
+  { hour: 3,  minute: 0,  label: 'London Open prep' },     // London KZ opens 03:00
+  { hour: 9,  minute: 0,  label: 'NY AM prep' },           // NY AM KZ opens 08:30; user prefers 09:00
+  { hour: 13, minute: 0,  label: 'NY PM prep' },           // NY PM KZ opens 13:30; user prefers 13:00
+];
+
+// PD-array studies for tap detection. Strategy §2.1 names FVGs, BPRs, and
+// iFVGs as the same class of HTF tools. iFVGs come from the same FVG
+// indicator (Nephew_Sam_); BPR is its own indicator. Anything matching this
+// pattern is a valid tap target.
+const PD_ARRAY_PATTERN = /FVG|BPR|Balanced Price Range/i;
+
+// Home TF — watchman snaps chart back to this if user changes it.
+const HOME_TF = '1';
 
 const STATE_DIR = 'state/watch';
 const BASELINE_PATH = `${STATE_DIR}/baseline.json`;
 const SCAN_PATH = `${STATE_DIR}/last-scan.json`;
+const SCAN_5M_PATH = `${STATE_DIR}/last-scan-5m.json`;
 const ALERTS_PATH = `${STATE_DIR}/alerts.jsonl`;
 const SNAPSHOT_DIR = `${STATE_DIR}/snapshots`;
 const WATCHES_PATH = `${STATE_DIR}/watches.json`;
 
+const STATE_SCHEMA_VERSION = 2;
+
 // Context gates default to ACTIVE (conservative); user opts out via flags.
-// Strategy basis (trading-strategy-2026.md):
-//   - §2.2 + §2.3: liquidity moves during sessions/killzones.
-//   - §3 + §7 step 3: stand aside when 5m/15m candle quality is poor.
-//   - CME schedule: futures closed Sat, Fri 17:00 → Sun 18:00 ET, daily
-//     17:00–18:00 ET break.
 function shouldSkipByContext(bundle, allows) {
   const session = bundle?.gates?.session;
   const pillar2 = bundle?.gates?.pillar2;
@@ -114,9 +116,9 @@ function runCli(args) {
   };
 }
 
-function captureBaseline() {
+function captureBaseline(reason = 'startup') {
   const t0 = Date.now();
-  process.stderr.write('[watch] refreshing baseline (full analyze; chart will flash through 6 TFs)...\n');
+  process.stderr.write(`[watch] refreshing baseline (${reason}; chart will flash through 6 TFs)...\n`);
   const result = runCli(['analyze', '--out', BASELINE_PATH]);
   if (!result.ok) {
     throw new Error(`baseline capture failed (exit ${result.exitCode}): ${result.stderr.trim()}`);
@@ -125,6 +127,7 @@ function captureBaseline() {
   process.stderr.write(`[watch] baseline refreshed in ${dt}s -> ${BASELINE_PATH}\n`);
 }
 
+// Capture at chart's CURRENT TF (no switch). For per-1m scans.
 function captureScan() {
   const result = runCli([
     'analyze', '--pillar3-only', '--baseline', BASELINE_PATH, '--out', SCAN_PATH,
@@ -135,10 +138,30 @@ function captureScan() {
   return JSON.parse(readFileSync(SCAN_PATH, 'utf8'));
 }
 
+// Capture by briefly switching the chart to the requested TF. ~2-3s flash.
+// Used by 5m boundary cadence. Restores TF before returning.
+function captureScanAtTf(tf) {
+  const out = tf === '5' ? SCAN_5M_PATH : `${STATE_DIR}/last-scan-${tf}.json`;
+  const result = runCli([
+    'analyze', '--pillar3-only', '--baseline', BASELINE_PATH,
+    '--scan-tf', tf, '--out', out,
+  ]);
+  if (!result.ok) {
+    throw new Error(`scan-tf=${tf} failed (exit ${result.exitCode}): ${result.stderr.trim()}`);
+  }
+  return JSON.parse(readFileSync(out, 'utf8'));
+}
+
 function loadWatches() {
   if (!existsSync(WATCHES_PATH)) return {};
   try {
     const data = JSON.parse(readFileSync(WATCHES_PATH, 'utf8'));
+    if (data.schema_version !== STATE_SCHEMA_VERSION) {
+      process.stderr.write(
+        `[watch] watches.json schema_version is ${data.schema_version}, expected ${STATE_SCHEMA_VERSION}; discarding.\n`,
+      );
+      return {};
+    }
     return data.watches || {};
   } catch (e) {
     process.stderr.write(`[watch] could not load watches.json: ${e.message}; starting fresh\n`);
@@ -150,54 +173,41 @@ function saveWatches(watches) {
   mkdirSync(STATE_DIR, { recursive: true });
   writeFileSync(
     WATCHES_PATH,
-    JSON.stringify({ schema_version: 1, updated_at: new Date().toISOString(), watches }, null, 2),
+    JSON.stringify({ schema_version: STATE_SCHEMA_VERSION, updated_at: new Date().toISOString(), watches }, null, 2),
   );
 }
 
-function watchKey(study, high, low) {
-  return `${study}:${high}:${low}`;
+function watchKey(tf, study, high, low) {
+  return `${tf}:${study}:${high}:${low}`;
 }
 
-// Snapshot writer is memoised per-tick: at most one bundle file per
-// bar_time even if multiple alerts emit from the same tick.
-function writeSnapshotOnce(bundle, barTime) {
+function writeSnapshotOnce(bundle, barTime, tf) {
   mkdirSync(SNAPSHOT_DIR, { recursive: true });
-  const path = `${SNAPSHOT_DIR}/${barTime}.bundle.json`;
+  const path = `${SNAPSHOT_DIR}/${barTime}_${tf}.bundle.json`;
   if (!existsSync(path)) {
     writeFileSync(path, JSON.stringify(bundle));
   }
   return path;
 }
 
-// Is the close near enough to the zone to count as a confirmation candle?
-// Returns { near: boolean, distance: number } where distance = signed gap
-// from the nearest zone edge (negative when close is inside the zone,
-// positive when outside). The diagnostic is useful for the alert payload.
+// Proximity classifier: bar.close inside the zone OR within margin × zone_height.
 function classifyCloseProximity(close, zoneLow, zoneHigh, proximityMult) {
   const zoneHeight = zoneHigh - zoneLow;
   if (zoneHeight <= 0) return { near: false, distance: null };
   let distance;
-  if (close < zoneLow) distance = zoneLow - close;        // below
-  else if (close > zoneHigh) distance = close - zoneHigh; // above
-  else distance = -Math.min(close - zoneLow, zoneHigh - close); // inside
+  if (close < zoneLow) distance = zoneLow - close;
+  else if (close > zoneHigh) distance = close - zoneHigh;
+  else distance = -Math.min(close - zoneLow, zoneHigh - close);
   const margin = zoneHeight * proximityMult;
   return { near: distance <= margin, distance: Math.round(distance * 100) / 100 };
 }
 
-function findInsideBoxIndex(bundle, box) {
-  const list = bundle?.gates?.price_context?.inside_boxes || [];
-  for (let i = 0; i < list.length; i++) {
-    const b = list[i];
-    if (b.study === box.study && b.high === box.high && b.low === box.low) return i;
-  }
-  return -1;
-}
-
-function buildTapAlert({ watch, lastBar, bundle, snapshotPath, tappedIndex }) {
+function buildTapAlert({ watch, lastBar, snapshotPath, tappedIndex, tf }) {
   return {
     ts: new Date().toISOString(),
-    kind: 'fvg_tap',
+    kind: 'pd_array_tap',
     watch_id: watch.key,
+    tf,
     window_seconds: watch.window_seconds,
     bar_time: lastBar.time,
     bar_direction: lastBar.direction,
@@ -209,27 +219,31 @@ function buildTapAlert({ watch, lastBar, bundle, snapshotPath, tappedIndex }) {
       body_ratio: 'gates.pillar3.last_bar.body_ratio',
       direction: 'gates.pillar3.last_bar.direction',
       bar_time: 'gates.pillar3.last_bar.time',
-      fvg_high: `gates.price_context.wick_tapped_boxes[${tappedIndex}].high`,
-      fvg_low: `gates.price_context.wick_tapped_boxes[${tappedIndex}].low`,
+      zone_high: `gates.price_context.wick_tapped_boxes[${tappedIndex}].high`,
+      zone_low: `gates.price_context.wick_tapped_boxes[${tappedIndex}].low`,
     },
-    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
-    hint: `Watch opened (wick-tap). Looking for a strong-bodied close within ${watch.window_seconds}s for confirmation.`,
+    pd_array: {
+      study: watch.study,
+      high: watch.zone_high,
+      low: watch.zone_low,
+      direction: watch.fvg_direction || 'unknown',
+    },
+    hint: `Watch opened on ${tf} tap. Looking for a strong-bodied close within ${watch.window_seconds}s (1m or 5m) for confirmation.`,
   };
 }
 
-function buildConfirmationAlert({ watch, lastBar, bundle, snapshotPath, elapsedSec, distance }) {
+function buildConfirmationAlert({ watch, lastBar, snapshotPath, elapsedSec, distance, confirmTf }) {
   return {
     ts: new Date().toISOString(),
-    kind: 'fvg_confirmation',
+    kind: 'pd_array_confirmation',
     watch_id: watch.key,
+    watch_tf: watch.tf,
+    confirm_tf: confirmTf,
     elapsed_seconds: Math.round(elapsedSec),
     bar_time: lastBar.time,
     bar_direction: lastBar.direction,
     bar_body_ratio: lastBar.body_ratio,
     close: lastBar.close,
-    // Signed gap to nearest zone edge. Negative = close was inside the
-    // zone; positive = close was outside but within proximity tolerance.
-    // Tighter (closer to 0 or negative) = stronger confirmation signal.
     close_distance_from_zone: distance,
     bundle_path: snapshotPath,
     cites: {
@@ -239,25 +253,24 @@ function buildConfirmationAlert({ watch, lastBar, bundle, snapshotPath, elapsedS
       bar_time: 'gates.pillar3.last_bar.time',
     },
     tap: {
+      tf: watch.tf,
       bar_time: watch.tap_bar_time,
       close: watch.tap_bar_close,
       direction: watch.tap_bar_direction,
       body_ratio: watch.tap_bar_body_ratio,
       snapshot_path: watch.tap_snapshot_path,
     },
-    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
-    hint: 'Confirmation candle within window and near zone. Escalate to /analyze for entry-model and direction grading.',
+    pd_array: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
+    hint: `Confirmation candle (${confirmTf}) within window and near zone. Escalate to /analyze for entry-model and direction grading.`,
   };
 }
 
 function buildInvalidationAlert({ watch, elapsedSec }) {
-  // Invalidation has no current-bar facts to cite; it references the
-  // already-frozen tap snapshot for reproducibility (citations resolve
-  // into the tap snapshot, not a fresh one).
   return {
     ts: new Date().toISOString(),
-    kind: 'fvg_invalidation',
+    kind: 'pd_array_invalidation',
     watch_id: watch.key,
+    watch_tf: watch.tf,
     elapsed_seconds: Math.round(elapsedSec),
     reason: 'timeout',
     bundle_path: watch.tap_snapshot_path,
@@ -268,13 +281,14 @@ function buildInvalidationAlert({ watch, elapsedSec }) {
       tap_bar_time: 'gates.pillar3.last_bar.time',
     },
     tap: {
+      tf: watch.tf,
       bar_time: watch.tap_bar_time,
       close: watch.tap_bar_close,
       direction: watch.tap_bar_direction,
       body_ratio: watch.tap_bar_body_ratio,
       snapshot_path: watch.tap_snapshot_path,
     },
-    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
+    pd_array: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
     hint: 'Watch window expired without a confirmation candle.',
   };
 }
@@ -294,9 +308,50 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// ET clock helpers. Strategy operates in ET. Wall-clock is the source of truth
+// for session-boundary refresh (not bar.time, which depends on data flow).
+function nowET() {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour12: false,
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return {
+    year: Number(parts.year), month: Number(parts.month), day: Number(parts.day),
+    hour: Number(parts.hour) % 24, minute: Number(parts.minute), second: Number(parts.second),
+    dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+  };
+}
+
+// Returns the matching session-boundary entry if now is within ±30s of one,
+// else null. Used to fire baseline refresh exactly at session start.
+function matchSessionBoundary(et) {
+  for (const b of SESSION_REFRESH_TIMES_ET) {
+    if (et.hour === b.hour && et.minute === b.minute && et.second < 30) return b;
+  }
+  return null;
+}
+
+// Get current chart TF via the CLI (subprocess).
+function currentChartTf() {
+  const r = runCli(['state']);
+  if (!r.ok) return null;
+  try {
+    return JSON.parse(r.stdout).resolution || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function snapChartTo(tf) {
+  const r = runCli(['timeframe', tf]);
+  return r.ok;
+}
+
 async function runWatch(opts) {
   const pollMs = opts.poll ? Number(opts.poll) * 1000 : DEFAULT_POLL_MS;
-  const baselineTtl = opts['baseline-ttl'] ? Number(opts['baseline-ttl']) : DEFAULT_BASELINE_TTL_S;
   const tapBodyMin = opts['min-body-ratio'] ? Number(opts['min-body-ratio']) : DEFAULT_BODY_RATIO_MIN;
   const confirmBodyMin = opts['confirmation-body-ratio']
     ? Number(opts['confirmation-body-ratio'])
@@ -315,23 +370,35 @@ async function runWatch(opts) {
 
   mkdirSync(STATE_DIR, { recursive: true });
 
-  captureBaseline();
-  let baselineCapturedMs = Date.now();
+  // Snap chart to 1m before baseline so the baseline's "original TF" is 1m,
+  // which is what we want it restored to on every analyze call.
+  const initialTf = currentChartTf();
+  if (initialTf !== HOME_TF) {
+    process.stderr.write(`[watch] chart was on ${initialTf}; snapping to ${HOME_TF}m\n`);
+    snapChartTo(HOME_TF);
+    await sleep(500);
+  }
 
+  captureBaseline('startup');
   let watches = loadWatches();
-  let lastSeenBarTime = null;
+  let lastSeenBarTime1m = null;
+  let lastSeenBarTime5m = null;
   let tickCount = 0;
+  let lastBoundaryRefresh = null; // dateKey:label of last fired
 
   const gateSummary =
     `killzone=${allows.allowOutsideKillzone ? 'off' : 'on'} ` +
     `quality=${allows.allowPoorQuality ? 'off' : 'on'} ` +
     `market_closed=${allows.allowMarketClosed ? 'off' : 'on'}`;
   process.stderr.write(
-    `[watch] started — poll=${pollMs / 1000}s baseline_ttl=${baselineTtl}s ` +
+    `[watch] started — poll=${pollMs / 1000}s ` +
       `tap_min=${tapBodyMin} confirm_min=${confirmBodyMin} window=${windowSeconds}s ` +
       `confirm_proximity=${confirmProximity}\n`,
   );
   process.stderr.write(`[watch] context gates: ${gateSummary}\n`);
+  process.stderr.write(
+    `[watch] HTF baseline auto-refresh: startup + 03:00 / 09:00 / 13:00 ET (manual: ./bin/tv watch --refresh-now or touch state/watch/refresh-now)\n`,
+  );
   process.stderr.write(
     `[watch] loaded ${Object.keys(watches).length} open watch(es) from ${WATCHES_PATH}\n`,
   );
@@ -339,63 +406,75 @@ async function runWatch(opts) {
 
   while (true) {
     try {
-      const baselineAgeS = Math.floor((Date.now() - baselineCapturedMs) / 1000);
-      if (baselineAgeS > baselineTtl) {
-        captureBaseline();
-        baselineCapturedMs = Date.now();
+      // ====================================================================
+      // (1) Session-boundary baseline refresh check + manual sentinel.
+      // ====================================================================
+      const et = nowET();
+      const boundary = matchSessionBoundary(et);
+      const boundaryKey = boundary ? `${et.dateKey}:${boundary.label}` : null;
+      if (boundary && boundaryKey !== lastBoundaryRefresh) {
+        captureBaseline(`session boundary ${boundary.label} (${et.hour}:${String(et.minute).padStart(2,'0')} ET)`);
+        lastBoundaryRefresh = boundaryKey;
+      }
+      const sentinel = `${STATE_DIR}/refresh-now`;
+      if (existsSync(sentinel)) {
+        captureBaseline('manual sentinel');
+        try { unlinkSync(sentinel); } catch (e) {}
       }
 
-      const bundle = captureScan();
-      tickCount++;
-      const lastBar = bundle?.gates?.pillar3?.last_bar;
-      const barTime = lastBar?.time ?? null;
-      const isNewBar = barTime != null && barTime !== lastSeenBarTime;
-      const isFirstBar = isNewBar && lastSeenBarTime == null;
-      if (isNewBar) lastSeenBarTime = barTime;
+      // ====================================================================
+      // (2) Chart TF enforcement: snap back to 1m if user changed it.
+      // ====================================================================
+      const tfNow = currentChartTf();
+      if (tfNow && tfNow !== HOME_TF) {
+        process.stderr.write(`[watch] chart TF was ${tfNow}, snapping back to ${HOME_TF}m\n`);
+        snapChartTo(HOME_TF);
+        await sleep(500);
+      }
 
-      let snapshotPath = null;
-      const ensureSnapshot = () => {
-        if (snapshotPath == null) snapshotPath = writeSnapshotOnce(bundle, barTime);
-        return snapshotPath;
-      };
+      // ====================================================================
+      // (3) 1m scan — every tick.
+      // ====================================================================
+      const scan1m = captureScan();
+      tickCount++;
+      const last1m = scan1m?.gates?.pillar3?.last_bar;
+      const barTime1m = last1m?.time ?? null;
+      const isNewBar1m = barTime1m != null && barTime1m !== lastSeenBarTime1m;
+      const isFirstBar1m = isNewBar1m && lastSeenBarTime1m == null;
+      if (isNewBar1m) lastSeenBarTime1m = barTime1m;
+
       const alerts = [];
       let stateDirty = false;
-
-      // (a) Confirmations FIRST — only on a new bar close, irrespective of
-      // context gates. Existing watches keep evaluating regardless of session.
-      // Two conditions, both required (entry-models.md):
-      //   1) Body strength: shows displacement, not chop.
-      //   2) Proximity: bar closes in or near the zone, not far from it.
-      //      Strategy phrases this as "holds above/within the FVG and pushes
-      //      away" / "closes back up from that zone" — anchored to the zone.
-      //
-      // Ordering rationale: a bar that closes at the watch-window boundary
-      // should get its shot to confirm BEFORE the timer is allowed to
-      // invalidate it. Otherwise a confirmation candidate that arrives at
-      // 15:01 minutes (just over the 900s window) gets killed by the timer
-      // 1 second before we even evaluate it, even though the bar IS the
-      // strategy's "within 10–15 min" close.
       const nowMs = Date.now();
-      if (isNewBar && !isFirstBar && lastBar && lastBar.body_ratio >= confirmBodyMin) {
+
+      // ====================================================================
+      // (3a) Confirmations against the 1m bar (any open watch, cross-TF).
+      // Runs BEFORE invalidations so a bar at the window boundary gets its
+      // shot to confirm.
+      // ====================================================================
+      let snapshot1mPath = null;
+      const ensure1mSnapshot = () => {
+        if (snapshot1mPath == null) snapshot1mPath = writeSnapshotOnce(scan1m, barTime1m, '1m');
+        return snapshot1mPath;
+      };
+      if (isNewBar1m && !isFirstBar1m && last1m && last1m.body_ratio >= confirmBodyMin) {
         for (const [key, watch] of Object.entries({ ...watches })) {
           const { near, distance } = classifyCloseProximity(
-            lastBar.close, watch.zone_low, watch.zone_high, confirmProximity,
+            last1m.close, watch.zone_low, watch.zone_high, confirmProximity,
           );
           if (!near) continue;
           const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
           alerts.push(
-            buildConfirmationAlert({
-              watch, lastBar, bundle, snapshotPath: ensureSnapshot(), elapsedSec, distance,
-            }),
+            buildConfirmationAlert({ watch, lastBar: last1m, snapshotPath: ensure1mSnapshot(), elapsedSec, distance, confirmTf: '1m' }),
           );
           delete watches[key];
           stateDirty = true;
         }
       }
 
-      // (b) Invalidations — every tick, irrespective of new-bar or gates.
-      // Runs AFTER confirmation so a bar at the window boundary gets its
-      // chance to confirm first.
+      // ====================================================================
+      // (3b) Invalidations — every tick (timer-based, independent of bar).
+      // ====================================================================
       for (const [key, watch] of Object.entries({ ...watches })) {
         const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
         if (elapsedSec > watch.window_seconds) {
@@ -405,67 +484,139 @@ async function runWatch(opts) {
         }
       }
 
-      // (c) New taps — only on new bar, only when context gates pass.
-      let skipReason = null;
-      if (isNewBar && !isFirstBar) {
-        skipReason = shouldSkipByContext(bundle, allows);
-        if (!skipReason && lastBar && lastBar.body_ratio >= tapBodyMin) {
-          // Use wick_tapped_boxes (high/low overlap), not inside_boxes
-          // (close-inside). Strategy's tap is wick-based — see analyze.js
-          // computeGates for the data-source rationale.
-          const tappedList = bundle?.gates?.price_context?.wick_tapped_boxes || [];
-          for (let i = 0; i < tappedList.length; i++) {
-            const box = tappedList[i];
-            if (!/FVG/i.test(box.study)) continue;
-            const key = watchKey(box.study, box.high, box.low);
-            if (watches[key]) continue; // already watching this zone
+      // ====================================================================
+      // (3c) New 1m taps — only on new bar, only when context gates pass.
+      // ====================================================================
+      let skipReason1m = null;
+      if (isNewBar1m && !isFirstBar1m) {
+        skipReason1m = shouldSkipByContext(scan1m, allows);
+        if (!skipReason1m && last1m && last1m.body_ratio >= tapBodyMin) {
+          const tapped = scan1m?.gates?.price_context?.wick_tapped_boxes || [];
+          for (let i = 0; i < tapped.length; i++) {
+            const box = tapped[i];
+            if (!PD_ARRAY_PATTERN.test(box.study)) continue;
+            const key = watchKey('1m', box.study, box.high, box.low);
+            if (watches[key]) continue;
             const watch = {
               key,
+              tf: '1m',
               study: box.study,
               zone_high: box.high,
               zone_low: box.low,
               fvg_direction: box.fvg_direction || 'unknown',
-              tap_bar_time: lastBar.time,
-              tap_bar_close: lastBar.close,
-              tap_bar_direction: lastBar.direction,
-              tap_bar_body_ratio: lastBar.body_ratio,
-              tap_snapshot_path: ensureSnapshot(),
+              tap_bar_time: last1m.time,
+              tap_bar_close: last1m.close,
+              tap_bar_direction: last1m.direction,
+              tap_bar_body_ratio: last1m.body_ratio,
+              tap_snapshot_path: ensure1mSnapshot(),
               opened_at: new Date().toISOString(),
               window_seconds: windowSeconds,
               status: 'open',
             };
             watches[key] = watch;
-            alerts.push(
-              buildTapAlert({ watch, lastBar, bundle, snapshotPath: ensureSnapshot(), tappedIndex: i }),
-            );
+            alerts.push(buildTapAlert({ watch, lastBar: last1m, snapshotPath: ensure1mSnapshot(), tappedIndex: i, tf: '1m' }));
             stateDirty = true;
           }
         }
       }
 
-      // (d) Emit + persist + log.
+      // ====================================================================
+      // (4) 5m boundary: if barTime1m % 300 == 0, the 5m bar also just
+      // closed. Switch chart to 5m, scan, switch back, then evaluate against
+      // the 5m bar (cross-TF confirmation + new 5m taps).
+      // ====================================================================
+      if (isNewBar1m && !isFirstBar1m && barTime1m % 300 === 0) {
+        let scan5m;
+        try {
+          scan5m = captureScanAtTf('5');
+        } catch (e) {
+          process.stderr.write(`[watch] 5m scan failed: ${e.message}\n`);
+          scan5m = null;
+        }
+        if (scan5m) {
+          const last5m = scan5m?.gates?.pillar3?.last_bar;
+          const barTime5m = last5m?.time ?? null;
+          const isNewBar5m = barTime5m != null && barTime5m !== lastSeenBarTime5m;
+          if (isNewBar5m) lastSeenBarTime5m = barTime5m;
+
+          let snapshot5mPath = null;
+          const ensure5mSnapshot = () => {
+            if (snapshot5mPath == null) snapshot5mPath = writeSnapshotOnce(scan5m, barTime5m, '5m');
+            return snapshot5mPath;
+          };
+
+          // (4a) Confirmations against the 5m bar (any open watch, cross-TF).
+          if (isNewBar5m && last5m && last5m.body_ratio >= confirmBodyMin) {
+            for (const [key, watch] of Object.entries({ ...watches })) {
+              const { near, distance } = classifyCloseProximity(
+                last5m.close, watch.zone_low, watch.zone_high, confirmProximity,
+              );
+              if (!near) continue;
+              const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
+              alerts.push(
+                buildConfirmationAlert({ watch, lastBar: last5m, snapshotPath: ensure5mSnapshot(), elapsedSec, distance, confirmTf: '5m' }),
+              );
+              delete watches[key];
+              stateDirty = true;
+            }
+          }
+
+          // (4b) New 5m taps.
+          const skipReason5m = shouldSkipByContext(scan5m, allows);
+          if (!skipReason5m && last5m && last5m.body_ratio >= tapBodyMin) {
+            const tapped5m = scan5m?.gates?.price_context?.wick_tapped_boxes || [];
+            for (let i = 0; i < tapped5m.length; i++) {
+              const box = tapped5m[i];
+              if (!PD_ARRAY_PATTERN.test(box.study)) continue;
+              const key = watchKey('5m', box.study, box.high, box.low);
+              if (watches[key]) continue;
+              const watch = {
+                key,
+                tf: '5m',
+                study: box.study,
+                zone_high: box.high,
+                zone_low: box.low,
+                fvg_direction: box.fvg_direction || 'unknown',
+                tap_bar_time: last5m.time,
+                tap_bar_close: last5m.close,
+                tap_bar_direction: last5m.direction,
+                tap_bar_body_ratio: last5m.body_ratio,
+                tap_snapshot_path: ensure5mSnapshot(),
+                opened_at: new Date().toISOString(),
+                window_seconds: windowSeconds,
+                status: 'open',
+              };
+              watches[key] = watch;
+              alerts.push(buildTapAlert({ watch, lastBar: last5m, snapshotPath: ensure5mSnapshot(), tappedIndex: i, tf: '5m' }));
+              stateDirty = true;
+            }
+          }
+        }
+      }
+
+      // ====================================================================
+      // (5) Emit + persist + log.
+      // ====================================================================
       for (const a of alerts) emitAlert(a);
       if (stateDirty) saveWatches(watches);
 
-      if (isFirstBar) {
-        process.stderr.write(
-          `[watch] tick ${tickCount} bar=${barTime} (initial baseline; not evaluating)\n`,
-        );
+      if (isFirstBar1m) {
+        process.stderr.write(`[watch] tick ${tickCount} bar=${barTime1m} (initial baseline; not evaluating)\n`);
       } else if (alerts.length > 0) {
-        const kinds = alerts.map((a) => a.kind).join(',');
+        const kinds = alerts.map((a) => `${a.kind}(${a.tf || a.confirm_tf || a.watch_tf || '?'})`).join(',');
         process.stderr.write(
-          `[watch] tick ${tickCount} bar=${barTime} emitted ${alerts.length} alert(s) [${kinds}]; open=${Object.keys(watches).length}\n`,
+          `[watch] tick ${tickCount} bar=${barTime1m} emitted ${alerts.length} alert(s) [${kinds}]; open=${Object.keys(watches).length}\n`,
         );
-      } else if (isNewBar) {
-        if (skipReason) {
+      } else if (isNewBar1m) {
+        if (skipReason1m) {
           process.stderr.write(
-            `[watch] tick ${tickCount} bar=${barTime} skipped: ${skipReason}; open=${Object.keys(watches).length}\n`,
+            `[watch] tick ${tickCount} bar=${barTime1m} skipped: ${skipReason1m}; open=${Object.keys(watches).length}\n`,
           );
         } else {
-          const insideFvgCount = (bundle?.gates?.price_context?.inside_boxes || [])
-            .filter((b) => /FVG/i.test(b.study)).length;
+          const pdInsideCount = (scan1m?.gates?.price_context?.wick_tapped_boxes || [])
+            .filter((b) => PD_ARRAY_PATTERN.test(b.study)).length;
           process.stderr.write(
-            `[watch] tick ${tickCount} bar=${barTime} no-event (body=${lastBar?.body_ratio} dir=${lastBar?.direction} fvgs_inside=${insideFvgCount}); open=${Object.keys(watches).length}\n`,
+            `[watch] tick ${tickCount} bar=${barTime1m} no-event (body=${last1m?.body_ratio} dir=${last1m?.direction} pd_arrays_tapped=${pdInsideCount}); open=${Object.keys(watches).length}\n`,
           );
         }
       }
@@ -478,15 +629,14 @@ async function runWatch(opts) {
 
 register('watch', {
   description:
-    'Long-running watchman with tap/confirmation/invalidation state machine per FVG zone. Strategy §6: "Price taps your chosen PD array. Within 10–15 minutes, you get a strong 1m/5m close." Emits JSON-line alerts to stdout (also appended to state/watch/alerts.jsonl). State persisted to state/watch/watches.json across restarts. Stop with Ctrl+C.',
+    'Long-running watchman with multi-TF tap/confirmation/invalidation state machine per PD array (FVG + iFVG + BPR). Chart locked to 1m; flips to 5m for ~2-3s at each 5m boundary. Cross-TF confirmation: a 1m close can confirm a 5m watch and vice versa. HTF baseline refreshes at startup + 03:00 / 09:00 / 13:00 ET + on demand. Emits JSON-line alerts to stdout + state/watch/alerts.jsonl. State persists across restart.',
   options: {
     poll: { type: 'string', description: 'Poll interval in seconds (default 10).' },
-    'baseline-ttl': { type: 'string', description: 'Refresh baseline when older than N seconds (default 900 = 15 min).' },
     'min-body-ratio': { type: 'string', description: 'Minimum last_bar.body_ratio for a new TAP (default 0.5; strategy: "clear body, not a doji").' },
-    'confirmation-body-ratio': { type: 'string', description: 'Minimum last_bar.body_ratio for a CONFIRMATION close (default 0.6; stricter than tap because confirmation should show displacement).' },
+    'confirmation-body-ratio': { type: 'string', description: 'Minimum last_bar.body_ratio for a CONFIRMATION close (default 0.6).' },
     'window-seconds': { type: 'string', description: 'Watch window length in seconds (default 900 = 15 min; strategy §6 upper bound).' },
-    'confirmation-proximity': { type: 'string', description: 'How close the confirmation bar\'s close must be to the FVG zone, in multiples of zone height (default 1.0; 0 = strictly inside zone, larger = wider tolerance for "pushed away" cases). Strategy: confirmation candle must hold within or just outside the FVG.' },
-    'allow-outside-killzone': { type: 'boolean', description: 'Opt out of the killzone gate (applies to new TAPS only; existing watches keep ticking).' },
+    'confirmation-proximity': { type: 'string', description: 'How close the confirmation bar\'s close must be to the PD-array zone, in multiples of zone height (default 1.0).' },
+    'allow-outside-killzone': { type: 'boolean', description: 'Opt out of the killzone gate (applies to new TAPS only).' },
     'allow-poor-quality': { type: 'boolean', description: 'Opt out of the price-quality gate (applies to new TAPS only).' },
     'allow-market-closed': { type: 'boolean', description: 'Opt out of the market-closed gate (applies to new TAPS only).' },
   },

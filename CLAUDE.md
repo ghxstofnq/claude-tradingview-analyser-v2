@@ -61,6 +61,10 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-18 | Loop evaluates confirmation BEFORE invalidation | A bar arriving at the exact window boundary (e.g. 906s elapsed against a 900s window) should get its chance to confirm before the timer kills the watch. Original loop ran invalidation first and missed a valid confirmation candidate during live testing on PR #6's session. |
 | 2026-05-18 | FVG direction tagged on inside_boxes and propagated through alerts | `gates.price_context.inside_boxes[].fvg_direction` (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg / unknown) for FVG-study entries; classified from Nephew_Sam_'s bgColor. Each watch + alert carries `fvg.direction` so `/analyze` grading can distinguish a Trend retest (same-direction confirmation) from an Inversion candidate (opposite-direction confirmation through the zone). The watchman still does NOT filter on direction — that's the LLM's call — but the data is now there. |
 | 2026-05-18 | Tap detection switched from close-inside to wick-overlap | Strategy's "tap" is wick-based: a bar that touches the FVG zone with its high or low, regardless of where the close lands. Verified live 2026-05-18 09:35 ET: a strong bearish bar wicked through 4 FVG zones cleanly but the close landed in the gap, so the watchman missed it entirely. The fix adds `gates.price_context.wick_tapped_boxes[]` (analyze.js) and switches `tv watch` tap detection to consume it. `inside_boxes` is kept for price-vs-zone discipline that uses `quote.last`. |
+| 2026-05-18 | Watchman multi-TF: chart home = 1m, briefly flips to 5m every 5m | Strategy §5 says confirmation can come on either 1m OR 5m close. Single-TF watchman missed 1m setups when chart drifted to 5m (verified live). New design: chart enforced to 1m (home TF); every 5m boundary, `tv analyze --scan-tf 5` flips chart for ~2-3s, captures, restores. Cross-TF confirmation: any open watch evaluates against every new bar (1m or 5m). Watch keys gain TF prefix (`schema_version: 2`). Subprocess overhead: ~0.3s per tick + ~3s per 5m boundary. |
+| 2026-05-18 | Drop time-based baseline refresh; use session-boundary auto-refresh + manual | Strategy §2.4: HTF context can be reused intraday. The original 15-min auto-refresh was wasteful (~15s chart flash every 15 min) and not strategy-justified. New policy: refresh at startup + 03:00 / 09:00 / 13:00 ET (user-specified, 30 min pre-killzone lead-in) + on-demand sentinel `touch state/watch/refresh-now`. Reduces chart disruption from ~4× per hour to ~3× per day. |
+| 2026-05-18 | Tap detection covers FVG + iFVG + BPR (PD-array class) | Strategy §2.1: "Core tools: FVGs and BPRs/inversion FVGs". Earlier watchman filtered tap candidates to `/FVG/i` only, missing BPR taps. New filter `/FVG\|BPR\|Balanced Price Range/i`. iFVGs already covered (same FVG indicator). Alert kinds renamed `fvg_*` → `pd_array_*` to reflect the broader scope. Alert field renamed `fvg` → `pd_array` (still includes `direction` tag for FVG-family entries; BPR direction = unknown until we add a BPR bgColor map). |
+| 2026-05-18 | Chart TF ownership: watchman snaps back to 1m if user changes it | Verified live during the 2026-05-18 NY AM session that the chart was on 5m for almost the entire session, causing 1m setups to be invisible to the watchman. Watchman now reads chart resolution every tick; if it's not 1m, calls `tv timeframe 1` and logs. Strategy doesn't have an opinion on this — pragmatic choice to make the watchman behave predictably. If user wants a different visual TF, use a separate chart tab. |
 
 ## Repo
 
@@ -143,7 +147,10 @@ tests/
       in_ny_open_window, in_killzone, in_killzone_detail,
       replay: { active, autoplay, current_date }      replay state at the moment of capture; non-active when chart shows live data
     }
-    price_context:  { last, inside_boxes[] }
+    price_context:  { last, inside_boxes[], wick_tapped_boxes[] }
+                                                 inside_boxes: close-inside (uses quote.last)
+                                                 wick_tapped_boxes: bar.high/low overlap (used by tv watch tap detection)
+                                                 each FVG-study entry tagged with fvg_direction (bullish_fvg/bullish_ifvg/bearish_fvg/bearish_ifvg)
     pillar1: {
       session_levels: { PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L }
                                                  each { label, price, position_vs_price, taken }
@@ -206,39 +213,48 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 
 ## The `watch` recipe (live bar-close polling)
 
-`./bin/tv watch` is a long-running watchman that implements the strategy's confirmation cadence (`trading-strategy-2026.md §5`, §6 step 6; `entry-models.md` "Entry Confirmation (1m/5m)"). It captures an initial baseline, then on each tick runs `tv analyze --pillar3-only --baseline` (~0.2s) and runs a **tap/confirmation/invalidation state machine** per FVG zone.
+`./bin/tv watch` is a long-running watchman that implements the strategy's confirmation cadence (`trading-strategy-2026.md §5`, §6 step 6; `entry-models.md` "Entry Confirmation (1m/5m)"). It runs a **tap/confirmation/invalidation state machine** per PD-array zone (FVG + iFVG + BPR — strategy §2.1 lists these as the same class of HTF tools).
 
-**State machine.** Strategy §6 step 6 is a timer rule: *"Price taps your chosen PD array. Within 10–15 minutes, you get a strong 1m/5m close in your direction."* The watchman encodes that as three alert kinds:
+**Chart ownership.** Chart is LOCKED to 1m. If you change it manually, the watchman snaps it back to 1m on the next tick and logs. Run a separate chart tab if you need a different visual TF.
 
-1. **`fvg_tap`** — first bar with `body_ratio >= --min-body-ratio` (default 0.5) whose **wick** (high/low) overlaps an FVG zone, while context gates pass. Strategy's tap is wick-based — close-inside is too strict and routinely misses real ICT taps where a bar wicks through the zone and closes in the gap. Opens a new watch keyed by `(study, zone_high, zone_low)`; arms a `--window-seconds` timer (default 900 = 15 min). Sourced from `gates.price_context.wick_tapped_boxes[]` (see `analyze.js`).
-2. **`fvg_confirmation`** — within the window, a subsequent bar (a) with `body_ratio >= --confirmation-body-ratio` (default 0.6), AND (b) whose close is within `--confirmation-proximity` × zone-height of the FVG (default 1.0, i.e. inside the zone or up to one zone-width above/below). Strategy: confirmation candle must "hold above/within the FVG and push away" (MSS) / "close back up from that zone" (Inversion) / "close above the FVG midpoint" (Trend) — anchored to the zone, not anywhere on the chart. The alert payload includes `close_distance_from_zone` (signed: negative = inside, positive = outside but within proximity) plus the original tap (with its own frozen snapshot path) for LLM grading.
-3. **`fvg_invalidation`** — `--window-seconds` elapse with no confirmation. The watch is closed. Citations resolve into the tap snapshot, not the current scan.
+**Multi-TF cadence.**
+- **Every tick (default 10s):** capture pillar3-style scan at 1m (chart stays on 1m, ~0.5s).
+- **Every 5m boundary** (when `bar.time % 300 == 0`): briefly switch chart to 5m via `tv analyze --scan-tf 5`, capture, switch back to 1m. ~2-3s of flashing per 5m boundary.
 
-The state machine intentionally does NOT classify MSS vs Trend vs Inversion or check confirmation direction against FVG direction — those decisions are in "Known gaps" (interpretive, deferred to the LLM via `/analyze`). The watchman fires *candidate events*; `/analyze` grades them.
+**HTF baseline refresh.** Strategy §2.4 explicitly allows HTF reuse intraday — no periodic auto-refresh. Baseline refreshes:
+- At watchman startup (full 6-TF capture, ~15s once).
+- At session boundaries — **03:00 / 09:00 / 13:00 ET** (London Open / NY AM prep / NY PM prep). Fires within 30s of each boundary, once per day.
+- On demand via the sentinel `touch state/watch/refresh-now` (cleared by the watchman after refresh).
+
+**State machine — three alert kinds:**
+
+1. **`pd_array_tap`** — wick overlap with PD-array zone (`gates.price_context.wick_tapped_boxes[]` filtered to FVG / iFVG / BPR studies) + `body_ratio >= --min-body-ratio` (default 0.5), while context gates pass. Opens a watch keyed by `${tf}:${study}:${high}:${low}` (TF prefix separates 1m taps from 5m taps even when zone coords collide). Arms a `--window-seconds` timer (default 900 = 15 min).
+2. **`pd_array_confirmation`** — within the window, ANY new bar (1m or 5m) with (a) `body_ratio >= --confirmation-body-ratio` (default 0.6), AND (b) close within `--confirmation-proximity` × zone-height (default 1.0). Cross-TF: a 1m close can confirm a 5m watch (matches entry-models.md MSS A+ example) and vice versa. Alert payload includes `watch_tf`, `confirm_tf`, `close_distance_from_zone`, plus the original tap (with its own frozen snapshot path).
+3. **`pd_array_invalidation`** — `--window-seconds` elapse with no confirmation. Cites resolve in the tap snapshot, not the current scan.
+
+The watchman does NOT classify MSS vs Trend vs Inversion or filter confirmations by direction-match — those stay in the LLM via `/analyze`. The `pd_array.direction` field (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg / unknown for BPRs) is included on every alert so `/analyze` has the info without re-reading the bundle.
 
 **Flags.**
 - `--poll <sec>` — tick interval (default 10).
-- `--baseline-ttl <sec>` — refresh baseline when older than N seconds (default 900). Strategy §2.4 lets HTF context be reused intraday.
-- `--min-body-ratio <0..1>` — minimum body ratio for a new TAP (default 0.5).
-- `--confirmation-body-ratio <0..1>` — minimum body ratio for a CONFIRMATION close (default 0.6; stricter than tap because confirmation should show displacement).
+- `--min-body-ratio <0..1>` — minimum body ratio for a new TAP (default 0.5; strategy: "clear body, not a doji").
+- `--confirmation-body-ratio <0..1>` — minimum body ratio for a CONFIRMATION close (default 0.6; stricter than tap to encode "shows displacement").
 - `--window-seconds <sec>` — watch window length (default 900 = 15 min; strategy §6 upper bound).
-- `--confirmation-proximity <mult>` — how close the confirmation bar's close must be to the FVG zone, in multiples of zone height (default 1.0). 0 = strictly inside the zone; 2.0 = wider tolerance for "pushed away" cases.
+- `--confirmation-proximity <mult>` — close-to-zone tolerance in multiples of zone height (default 1.0).
 
-**Context gates (all default ON, opt-out flags).** Strategy §2.2/§2.3 + §3 + §7 step 3: scan during sessions, with clean price quality, with the market actually open. The gates filter *which bars trigger alerts*; the loop keeps polling either way.
-- `--allow-outside-killzone` — turn off the killzone filter. Default off: alerts only emit when `gates.session.in_killzone` is `true` (London Open, NY AM, NY PM).
-- `--allow-poor-quality` — turn off the price-quality filter. Default off: alerts suppressed when `gates.pillar2.m5.candle_quality_heuristic` or `m15.candle_quality_heuristic` is `"poor"`.
-- `--allow-market-closed` — turn off the market-closed filter. Default off: alerts suppressed when `gates.session.is_market_closed` is `true` (CME futures schedule).
+**Context gates (all default ON, opt-out flags). Apply to new TAPS only — armed watches keep ticking.**
+- `--allow-outside-killzone` — turn off the killzone filter. Strategy §2.2/§2.3.
+- `--allow-poor-quality` — turn off the m5/m15 candle-quality filter. Strategy §3 + §7 step 3.
+- `--allow-market-closed` — turn off the CME-schedule filter.
 
-Skips are logged to stderr (`[watch] tick N bar=... skipped: <reason>`) but never written to `alerts.jsonl`.
-
-**Context gates apply to NEW TAPS only.** Once a watch is armed, the timer keeps running through session boundaries — `--allow-outside-killzone` etc. don't affect existing-watch evaluation. This matches strategy §6: confirmation timing is intrinsic to the setup, not the session clock.
+Skips are logged to stderr but never written to `alerts.jsonl`.
 
 **State files.** All under `state/watch/` (gitignored):
-- `baseline.json` — most recent full `tv analyze` bundle.
-- `last-scan.json` — most recent `--pillar3-only --baseline` scan. **Rolling** — NOT a valid citation target.
-- `snapshots/<bar_time>.bundle.json` — frozen per-alert bundle. Each emitted alert pins to one of these via its `bundle_path`; cite paths resolve into the snapshot, not the rolling scan.
-- `watches.json` — open watches (schema_version 1). Reloaded on start so the watchman survives restart with armed watches intact.
-- `alerts.jsonl` — append-only JSON-line log of every emitted alert.
+- `baseline.json` — full `tv analyze` bundle from startup / last session boundary.
+- `last-scan.json` — most recent 1m scan. **Rolling** — NOT a valid citation target.
+- `last-scan-5m.json` — most recent 5m scan (refreshed every 5m boundary). Also rolling.
+- `snapshots/<bar_time>_<tf>.bundle.json` — frozen per-alert bundle. Each emitted alert pins to one via `bundle_path`; cite paths resolve into the snapshot.
+- `watches.json` — open watches (`schema_version: 2`; keys include TF prefix). Reloaded on start so armed watches survive restart.
+- `alerts.jsonl` — append-only JSON-line history.
 
 **Citation discipline.** Every emitted alert carries:
 - `bundle_path` — absolute path to the frozen snapshot bundle for that bar.
@@ -259,6 +275,7 @@ Hard constraint #6 applies to watchman output the same way it applies to `/analy
 - **Context-gated watchman.** Alerts now suppressed unless `gates.session.in_killzone` is true, `gates.session.is_market_closed` is false, and neither `gates.pillar2.m5/m15.candle_quality_heuristic` is `"poor"`. Each gate is opt-out via a flag (`--allow-outside-killzone`, `--allow-poor-quality`, `--allow-market-closed`). Strategy basis: §2.2/§2.3 (sessions create liquidity), §3 + §7 step 3 (stand aside when price quality is bad).
 - **Watchman state machine.** Replaces the single `bar_close_in_fvg` event with a tap/confirmation/invalidation lifecycle per FVG zone. Implements strategy §6 step 6's 10–15 min timer rule. Each zone is keyed by `(study, high, low)` so the identifier is stable across snapshots even when zone indices shift. Watches persist to `state/watch/watches.json` and survive restart. Context gates apply to TAP creation only; existing watches keep ticking through session boundaries.
 - **Confirmation zone proximity.** A confirmation candle must close within `--confirmation-proximity` × zone-height of the FVG (default 1.0 — inside or up to one zone-width above/below). Without this, any strong bar within the 15-min window would fire `fvg_confirmation` even if it closed 100+ ticks away from the FVG. Strategy text anchors confirmation to the zone: "holds above/within the FVG and pushes away" (MSS) / "closes back up from that zone" (Inversion) / "closes above the FVG midpoint" (Trend). The signed `close_distance_from_zone` is emitted in the alert payload for downstream grading.
+- **Multi-TF watchman + PD-array taps.** Watchman now polls 1m every tick and switches briefly to 5m at every 5m boundary (`--scan-tf 5` on `tv analyze`). Cross-TF confirmation: a 1m close can confirm a 5m watch and vice versa, per entry-models.md (e.g. MSS A+ uses a 5m FVG with a 1m confirmation candle). Tap detection covers FVG + iFVG + BPR (strategy §2.1: PD-array class). Alert kinds renamed `fvg_*` → `pd_array_*`. Chart is enforced to home TF (1m); if changed manually it snaps back next tick. Time-based baseline refresh dropped — HTF refreshes at startup + 03:00 / 09:00 / 13:00 ET + on-demand sentinel `touch state/watch/refresh-now`.
 
 ## Pending implementation
 
@@ -273,6 +290,8 @@ Hard constraint #6 applies to watchman output the same way it applies to `/analy
 - **Context gates on watchman.** `shouldSkipByContext` in `cli/commands/watch.js` suppresses alert emission unless: (a) `gates.session.is_market_closed === false`, (b) `gates.session.in_killzone === true`, (c) neither `gates.pillar2.m5.candle_quality_heuristic` nor `m15.candle_quality_heuristic` is `"poor"`. All three gates opt-out via flags (`--allow-market-closed`, `--allow-outside-killzone`, `--allow-poor-quality`). Skips logged to stderr; never written to `alerts.jsonl`. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §2.2/§2.3 (sessions create liquidity) + §3 + §7 step 3 (stand aside when price quality is bad).*
 - **Watchman state machine.** `cli/commands/watch.js` now runs a tap/confirmation/invalidation lifecycle per FVG zone, keyed by `(study, zone_high, zone_low)`. Three alert kinds: `fvg_tap` (new watch armed; body >= `--min-body-ratio`, default 0.5), `fvg_confirmation` (strong-bodied close within `--window-seconds`, default 900; body >= `--confirmation-body-ratio`, default 0.6), `fvg_invalidation` (window expired without confirmation). State persists to `state/watch/watches.json` and survives restart. Direction match and entry-model classification stay in the LLM (per "Known gaps"). *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §5 + §6 step 6 (the 10–15 min timer rule); [docs/strategy/entry-models.md](docs/strategy/entry-models.md) confirmation discipline across all three models.*
 - **Confirmation proximity check.** `classifyCloseProximity` in `cli/commands/watch.js` requires the confirmation candle's close to be within `--confirmation-proximity` × zone-height of the FVG (default 1.0 — inside zone or one zone-width above/below). Default value catches both "closed inside" and "pushed away just outside"; 0 forces strictly-inside; larger values widen the tolerance. The signed `close_distance_from_zone` is included in the alert payload (negative = inside, positive = outside-but-near). *Source: [docs/strategy/entry-models.md](docs/strategy/entry-models.md) — all three entry models anchor the confirmation candle to the FVG zone.*
+- **Multi-TF watchman + PD-array taps.** Watchman locks chart to 1m as home TF; switches briefly to 5m via `tv analyze --scan-tf 5` at every 5m boundary (~2-3s flash). Cross-TF confirmation: any open watch evaluates against every new bar (1m or 5m). Tap detection covers FVG + iFVG + BPR (matches strategy §2.1 PD-array class). Alert kinds renamed `pd_array_tap` / `pd_array_confirmation` / `pd_array_invalidation`. Watch keys gain TF prefix (`schema_version: 2`). Chart TF enforcement: if user changes it manually, watchman snaps back next tick and logs. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §2.1 (PD-array class) + §5 (confirmation on 1m OR 5m); [docs/strategy/entry-models.md](docs/strategy/entry-models.md) MSS A+ (5m FVG + 1m confirmation candle).*
+- **Baseline refresh policy.** Time-based 15-min auto-refresh dropped (strategy §2.4 allows HTF reuse intraday). New policy: refresh at startup + session boundaries 03:00 / 09:00 / 13:00 ET + on-demand sentinel `touch state/watch/refresh-now`. Reduces chart disruption from ~4× per hour to ~3× per day. `tv analyze --scan-tf <tf>` adds a one-shot TF switch+restore for the watchman's 5m cadence.*Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §2.4: "HTF gives a macro direction... HTF bias doesn't change minute-to-minute".*
 - **Deterministic gates in `tv analyze` (extended).** Top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
   - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend, market-closed including the Fri 17:00 ET → Sun 18:00 ET CME pause and the daily 17:00–18:00 ET settlement break) + replay state at the moment of capture.
   - `gates.price_context.*` — which Pine boxes contain current price.
