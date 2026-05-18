@@ -55,6 +55,8 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-18 | Watchman is a candidate-flagger, not a grader | `tv watch` emits `bar_close_in_fvg` events when bar+FVG+body conditions align; it does NOT decide MSS/Trend/Inversion or A+/B/no-trade. Source: strategy §5 (confirmation is interpretive) + CLAUDE.md "Known gaps" (entry_model_candidate and confirmation_status are explicitly deferred). The watchman is the *trigger*; `/analyze` is the *grader*. |
 | 2026-05-18 | Watchman uses subprocess calls to `tv analyze` | `cli/commands/watch.js` spawns `node ./cli/index.js analyze ...` instead of importing the analyze handler in-process. ~100ms node-startup overhead per tick is negligible against ~0.2s scan / ~13s baseline runtimes, and we get fault isolation: a bad tick can't crash the watcher loop. |
 | 2026-05-18 | Watchman context-gating defaults ON, opt-out via flags | Filter alerts by killzone presence, market-open state, and m5/m15 candle quality. Strategy §2.2/§2.3 (liquidity moves during sessions) + §3 (stand aside when price quality is bad). Opt-out (rather than opt-in) means the conservative default matches the strategy. Direction-aware filtering (bullish-bar-into-bullish-FVG etc.) remains deferred — that's the entry-model classification step. |
+| 2026-05-18 | Watchman state machine keyed by FVG coordinates, not zone index | Watch key = `(study, zone_high, zone_low)`. Zone indices shift as FVGs are added/removed; coordinates are stable. This makes watches reliable across the rolling scan snapshots and across restart. |
+| 2026-05-18 | Context gates apply to new taps only, not to existing watches | Once a setup is armed, the strategy's 10–15 min timer runs intrinsic to the setup, not the session clock. A tap that fires during NY AM still gets its confirmation/invalidation evaluated even if the window straddles into inter-session. Source: strategy §6 step 6 (the timer is a property of the tap, not the session). |
 
 ## Repo
 
@@ -100,7 +102,8 @@ scripts/
   smoke-fixtures.js       schema + citation regression across all fixtures
 state/                    gitignored; created on demand
   screenshots/            verification / tests only — NOT analysis input
-  watch/                  watchman runtime state (baseline.json, last-scan.json, alerts.jsonl)
+  watch/                  watchman runtime state (baseline.json, last-scan.json,
+                          snapshots/<bar_time>.bundle.json, watches.json, alerts.jsonl)
 tests/
   fixtures/               regression baselines (NNN-label.bundle.json + .expected.md)
     README.md             how to add and grade fixtures
@@ -199,19 +202,22 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 
 ## The `watch` recipe (live bar-close polling)
 
-`./bin/tv watch` is a long-running watchman that implements the strategy's confirmation cadence (`trading-strategy-2026.md §5`, §7 step 6; `entry-models.md` "Entry Confirmation (1m/5m)"). It captures an initial baseline, then on each tick runs `tv analyze --pillar3-only --baseline` (~0.2s) to evaluate the most recent bar close. It emits machine-readable JSON-line alerts to stdout (and persistently appends to `state/watch/alerts.jsonl`) when a strategy-relevant precondition fires.
+`./bin/tv watch` is a long-running watchman that implements the strategy's confirmation cadence (`trading-strategy-2026.md §5`, §6 step 6; `entry-models.md` "Entry Confirmation (1m/5m)"). It captures an initial baseline, then on each tick runs `tv analyze --pillar3-only --baseline` (~0.2s) and runs a **tap/confirmation/invalidation state machine** per FVG zone.
 
-**v1 detection (deliberately direction-agnostic).** A single alert kind, `bar_close_in_fvg`, fires when:
-1. A new bar has closed (`gates.pillar3.last_bar.time` changed since last tick), AND
-2. `gates.pillar3.last_bar.body_ratio >= --min-body-ratio` (default 0.5; strategy's "clear body, not a doji"), AND
-3. The bar's close is inside at least one Pine FVG zone (`gates.price_context.inside_boxes[].study` matches `/FVG/i`).
+**State machine.** Strategy §6 step 6 is a timer rule: *"Price taps your chosen PD array. Within 10–15 minutes, you get a strong 1m/5m close in your direction."* The watchman encodes that as three alert kinds:
 
-The watchman does NOT classify MSS vs Trend vs Inversion — that's deferred per the "Known gaps" list because model identification is interpretive. The watchman flags candidates; the LLM grades them via `/analyze` escalation.
+1. **`fvg_tap`** — first bar with `body_ratio >= --min-body-ratio` (default 0.5) that closes inside an FVG zone, while context gates pass. Opens a new watch keyed by `(study, zone_high, zone_low)`; arms a `--window-seconds` timer (default 900 = 15 min).
+2. **`fvg_confirmation`** — within the window, a subsequent bar with `body_ratio >= --confirmation-body-ratio` (default 0.6) closes. The watch is closed. The alert payload includes the original tap (with its own frozen snapshot path) so the LLM has full context for grading.
+3. **`fvg_invalidation`** — `--window-seconds` elapse with no confirmation. The watch is closed. Citations resolve into the tap snapshot, not the current scan.
+
+The state machine intentionally does NOT classify MSS vs Trend vs Inversion or check confirmation direction against FVG direction — those decisions are in "Known gaps" (interpretive, deferred to the LLM via `/analyze`). The watchman fires *candidate events*; `/analyze` grades them.
 
 **Flags.**
 - `--poll <sec>` — tick interval (default 10).
 - `--baseline-ttl <sec>` — refresh baseline when older than N seconds (default 900). Strategy §2.4 lets HTF context be reused intraday.
-- `--min-body-ratio <0..1>` — body-ratio gate (default 0.5).
+- `--min-body-ratio <0..1>` — minimum body ratio for a new TAP (default 0.5).
+- `--confirmation-body-ratio <0..1>` — minimum body ratio for a CONFIRMATION close (default 0.6; stricter than tap because confirmation should show displacement).
+- `--window-seconds <sec>` — watch window length (default 900 = 15 min; strategy §6 upper bound).
 
 **Context gates (all default ON, opt-out flags).** Strategy §2.2/§2.3 + §3 + §7 step 3: scan during sessions, with clean price quality, with the market actually open. The gates filter *which bars trigger alerts*; the loop keeps polling either way.
 - `--allow-outside-killzone` — turn off the killzone filter. Default off: alerts only emit when `gates.session.in_killzone` is `true` (London Open, NY AM, NY PM).
@@ -220,10 +226,13 @@ The watchman does NOT classify MSS vs Trend vs Inversion — that's deferred per
 
 Skips are logged to stderr (`[watch] tick N bar=... skipped: <reason>`) but never written to `alerts.jsonl`.
 
+**Context gates apply to NEW TAPS only.** Once a watch is armed, the timer keeps running through session boundaries — `--allow-outside-killzone` etc. don't affect existing-watch evaluation. This matches strategy §6: confirmation timing is intrinsic to the setup, not the session clock.
+
 **State files.** All under `state/watch/` (gitignored):
 - `baseline.json` — most recent full `tv analyze` bundle.
 - `last-scan.json` — most recent `--pillar3-only --baseline` scan. **Rolling** — NOT a valid citation target.
-- `snapshots/<bar_time>.bundle.json` — frozen per-alert bundle. Each emitted alert pins to one of these via its `bundle_path` field; cite paths resolve into the snapshot, not the rolling scan.
+- `snapshots/<bar_time>.bundle.json` — frozen per-alert bundle. Each emitted alert pins to one of these via its `bundle_path`; cite paths resolve into the snapshot, not the rolling scan.
+- `watches.json` — open watches (schema_version 1). Reloaded on start so the watchman survives restart with armed watches intact.
 - `alerts.jsonl` — append-only JSON-line log of every emitted alert.
 
 **Citation discipline.** Every emitted alert carries:
@@ -243,6 +252,7 @@ Hard constraint #6 applies to watchman output the same way it applies to `/analy
 - **File output.** `./bin/tv analyze --out <path>` for bundles too large to pipe via stdout.
 - **Watchman shipped.** `./bin/tv watch` runs the strategy's live polling cadence: full baseline every 15min, `--pillar3-only --baseline` scan per tick (~0.2s), JSON-line alert emitted when a bar closes inside an FVG with a clear body. Deliberately direction-agnostic (model classification stays in the LLM, per the "Known gaps" list).
 - **Context-gated watchman.** Alerts now suppressed unless `gates.session.in_killzone` is true, `gates.session.is_market_closed` is false, and neither `gates.pillar2.m5/m15.candle_quality_heuristic` is `"poor"`. Each gate is opt-out via a flag (`--allow-outside-killzone`, `--allow-poor-quality`, `--allow-market-closed`). Strategy basis: §2.2/§2.3 (sessions create liquidity), §3 + §7 step 3 (stand aside when price quality is bad).
+- **Watchman state machine.** Replaces the single `bar_close_in_fvg` event with a tap/confirmation/invalidation lifecycle per FVG zone. Implements strategy §6 step 6's 10–15 min timer rule. Each zone is keyed by `(study, high, low)` so the identifier is stable across snapshots even when zone indices shift. Watches persist to `state/watch/watches.json` and survive restart. Context gates apply to TAP creation only; existing watches keep ticking through session boundaries.
 
 ## Pending implementation
 
@@ -255,6 +265,7 @@ Hard constraint #6 applies to watchman output the same way it applies to `/analy
 - Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
 - **Live watchman (`tv watch`)** — `cli/commands/watch.js`. Loops forever: refreshes baseline every `--baseline-ttl` seconds, runs `tv analyze --pillar3-only --baseline` per tick, emits a `bar_close_in_fvg` JSON-line alert when a new bar closes inside an FVG with body_ratio >= `--min-body-ratio`. Citation paths included on every emitted number. Direction- and model-agnostic by design (the "Known gaps" list keeps model identification in the LLM). *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §5 + §7 step 6 + [docs/strategy/entry-models.md](docs/strategy/entry-models.md) "Entry Confirmation (1m/5m)".*
 - **Context gates on watchman.** `shouldSkipByContext` in `cli/commands/watch.js` suppresses alert emission unless: (a) `gates.session.is_market_closed === false`, (b) `gates.session.in_killzone === true`, (c) neither `gates.pillar2.m5.candle_quality_heuristic` nor `m15.candle_quality_heuristic` is `"poor"`. All three gates opt-out via flags (`--allow-market-closed`, `--allow-outside-killzone`, `--allow-poor-quality`). Skips logged to stderr; never written to `alerts.jsonl`. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §2.2/§2.3 (sessions create liquidity) + §3 + §7 step 3 (stand aside when price quality is bad).*
+- **Watchman state machine.** `cli/commands/watch.js` now runs a tap/confirmation/invalidation lifecycle per FVG zone, keyed by `(study, zone_high, zone_low)`. Three alert kinds: `fvg_tap` (new watch armed; body >= `--min-body-ratio`, default 0.5), `fvg_confirmation` (strong-bodied close within `--window-seconds`, default 900; body >= `--confirmation-body-ratio`, default 0.6), `fvg_invalidation` (window expired without confirmation). State persists to `state/watch/watches.json` and survives restart. Direction match and entry-model classification stay in the LLM (per "Known gaps"). *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §5 + §6 step 6 (the 10–15 min timer rule); [docs/strategy/entry-models.md](docs/strategy/entry-models.md) confirmation discipline across all three models.*
 - **Deterministic gates in `tv analyze` (extended).** Top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
   - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend, market-closed including the Fri 17:00 ET → Sun 18:00 ET CME pause and the daily 17:00–18:00 ET settlement break) + replay state at the moment of capture.
   - `gates.price_context.*` — which Pine boxes contain current price.
