@@ -22,9 +22,13 @@ import { dirname, resolve as resolvePath } from 'node:path';
  *   1. fvg_tap        — first bar with body_ratio >= --min-body-ratio
  *                       that closes inside the zone, while gates pass.
  *                       Opens a watch; arms the timer.
- *   2. fvg_confirmation — within --window-seconds, a subsequent bar with
- *                         body_ratio >= --confirmation-body-ratio closes.
- *                         The watch is closed.
+ *   2. fvg_confirmation — within --window-seconds, a subsequent bar
+ *                         (a) with body_ratio >= --confirmation-body-ratio
+ *                             AND
+ *                         (b) whose close is within --confirmation-proximity
+ *                             zone-heights of the FVG (default 1.0; "holds
+ *                             above/within and pushes away" per the entry
+ *                             models). The watch is closed.
  *   3. fvg_invalidation — --window-seconds elapse with no confirmation.
  *                         The watch is closed.
  *
@@ -57,6 +61,12 @@ const DEFAULT_BASELINE_TTL_S = 900;
 const DEFAULT_BODY_RATIO_MIN = 0.5;
 const DEFAULT_CONFIRMATION_BODY_RATIO_MIN = 0.6;
 const DEFAULT_WINDOW_SECONDS = 900; // 15 min (strategy §6 upper bound)
+// How close the confirmation bar's close must be to the zone, expressed
+// in multiples of zone height. 1.0 = inside zone OR up to one zone-width
+// above/below. Strategy (entry-models.md) requires the confirmation candle
+// to "hold above/within the FVG and push away" / "close back up from that
+// zone" — anchored to the zone, not anywhere on the chart.
+const DEFAULT_CONFIRMATION_PROXIMITY = 1.0;
 
 const STATE_DIR = 'state/watch';
 const BASELINE_PATH = `${STATE_DIR}/baseline.json`;
@@ -159,6 +169,21 @@ function writeSnapshotOnce(bundle, barTime) {
   return path;
 }
 
+// Is the close near enough to the zone to count as a confirmation candle?
+// Returns { near: boolean, distance: number } where distance = signed gap
+// from the nearest zone edge (negative when close is inside the zone,
+// positive when outside). The diagnostic is useful for the alert payload.
+function classifyCloseProximity(close, zoneLow, zoneHigh, proximityMult) {
+  const zoneHeight = zoneHigh - zoneLow;
+  if (zoneHeight <= 0) return { near: false, distance: null };
+  let distance;
+  if (close < zoneLow) distance = zoneLow - close;        // below
+  else if (close > zoneHigh) distance = close - zoneHigh; // above
+  else distance = -Math.min(close - zoneLow, zoneHigh - close); // inside
+  const margin = zoneHeight * proximityMult;
+  return { near: distance <= margin, distance: Math.round(distance * 100) / 100 };
+}
+
 function findInsideBoxIndex(bundle, box) {
   const list = bundle?.gates?.price_context?.inside_boxes || [];
   for (let i = 0; i < list.length; i++) {
@@ -192,7 +217,7 @@ function buildTapAlert({ watch, lastBar, bundle, snapshotPath, insideIndex }) {
   };
 }
 
-function buildConfirmationAlert({ watch, lastBar, bundle, snapshotPath, elapsedSec }) {
+function buildConfirmationAlert({ watch, lastBar, bundle, snapshotPath, elapsedSec, distance }) {
   return {
     ts: new Date().toISOString(),
     kind: 'fvg_confirmation',
@@ -202,6 +227,10 @@ function buildConfirmationAlert({ watch, lastBar, bundle, snapshotPath, elapsedS
     bar_direction: lastBar.direction,
     bar_body_ratio: lastBar.body_ratio,
     close: lastBar.close,
+    // Signed gap to nearest zone edge. Negative = close was inside the
+    // zone; positive = close was outside but within proximity tolerance.
+    // Tighter (closer to 0 or negative) = stronger confirmation signal.
+    close_distance_from_zone: distance,
     bundle_path: snapshotPath,
     cites: {
       close: 'gates.pillar3.last_bar.close',
@@ -217,7 +246,7 @@ function buildConfirmationAlert({ watch, lastBar, bundle, snapshotPath, elapsedS
       snapshot_path: watch.tap_snapshot_path,
     },
     fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low },
-    hint: 'Confirmation candle within window. Escalate to /analyze for entry-model and direction grading.',
+    hint: 'Confirmation candle within window and near zone. Escalate to /analyze for entry-model and direction grading.',
   };
 }
 
@@ -275,6 +304,9 @@ async function runWatch(opts) {
   const windowSeconds = opts['window-seconds']
     ? Number(opts['window-seconds'])
     : DEFAULT_WINDOW_SECONDS;
+  const confirmProximity = opts['confirmation-proximity']
+    ? Number(opts['confirmation-proximity'])
+    : DEFAULT_CONFIRMATION_PROXIMITY;
   const allows = {
     allowOutsideKillzone: opts['allow-outside-killzone'] === true,
     allowPoorQuality: opts['allow-poor-quality'] === true,
@@ -296,7 +328,8 @@ async function runWatch(opts) {
     `market_closed=${allows.allowMarketClosed ? 'off' : 'on'}`;
   process.stderr.write(
     `[watch] started — poll=${pollMs / 1000}s baseline_ttl=${baselineTtl}s ` +
-      `tap_min=${tapBodyMin} confirm_min=${confirmBodyMin} window=${windowSeconds}s\n`,
+      `tap_min=${tapBodyMin} confirm_min=${confirmBodyMin} window=${windowSeconds}s ` +
+      `confirm_proximity=${confirmProximity}\n`,
   );
   process.stderr.write(`[watch] context gates: ${gateSummary}\n`);
   process.stderr.write(
@@ -343,12 +376,23 @@ async function runWatch(opts) {
 
       // (b) Confirmations — only on a new bar close, irrespective of gates.
       // Existing watches keep evaluating regardless of context.
+      // Two conditions, both required (entry-models.md):
+      //   1) Body strength: shows displacement, not chop.
+      //   2) Proximity: bar closes in or near the zone, not far from it.
+      //      Strategy phrases this as "holds above/within the FVG and pushes
+      //      away" / "closes back up from that zone" — anchored to the zone.
+      //      A strong bar that closes 100 ticks away isn't a confirmation;
+      //      it's just an unrelated strong bar.
       if (isNewBar && !isFirstBar && lastBar && lastBar.body_ratio >= confirmBodyMin) {
         for (const [key, watch] of Object.entries({ ...watches })) {
+          const { near, distance } = classifyCloseProximity(
+            lastBar.close, watch.zone_low, watch.zone_high, confirmProximity,
+          );
+          if (!near) continue;
           const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
           alerts.push(
             buildConfirmationAlert({
-              watch, lastBar, bundle, snapshotPath: ensureSnapshot(), elapsedSec,
+              watch, lastBar, bundle, snapshotPath: ensureSnapshot(), elapsedSec, distance,
             }),
           );
           delete watches[key];
@@ -432,6 +476,7 @@ register('watch', {
     'min-body-ratio': { type: 'string', description: 'Minimum last_bar.body_ratio for a new TAP (default 0.5; strategy: "clear body, not a doji").' },
     'confirmation-body-ratio': { type: 'string', description: 'Minimum last_bar.body_ratio for a CONFIRMATION close (default 0.6; stricter than tap because confirmation should show displacement).' },
     'window-seconds': { type: 'string', description: 'Watch window length in seconds (default 900 = 15 min; strategy §6 upper bound).' },
+    'confirmation-proximity': { type: 'string', description: 'How close the confirmation bar\'s close must be to the FVG zone, in multiples of zone height (default 1.0; 0 = strictly inside zone, larger = wider tolerance for "pushed away" cases). Strategy: confirmation candle must hold within or just outside the FVG.' },
     'allow-outside-killzone': { type: 'boolean', description: 'Opt out of the killzone gate (applies to new TAPS only; existing watches keep ticking).' },
     'allow-poor-quality': { type: 'boolean', description: 'Opt out of the price-quality gate (applies to new TAPS only).' },
     'allow-market-closed': { type: 'boolean', description: 'Opt out of the market-closed gate (applies to new TAPS only).' },
