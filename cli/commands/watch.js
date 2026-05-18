@@ -1,6 +1,6 @@
 import { register } from '../router.js';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync, statSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 
 /**
@@ -152,17 +152,40 @@ function captureScanAtTf(tf) {
   return JSON.parse(readFileSync(out, 'utf8'));
 }
 
+// Schema migrations. Each function takes the prior schema's `watches` object
+// and returns the current-schema version. Chained on load so multi-version
+// upgrades work in one pass. Keep upgrades small and additive — losing armed
+// watches across a deploy is a real cost (15 min of strategy state).
+function migrateV1toV2(watchesV1) {
+  // v1 key: "study:high:low" (no TF — implicit 1m).
+  // v2 key: "tf:study:high:low" with each watch object gaining `tf: "1m"`.
+  const out = {};
+  for (const [oldKey, watch] of Object.entries(watchesV1 || {})) {
+    const newKey = `1m:${oldKey}`;
+    out[newKey] = { ...watch, tf: '1m', key: newKey };
+  }
+  return out;
+}
+
 function loadWatches() {
   if (!existsSync(WATCHES_PATH)) return {};
   try {
     const data = JSON.parse(readFileSync(WATCHES_PATH, 'utf8'));
-    if (data.schema_version !== STATE_SCHEMA_VERSION) {
+    let watches = data.watches || {};
+    let version = data.schema_version;
+    if (version === STATE_SCHEMA_VERSION) return watches;
+    if (version === 1) {
+      process.stderr.write(`[watch] migrating watches.json v1 → v2 (adding tf prefix to keys)\n`);
+      watches = migrateV1toV2(watches);
+      version = 2;
+    }
+    if (version !== STATE_SCHEMA_VERSION) {
       process.stderr.write(
         `[watch] watches.json schema_version is ${data.schema_version}, expected ${STATE_SCHEMA_VERSION}; discarding.\n`,
       );
       return {};
     }
-    return data.watches || {};
+    return watches;
   } catch (e) {
     process.stderr.write(`[watch] could not load watches.json: ${e.message}; starting fresh\n`);
     return {};
@@ -190,6 +213,34 @@ function writeSnapshotOnce(bundle, barTime, tf) {
   return path;
 }
 
+// Delete snapshot files older than `retainDays` days. Snapshots accumulate
+// indefinitely otherwise — each tap creates a file, hundreds per busy
+// session. Retention default 7 days is plenty for "review yesterday";
+// any alert older than that whose snapshot is gone gets a dangling
+// bundle_path (still informational, just not re-citable).
+function cleanupOldSnapshots(retainDays) {
+  if (retainDays <= 0) return { kept: 0, deleted: 0 };
+  if (!existsSync(SNAPSHOT_DIR)) return { kept: 0, deleted: 0 };
+  const cutoffMs = Date.now() - retainDays * 86400 * 1000;
+  let kept = 0;
+  let deleted = 0;
+  for (const f of readdirSync(SNAPSHOT_DIR)) {
+    const full = `${SNAPSHOT_DIR}/${f}`;
+    try {
+      const st = statSync(full);
+      if (st.mtimeMs < cutoffMs) {
+        unlinkSync(full);
+        deleted++;
+      } else {
+        kept++;
+      }
+    } catch (e) {
+      // Best-effort: a vanished file from a concurrent write is fine to skip.
+    }
+  }
+  return { kept, deleted };
+}
+
 // Proximity classifier: bar.close inside the zone OR within margin × zone_height.
 function classifyCloseProximity(close, zoneLow, zoneHigh, proximityMult) {
   const zoneHeight = zoneHigh - zoneLow;
@@ -202,49 +253,55 @@ function classifyCloseProximity(close, zoneLow, zoneHigh, proximityMult) {
   return { near: distance <= margin, distance: Math.round(distance * 100) / 100 };
 }
 
-function buildTapAlert({ watch, lastBar, snapshotPath, tappedIndex, tf }) {
+// Tap alert — always grouped. One alert per (bar_time, tf, kind); the
+// `zones[]` array carries each zone-specific entry. Even single-zone
+// taps go through this shape so downstream consumers parse one schema.
+// Saw multi-zone taps live (2026-05-18 10:30 ET: bullish bar tapped both
+// a bullish_fvg and a bullish_ifvg simultaneously — strategically ONE
+// event, two zones).
+function buildTapAlertGrouped({ lastBar, snapshotPath, entries, tf, windowSeconds }) {
   return {
     ts: new Date().toISOString(),
     kind: 'pd_array_tap',
-    watch_id: watch.key,
     tf,
-    window_seconds: watch.window_seconds,
     bar_time: lastBar.time,
     bar_direction: lastBar.direction,
     bar_body_ratio: lastBar.body_ratio,
     close: lastBar.close,
+    window_seconds: windowSeconds,
     bundle_path: snapshotPath,
     cites: {
       close: 'gates.pillar3.last_bar.close',
       body_ratio: 'gates.pillar3.last_bar.body_ratio',
       direction: 'gates.pillar3.last_bar.direction',
       bar_time: 'gates.pillar3.last_bar.time',
-      zone_high: `gates.price_context.wick_tapped_boxes[${tappedIndex}].high`,
-      zone_low: `gates.price_context.wick_tapped_boxes[${tappedIndex}].low`,
     },
-    pd_array: {
+    zones: entries.map(({ watch, tappedIndex }) => ({
+      watch_id: watch.key,
       study: watch.study,
       high: watch.zone_high,
       low: watch.zone_low,
       direction: watch.fvg_direction || 'unknown',
-    },
-    hint: `Watch opened on ${tf} tap. Looking for a strong-bodied close within ${watch.window_seconds}s (1m or 5m) for confirmation.`,
+      cites: {
+        zone_high: `gates.price_context.wick_tapped_boxes[${tappedIndex}].high`,
+        zone_low: `gates.price_context.wick_tapped_boxes[${tappedIndex}].low`,
+      },
+    })),
+    hint: entries.length > 1
+      ? `${entries.length} PD-array zones tapped simultaneously on ${tf}. Watching all for confirmation within ${windowSeconds}s (1m or 5m).`
+      : `Watch opened on ${tf} tap. Looking for a strong-bodied close within ${windowSeconds}s (1m or 5m) for confirmation.`,
   };
 }
 
-function buildConfirmationAlert({ watch, lastBar, snapshotPath, elapsedSec, distance, confirmTf }) {
+function buildConfirmationAlertGrouped({ lastBar, snapshotPath, entries, confirmTf }) {
   return {
     ts: new Date().toISOString(),
     kind: 'pd_array_confirmation',
-    watch_id: watch.key,
-    watch_tf: watch.tf,
     confirm_tf: confirmTf,
-    elapsed_seconds: Math.round(elapsedSec),
     bar_time: lastBar.time,
     bar_direction: lastBar.direction,
     bar_body_ratio: lastBar.body_ratio,
     close: lastBar.close,
-    close_distance_from_zone: distance,
     bundle_path: snapshotPath,
     cites: {
       close: 'gates.pillar3.last_bar.close',
@@ -252,16 +309,29 @@ function buildConfirmationAlert({ watch, lastBar, snapshotPath, elapsedSec, dist
       direction: 'gates.pillar3.last_bar.direction',
       bar_time: 'gates.pillar3.last_bar.time',
     },
-    tap: {
-      tf: watch.tf,
-      bar_time: watch.tap_bar_time,
-      close: watch.tap_bar_close,
-      direction: watch.tap_bar_direction,
-      body_ratio: watch.tap_bar_body_ratio,
-      snapshot_path: watch.tap_snapshot_path,
-    },
-    pd_array: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
-    hint: `Confirmation candle (${confirmTf}) within window and near zone. Escalate to /analyze for entry-model and direction grading.`,
+    zones: entries.map(({ watch, elapsedSec, distance }) => ({
+      watch_id: watch.key,
+      watch_tf: watch.tf,
+      elapsed_seconds: Math.round(elapsedSec),
+      close_distance_from_zone: distance,
+      pd_array: {
+        study: watch.study,
+        high: watch.zone_high,
+        low: watch.zone_low,
+        direction: watch.fvg_direction || 'unknown',
+      },
+      tap: {
+        tf: watch.tf,
+        bar_time: watch.tap_bar_time,
+        close: watch.tap_bar_close,
+        direction: watch.tap_bar_direction,
+        body_ratio: watch.tap_bar_body_ratio,
+        snapshot_path: watch.tap_snapshot_path,
+      },
+    })),
+    hint: entries.length > 1
+      ? `Confirmation candle (${confirmTf}) within window confirmed ${entries.length} zones. Escalate to /analyze for entry-model grading.`
+      : `Confirmation candle (${confirmTf}) within window and near zone. Escalate to /analyze for entry-model and direction grading.`,
   };
 }
 
@@ -367,8 +437,20 @@ async function runWatch(opts) {
     allowPoorQuality: opts['allow-poor-quality'] === true,
     allowMarketClosed: opts['allow-market-closed'] === true,
   };
+  const snapshotRetainDays = opts['snapshot-retention-days']
+    ? Number(opts['snapshot-retention-days'])
+    : 7;
 
   mkdirSync(STATE_DIR, { recursive: true });
+
+  // Startup snapshot cleanup. Snapshots accumulate one-per-tap; without
+  // retention the dir grows forever.
+  {
+    const { kept, deleted } = cleanupOldSnapshots(snapshotRetainDays);
+    if (deleted > 0) {
+      process.stderr.write(`[watch] startup cleanup: removed ${deleted} snapshot(s) older than ${snapshotRetainDays}d; kept ${kept}\n`);
+    }
+  }
 
   // Snap chart to 1m before baseline so the baseline's "original TF" is 1m,
   // which is what we want it restored to on every analyze call.
@@ -414,6 +496,10 @@ async function runWatch(opts) {
       const boundaryKey = boundary ? `${et.dateKey}:${boundary.label}` : null;
       if (boundary && boundaryKey !== lastBoundaryRefresh) {
         captureBaseline(`session boundary ${boundary.label} (${et.hour}:${String(et.minute).padStart(2,'0')} ET)`);
+        const { deleted } = cleanupOldSnapshots(snapshotRetainDays);
+        if (deleted > 0) {
+          process.stderr.write(`[watch] boundary cleanup: removed ${deleted} snapshot(s) older than ${snapshotRetainDays}d\n`);
+        }
         lastBoundaryRefresh = boundaryKey;
       }
       const sentinel = `${STATE_DIR}/refresh-now`;
@@ -458,17 +544,21 @@ async function runWatch(opts) {
         return snapshot1mPath;
       };
       if (isNewBar1m && !isFirstBar1m && last1m && last1m.body_ratio >= confirmBodyMin) {
+        const confirmEntries1m = [];
         for (const [key, watch] of Object.entries({ ...watches })) {
           const { near, distance } = classifyCloseProximity(
             last1m.close, watch.zone_low, watch.zone_high, confirmProximity,
           );
           if (!near) continue;
           const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
-          alerts.push(
-            buildConfirmationAlert({ watch, lastBar: last1m, snapshotPath: ensure1mSnapshot(), elapsedSec, distance, confirmTf: '1m' }),
-          );
+          confirmEntries1m.push({ watch, elapsedSec, distance });
           delete watches[key];
           stateDirty = true;
+        }
+        if (confirmEntries1m.length > 0) {
+          alerts.push(
+            buildConfirmationAlertGrouped({ lastBar: last1m, snapshotPath: ensure1mSnapshot(), entries: confirmEntries1m, confirmTf: '1m' }),
+          );
         }
       }
 
@@ -492,6 +582,7 @@ async function runWatch(opts) {
         skipReason1m = shouldSkipByContext(scan1m, allows);
         if (!skipReason1m && last1m && last1m.body_ratio >= tapBodyMin) {
           const tapped = scan1m?.gates?.price_context?.wick_tapped_boxes || [];
+          const tapEntries1m = [];
           for (let i = 0; i < tapped.length; i++) {
             const box = tapped[i];
             if (!PD_ARRAY_PATTERN.test(box.study)) continue;
@@ -514,8 +605,11 @@ async function runWatch(opts) {
               status: 'open',
             };
             watches[key] = watch;
-            alerts.push(buildTapAlert({ watch, lastBar: last1m, snapshotPath: ensure1mSnapshot(), tappedIndex: i, tf: '1m' }));
+            tapEntries1m.push({ watch, tappedIndex: i });
             stateDirty = true;
+          }
+          if (tapEntries1m.length > 0) {
+            alerts.push(buildTapAlertGrouped({ lastBar: last1m, snapshotPath: ensure1mSnapshot(), entries: tapEntries1m, tf: '1m', windowSeconds }));
           }
         }
       }
@@ -547,17 +641,21 @@ async function runWatch(opts) {
 
           // (4a) Confirmations against the 5m bar (any open watch, cross-TF).
           if (isNewBar5m && last5m && last5m.body_ratio >= confirmBodyMin) {
+            const confirmEntries5m = [];
             for (const [key, watch] of Object.entries({ ...watches })) {
               const { near, distance } = classifyCloseProximity(
                 last5m.close, watch.zone_low, watch.zone_high, confirmProximity,
               );
               if (!near) continue;
               const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
-              alerts.push(
-                buildConfirmationAlert({ watch, lastBar: last5m, snapshotPath: ensure5mSnapshot(), elapsedSec, distance, confirmTf: '5m' }),
-              );
+              confirmEntries5m.push({ watch, elapsedSec, distance });
               delete watches[key];
               stateDirty = true;
+            }
+            if (confirmEntries5m.length > 0) {
+              alerts.push(
+                buildConfirmationAlertGrouped({ lastBar: last5m, snapshotPath: ensure5mSnapshot(), entries: confirmEntries5m, confirmTf: '5m' }),
+              );
             }
           }
 
@@ -565,6 +663,7 @@ async function runWatch(opts) {
           const skipReason5m = shouldSkipByContext(scan5m, allows);
           if (!skipReason5m && last5m && last5m.body_ratio >= tapBodyMin) {
             const tapped5m = scan5m?.gates?.price_context?.wick_tapped_boxes || [];
+            const tapEntries5m = [];
             for (let i = 0; i < tapped5m.length; i++) {
               const box = tapped5m[i];
               if (!PD_ARRAY_PATTERN.test(box.study)) continue;
@@ -587,8 +686,11 @@ async function runWatch(opts) {
                 status: 'open',
               };
               watches[key] = watch;
-              alerts.push(buildTapAlert({ watch, lastBar: last5m, snapshotPath: ensure5mSnapshot(), tappedIndex: i, tf: '5m' }));
+              tapEntries5m.push({ watch, tappedIndex: i });
               stateDirty = true;
+            }
+            if (tapEntries5m.length > 0) {
+              alerts.push(buildTapAlertGrouped({ lastBar: last5m, snapshotPath: ensure5mSnapshot(), entries: tapEntries5m, tf: '5m', windowSeconds }));
             }
           }
         }
@@ -639,6 +741,7 @@ register('watch', {
     'allow-outside-killzone': { type: 'boolean', description: 'Opt out of the killzone gate (applies to new TAPS only).' },
     'allow-poor-quality': { type: 'boolean', description: 'Opt out of the price-quality gate (applies to new TAPS only).' },
     'allow-market-closed': { type: 'boolean', description: 'Opt out of the market-closed gate (applies to new TAPS only).' },
+    'snapshot-retention-days': { type: 'string', description: 'Delete snapshot bundles older than N days at startup and at each session-boundary refresh (default 7). Set 0 to disable.' },
   },
   handler: async (opts) => {
     await runWatch(opts || {});
