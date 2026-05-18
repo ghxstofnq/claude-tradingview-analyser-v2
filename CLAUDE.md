@@ -54,6 +54,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-17 | Trading strategy: Lanto's 3-pillar ICT framework | User's documented system; saved verbatim in `docs/strategy/` as the authoritative reference. Three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation) and three entry models (MSS, Trend, Inversion). |
 | 2026-05-18 | Watchman is a candidate-flagger, not a grader | `tv watch` emits `bar_close_in_fvg` events when bar+FVG+body conditions align; it does NOT decide MSS/Trend/Inversion or A+/B/no-trade. Source: strategy §5 (confirmation is interpretive) + CLAUDE.md "Known gaps" (entry_model_candidate and confirmation_status are explicitly deferred). The watchman is the *trigger*; `/analyze` is the *grader*. |
 | 2026-05-18 | Watchman uses subprocess calls to `tv analyze` | `cli/commands/watch.js` spawns `node ./cli/index.js analyze ...` instead of importing the analyze handler in-process. ~100ms node-startup overhead per tick is negligible against ~0.2s scan / ~13s baseline runtimes, and we get fault isolation: a bad tick can't crash the watcher loop. |
+| 2026-05-18 | Watchman context-gating defaults ON, opt-out via flags | Filter alerts by killzone presence, market-open state, and m5/m15 candle quality. Strategy §2.2/§2.3 (liquidity moves during sessions) + §3 (stand aside when price quality is bad). Opt-out (rather than opt-in) means the conservative default matches the strategy. Direction-aware filtering (bullish-bar-into-bullish-FVG etc.) remains deferred — that's the entry-model classification step. |
 
 ## Repo
 
@@ -212,6 +213,13 @@ The watchman does NOT classify MSS vs Trend vs Inversion — that's deferred per
 - `--baseline-ttl <sec>` — refresh baseline when older than N seconds (default 900). Strategy §2.4 lets HTF context be reused intraday.
 - `--min-body-ratio <0..1>` — body-ratio gate (default 0.5).
 
+**Context gates (all default ON, opt-out flags).** Strategy §2.2/§2.3 + §3 + §7 step 3: scan during sessions, with clean price quality, with the market actually open. The gates filter *which bars trigger alerts*; the loop keeps polling either way.
+- `--allow-outside-killzone` — turn off the killzone filter. Default off: alerts only emit when `gates.session.in_killzone` is `true` (London Open, NY AM, NY PM).
+- `--allow-poor-quality` — turn off the price-quality filter. Default off: alerts suppressed when `gates.pillar2.m5.candle_quality_heuristic` or `m15.candle_quality_heuristic` is `"poor"`.
+- `--allow-market-closed` — turn off the market-closed filter. Default off: alerts suppressed when `gates.session.is_market_closed` is `true` (CME futures schedule).
+
+Skips are logged to stderr (`[watch] tick N bar=... skipped: <reason>`) but never written to `alerts.jsonl`.
+
 **State files.** All under `state/watch/` (gitignored):
 - `baseline.json` — most recent full `tv analyze` bundle.
 - `last-scan.json` — most recent `--pillar3-only --baseline` scan. **Rolling** — NOT a valid citation target.
@@ -234,6 +242,7 @@ Hard constraint #6 applies to watchman output the same way it applies to `/analy
 - **Multi-TF bundle.** `bars_by_tf` and `pine_by_tf` provide Daily/4H/1H/15m/5m/1m bar summaries and trimmed Pine surfaces (boxes + labels for tracked studies). Captured via chart-switching with original-TF restore.
 - **File output.** `./bin/tv analyze --out <path>` for bundles too large to pipe via stdout.
 - **Watchman shipped.** `./bin/tv watch` runs the strategy's live polling cadence: full baseline every 15min, `--pillar3-only --baseline` scan per tick (~0.2s), JSON-line alert emitted when a bar closes inside an FVG with a clear body. Deliberately direction-agnostic (model classification stays in the LLM, per the "Known gaps" list).
+- **Context-gated watchman.** Alerts now suppressed unless `gates.session.in_killzone` is true, `gates.session.is_market_closed` is false, and neither `gates.pillar2.m5/m15.candle_quality_heuristic` is `"poor"`. Each gate is opt-out via a flag (`--allow-outside-killzone`, `--allow-poor-quality`, `--allow-market-closed`). Strategy basis: §2.2/§2.3 (sessions create liquidity), §3 + §7 step 3 (stand aside when price quality is bad).
 
 ## Pending implementation
 
@@ -245,6 +254,7 @@ Hard constraint #6 applies to watchman output the same way it applies to `/analy
 - Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.
 - Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
 - **Live watchman (`tv watch`)** — `cli/commands/watch.js`. Loops forever: refreshes baseline every `--baseline-ttl` seconds, runs `tv analyze --pillar3-only --baseline` per tick, emits a `bar_close_in_fvg` JSON-line alert when a new bar closes inside an FVG with body_ratio >= `--min-body-ratio`. Citation paths included on every emitted number. Direction- and model-agnostic by design (the "Known gaps" list keeps model identification in the LLM). *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §5 + §7 step 6 + [docs/strategy/entry-models.md](docs/strategy/entry-models.md) "Entry Confirmation (1m/5m)".*
+- **Context gates on watchman.** `shouldSkipByContext` in `cli/commands/watch.js` suppresses alert emission unless: (a) `gates.session.is_market_closed === false`, (b) `gates.session.in_killzone === true`, (c) neither `gates.pillar2.m5.candle_quality_heuristic` nor `m15.candle_quality_heuristic` is `"poor"`. All three gates opt-out via flags (`--allow-market-closed`, `--allow-outside-killzone`, `--allow-poor-quality`). Skips logged to stderr; never written to `alerts.jsonl`. *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §2.2/§2.3 (sessions create liquidity) + §3 + §7 step 3 (stand aside when price quality is bad).*
 - **Deterministic gates in `tv analyze` (extended).** Top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
   - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend, market-closed including the Fri 17:00 ET → Sun 18:00 ET CME pause and the daily 17:00–18:00 ET settlement break) + replay state at the moment of capture.
   - `gates.price_context.*` — which Pine boxes contain current price.

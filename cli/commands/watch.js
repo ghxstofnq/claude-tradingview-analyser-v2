@@ -45,6 +45,34 @@ const DEFAULT_POLL_MS = 10_000;        // 10s between ticks
 const DEFAULT_BASELINE_TTL_S = 900;     // 15 min
 const DEFAULT_BODY_RATIO_MIN = 0.5;     // "clear body (not a doji)"
 
+// Context gates default to ACTIVE (conservative); user opts out via flags.
+// Strategy basis (trading-strategy-2026.md):
+//   - §2.2 + §2.3: liquidity moves during sessions/killzones (Asia, London,
+//     NY AM, NY PM). Inter-session and pre-open are mostly chop.
+//   - §3 + §7 step 3: "If Draw & Bias are good but Price Quality is bad,
+//     he will often stand aside." 5m/15m anatomy is the gate.
+//   - Hard fact: when the futures market is closed (Sat, Fri 17:00 → Sun
+//     18:00 ET, daily 17:00–18:00 ET break) there's nothing to scan.
+function shouldSkipByContext(bundle, allows) {
+  const session = bundle?.gates?.session;
+  const pillar2 = bundle?.gates?.pillar2;
+  if (!session) return 'session_unknown';
+  if (!allows.allowMarketClosed && session.is_market_closed === true) {
+    return 'market_closed';
+  }
+  if (!allows.allowOutsideKillzone && session.in_killzone === false) {
+    return `outside_killzone(${session.label})`;
+  }
+  if (!allows.allowPoorQuality) {
+    const m5q = pillar2?.m5?.candle_quality_heuristic;
+    const m15q = pillar2?.m15?.candle_quality_heuristic;
+    if (m5q === 'poor' || m15q === 'poor') {
+      return `poor_quality(m5=${m5q},m15=${m15q})`;
+    }
+  }
+  return null;
+}
+
 const STATE_DIR = 'state/watch';
 const BASELINE_PATH = `${STATE_DIR}/baseline.json`;
 const SCAN_PATH = `${STATE_DIR}/last-scan.json`;
@@ -165,6 +193,11 @@ async function runWatch(opts) {
   const pollMs = opts.poll ? Number(opts.poll) * 1000 : DEFAULT_POLL_MS;
   const baselineTtl = opts['baseline-ttl'] ? Number(opts['baseline-ttl']) : DEFAULT_BASELINE_TTL_S;
   const minBodyRatio = opts['min-body-ratio'] ? Number(opts['min-body-ratio']) : DEFAULT_BODY_RATIO_MIN;
+  const allows = {
+    allowOutsideKillzone: opts['allow-outside-killzone'] === true,
+    allowPoorQuality: opts['allow-poor-quality'] === true,
+    allowMarketClosed: opts['allow-market-closed'] === true,
+  };
 
   mkdirSync(STATE_DIR, { recursive: true });
 
@@ -174,9 +207,14 @@ async function runWatch(opts) {
   let lastSeenBarTime = null;
   let tickCount = 0;
 
+  const gateSummary =
+    `killzone=${allows.allowOutsideKillzone ? 'off' : 'on'} ` +
+    `quality=${allows.allowPoorQuality ? 'off' : 'on'} ` +
+    `market_closed=${allows.allowMarketClosed ? 'off' : 'on'}`;
   process.stderr.write(
     `[watch] started — poll=${pollMs / 1000}s baseline_ttl=${baselineTtl}s min_body_ratio=${minBodyRatio}\n`,
   );
+  process.stderr.write(`[watch] context gates: ${gateSummary}\n`);
   process.stderr.write('[watch] alerts -> stdout (JSON-line) + state/watch/alerts.jsonl. Ctrl+C to stop.\n');
 
   while (true) {
@@ -197,6 +235,17 @@ async function runWatch(opts) {
         if (isFirst) {
           process.stderr.write(`[watch] tick ${tickCount} bar=${barTime} (initial baseline; not evaluating)\n`);
         } else {
+          // Context gating (step 3): suppress alert emission when Pillar 1/2
+          // preconditions aren't met. The bar still rolls forward; we just
+          // don't bother running detectEvents or persisting a snapshot.
+          const skipReason = shouldSkipByContext(bundle, allows);
+          if (skipReason) {
+            process.stderr.write(
+              `[watch] tick ${tickCount} bar=${barTime} skipped: ${skipReason}\n`,
+            );
+            await sleep(pollMs);
+            continue;
+          }
           const events = detectEvents(bundle, minBodyRatio);
           if (events.length > 0) {
             // Pin the bundle that generated these events to a per-tick
@@ -236,6 +285,9 @@ register('watch', {
     poll: { type: 'string', description: 'Poll interval in seconds (default 10).' },
     'baseline-ttl': { type: 'string', description: 'Refresh baseline when older than N seconds (default 900 = 15 min).' },
     'min-body-ratio': { type: 'string', description: 'Minimum last_bar.body_ratio to trigger an alert (default 0.5; strategy: "clear body, not a doji").' },
+    'allow-outside-killzone': { type: 'boolean', description: 'Opt out of the killzone gate. Default off: alerts only emit when gates.session.in_killzone is true (London Open / NY AM / NY PM).' },
+    'allow-poor-quality': { type: 'boolean', description: 'Opt out of the price-quality gate. Default off: alerts suppressed when m5 or m15 candle_quality_heuristic is "poor" (strategy §3: stand aside when price quality is bad).' },
+    'allow-market-closed': { type: 'boolean', description: 'Opt out of the market-closed gate. Default off: alerts suppressed when gates.session.is_market_closed is true (Sat, Fri 17:00 ET → Sun 18:00 ET, daily 17:00–18:00 ET break).' },
   },
   handler: async (opts) => {
     await runWatch(opts || {});
