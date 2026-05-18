@@ -52,6 +52,8 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-17 | Grade enum `A+ | B | no-trade` (constraint #9) | Sources: research (LLM verbal confidence is unreliable) + strategy §7 (the user's actual grading vocabulary). |
 | 2026-05-17 | ICT vocabulary moved out of CLAUDE.md into the slash command body | Source: research rec #6; keeps CLAUDE.md under instruction ceiling, re-loads vocab per `/analyze` call. |
 | 2026-05-17 | Trading strategy: Lanto's 3-pillar ICT framework | User's documented system; saved verbatim in `docs/strategy/` as the authoritative reference. Three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation) and three entry models (MSS, Trend, Inversion). |
+| 2026-05-18 | Watchman is a candidate-flagger, not a grader | `tv watch` emits `bar_close_in_fvg` events when bar+FVG+body conditions align; it does NOT decide MSS/Trend/Inversion or A+/B/no-trade. Source: strategy §5 (confirmation is interpretive) + CLAUDE.md "Known gaps" (entry_model_candidate and confirmation_status are explicitly deferred). The watchman is the *trigger*; `/analyze` is the *grader*. |
+| 2026-05-18 | Watchman uses subprocess calls to `tv analyze` | `cli/commands/watch.js` spawns `node ./cli/index.js analyze ...` instead of importing the analyze handler in-process. ~100ms node-startup overhead per tick is negligible against ~0.2s scan / ~13s baseline runtimes, and we get fault isolation: a bad tick can't crash the watcher loop. |
 
 ## Repo
 
@@ -81,6 +83,7 @@ cli/
   commands/
     (vendored upstream commands)
     analyze.js            project-local: bundles JSON for /analyze
+    watch.js              project-local: long-running watchman for live bar-close polling
 docs/
   research/
     ai-consistency.md            evidence base for consistency rules
@@ -96,6 +99,7 @@ scripts/
   smoke-fixtures.js       schema + citation regression across all fixtures
 state/                    gitignored; created on demand
   screenshots/            verification / tests only — NOT analysis input
+  watch/                  watchman runtime state (baseline.json, last-scan.json, alerts.jsonl)
 tests/
   fixtures/               regression baselines (NNN-label.bundle.json + .expected.md)
     README.md             how to add and grade fixtures
@@ -192,6 +196,34 @@ The merged bundle has the same shape as a full `tv analyze` plus an additional `
 
 The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabulary, the behavioral rules (cite-or-reject, no arithmetic, prose-first, confidence enum), and the trailing JSON template. Read that file when invoked, not this one.
 
+## The `watch` recipe (live bar-close polling)
+
+`./bin/tv watch` is a long-running watchman that implements the strategy's confirmation cadence (`trading-strategy-2026.md §5`, §7 step 6; `entry-models.md` "Entry Confirmation (1m/5m)"). It captures an initial baseline, then on each tick runs `tv analyze --pillar3-only --baseline` (~0.2s) to evaluate the most recent bar close. It emits machine-readable JSON-line alerts to stdout (and persistently appends to `state/watch/alerts.jsonl`) when a strategy-relevant precondition fires.
+
+**v1 detection (deliberately direction-agnostic).** A single alert kind, `bar_close_in_fvg`, fires when:
+1. A new bar has closed (`gates.pillar3.last_bar.time` changed since last tick), AND
+2. `gates.pillar3.last_bar.body_ratio >= --min-body-ratio` (default 0.5; strategy's "clear body, not a doji"), AND
+3. The bar's close is inside at least one Pine FVG zone (`gates.price_context.inside_boxes[].study` matches `/FVG/i`).
+
+The watchman does NOT classify MSS vs Trend vs Inversion — that's deferred per the "Known gaps" list because model identification is interpretive. The watchman flags candidates; the LLM grades them via `/analyze` escalation.
+
+**Flags.**
+- `--poll <sec>` — tick interval (default 10).
+- `--baseline-ttl <sec>` — refresh baseline when older than N seconds (default 900). Strategy §2.4 lets HTF context be reused intraday.
+- `--min-body-ratio <0..1>` — body-ratio gate (default 0.5).
+
+**State files.** All under `state/watch/` (gitignored):
+- `baseline.json` — most recent full `tv analyze` bundle.
+- `last-scan.json` — most recent `--pillar3-only --baseline` scan. **Rolling** — NOT a valid citation target.
+- `snapshots/<bar_time>.bundle.json` — frozen per-alert bundle. Each emitted alert pins to one of these via its `bundle_path` field; cite paths resolve into the snapshot, not the rolling scan.
+- `alerts.jsonl` — append-only JSON-line log of every emitted alert.
+
+**Citation discipline.** Every emitted alert carries:
+- `bundle_path` — absolute path to the frozen snapshot bundle for that bar.
+- `cites.<field>` — JSON path inside that snapshot. Each path must resolve to the exact emitted numeric value.
+
+Hard constraint #6 applies to watchman output the same way it applies to `/analyze` output. The per-alert snapshot pattern is required because the rolling `last-scan.json` rotates every tick — citing into it directly would mean cite paths drift to newer values within seconds of emission.
+
 ## Status
 
 - **Scaffolding pushed.** README + .gitignore on `main`. CLI vendored, port locked, `analyze` command in place, slash command in place, research and strategy saved.
@@ -201,6 +233,7 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - **Gates emitting (richer).** `tv analyze` now returns a `gates` object covering: clock-based session, price-in-box checks, **full session liquidity map (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L with taken/untaken)**, **most-recent ICT swing structure points (ST/IT/LT × HH/HL/LH/LL) ordered by Pine x-index**, **FVG counts classified by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) via bgColor**, **bias-label scan** (auto-populates if any indicator publishes /bias/i text), **single-bar last_bar confirmation facts**, plus the original range / candle-quality stats. LLM no longer has to compute any of these.
 - **Multi-TF bundle.** `bars_by_tf` and `pine_by_tf` provide Daily/4H/1H/15m/5m/1m bar summaries and trimmed Pine surfaces (boxes + labels for tracked studies). Captured via chart-switching with original-TF restore.
 - **File output.** `./bin/tv analyze --out <path>` for bundles too large to pipe via stdout.
+- **Watchman shipped.** `./bin/tv watch` runs the strategy's live polling cadence: full baseline every 15min, `--pillar3-only --baseline` scan per tick (~0.2s), JSON-line alert emitted when a bar closes inside an FVG with a clear body. Deliberately direction-agnostic (model classification stays in the LLM, per the "Known gaps" list).
 
 ## Pending implementation
 
@@ -211,6 +244,7 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 - Citation verifier (`scripts/verify-citations.js`) enforces constraint #6 mechanically against any paired `(analysis, bundle)` input.
 - Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.
 - Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
+- **Live watchman (`tv watch`)** — `cli/commands/watch.js`. Loops forever: refreshes baseline every `--baseline-ttl` seconds, runs `tv analyze --pillar3-only --baseline` per tick, emits a `bar_close_in_fvg` JSON-line alert when a new bar closes inside an FVG with body_ratio >= `--min-body-ratio`. Citation paths included on every emitted number. Direction- and model-agnostic by design (the "Known gaps" list keeps model identification in the LLM). *Source: [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §5 + §7 step 6 + [docs/strategy/entry-models.md](docs/strategy/entry-models.md) "Entry Confirmation (1m/5m)".*
 - **Deterministic gates in `tv analyze` (extended).** Top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
   - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend, market-closed including the Fri 17:00 ET → Sun 18:00 ET CME pause and the daily 17:00–18:00 ET settlement break) + replay state at the moment of capture.
   - `gates.price_context.*` — which Pine boxes contain current price.
