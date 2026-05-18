@@ -207,6 +207,18 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
   else sessionLabel = 'Inter-session';
 
   // -- Price-vs-pine-box context (inside-box checks) --
+  // Build a coord-keyed map of FVG-study verbose boxes so we can attach the
+  // bgColor-derived direction (bullish_fvg / bullish_ifvg / bearish_fvg /
+  // bearish_ifvg) to each FVG inside-box entry. The watchman uses this for
+  // direction-aware downstream grading; without it, the alert payload can't
+  // distinguish a bullish-FVG retest from a bearish-FVG breakthrough.
+  const fvgVerboseStudyForBoxes = (fvgBoxesVerbose?.studies || []).find((s) => /FVG/i.test(s.name));
+  const fvgDirByCoords = {};
+  if (fvgVerboseStudyForBoxes) {
+    for (const b of fvgVerboseStudyForBoxes.all_boxes || []) {
+      fvgDirByCoords[`${b.high}:${b.low}`] = classifyFvgColor(b.bgColor);
+    }
+  }
   const insideBoxes = [];
   const boxStudies = pine?.boxes?.studies || [];
   for (const study of boxStudies) {
@@ -214,7 +226,40 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
     for (let i = 0; i < zones.length; i++) {
       const z = zones[i];
       if (last != null && last >= z.low && last <= z.high) {
-        insideBoxes.push({ study: study.name, zone_index: i, high: z.high, low: z.low });
+        const entry = { study: study.name, zone_index: i, high: z.high, low: z.low };
+        if (/FVG/i.test(study.name)) {
+          entry.fvg_direction = fvgDirByCoords[`${z.high}:${z.low}`] || 'unknown';
+        }
+        insideBoxes.push(entry);
+      }
+    }
+  }
+
+  // Strategy's notion of a "tap" is wick-based: price touched the zone
+  // (high/low overlap), even if the body closed in the gap between zones.
+  // ICT taps are routinely wick-only; using close-inside loses real setups.
+  // (Verified live 2026-05-18: 09:35 bar wicked through 4 FVGs cleanly with
+  // body 0.75 bearish, close in the gap — the watchman missed the tap, then
+  // the subsequent confirmation candle fired as a fresh tap instead.)
+  // This is what tv watch consumes for tap detection. `inside_boxes` stays
+  // for the existing price-vs-zone discipline (which uses quote.last, not
+  // the bar's high/low).
+  const wickTappedBoxes = [];
+  const last5BarsForTap = bars?.last_5_bars || [];
+  const tapBar = last5BarsForTap[last5BarsForTap.length - 1];
+  if (tapBar) {
+    for (const study of boxStudies) {
+      const zones = study.zones || [];
+      for (let i = 0; i < zones.length; i++) {
+        const z = zones[i];
+        const wickOverlap = tapBar.high >= z.low && tapBar.low <= z.high;
+        if (wickOverlap) {
+          const entry = { study: study.name, zone_index: i, high: z.high, low: z.low };
+          if (/FVG/i.test(study.name)) {
+            entry.fvg_direction = fvgDirByCoords[`${z.high}:${z.low}`] || 'unknown';
+          }
+          wickTappedBoxes.push(entry);
+        }
       }
     }
   }
@@ -365,6 +410,7 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
     price_context: {
       last,
       inside_boxes: insideBoxes,
+      wick_tapped_boxes: wickTappedBoxes,
     },
     pillar1: {
       session_levels: sessionLevels,

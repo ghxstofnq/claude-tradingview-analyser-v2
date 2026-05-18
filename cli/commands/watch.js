@@ -193,7 +193,7 @@ function findInsideBoxIndex(bundle, box) {
   return -1;
 }
 
-function buildTapAlert({ watch, lastBar, bundle, snapshotPath, insideIndex }) {
+function buildTapAlert({ watch, lastBar, bundle, snapshotPath, tappedIndex }) {
   return {
     ts: new Date().toISOString(),
     kind: 'fvg_tap',
@@ -209,11 +209,11 @@ function buildTapAlert({ watch, lastBar, bundle, snapshotPath, insideIndex }) {
       body_ratio: 'gates.pillar3.last_bar.body_ratio',
       direction: 'gates.pillar3.last_bar.direction',
       bar_time: 'gates.pillar3.last_bar.time',
-      fvg_high: `gates.price_context.inside_boxes[${insideIndex}].high`,
-      fvg_low: `gates.price_context.inside_boxes[${insideIndex}].low`,
+      fvg_high: `gates.price_context.wick_tapped_boxes[${tappedIndex}].high`,
+      fvg_low: `gates.price_context.wick_tapped_boxes[${tappedIndex}].low`,
     },
-    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low },
-    hint: `Watch opened. Looking for a strong-bodied close within ${watch.window_seconds}s for confirmation.`,
+    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
+    hint: `Watch opened (wick-tap). Looking for a strong-bodied close within ${watch.window_seconds}s for confirmation.`,
   };
 }
 
@@ -245,7 +245,7 @@ function buildConfirmationAlert({ watch, lastBar, bundle, snapshotPath, elapsedS
       body_ratio: watch.tap_bar_body_ratio,
       snapshot_path: watch.tap_snapshot_path,
     },
-    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low },
+    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
     hint: 'Confirmation candle within window and near zone. Escalate to /analyze for entry-model and direction grading.',
   };
 }
@@ -274,7 +274,7 @@ function buildInvalidationAlert({ watch, elapsedSec }) {
       body_ratio: watch.tap_bar_body_ratio,
       snapshot_path: watch.tap_snapshot_path,
     },
-    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low },
+    fvg: { study: watch.study, high: watch.zone_high, low: watch.zone_low, direction: watch.fvg_direction || 'unknown' },
     hint: 'Watch window expired without a confirmation candle.',
   };
 }
@@ -361,28 +361,21 @@ async function runWatch(opts) {
       const alerts = [];
       let stateDirty = false;
 
-      // (a) Invalidations — every tick, irrespective of new-bar or gates.
-      // Watch timers keep running through session boundaries; once the
-      // strategy has armed a setup, the clock doesn't pause.
-      const nowMs = Date.now();
-      for (const [key, watch] of Object.entries({ ...watches })) {
-        const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
-        if (elapsedSec > watch.window_seconds) {
-          alerts.push(buildInvalidationAlert({ watch, elapsedSec }));
-          delete watches[key];
-          stateDirty = true;
-        }
-      }
-
-      // (b) Confirmations — only on a new bar close, irrespective of gates.
-      // Existing watches keep evaluating regardless of context.
+      // (a) Confirmations FIRST — only on a new bar close, irrespective of
+      // context gates. Existing watches keep evaluating regardless of session.
       // Two conditions, both required (entry-models.md):
       //   1) Body strength: shows displacement, not chop.
       //   2) Proximity: bar closes in or near the zone, not far from it.
       //      Strategy phrases this as "holds above/within the FVG and pushes
       //      away" / "closes back up from that zone" — anchored to the zone.
-      //      A strong bar that closes 100 ticks away isn't a confirmation;
-      //      it's just an unrelated strong bar.
+      //
+      // Ordering rationale: a bar that closes at the watch-window boundary
+      // should get its shot to confirm BEFORE the timer is allowed to
+      // invalidate it. Otherwise a confirmation candidate that arrives at
+      // 15:01 minutes (just over the 900s window) gets killed by the timer
+      // 1 second before we even evaluate it, even though the bar IS the
+      // strategy's "within 10–15 min" close.
+      const nowMs = Date.now();
       if (isNewBar && !isFirstBar && lastBar && lastBar.body_ratio >= confirmBodyMin) {
         for (const [key, watch] of Object.entries({ ...watches })) {
           const { near, distance } = classifyCloseProximity(
@@ -400,14 +393,29 @@ async function runWatch(opts) {
         }
       }
 
+      // (b) Invalidations — every tick, irrespective of new-bar or gates.
+      // Runs AFTER confirmation so a bar at the window boundary gets its
+      // chance to confirm first.
+      for (const [key, watch] of Object.entries({ ...watches })) {
+        const elapsedSec = (nowMs - new Date(watch.opened_at).getTime()) / 1000;
+        if (elapsedSec > watch.window_seconds) {
+          alerts.push(buildInvalidationAlert({ watch, elapsedSec }));
+          delete watches[key];
+          stateDirty = true;
+        }
+      }
+
       // (c) New taps — only on new bar, only when context gates pass.
       let skipReason = null;
       if (isNewBar && !isFirstBar) {
         skipReason = shouldSkipByContext(bundle, allows);
         if (!skipReason && lastBar && lastBar.body_ratio >= tapBodyMin) {
-          const insideList = bundle?.gates?.price_context?.inside_boxes || [];
-          for (let i = 0; i < insideList.length; i++) {
-            const box = insideList[i];
+          // Use wick_tapped_boxes (high/low overlap), not inside_boxes
+          // (close-inside). Strategy's tap is wick-based — see analyze.js
+          // computeGates for the data-source rationale.
+          const tappedList = bundle?.gates?.price_context?.wick_tapped_boxes || [];
+          for (let i = 0; i < tappedList.length; i++) {
+            const box = tappedList[i];
             if (!/FVG/i.test(box.study)) continue;
             const key = watchKey(box.study, box.high, box.low);
             if (watches[key]) continue; // already watching this zone
@@ -416,6 +424,7 @@ async function runWatch(opts) {
               study: box.study,
               zone_high: box.high,
               zone_low: box.low,
+              fvg_direction: box.fvg_direction || 'unknown',
               tap_bar_time: lastBar.time,
               tap_bar_close: lastBar.close,
               tap_bar_direction: lastBar.direction,
@@ -427,7 +436,7 @@ async function runWatch(opts) {
             };
             watches[key] = watch;
             alerts.push(
-              buildTapAlert({ watch, lastBar, bundle, snapshotPath: ensureSnapshot(), insideIndex: i }),
+              buildTapAlert({ watch, lastBar, bundle, snapshotPath: ensureSnapshot(), tappedIndex: i }),
             );
             stateDirty = true;
           }
