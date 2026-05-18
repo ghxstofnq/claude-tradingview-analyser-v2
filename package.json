@@ -1,0 +1,18 @@
+{
+  "name": "claude-tradingview-analyser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TradingView chart analyzer driven by Claude. CLI-only, locked to CDP 9223.",
+  "scripts": {
+    "tv": "node ./cli/index.js",
+    "smoke": "./bin/tv status",
+    "smoke:fixtures": "node ./scripts/smoke-fixtures.js",
+    "verify:citations": "node ./scripts/verify-citations.js"
+  },
+  "workspaces": ["packages/*"],
+  "dependencies": {
+    "@tvmcp/core": "*",
+    "chrome-remote-interface": "^0.33.2"
+  }
+}

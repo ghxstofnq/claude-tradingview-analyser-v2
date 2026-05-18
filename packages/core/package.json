@@ -1,0 +1,32 @@
+{
+  "name": "@tvmcp/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".":            "./index.js",
+    "./persist":    "./persist.js",
+    "./guards":     "./guards.js",
+    "./health":     "./health.js",
+    "./data":       "./data.js",
+    "./chart":      "./chart.js",
+    "./pine":       "./pine.js",
+    "./alerts":     "./alerts.js",
+    "./batch":      "./batch.js",
+    "./capture":    "./capture.js",
+    "./drawing":    "./drawing.js",
+    "./indicators": "./indicators.js",
+    "./pane":       "./pane.js",
+    "./replay":     "./replay.js",
+    "./stream":     "./stream.js",
+    "./tab":        "./tab.js",
+    "./ui":         "./ui.js",
+    "./watchlist":  "./watchlist.js",
+    "./connection": "./connection.js",
+    "./wait":       "./wait.js"
+  },
+  "dependencies": {
+    "chrome-remote-interface": "^0.33.2"
+  }
+}
