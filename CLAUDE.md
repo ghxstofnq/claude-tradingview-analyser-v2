@@ -144,8 +144,11 @@ tests/
       avg_body_ratio_last_5, candle_quality_heuristic,    current-TF body-ratio summary (backwards-compat)
       current_tf, m5, m15                                 each { body_ratios_last_5, avg_body_ratio_last_5,
                                                                   candle_quality_heuristic, engulfing_count_last_5,
-                                                                  doji_count_last_5 }
-                                                          m5 + m15 are the strategy-aligned TFs per §7 step 3
+                                                                  doji_count_last_5, last_bar }
+                                                          last_bar shape is identical to gates.pillar3.last_bar but
+                                                          for the most-recent bar at that specific TF — used to
+                                                          evaluate confirmation closes on 1m / 5m / 15m per §5.
+                                                          m5 + m15 are the strategy-aligned TFs per §7 step 3.
     }
     pillar3: {
       most_recent_structure: { ST_HH, ST_HL, ST_LH, ST_LL, IT_HH, IT_HL, IT_LH, IT_LL, LT_HH, LT_HL, LT_LH, LT_LL }

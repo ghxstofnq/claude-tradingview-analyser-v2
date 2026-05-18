@@ -117,12 +117,38 @@ function computeCandleStats(last5) {
       engulfingCount++;
     }
   }
+  // Most-recent bar facts (parallels gates.pillar3.last_bar shape).
+  // Strategy §5 / §7 step 6 / entry-models "Entry Confirmation (1m/5m)" needs
+  // per-bar direction + body + close-in-range to evaluate confirmation candles
+  // at any TF — not just the chart's current TF.
+  const lb = last5[last5.length - 1];
+  const lbRange = lb.high - lb.low;
+  const lbBody = Math.abs(lb.close - lb.open);
+  const lbBodyRatio = lbRange > 0 ? Math.round((lbBody / lbRange) * 100) / 100 : 0;
+  let lbDirection;
+  if (lbBodyRatio < 0.1) lbDirection = 'doji';
+  else if (lb.close > lb.open) lbDirection = 'bullish';
+  else if (lb.close < lb.open) lbDirection = 'bearish';
+  else lbDirection = 'doji';
+  const lbClosePos = lbRange > 0 ? Math.round(((lb.close - lb.low) / lbRange) * 100) / 100 : 0.5;
+  const lastBar = {
+    time: lb.time,
+    open: lb.open,
+    high: lb.high,
+    low: lb.low,
+    close: lb.close,
+    body_ratio: lbBodyRatio,
+    direction: lbDirection,
+    range: Math.round(lbRange * 100) / 100,
+    close_position_in_range: lbClosePos,
+  };
   return {
     body_ratios_last_5: rawRatios.map((r) => Math.round(r * 100) / 100),
     avg_body_ratio_last_5: Math.round(avg * 100) / 100,
     candle_quality_heuristic: quality,
     engulfing_count_last_5: engulfingCount,
     doji_count_last_5: dojiCount,
+    last_bar: lastBar,
   };
 }
 
