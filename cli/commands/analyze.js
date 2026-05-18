@@ -480,6 +480,7 @@ register('analyze', {
   description: 'Bundle current chart state, quote, multi-TF OHLCV summaries + Pine surfaces, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
   options: {
     'current-tf-only': { type: 'boolean', description: 'Skip multi-TF capture (faster; no chart flashing)' },
+    'pillar3-only': { type: 'boolean', description: 'Lightweight Pillar-3-focused bundle for bar-close polling: skips multi-TF, indicators, pine.lines, pine.tables. Bundle ~30KB, runtime ~1-2s. Designed for the live-trading watchman loop.' },
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
   },
   handler: async (opts) => {
@@ -506,13 +507,17 @@ register('analyze', {
     }
 
     // 2. Multi-TF bar + Pine collection (optional). Done FIRST so the
-    //    original-TF extraction below happens after restore.
-    const skipMultiTf = opts?.['current-tf-only'] === true;
+    //    original-TF extraction below happens after restore. Skipped under
+    //    --current-tf-only and --pillar3-only.
+    const pillar3Only = opts?.['pillar3-only'] === true;
+    const skipMultiTf = pillar3Only || opts?.['current-tf-only'] === true;
     const { bars_by_tf, pine_by_tf } = skipMultiTf
       ? { bars_by_tf: null, pine_by_tf: null }
       : await captureMultiTf(originalTf);
 
-    // 3. At the (restored) original TF, fetch everything else in parallel.
+    // 3. At the (restored) original TF, fetch what's needed for the
+    //    requested bundle scope. --pillar3-only skips lines/tables/indicators
+    //    (not used in any gate; only in the bundle output).
     const [
       visibleRange,
       quote,
@@ -527,10 +532,10 @@ register('analyze', {
       chart.getVisibleRange(),
       data.getQuote(),
       data.getOhlcv({ summary: true }),
-      data.getStudyValues(),
-      data.getPineLines({ verbose: false }),
+      pillar3Only ? Promise.resolve(null) : data.getStudyValues(),
+      pillar3Only ? Promise.resolve(null) : data.getPineLines({ verbose: false }),
       data.getPineLabels({ verbose: true }),  // verbose: x-index unlocks structure-point ordering
-      data.getPineTables(),
+      pillar3Only ? Promise.resolve(null) : data.getPineTables(),
       data.getPineBoxes({ verbose: false }),
       data.getPineBoxes({ verbose: true, study_filter: 'FVG' }),  // for color-based direction classification
     ]);

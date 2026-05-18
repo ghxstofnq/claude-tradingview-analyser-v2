@@ -167,6 +167,8 @@ Gates are pre-computed in `cli/commands/analyze.js`. The LLM consumes them direc
 
 **File output.** Pass `--out <path>` to `tv analyze` to write the bundle to a file instead of stdout (mandatory for `/analyze` invocations because the multi-TF bundle exceeds Bash output truncation limits). The slash command runs `./bin/tv analyze --out state/last-analyze.json` and then `Read`s the file.
 
+**Polling mode (`--pillar3-only`).** Lightweight bundle for live bar-close polling (the strategy's confirmation discipline at §5: "1m/5m candle close"). Skips the multi-TF chart-switching loop, pine.lines, pine.tables, and indicator data-window values; keeps pine.boxes (verbose for FVG direction), pine.labels (verbose for structure-point x-index), bars, quote, and ALL gates that are computable from current-TF data. Returns in ~0.2s (vs ~13s for full `tv analyze`); bundle ~25KB compact. `gates.pillar2.m5` and `gates.pillar2.m15` are `null` in this mode because they require `bars_by_tf`; the watchman / polling consumer should rely on `gates.pillar3.*`, `gates.pillar1.session_levels.*`, `gates.session.*`, and current-TF Pine data. Use the full `tv analyze` when you actually need HTF context refreshed.
+
 The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabulary, the behavioral rules (cite-or-reject, no arithmetic, prose-first, confidence enum), and the trailing JSON template. Read that file when invoked, not this one.
 
 ## Status
