@@ -480,10 +480,45 @@ register('analyze', {
   description: 'Bundle current chart state, quote, multi-TF OHLCV summaries + Pine surfaces, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
   options: {
     'current-tf-only': { type: 'boolean', description: 'Skip multi-TF capture (faster; no chart flashing)' },
-    'pillar3-only': { type: 'boolean', description: 'Lightweight Pillar-3-focused bundle for bar-close polling: skips multi-TF, indicators, pine.lines, pine.tables. Bundle ~30KB, runtime ~1-2s. Designed for the live-trading watchman loop.' },
+    'pillar3-only': { type: 'boolean', description: 'Lightweight Pillar-3-focused bundle for bar-close polling: skips multi-TF, indicators, pine.lines, pine.tables. Bundle ~25KB, runtime ~0.2s. Designed for the live-trading watchman loop.' },
+    baseline: { type: 'string', description: 'Path to a previously-captured full bundle. Reuses its bars_by_tf and pine_by_tf instead of re-running the multi-TF chart sweep. Pairs with --pillar3-only for fast candidate evaluation that still has full HTF context. Emits baseline_meta so the consumer can see how old the cached HTF data is.' },
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
   },
   handler: async (opts) => {
+    // 0. Load baseline if provided. The baseline supplies HTF context
+    //    (bars_by_tf + pine_by_tf) so we don't have to re-flash the chart
+    //    through 6 TFs every call. Strategy §2.4 explicitly allows reusing
+    //    HTF context intraday: HTF bias doesn't change minute-to-minute.
+    let baseline = null;
+    let baselineMeta = null;
+    if (opts?.baseline) {
+      const { readFileSync } = await import('node:fs');
+      const { resolve: resolvePath } = await import('node:path');
+      const absPath = resolvePath(opts.baseline);
+      let text;
+      try {
+        text = readFileSync(absPath, 'utf8');
+      } catch (e) {
+        throw new Error(`baseline not readable at '${absPath}': ${e.message}`);
+      }
+      try {
+        baseline = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`baseline at '${absPath}' is not valid JSON: ${e.message}`);
+      }
+      if (!baseline.bars_by_tf || !baseline.pine_by_tf) {
+        throw new Error(
+          `baseline at '${absPath}' is missing bars_by_tf or pine_by_tf — it must have been captured with full tv analyze (not --pillar3-only or --current-tf-only).`,
+        );
+      }
+      const baselineMs = baseline.timestamp ? Date.parse(baseline.timestamp) : NaN;
+      baselineMeta = {
+        path: absPath,
+        captured_at: baseline.timestamp || null,
+        age_seconds: Number.isFinite(baselineMs) ? Math.floor((Date.now() - baselineMs) / 1000) : null,
+      };
+    }
+
     // 1. Capture chart state + replay status BEFORE any chart-switching,
     //    so we know the original TF and we record replay state at the
     //    moment of capture (multi-TF switching can disturb replay state).
@@ -506,14 +541,24 @@ register('analyze', {
       // replay API not available (no replay session active); leave defaults
     }
 
-    // 2. Multi-TF bar + Pine collection (optional). Done FIRST so the
-    //    original-TF extraction below happens after restore. Skipped under
-    //    --current-tf-only and --pillar3-only.
+    // 2. Multi-TF bar + Pine collection. Sources, in priority order:
+    //    a) --baseline path:  reuse from that bundle (no chart-switching)
+    //    b) --pillar3-only / --current-tf-only: skip entirely (nulls)
+    //    c) Default: capture fresh via captureMultiTf
     const pillar3Only = opts?.['pillar3-only'] === true;
     const skipMultiTf = pillar3Only || opts?.['current-tf-only'] === true;
-    const { bars_by_tf, pine_by_tf } = skipMultiTf
-      ? { bars_by_tf: null, pine_by_tf: null }
-      : await captureMultiTf(originalTf);
+    let bars_by_tf, pine_by_tf;
+    if (baseline) {
+      bars_by_tf = baseline.bars_by_tf;
+      pine_by_tf = baseline.pine_by_tf;
+    } else if (skipMultiTf) {
+      bars_by_tf = null;
+      pine_by_tf = null;
+    } else {
+      const captured = await captureMultiTf(originalTf);
+      bars_by_tf = captured.bars_by_tf;
+      pine_by_tf = captured.pine_by_tf;
+    }
 
     // 3. At the (restored) original TF, fetch what's needed for the
     //    requested bundle scope. --pillar3-only skips lines/tables/indicators
@@ -554,6 +599,7 @@ register('analyze', {
       pine,
       pine_by_tf,
       gates,
+      ...(baselineMeta ? { baseline_meta: baselineMeta } : {}),
     };
 
     // 4. Optional file output: write bundle to disk and print only the path.
