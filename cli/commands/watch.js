@@ -476,50 +476,56 @@ async function runWatch(opts) {
 
   mkdirSync(STATE_DIR, { recursive: true });
 
-  // BRIEFING REQUIREMENT. Strategy §7 is sequential: Pillar 1+2 graded
-  // BEFORE Pillar 3 confirmation polling. If the user wants to skip the
-  // briefing entirely (debugging, replay) they can pass --no-briefing.
-  const briefing = loadBriefing();
-  const requireBriefing = opts['no-briefing'] !== true;
-  if (requireBriefing) {
-    if (!briefing) {
-      process.stderr.write(
-        `[watch] no briefing at ${BRIEFING_PATH}. Run /analyze first to grade Pillar 1+2.\n` +
-        `[watch] Strategy §7 is sequential — watchman doesn't poll Pillar 3 until P1+P2 clear.\n` +
-        `[watch] (override with --no-briefing if you're sure)\n`,
-      );
-      process.exit(2);
-    }
-    if (briefing.verdict !== 'ready') {
-      process.stderr.write(
-        `[watch] briefing verdict is "${briefing.verdict}" (stage=${briefing.stage}). Watchman won't start.\n` +
-        `[watch] Pillar1: ${briefing.pillar1?.htf_bias} | Pillar2: ${briefing.pillar2?.verdict}\n` +
-        `[watch] Re-run /analyze when Pillar 1+2 clear (verdict=ready).\n`,
-      );
-      process.exit(2);
-    }
-    if (!briefing.watchman_directive?.active) {
-      process.stderr.write(
-        `[watch] briefing.watchman_directive.active = false. Watchman won't start.\n`,
-      );
-      process.exit(2);
-    }
-    const pz = briefing.watchman_directive.priority_zones || [];
-    if (pz.length === 0) {
-      process.stderr.write(
-        `[watch] briefing has 0 priority_zones. Watchman won't start (nothing to watch).\n`,
-      );
-      process.exit(2);
-    }
-    process.stderr.write(
-      `[watch] briefing: bias=${briefing.pillar1?.htf_bias} side=${briefing.watchman_directive.side} ` +
-      `zones=${pz.length} stage=${briefing.stage} session=${briefing.session}\n`,
-    );
-  } else {
-    process.stderr.write(`[watch] --no-briefing: running without briefing (debug mode)\n`);
+  // BRIEFING + PREFLIGHT. Strategy §7 is sequential: Pillar 1+2 must be
+  // graded before Pillar 3 polling. Instead of exiting when the briefing
+  // isn't ready, the watchman enters PREFLIGHT MODE — it keeps running and
+  // scanning but suppresses all alert emission, and nudges you to re-grade
+  // every PREFLIGHT_NUDGE_INTERVAL_S. When the briefing flips to
+  // verdict=ready with active=true, the watchman transitions to FULL MODE.
+  const allowNoBriefing = opts['no-briefing'] === true;
+  function evaluateBriefingMode() {
+    const b = loadBriefing();
+    if (!b) return { mode: 'preflight', reason: 'no_briefing', briefing: null };
+    if (b.verdict !== 'ready') return { mode: 'preflight', reason: `verdict=${b.verdict}`, briefing: b };
+    if (!b.watchman_directive?.active) return { mode: 'preflight', reason: 'directive_inactive', briefing: b };
+    const pz = b.watchman_directive.priority_zones || [];
+    if (pz.length === 0) return { mode: 'preflight', reason: 'no_priority_zones', briefing: b };
+    return { mode: 'full', briefing: b };
   }
-  const priorityZones = briefing?.watchman_directive?.priority_zones || null;
-  const briefingSide = briefing?.watchman_directive?.side || 'both';
+
+  let briefing;
+  let priorityZones = null;
+  let briefingSide = 'both';
+  let preflightMode = false;
+  let preflightReason = null;
+  if (allowNoBriefing) {
+    process.stderr.write(`[watch] --no-briefing: running without briefing (debug mode, FULL mode)\n`);
+    briefing = null;
+  } else {
+    const r = evaluateBriefingMode();
+    briefing = r.briefing;
+    if (r.mode === 'preflight') {
+      preflightMode = true;
+      preflightReason = r.reason;
+      process.stderr.write(
+        `[watch] PREFLIGHT mode: ${r.reason}` +
+        (briefing ? ` (Pillar1=${briefing.pillar1?.htf_bias}, Pillar2=${briefing.pillar2?.verdict})` : '') +
+        `\n[watch] No alerts will fire until briefing.verdict=ready. Re-grade via /analyze.\n`,
+      );
+    } else {
+      priorityZones = briefing.watchman_directive.priority_zones;
+      briefingSide = briefing.watchman_directive.side || 'both';
+      process.stderr.write(
+        `[watch] FULL mode: bias=${briefing.pillar1?.htf_bias} side=${briefingSide} ` +
+        `zones=${priorityZones.length} stage=${briefing.stage} session=${briefing.session}\n`,
+      );
+    }
+  }
+
+  const PREFLIGHT_NUDGE_INTERVAL_S = opts['preflight-nudge-seconds']
+    ? Number(opts['preflight-nudge-seconds'])
+    : 900;  // 15 min
+  let lastPreflightNudgeMs = Date.now();  // suppress initial nudge — we just printed the state
 
   // Startup snapshot cleanup. Snapshots accumulate one-per-tap; without
   // retention the dir grows forever.
@@ -597,6 +603,42 @@ async function runWatch(opts) {
       }
 
       // ====================================================================
+      // (2.5) BRIEFING re-evaluation. If briefing flips, transition modes.
+      // ====================================================================
+      if (!allowNoBriefing) {
+        const r = evaluateBriefingMode();
+        const newPreflight = r.mode === 'preflight';
+        if (newPreflight !== preflightMode) {
+          if (newPreflight) {
+            process.stderr.write(
+              `[watch] → PREFLIGHT mode (was full): ${r.reason}. Suppressing alerts.\n`,
+            );
+            priorityZones = null;
+            briefingSide = 'both';
+          } else {
+            briefing = r.briefing;
+            priorityZones = briefing.watchman_directive.priority_zones;
+            briefingSide = briefing.watchman_directive.side || 'both';
+            process.stderr.write(
+              `[watch] → FULL mode (was preflight): bias=${briefing.pillar1?.htf_bias} ` +
+              `side=${briefingSide} zones=${priorityZones.length}\n`,
+            );
+            lastPreflightNudgeMs = Date.now();  // reset so next preflight doesn't nudge instantly
+          }
+          preflightMode = newPreflight;
+          preflightReason = newPreflight ? r.reason : null;
+        } else if (newPreflight) {
+          // Already in preflight; check if reason changed (e.g., briefing went
+          // from missing → stand_aside).
+          preflightReason = r.reason;
+        } else {
+          // Already in full mode; refresh briefing in case priority_zones changed.
+          briefing = r.briefing;
+          priorityZones = briefing.watchman_directive.priority_zones;
+        }
+      }
+
+      // ====================================================================
       // (3) 1m scan — every tick.
       // ====================================================================
       const scan1m = captureScan();
@@ -610,6 +652,36 @@ async function runWatch(opts) {
       const alerts = [];
       let stateDirty = false;
       const nowMs = Date.now();
+
+      // ====================================================================
+      // PREFLIGHT short-circuit: if briefing isn't ready, skip the entire
+      // alert + state-machine pipeline. Just log per-bar and nudge every
+      // PREFLIGHT_NUDGE_INTERVAL_S so the user knows to re-grade.
+      // ====================================================================
+      if (preflightMode) {
+        const sincePreflightNudgeS = Math.floor((nowMs - lastPreflightNudgeMs) / 1000);
+        if (sincePreflightNudgeS >= PREFLIGHT_NUDGE_INTERVAL_S) {
+          const mins = Math.round(sincePreflightNudgeS / 60);
+          process.stderr.write(
+            `[watch] PREFLIGHT NUDGE: ${mins}m elapsed. Reason: ${preflightReason}. ` +
+            `Re-run /analyze to update briefing — when verdict=ready, watchman starts firing.\n`,
+          );
+          try {
+            writeFileSync(`${STATE_DIR}/regrade-now`, new Date().toISOString() + ' ' + preflightReason + '\n');
+          } catch (e) {}
+          lastPreflightNudgeMs = nowMs;
+        } else if (isNewBar1m && !isFirstBar1m) {
+          const minToNudge = Math.max(0, Math.round((PREFLIGHT_NUDGE_INTERVAL_S - sincePreflightNudgeS) / 60));
+          process.stderr.write(
+            `[watch] preflight tick ${tickCount} bar=${barTime1m} body=${last1m?.body_ratio} ` +
+            `dir=${last1m?.direction} (no alerts; ${minToNudge}m to next nudge)\n`,
+          );
+        } else if (isFirstBar1m) {
+          process.stderr.write(`[watch] preflight tick ${tickCount} bar=${barTime1m} (initial; preflight: ${preflightReason})\n`);
+        }
+        await sleep(pollMs);
+        continue;
+      }
 
       // ====================================================================
       // (3a) Confirmations against the 1m bar (any open watch, cross-TF).
@@ -823,7 +895,8 @@ register('watch', {
     'allow-poor-quality': { type: 'boolean', description: 'Opt out of the price-quality gate (applies to new TAPS only).' },
     'allow-market-closed': { type: 'boolean', description: 'Opt out of the market-closed gate (applies to new TAPS only).' },
     'snapshot-retention-days': { type: 'string', description: 'Delete snapshot bundles older than N days at startup and at each session-boundary refresh (default 7). Set 0 to disable.' },
-    'no-briefing': { type: 'boolean', description: 'Override: run without a briefing file (debug only). Watchman normally REQUIRES state/watch/briefing.json with verdict=ready — that\'s the Pillar 1+2 prerequisite per strategy §7.' },
+    'no-briefing': { type: 'boolean', description: 'Override: run in FULL mode without a briefing file (debug only). Default behavior is preflight mode when briefing is missing/not-ready.' },
+    'preflight-nudge-seconds': { type: 'string', description: 'How often (seconds) to nudge for re-grade while in preflight mode (default 900 = 15min). Each nudge logs to stderr and touches state/watch/regrade-now.' },
   },
   handler: async (opts) => {
     await runWatch(opts || {});
