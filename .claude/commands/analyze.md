@@ -1,15 +1,17 @@
 ---
-description: Read the chart on CDP 9223, evaluate it against Lanto's 3-pillar ICT framework, produce a graded read (A+ / B / no-trade).
+description: Phase-aware ICT analysis. Runs Lanto's 3-pillar strategy end-to-end across a trading session, building session memory in state/session/<date>/. Designed to be invoked once per bar close.
 ---
 
 ## Strategy authority (read first)
 
-This project implements **Lanto's 3-pillar ICT framework**. The authoritative spec lives in two files you must consult when applying the strategy:
+This project implements **Lanto's 3-pillar ICT framework**. Authoritative spec:
 
-- [docs/strategy/trading-strategy-2026.md](../../docs/strategy/trading-strategy-2026.md) — three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation), HTF/LTF/overnight framework, A+/B grading, full 7-step checklist.
-- [docs/strategy/entry-models.md](../../docs/strategy/entry-models.md) — MSS (reversal), Trend (continuation), Inversion (failed PD array) — each with components, A+ example, and stop/target logic.
+- [docs/strategy/trading-strategy-2026.md](../../docs/strategy/trading-strategy-2026.md) — three pillars, 7-step checklist, A+/B grading.
+- [docs/strategy/entry-models.md](../../docs/strategy/entry-models.md) — MSS / Trend / Inversion components, A+ examples.
 
-The structure below mirrors the strategy's 7-step checklist directly. Every section maps to a step in `trading-strategy-2026.md §7`. The entry-model walkthrough in Pillar 3 follows the components in `entry-models.md` literally — do not paraphrase or invent components.
+Strategy §7 is **sequential**: HTF bias → overnight → Pillar 2 → NY reaction → entry model → confirmation → sizing. This slash command walks that sequence across a whole session by branching on phase.
+
+Architecture plan: [docs/plans/llm-driven-session.md](../../docs/plans/llm-driven-session.md).
 
 ---
 
@@ -19,340 +21,398 @@ The structure below mirrors the strategy's 7-step checklist directly. Every sect
 ./bin/tv analyze --out state/last-analyze.json
 ```
 
-The `--out` flag writes the (often >200KB) bundle to disk and prints only the file path to stdout. This is required because the bundle exceeds Bash output truncation limits when multi-TF Pine is included. After the command returns, use the `Read` tool on `state/last-analyze.json` to load the bundle into context.
+Then `Read state/last-analyze.json`. The bundle is the only data source for this invocation.
 
-(For interactive debugging without the file step, `./bin/tv analyze` still prints the full bundle to stdout, but it will be truncated for any non-trivial bundle. Always use `--out` from inside `/analyze`.)
+After reading, look at **`gates.session.phase`** to determine what to do. Phase-driven work + state-file accumulation is what makes the session smart across many invocations.
 
-The bundle is a single JSON object with:
+---
 
-- `chart` — symbol, timeframe, indicators on chart
-- `visible_range` / `bars.period` — currently-visible date range
-- `quote` — last price snapshot
-- `bars` — OHLCV summary + `last_5_bars` at the chart's *current* timeframe
-- `bars_by_tf` — OHLCV summaries at multiple resolutions: `daily` (D), `h4` (240), `h1` (60), `m15` (15), `m5` (5), `m1` (1). Each entry has `{bar_count, period, range, change_pct, open, close, high, low, avg_volume, last_5_bars, tv_resolution}`. Use these for Pillar 1a HTF bias (compare `bars_by_tf.daily.change_pct` and `.h4.change_pct`) and Pillar 2 HTF displacement. Cite as e.g. `29302 (bars_by_tf.m1.open)`, `29709 (bars_by_tf.m15.open)`. If a TF errored, that key has `{error, tv_resolution}` only.
-- `pine_by_tf` — Pine **boxes + labels** at each resolution (`daily / h4 / h1 / m15 / m5 / m1`), trimmed to the four tracked studies (FVG/iFVG, Anchored Structures, Killzones, BPR) and capped at ~30 most-recent entries per study per TF. This is where **HTF FVGs and HTF structure points** live — the strategy's "scan Daily/4H/1H for best imbalances" runs against these. Each entry: `{tv_resolution, boxes: { studies[].{ name, total_boxes, showing, all_boxes[] } }, labels: { studies[].{ name, total_labels, showing, labels[] } }}`. Box entries include verbose fields `{id, high, low, x1, x2, borderColor, bgColor}` — `bgColor` decodes to FVG direction via the same ABGR mapping as `gates.pillar3.fvg_by_type` (bullish_fvg 0x94ab22, bullish_ifvg 0xf57931, bearish_fvg 0x5f52f7, bearish_ifvg 0x26a7ff). Label entries include `{id, text, price, x, textColor}`. Cite as `29513.25 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].high)`.
-- `indicators` — data-window numeric values
-- `pine.lines` — horizontal price levels (PDH/PDL, swing levels, equal highs/lows, session highs/lows) — *current TF only*
-- `pine.labels` — text annotations with prices (bias readouts, level names) — *current TF only*
-- `pine.tables` — table data (session stats, analytics dashboards) — *current TF only*
-- `pine.boxes` — price zones (FVGs, order blocks, killzone boxes, ranges) — *current TF only*
-- `gates` — deterministic facts computed in code (not LLM-judged). Read these FIRST and don't recompute them:
-  - `gates.session.{label, in_ny_open_window, in_killzone, in_killzone_detail, is_weekend, is_market_closed, timestamp_et, replay}` — what session is active right now, clock-based. `label` ∈ `{NY Open, NY AM, NY PM, London Open, Asia, Inter-session, Closed}`. `is_market_closed` = true on Sat, Fri after 17:00 ET, Sun before 18:00 ET, and the daily 17:00–18:00 ET futures-settlement break. `replay.{active, autoplay, current_date}` — when `replay.active = true`, the bundle reflects a HISTORICAL chart state, NOT live data; the analyzer's verdict should be treated as a fixture exercise, not live trading guidance.
-  - `gates.price_context.{last, inside_boxes[]}` — which pine boxes contain current price.
-  - `gates.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L}` — each is `{label, price, position_vs_price, taken}`. The chart's original label text (e.g. `AS.H`) is preserved in `.label`; the JSON key uses underscore form (`AS_H`) so it's citation-safe. `taken` is true if `bars.high > price` for highs or `bars.low < price` for lows.
-  - `gates.pillar1.untaken_sell_side_below[]` and `gates.pillar1.untaken_buy_side_above[]` — sorted arrays of session levels that have NOT been taken yet. These are the strategy's "draw" targets per §2.2 ("which liquidity remains untaken").
-  - `gates.pillar1.bias_labels[]` — any Pine label whose text matches `/bias/i` (e.g. "Bias Long", "Bias Short"). Empty array if no indicator publishes them; treat HTF bias as inferred from `bars_by_tf` + session-level structure in that case.
-  - `gates.pillar2.{range_value, range_per_bar, range_acceptable, avg_body_ratio_last_5, candle_quality_heuristic}` — mechanical range + current-TF candle metrics.
-  - `gates.pillar2.current_tf.{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5, last_bar}` — full current-TF stats. Same shape under `gates.pillar2.m5.*` (5m bars) and `gates.pillar2.m15.*` (15m bars) — the strategy-aligned TFs for Pillar 2 candle anatomy. The `last_bar` sub-object has the same shape as `gates.pillar3.last_bar` (`{time, open, high, low, close, body_ratio, direction, range, close_position_in_range}`) but for the most-recent bar at that specific TF — used for evaluating 1m vs 5m vs 15m confirmation closes per strategy §5.
-  - `gates.pillar3.most_recent_structure.{ST_HH, ST_HL, ST_LH, ST_LL, IT_HH, IT_HL, IT_LH, IT_LL, LT_HH, LT_HL, LT_LH, LT_LL}` — each is `{label, price, x}`. `x` is the Pine bar-index — *higher x = more recent*. Sort across keys by `x` to find the most-recent structural point overall, which tells you the current LTF structure state.
-  - `gates.pillar3.fvg_by_type{,_above,_below}` — counts of FVGs by direction: `bullish_fvg`, `bullish_ifvg`, `bearish_fvg`, `bearish_ifvg` (decoded from the indicator's bgColor). `_above` = boxes wholly above current price (potential resistance), `_below` = wholly below (potential support).
-  - `gates.pillar3.last_bar` — single-bar confirmation facts for the most recent bar: `{time, open, high, low, close, body_ratio, direction, range, close_position_in_range}`. `direction` is `bullish | bearish | doji`. `close_position_in_range` is 0 = closed at the low, 1 = closed at the high, 0.5 = midpoint — a fast read on whether the bar closed STRONG in its direction (>0.7 bull / <0.3 bear) or WEAK / rejected. `body_ratio` is the single-bar version of Pillar 2's 5-bar avg.
-  - `gates.pillar3.last_bar_age_seconds` — `quote.time - last_bar.time`. Tiny value = bar just closed / live; large value = data is stale (market closed or chart paused).
-  - Numeric gate fields can be cited under rule 1 just like any other JSON value (e.g. `29089.5 (gates.pillar1.session_levels.NYAM_L.price)` or `29160 (gates.pillar3.most_recent_structure.ST_LL.price)`). Boolean/string gates are referenced inline ("gates.session.in_ny_open_window = false") and don't need verifier-style citation.
+## Bundle fields (quick reference)
+
+- `chart` — symbol, current resolution, indicators on chart.
+- `quote.last` — current price.
+- `bars` — OHLCV summary + `last_5_bars` at the current chart TF.
+- `bars_by_tf.{daily, h4, h1, m15, m5, m1}` — per-TF bar summaries (use these for HTF bias).
+- `pine_by_tf.{daily, h4, h1, m15, m5, m1}.{boxes, labels}` — HTF FVGs/structure (trimmed to FVG/iFVG, Anchored Structures, Killzones, BPR; ~30 per study per TF). `bgColor` decodes to FVG direction (0x94ab22=bullish_fvg, 0xf57931=bullish_ifvg, 0x5f52f7=bearish_fvg, 0x26a7ff=bearish_ifvg).
+- `pine.{lines, labels, tables, boxes}` — current TF only.
+- `gates.session.*` — clock-based facts (phase, label, minutes_into_phase, next_killzone_label, seconds_to_next_killzone, in_killzone, is_market_closed, replay state).
+- `gates.price_context.{inside_boxes, wick_tapped_boxes}` — which Pine boxes contain price; wick_tapped also includes boxes the bar's wick overlapped. FVG entries carry `fvg_direction`.
+- `gates.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L}` — `{label, price, position_vs_price, taken}`. `untaken_sell_side_below[]` + `untaken_buy_side_above[]` are pre-sorted "draw" targets.
+- `gates.pillar1.bias_labels[]` — any Pine label matching /bias/i (empty when no indicator publishes one).
+- `gates.pillar2.{range_value, range_acceptable, current_tf, m5, m15}` — range + per-TF candle anatomy (`{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5, last_bar}`).
+- `gates.pillar3.{most_recent_structure, fvg_by_type, fvg_by_type_above, fvg_by_type_below, last_bar, last_bar_age_seconds}` — ICT structure points, FVG counts by direction, single-bar confirmation facts.
+
+---
 
 ## Rules (non-negotiable; derived from `docs/research/ai-trading-analysis.md`)
 
-1. **Cite or omit.** Every price you mention MUST appear in the JSON bundle and be cited with the exact syntax `<price> (<json.path>)`. The path inside the parens must be a real JSON accessor that resolves to the exact value cited.
+1. **Cite or omit.** Every price must appear in the bundle and be cited `<price> (<json.path>)`. The path must resolve to the cited value. Examples: `29172.75 (quote.last)`, `29302.75 (pine.labels.studies[0].labels[0].price)`, `7393.5 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].low)`. No prose-style parens like `(close)`. Verifier (`npm run smoke:fixtures`) enforces.
+2. **No arithmetic.** Don't compute stops, R:R, distances, body ratios, ATR. If the JSON doesn't have it, write `n/a — needs upstream computation`.
+3. **Don't invent.** If `pine.lines` is empty, write "no Pine lines on chart." If a section's data isn't in the JSON, write `n/a — indicator not on chart`.
+4. **Prose first, JSON last.** Any structured block goes at the end of the chat response. Mid-reasoning JSON degrades accuracy.
+5. **Grade enum only.** `A+ | B | no-trade`. No "high-conviction" / "very likely" / "actionable" / "strong setup".
+6. **Match entry-model components literally.** Walk them in order, by name. Don't paraphrase.
+7. **Time awareness comes from the bundle.** `gates.session.phase`, `minutes_into_phase`, `seconds_to_next_killzone`, `day_of_week` — these are pre-computed. Don't do clock math.
 
-   Examples (real paths into a representative bundle):
-   - `29172.75 (quote.last)`
-   - `29340.25 (bars.high)`
-   - `29302.75 (pine.labels.studies[0].labels[0].price)`
-   - `29307.25 (pine.boxes.studies[0].zones[2].high)`
-   - `29187.75 (bars.last_5_bars[3].close)`
+---
 
-   Do not use approximate or rounded prices. Do not write `(close)` or `(the last price)` as a parenthetical — those aren't paths. If you can't find a price in the bundle, do not cite it.
+## Phase routing
 
-   The harness (`npm run smoke:fixtures`) will fail the build if any cited path is missing or the value doesn't match the bundle.
-2. **No arithmetic.** Don't compute stop distance, R:R, ATR, bar counts, range size, or any other numeric quantity. If the JSON doesn't provide a number, write `n/a — needs upstream computation`.
-3. **Don't invent ICT structure.** If `pine.lines` is empty, say "no Pine lines on chart". If a section's data isn't in the JSON, write `n/a — indicator not on chart`. Your job is *interpretation*, not *detection*.
-4. **Prose first, JSON last.** Write the analysis as prose in the sections below. After the narrative, emit ONE structured JSON block matching the template at the end.
-5. **Grade enum only.** End your structured block with `grade: A+ | B | no-trade`. No "high-conviction" / "very likely" / "strong setup". Emit `A+` only when ALL six elements align (HTF bias + overnight context + NY reaction + price quality + entry model identified + confirmation confirmed). `B` if one element is weaker (smaller gap, neutral overnight, marginal price quality, model present but confirmation pending). `no-trade` if multiple elements are weak/missing or no entry model is in play.
-6. **Match strategy components literally.** When walking an entry model in Pillar 3, follow the components in `docs/strategy/entry-models.md` *in order, by name*. Do not skip, reorder, or substitute terminology.
+Read `gates.session.phase`. Branch:
 
-*Note: until the strategy gate booleans (`pillar1_*`, `pillar2_*`, `pillar3_*`) are emitted by `tv analyze`, you are judging these subjectively. Be conservative — when in doubt, downgrade.*
+| Phase value | What to do |
+|---|---|
+| `pre_session_ny_am`, `pre_session_ny_pm` | Pre-session grade (if not already done today). |
+| `open_reaction_ny_am`, `open_reaction_ny_pm` | Open-reaction watch (15-min window). |
+| `entry_hunt_ny_am`, `entry_hunt_ny_pm` | Per-bar entry-model hunt. |
+| `post_ny_am`, `post_ny_pm` | Session wrap. |
+| `london_open` | (Optional) one-shot grade — same as pre-session NY but for London context. |
+| `inter_session`, `closed` | Idle; emit a one-line status, no state writes. |
 
-## ICT vocabulary
+Each phase reads & writes specific files in `state/session/<YYYY-MM-DD>/` where `<YYYY-MM-DD>` is derived from `gates.session.timestamp_et` (e.g. "Tue, 05/19/2026, 14:30:00" → `2026-05-19`). Create the directory on demand.
 
-- **HTF / LTF** — higher-timeframe (Daily / 4H / 1H) and lower-timeframe (15m / 5m / 1m). HTF sets bias, LTF triggers entries.
-- **Liquidity** — pools of stops above swing highs (buy-side) or below swing lows (sell-side). Price often runs liquidity before reversing.
-- **PDH / PDL** — previous day's high / low. Common liquidity targets.
-- **FVG (Fair Value Gap)** — 3-bar imbalance where bar-1 high and bar-3 low don't overlap. Acts as retracement target / S-R zone. Appears in `pine.boxes` if an FVG indicator is loaded.
-- **BPR** — Balanced Price Range. Bullish and bearish FVGs overlap; tends to act as strong support/resistance.
-- **BISI / SIBI** — Buy-side Imbalance Sell-side Inefficiency / Sell-side Imbalance Buy-side Inefficiency. Direction of an FVG.
-- **Order block** — last opposing candle before strong displacement. Bullish OB = last bearish candle before an up-move.
-- **Mitigation** — price returning to an FVG or OB. Mitigated = touched; unmitigated = still pristine.
-- **Inversion FVG** — bearish FVG violated by a bullish close (or vice versa); the violated zone now acts as opposite-direction support.
-- **Killzone** — session window where institutional flow concentrates (London Open, NY AM, NY PM). Setups inside killzones rate higher.
-- **CE (Consequent Encroachment)** — midpoint of an FVG. Often the conservative entry zone.
-- **Displacement** — strong directional move that creates an FVG. Signals intent.
-- **Sweep / liquidity raid** — wick above a swing high (or below a swing low) that reverses. Confirms a level was liquidity, not a breakout.
-- **Market Structure Shift (MSS)** — break of internal structure in the opposite direction. Often the first LTF trigger after an HTF sweep.
-- **Draw on Liquidity** — the nearest major buy-side or sell-side pool the market is moving toward.
+---
 
-## Structured analysis (mirrors `trading-strategy-2026.md §7`)
+## Phase: Pre-session (NY AM or NY PM)
 
-### Pillar 1 — Draw & Bias
+**Goal:** grade Pillar 1 + Pillar 2 once for this session. Subsequent pre-session invocations should detect prior work and not re-grade.
 
-**a. HTF Bias (Daily / 4H / 1H).**
-First check `gates.pillar1.bias_labels[]`. If non-empty, the chart publishes explicit Bias readouts — cite them directly and use as HTF bias. If empty (current state), *infer* HTF bias from `bars_by_tf.daily / .h4 / .h1` by comparing `change_pct` across the three HTF resolutions — agreement = directional bias; mixed signs = no clear HTF bias. Cite e.g. `25916.75 (bars_by_tf.daily.open)`, `29231.75 (bars_by_tf.daily.close)`.
+**Check first:**
+- For NY AM: if `state/session/<date>/pillar1.md` exists AND its frontmatter says `phase: pre_session_ny_am`, this work is done.
+- For NY PM: if `pillar1-ny-pm.md` exists with `phase: pre_session_ny_pm`, done.
+- If done: output one line "Pre-session already graded (P1=<bias>, P2=<verdict>). Idle until <next phase>." and stop.
 
-For the **HTF PD arrays** the strategy actually trades around, read `pine_by_tf.daily.boxes`, `pine_by_tf.h4.boxes`, `pine_by_tf.h1.boxes`. Filter to the FVG/iFVG study to identify HTF FVGs (decode `bgColor` to direction); filter to Anchored Structures to see HTF swing zones. Pick the most material HTF FVG (large size, recent x1, opposite to current price for a retrace target) as the "primary HTF draw." Cite as e.g. `29513.25 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].high)`.
+**If not done, do these in order:**
 
-The strategy's "main HTF draw" is the intersection of: HTF direction (from bars_by_tf) + nearest untaken session level (from `gates.pillar1.untaken_*`) + nearest material HTF FVG (from `pine_by_tf.*.boxes`). State it explicitly.
+### Step 1 — Pillar 1a: HTF Bias (Daily / 4H / 1H)
 
-**b. Overnight & Session Correlation.**
-Read `gates.pillar1.session_levels.*` and the two pre-sorted arrays `gates.pillar1.untaken_sell_side_below` / `untaken_buy_side_above`. Cite each level you reference by its safe key (e.g. `29089.5 (gates.pillar1.session_levels.NYAM_L.price)`). State which liquidity is `taken` and which remains untaken — the untaken pools are the strategy's "draw" per §2.2. State whether overnight is *extending* the HTF move (lots of taken levels on one side) or *consolidating* (mixed). If `PWH` / `PWL` are null, note that weekly markers aren't published on this chart resolution.
+Read `gates.pillar1.bias_labels[]` first. If non-empty, cite the published bias. If empty (current state), **infer** from `bars_by_tf.daily.change_pct`, `bars_by_tf.h4.change_pct`, `bars_by_tf.h1.change_pct`. Agreement = directional; mixed signs = neutral.
 
-**c. NY Open LTF Bias.**
-Read `gates.session.in_ny_open_window` and `gates.session.label`. If `in_ny_open_window = false` (or `label ∈ {Asia, Inter-session, NY PM, Closed}`), write `n/a — not in NY open window (gates.session.label = <label>)`. If `is_market_closed = true`, market is closed entirely (Sat / Sun pre-18:00 / Fri post-17:00 / daily break) — no live action to read; expect stale data. If `in_ny_open_window = true`, describe the reaction to overnight high/low: break + rejection in the direction of the HTF draw = LTF aligns with HTF (A+ potential). Break + continuation *against* the HTF draw = today is a retrace day; adapt intraday bias accordingly but keep the HTF draw for later. Never marry the HTF bias.
+For the **HTF PD arrays** (strategy §2.1's "best imbalances"), scan `pine_by_tf.daily.boxes`, `pine_by_tf.h4.boxes`, `pine_by_tf.h1.boxes`. Filter to FVG/iFVG study, decode `bgColor`. Pick the most material HTF FVG as the primary HTF draw.
 
-### Pillar 2 — Price Action Quality
+### Step 2 — Pillar 1b: Overnight & Session Correlation
 
-Strategy §7 step 3 asks for three checks: 3-hour range, HTF (4H/1H) displacement, and **5m/15m candle anatomy** (NOT whichever TF the chart is on). The gates reflect that:
+Read `gates.pillar1.session_levels.*` and the pre-sorted `untaken_sell_side_below[]` / `untaken_buy_side_above[]`. State which liquidity is `taken` / `untaken`. State whether overnight was extending (lots taken one side) or consolidating (mixed).
 
-- **Range.** Cite `gates.pillar2.range_value` and `gates.pillar2.range_per_bar`. `range_acceptable` heuristic; override if you disagree.
-- **Displacement on HTF.** Read `bars_by_tf.h4.range` + `change_pct` and `bars_by_tf.h1.range` + `change_pct`. Large clean range with strong directional close = displacement present. Choppy `change_pct` near zero with non-trivial range = consolidation.
-- **5m candle anatomy.** Read `gates.pillar2.m5.{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5}`. The strategy wants "mainly engulfing, not dominated by dojis" — interpret as: at least ~2 engulfings out of 4 transitions, doji_count ≤ 1.
-- **15m candle anatomy.** Same fields under `gates.pillar2.m15.*`.
-- **Current-TF stats** (`gates.pillar2.avg_body_ratio_last_5`, `gates.pillar2.candle_quality_heuristic`, `gates.pillar2.current_tf.*`) are a live LTF gauge — useful when chart is on 1m/3m as a "what's happening *right now*" read — but **do not use them in place of m5/m15** for the Pillar 2 verdict.
-- **Verdict.** `good | marginal | poor`. Synthesize from m5 and m15 stats together. If `marginal` or `poor` on either, downgrade or stand aside even if Pillar 1 is clean.
+### Step 3 — Pillar 2: Range + 5m/15m Candle Anatomy
 
-### Pillar 3 — Entry Model + Confirmation
+- **Range:** cite `gates.pillar2.range_value`, `gates.pillar2.range_per_bar`. Heuristic verdict in `range_acceptable`; override if you disagree (especially on MES — MNQ-calibrated).
+- **HTF displacement:** read `bars_by_tf.h4.range` + `change_pct` and `bars_by_tf.h1.range` + `change_pct`.
+- **m5 anatomy:** `gates.pillar2.m5.{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5}`. Strategy wants "mainly engulfing, not dominated by dojis."
+- **m15 anatomy:** same fields under `gates.pillar2.m15.*`.
+- **Verdict:** `good | marginal | poor`. If marginal/poor on either m5 or m15, downgrade.
 
-State which entry model is in play *right now* (if any): **MSS**, **Trend**, **Inversion**, or **none — wait**.
+### Write the two files
 
-- **MSS** — when LTF is turning after a sweep, in line with broader HTF narrative.
-- **Trend** — when HTF + LTF are clearly in continuation.
-- **Inversion** — when an opposing PD array fails in the direction of your bias.
+Use the `Write` tool to create:
 
-For the chosen model, walk its components from `docs/strategy/entry-models.md` *literally, by name*. For each component: present (cite the field) or missing (state explicitly).
+**`state/session/<date>/pillar1.md`** (or `pillar1-ny-pm.md` for the afternoon session):
 
-**MSS components (long; invert for short):**
+```markdown
+---
+phase: pre_session_ny_am          # or pre_session_ny_pm
+graded_at: <gates.session.timestamp_et>
+symbol: <chart.symbol>
+---
 
-1. Context & Draw — HTF bias clear; downside draw likely near completion.
-2. Liquidity Grab — price runs below an obvious low (Asia / London / PD / swing).
-3. MSS with Displacement — sharp reverse up; break of last lower high with displacement leaving a bullish FVG.
-4. Retrace to Bullish FVG — pullback into FVG (ideally CE), without making a new low.
-5. Entry Confirmation (1m/5m) — bullish close holding above/within the FVG; body, not doji.
-6. Risk & Target — stop below MSS low or FVG low; target next internal high, then session high / HTF buy-side draw.
+# Pillar 1 — Draw & Bias
 
-**Trend components (long; invert for short):**
+## HTF Bias
+<one paragraph with cited prices>
 
-1. Context & HTF Bias — clear HTF up-move; bullish FVGs being respected.
-2. Strong Impulse Leg — wide-range up-move on LTF leaving fresh bullish FVGs.
-3. Pullback into Internal FVG — orderly pullback respecting structure (higher highs / higher lows); trades into internal bullish FVG.
-4. Entry Confirmation (1m/5m) — bullish close above FVG CE with displacement.
-5. Risk & Target — stop below swing low touching FVG or FVG low; target next internal high, then HTF draw.
+## Primary HTF Draw
+<one sentence: the most material HTF FVG / liquidity pool, with cited high/low>
 
-**Inversion components (bullish; invert for bearish):**
+## Overnight Summary
+<which levels are taken / untaken, with cited prices>
 
-1. Context & HTF Bias — clearly bullish HTF; buy-side liquidity targets above.
-2. Opposing FVG Forms — bearish FVG appears on LTF (small counter-trend imbalance).
-3. Violation — price closes above the top of the bearish FVG with displacement; failed PD array becomes a bullish inversion FVG.
-4. Optional Retest & Confirmation — pullback into inversion zone; bullish close from that zone (conservative). Or enter on the violation close itself (aggressive) if speed and context are exceptional.
-5. Risk & Target — stop below inversion low; target next buy-side liquidity (session high / PDH / HTF high).
+## Verdict
+- htf_bias: bullish | bearish | neutral
+- bias_direction_note: <one line>
+```
 
-**Confirmation status:** `waiting | candidate | confirmed | invalidated | n/a`.
+**`state/session/<date>/pillar2.md`** (or `pillar2-ny-pm.md`):
 
-- `waiting` — model context is forming but no PD array tap yet.
-- `candidate` — PD array tapped; awaiting confirmation candle close within ~10–15 minutes.
-- `confirmed` — confirmation candle closed with body, displacement, no immediate messy chop.
-- `invalidated` — confirmation failed (chop > 10–15 min in FVG, or structural break against the read).
-- `n/a` — no model in play.
+```markdown
+---
+phase: pre_session_ny_am
+graded_at: <gates.session.timestamp_et>
+---
 
-When walking the components, leverage:
+# Pillar 2 — Price Action Quality
 
-- `gates.price_context.inside_boxes` — which Pine boxes contain price right now (do not enumerate `pine.boxes.studies[*].zones[*]` manually).
-- `gates.pillar3.most_recent_structure.*` — the most recent labeled swing point of each kind, sorted by `x` (Pine bar-index). For MSS detection: find the structure point with the highest `x` overall (the freshest event), then check whether subsequent bars closed beyond the appropriate threshold. E.g. if the most-recent label is `ST_LL` and price subsequently closed above the most-recent `ST_LH`, that's an MSS up.
-- `gates.pillar3.fvg_by_type_above` / `fvg_by_type_below` — counts of FVGs by direction relative to current price. **Bullish IFVG below** = a bearish FVG that was violated bullish-ly; now acts as bullish support. **Bearish IFVG above** = a bullish FVG that was violated bearish-ly; now acts as bearish resistance. Use these counts to assess overhead supply vs underneath demand, and to identify Inversion-model candidates.
+## Range
+<cite>
 
-For the **confirmation candle** check, the strategy allows 1m OR 5m close (§5 / §7 step 6 / each entry model's "Entry Confirmation (1m/5m)"). Read the per-TF `last_bar` gates:
+## HTF Displacement
+<cite>
 
-- **1m close** — `gates.pillar3.last_bar` (current-TF, identical to `gates.pillar2.current_tf.last_bar` when chart is on 1m).
-- **5m close** — `gates.pillar2.m5.last_bar`. This is the strategy-aligned 5m confirmation source.
-- **15m fallback** — `gates.pillar2.m15.last_bar`. Available but rarely used per strategy; the A+ examples in `entry-models.md` all show 1m precision-timed entries.
+## m5 / m15 Anatomy
+<cites>
 
-Per-bar fields each `last_bar` exposes: `{time, open, high, low, close, body_ratio, direction, range, close_position_in_range}`.
+## Verdict
+- pillar2: good | marginal | poor
+- override_reason: <if you overrode the heuristic, why>
+```
 
-A clean confirmation candle has: `direction` matching the setup, `body_ratio >= 0.6`, and `close_position_in_range` on the favorable side (>0.7 for bullish, <0.3 for bearish). For MSS / Trend the close must also be ABOVE the watched FVG midpoint; for Inversion the close must be back FROM the inversion zone (cross-reference against `pine.boxes` or `pine_by_tf.*.boxes` for the relevant TF). Use `gates.pillar3.last_bar_age_seconds` to sanity-check live-ness on the 1m feed; if it's much larger than the chart's bar interval, the data is stale.
+### Chat output (after writing files)
 
-### Risk & Management (only if `confirmation_status = confirmed`)
+Three to five lines: cited HTF bias + primary draw + Pillar 2 verdict + countdown to next phase. End with: `Saved state/session/<date>/{pillar1.md, pillar2.md}. Idle until <next killzone> (in <minutes>m).`
 
-- **Entry** — cited price.
-- **Stop** — structural invalidation (cited).
-- **TP1** — local liquidity (internal swing / session high or low).
-- **TP2** — toward HTF draw if price/action supports continuation.
-- **Invalidation** — one sentence; what specifically would invalidate the read.
+---
 
-### Grade
+## Phase: Open reaction (NY AM or NY PM)
 
-- **A+** — HTF bias clear, overnight liquidity aligned, NY reaction confirms, price quality good, entry model identified, confirmation confirmed.
-- **B** — one element weaker (smaller gap, neutral overnight, marginal price quality, model present but confirmation pending, etc.).
-- **no-trade** — multiple elements weak/missing OR no entry model is in play OR price quality is poor.
+**Goal:** watch the first 15 minutes of NY's reaction to overnight levels. Build the LTF bias picture. By minute 14, finalize.
 
-When in doubt, downgrade. `A+` should be rare.
+**Required reads first:**
+- `state/session/<date>/pillar1.md` and `pillar2.md` (must exist; if missing, that's a Pillar 1+2 prereq error — say so and run pre-session work first).
+- `state/session/<date>/open-reaction.md` if it exists (we're updating it).
 
-## Examples (three A+ readings, one per model)
+**The work:**
+
+Read `gates.pillar3.last_bar`, `gates.pillar2.m5.last_bar`, `gates.pillar2.m15.last_bar`. Read the recent untaken levels from `gates.pillar1.untaken_*`. What's price doing relative to those levels? Is NY breaking the overnight high or low? Holding above or rejecting?
+
+Strategy §2.3:
+- Break + rejection in direction of HTF draw → LTF aligns with HTF (A+ potential later).
+- Break + continuation against HTF draw → "today is a retrace day" — bias may stay HTF or flip intraday.
+
+### Update `open-reaction.md`
+
+Either create or append (the file is a running log, with the latest snapshot at the top):
+
+```markdown
+---
+phase: open_reaction_ny_am
+updated_at: <timestamp>
+minutes_into_phase: <int>
+---
+
+# Open Reaction
+
+## Latest read (<timestamp>, +<minutes_into_phase>m)
+<one paragraph: what NY just did, with cited prices>
+
+## Bias direction so far
+<bullish | bearish | mixed | unclear>
+
+## What I'm watching
+<one line: the level / FVG that will resolve the bias>
+
+---
+## Previous reads
+<older snapshots, oldest at bottom>
+```
+
+### If minutes_into_phase >= 14, ALSO finalize `ltf-bias.md`
+
+```markdown
+---
+phase: open_reaction_ny_am_complete
+finalized_at: <timestamp>
+---
+
+# LTF Bias (post-NY-open)
+
+- ltf_bias: bullish | bearish | mixed | stand_aside
+- htf_ltf_alignment: aligned | divergent | unclear
+- reasoning: <one paragraph, cited>
+```
+
+### Chat output
+
+Two to four lines: what NY just did + bias direction + minutes remaining in open-reaction phase + the level being watched. If finalized: explicitly say "LTF bias finalized: <bias>".
+
+---
+
+## Phase: Entry hunt (NY AM or NY PM)
+
+**Goal:** evaluate every 1m and 5m bar close for entry-model setups. Reference all prior session memory. Flag candidates.
+
+**Required reads first:**
+- `state/session/<date>/pillar1.md`
+- `state/session/<date>/pillar2.md`
+- `state/session/<date>/ltf-bias.md`
+- `state/session/<date>/setups.jsonl` (if it exists — read recent entries to avoid re-flagging the same setup)
+- `state/session/<date>/bars.jsonl` (tail — last ~10 entries for recent context)
+
+If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open-reaction work didn't complete. Say so and skip entry hunt.
+
+**For each new bar (1m close, and 5m close when `gates.pillar3.last_bar.time % 300 == 0`):**
+
+1. Append the bar facts to `state/session/<date>/bars.jsonl`:
+
+```jsonl
+{"time": <bar_time>, "tf": "1m", "o": <open>, "h": <high>, "l": <low>, "c": <close>, "body_ratio": <bratio>, "direction": "<dir>", "close_position_in_range": <cp>}
+```
+
+(Use the bundle's `gates.pillar3.last_bar.*` fields. Write `tf: "5m"` and a separate line to `bars-5m.jsonl` when at a 5m boundary.)
+
+2. **Reason about entry-model candidates.** Read `gates.pillar3.most_recent_structure`, `gates.price_context.wick_tapped_boxes`, `gates.pillar3.fvg_by_type_above/below`. Combined with prior LTF bias:
+
+   - **MSS** — when a sweep just happened (recent ST_LL/ST_HH at high `x`), then displacement back the other way, followed by retrace into the freshly-created FVG.
+   - **Trend** — HTF + LTF both aligned, pullback into an internal FVG matching bias direction.
+   - **Inversion** — opposing-direction FVG just got violated by a strong close (e.g. bullish close above a bearish FVG); now watching for the inversion retest.
+
+3. **If a candidate is forming or has fired**, append to `state/session/<date>/setups.jsonl`:
+
+```jsonl
+{"ts": "<iso>", "bar_time": <t>, "tf": "1m", "model": "MSS|Trend|Inversion", "status": "waiting|candidate|confirmed|invalidated", "side": "long|short", "rationale": "<one line with cites>", "fvg": {"high": <h>, "low": <l>, "direction": "<bullish_fvg|...>"}, "confirmation_bar": {"close": <c>, "body_ratio": <br>, "direction": "<d>"} | null}
+```
+
+### Chat output
+
+**Default (no setup):** ONE line. Format:
+`<phase>:<min>m  bar=<bar_time> body=<br> dir=<dir> | no setup (last_bar at <close>, in <list-or-none> FVGs)`
+
+**Setup forming (status=waiting or candidate):** TWO to THREE lines. Cite the FVG; note the model; say what would confirm.
+
+**Setup CONFIRMED:** the longer prose+JSON read. Use the structured block from the "Examples" section below. Cite entry, stop (structural invalidation), TP1 (local liquidity), TP2 (HTF draw if supported). Include the model walk per `docs/strategy/entry-models.md`.
+
+---
+
+## Phase: Post-session (NY AM or NY PM)
+
+**Goal:** write a one-paragraph wrap, then idle.
+
+**The work:**
+- If `state/session/<date>/htf-summary.md` already covers this phase (check frontmatter), output "Already wrapped." and stop.
+- Else: read pillar1.md, pillar2.md, ltf-bias.md, setups.jsonl. Write a synthesis to `htf-summary.md`:
+
+```markdown
+---
+date: <YYYY-MM-DD>
+wrapped_at: <timestamp>
+covered_phases: [pre_session_ny_am, open_reaction_ny_am, entry_hunt_ny_am, post_ny_am]
+---
+
+# Session Summary
+
+## Bias picture
+<one paragraph synthesizing P1 + P2 + LTF bias>
+
+## What happened
+<one paragraph: did setups fire, did they confirm, what's the day's narrative>
+
+## Open questions / what to watch next session
+<one or two bullets>
+```
+
+### Chat output
+
+The single-paragraph wrap. Then say what's next ("Idle until NY PM at 13:00 ET" / "Idle until tomorrow's London Open").
+
+---
+
+## Phase: London Open, Inter-session, Closed
+
+**Goal:** light-weight one-line status, no state writes. The system is intentionally session-focused (NY AM + NY PM). London Open is a context-build window if you want it — for now treat as a one-shot grade similar to pre-session NY AM (write a `pillar1-london.md` if doing the optional London grade). Default: just say "Outside NY sessions — no work" plus current phase + countdown.
+
+---
+
+## ICT vocabulary (re-read each invocation; small enough to keep in context)
+
+- **HTF / LTF** — higher TF (Daily / 4H / 1H) sets bias; LTF (15m / 5m / 1m) triggers.
+- **Liquidity** — stop pools above swing highs (buy-side) or below swing lows (sell-side).
+- **PDH / PDL** — previous day's high / low.
+- **FVG** — 3-bar imbalance. Pine box. Acts as retracement target.
+- **BPR** — Balanced Price Range. Overlapping bullish + bearish FVGs.
+- **Order block** — last opposing candle before strong displacement.
+- **Mitigation** — price returning to an FVG / OB.
+- **Inversion FVG** — bearish FVG violated bullishly (or vice versa) — flipped polarity.
+- **Killzone** — institutional flow window (London Open, NY AM, NY PM).
+- **CE** — Consequent Encroachment, FVG midpoint.
+- **Displacement** — wide-range directional move creating an FVG.
+- **Sweep / liquidity raid** — wick beyond a swing reversing.
+- **MSS** — Market Structure Shift; break of internal structure in the opposite direction.
+- **Draw on Liquidity** — the major pool price is being pulled toward.
+
+---
+
+## Examples (three A+ readings)
+
+Use these as the SHAPE for `entry hunt → confirmed` output. Each example was an A+ — your read needs the same level of HTF/LTF/quality alignment to grade A+.
 
 <example>
 **MSS bullish reversal at HTF sell-side run**
 
-Pillar 1:
-- HTF: price trading into a large 4H bullish FVG that also swept a prior weekly low — buy-side draw above.
-- Overnight: London pressed down and swept Asia Low + prior day's low in one fast push (liquidity run aligning with HTF draw).
-- NY reaction: after the sweep, a strong 5m bullish displacement candle tore higher, broke above the last 5m lower high, leaving a clean 5m bullish FVG.
-
-Pillar 2: good — wide-range displacement, no chop, clear close.
-
-Pillar 3 — MSS:
-1. Context & Draw — HTF bullish, downside draw completed by the sweep. ✓
-2. Liquidity Grab — Asia low + PDL taken in one push. ✓
-3. MSS with Displacement — sharp reverse up, break of last 5m lower high, fresh bullish FVG. ✓
+Pillar 1: HTF bullish (4H bullish FVG that swept a prior weekly low); buy-side draw above.
+Overnight: London raided Asia Low + PDL in one push.
+NY reaction: after the sweep, a strong 5m bullish displacement candle tore higher, broke above the last 5m lower high, leaving a clean 5m bullish FVG.
+Pillar 2: good — wide-range displacement, no chop.
+Pillar 3 — MSS components:
+1. Context & Draw — HTF bullish, downside draw completed. ✓
+2. Liquidity Grab — Asia low + PDL taken. ✓
+3. MSS with Displacement — sharp reverse, break of last 5m lower high, fresh bullish FVG. ✓
 4. Retrace to FVG — price retraced into the 5m FVG without new low. ✓
-5. Confirmation — 1m full-body bullish close back above FVG CE, no lower wick. ✓
-6. Risk & Target — stop ticks below MSS low; TP1 last internal high, TP2 London high, runner toward PDH.
+5. Confirmation — 1m full-body bullish close back above FVG CE. ✓
+6. Risk & Target — stop below MSS low; TP1 last internal high, TP2 London high.
 
-Entry: 1m close above FVG CE.
-Stop: below MSS low.
-Target: TP1 last internal high; TP2 London high.
-
-Grade: **A+** — HTF, overnight, NY reaction, price quality, model, and confirmation all align.
+Grade: **A+**
 </example>
 
 <example>
 **Trend continuation in established uptrend**
 
-Pillar 1:
-- HTF: sustained up-move on Daily/4H respecting prior 4H bullish FVGs.
-- Overnight: London produced strong displacement up, MSS up, left two bullish FVGs; NY opens above them.
-- NY reaction: 5m rallies, makes new highs, leaves a fresh 5m bullish FVG. Retraces into it with small orderly red candles — no aggressive selling.
-
-Pillar 2: good — small clean pullback within bullish structure; higher highs / higher lows intact.
-
-Pillar 3 — Trend:
+Pillar 1: HTF Daily/4H sustained up-move respecting prior 4H bullish FVGs. London made new highs and left two 5m bullish FVGs. NY opens above them.
+NY reaction: 5m rallies, leaves fresh 5m bullish FVG, retraces into it with orderly red candles.
+Pillar 2: good — clean pullback, structure intact (HH/HL).
+Pillar 3 — Trend components:
 1. Context & HTF Bias — primary trend up; HTF FVGs respected. ✓
-2. Strong Impulse Leg — wide-range up move, fresh 5m bullish FVG. ✓
-3. Pullback into Internal FVG — orderly retrace respecting structure. ✓
+2. Strong Impulse Leg — wide-range up move, fresh 5m FVG. ✓
+3. Pullback into Internal FVG — orderly retrace, structure intact. ✓
 4. Confirmation — 1m strong bullish close above FVG CE after small bottoming wick. ✓
-5. Risk & Target — stop below local swing low / FVG low; TP1 pullback high, TP2 prior daily high.
+5. Risk & Target — stop below FVG low; TP1 pullback high, TP2 prior daily high.
 
-Entry: 1m close above FVG CE.
-Stop: below FVG low / local swing low.
-Target: TP1 pullback high; TP2 prior daily high.
-
-Grade: **A+** — primary trend, HTF FVG respect, clean impulse, clean pullback, decisive confirmation.
+Grade: **A+**
 </example>
 
 <example>
 **Bullish inversion at counter-trend FVG failure**
 
-Pillar 1:
-- HTF: 4H bullish FVGs respected for days; approaching prior weekly high (main buy-side draw).
-- Overnight: continued upside, no significant counter-trend break.
-- NY reaction: strong rally; 5m prints a small bearish FVG as price dips on a micro pullback.
-
-Pillar 2: good — large green candle rips back through the bearish FVG, no rejection wick, clean close above.
-
-Pillar 3 — Inversion:
-1. Context & HTF Bias — clearly bullish HTF; buy-side targets above. ✓
-2. Opposing FVG Forms — small bearish FVG on the micro pullback. ✓
-3. Violation — 5m green candle closes well above the top of the bearish FVG with displacement. ✓ Failed bearish FVG now an inversion zone (bullish support).
-4. Retest & Confirmation — 1m pulls into inversion zone, prints full-body bullish candle rejecting from it. ✓
+Pillar 1: HTF 4H bullish FVGs respected; price approaching prior weekly high.
+Overnight: continued upside, no significant counter-trend.
+NY reaction: strong rally; 5m prints a small bearish FVG on a micro pullback.
+Pillar 2: good — large green candle rips back through with no rejection.
+Pillar 3 — Inversion components:
+1. Context & HTF Bias — clearly bullish; buy-side targets above. ✓
+2. Opposing FVG Forms — small bearish FVG on micro pullback. ✓
+3. Violation — 5m green candle closes well above the top of the bearish FVG. ✓
+4. Retest & Confirmation — 1m pulls into inversion zone, prints full-body bullish candle. ✓
 5. Risk & Target — stop below inversion low; TP1 intraday high, TP2 weekly high.
 
-Entry: 1m bullish confirmation close in the inversion zone.
-Stop: below inversion low.
-Target: TP1 intraday high; TP2 weekly high.
-
-Grade: **A+** — counter-trend PD array fails exactly in the direction of HTF bias; inversion zone defended with clear confirmation.
+Grade: **A+**
 </example>
 
-## Output template
+---
 
-End your response with this block, filled in. All prices must be present in the analyze JSON bundle (rule 1).
+## Output JSON (only on `entry_hunt_*` phase with `confirmation_status: confirmed`)
 
-```json
-{
-  "pillar1": {
-    "htf_bias": "bullish" | "bearish" | "neutral",
-    "htf_draw": "<one-line: nearest major liquidity pool the market is drawing toward, with price>",
-    "overnight": "<one-line: Asia/London takes + what's left untaken, or 'n/a'>",
-    "ny_reaction": "<one-line: reaction to overnight H/L, or 'n/a — not in NY window'>"
-  },
-  "pillar2": {
-    "range_acceptable": true | false,
-    "displacement_present": true | false,
-    "candle_quality": "good" | "marginal" | "poor",
-    "verdict": "good" | "marginal" | "poor"
-  },
-  "pillar3": {
-    "entry_model": "MSS" | "Trend" | "Inversion" | null,
-    "confirmation_status": "waiting" | "candidate" | "confirmed" | "invalidated" | "n/a"
-  },
-  "trade": {
-    "entry": null,
-    "stop": null,
-    "target_tp1": null,
-    "target_tp2": null,
-    "invalidation": "<one-line, or 'n/a'>"
-  },
-  "grade": "A+" | "B" | "no-trade"
-}
-```
-
-## Watchman briefing (write this file before ending the response)
-
-After the structured-output block above, use the `Write` tool to save a watchman briefing to `state/watch/briefing.json`. This is the handoff that lets `./bin/tv watch` start polling Pillar 3 — strategy §7 is sequential, so the watchman REQUIRES this file and a `verdict: ready` before it fires any alerts.
-
-The briefing's `stage` reflects what's known at grading time. Strategy §2.3: "wait the first 15–30 minutes of NY to see the reaction". User's chosen cadence: grade twice, at 09:30 ET (pre-reaction, stage 1) and 09:45 ET (post-reaction, stage 2). Same for NY PM at 13:30 / 13:45 ET. London Open / Asia: single grade at session open.
-
-Schema:
+When you flag a confirmed setup, end the chat response with this structured block (in addition to writing to `setups.jsonl`):
 
 ```json
 {
-  "ts": "<ISO 8601 with TZ>",
-  "stage": "stage_1_pre_reaction" | "stage_2_post_reaction" | "single",
-  "session": "NY AM" | "NY PM" | "London Open" | "Asia",
-  "symbol": "<from chart.symbol>",
-  "pillar1": {
-    "htf_bias": "bullish" | "bearish" | "neutral",
-    "htf_draw": "<one-line, with cited price>",
-    "overnight": "<one-line>",
-    "ny_reaction": "<one-line or 'pending' (stage 1) or 'n/a'>"
-  },
-  "pillar2": {
-    "verdict": "good" | "marginal" | "poor"
-  },
-  "verdict": "ready" | "pending" | "stand_aside",
-  "watchman_directive": {
-    "active": true | false,
-    "side": "long" | "short" | "both",
-    "priority_zones": [
-      {
-        "study": "<exact study name from the bundle, e.g. 'FVG/iFVG (Nephew_Sam_)'>",
-        "high": <number>,
-        "low": <number>,
-        "direction": "bullish_fvg" | "bullish_ifvg" | "bearish_fvg" | "bearish_ifvg" | "unknown",
-        "rationale": "<one-line on why this zone matters for the bias>"
-      }
-    ]
-  },
-  "grade": "A+" | "B" | "no-trade"
+  "phase": "entry_hunt_ny_am",
+  "model": "MSS" | "Trend" | "Inversion",
+  "side": "long" | "short",
+  "confirmation_status": "confirmed",
+  "entry": <number, cited>,
+  "stop": <number, cited>,
+  "target_tp1": <number, cited>,
+  "target_tp2": <number, cited>,
+  "invalidation": "<one-line>",
+  "grade": "A+" | "B"
 }
 ```
 
-Rules:
-- **`verdict: ready`** ONLY in stage 2 (or single-grade sessions) with `pillar1.htf_bias != neutral` AND `pillar2.verdict != poor` AND a clear NY reaction (or n/a for non-NY sessions). Otherwise `pending` (stage 1, still waiting) or `stand_aside`.
-- **`watchman_directive.active: true`** only if `verdict: ready`. Otherwise `false` — watchman won't run.
-- **`watchman_directive.side`** matches `pillar1.htf_bias`: bullish → long, bearish → short, neutral → both (rare; usually means stand_aside).
-- **`priority_zones`** are the specific FVG/iFVG/BPR zones from the bundle that the watchman should fire on. Pick zones aligned with bias direction (a bullish bias watches bullish FVGs being retested OR bearish FVGs being broken through; same logic inverted for bearish). Maximum 6 zones — focus, don't dump everything. Use exact `high` and `low` values from `pine.boxes` or `pine_by_tf.*` so the watchman can match against `gates.price_context.wick_tapped_boxes`.
-- **No invented zones.** Each `high`/`low` must appear in the bundle.
+For all other phases / statuses, no JSON block — just the prose updates and the disk writes.
 
-## Constraints (also in CLAUDE.md)
+---
+
+## Constraints (mirrors CLAUDE.md hard constraints)
 
 - CLI only — no `mcp__tradingview__*` tools.
-- 9223 only — never 9222.
-- No screenshots in analysis input. `./bin/tv screenshot` exists for verifications/tests only.
-- All five rules above are research-backed; see `docs/research/ai-trading-analysis.md` and `docs/research/ai-consistency.md`.
-- The strategy is authoritative; see `docs/strategy/trading-strategy-2026.md` and `docs/strategy/entry-models.md`.
+- CDP 9223 only — never 9222.
+- No screenshots in analysis input.
+- The strategy is authoritative; see `docs/strategy/*.md`.
+- The rules above are research-backed; see `docs/research/*.md`.

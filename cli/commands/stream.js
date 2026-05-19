@@ -28,6 +28,14 @@ register('stream', {
         process.exit(0);
       },
     }],
+    ['bar-close', {
+      description: 'Emit one JSON line per closed bar. Time-aligned polling (sleeps to next bar boundary). Flags 5m closes when chart is on 1m. Used by the LLM-driven session — pipe into Claude Code Monitor.',
+      options: {},
+      handler: async () => {
+        await core.streamBarClose();
+        process.exit(0);
+      },
+    }],
     ['values', {
       description: 'Stream indicator values (RSI, MACD, etc.)',
       options: {

@@ -161,6 +161,7 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
     timeZone: 'America/New_York',
     hour: 'numeric',
     minute: 'numeric',
+    second: 'numeric',
     weekday: 'short',
     year: 'numeric',
     month: '2-digit',
@@ -205,6 +206,63 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
   else if (inLondonOpenKillzone) sessionLabel = 'London Open';
   else if (etMinutesTotal >= 18 * 60 || etMinutesTotal < 3 * 60) sessionLabel = 'Asia';
   else sessionLabel = 'Inter-session';
+
+  // -- Phase + temporal fields (LLM is temporally blind by default; pre-compute) --
+  // Phases match docs/plans/llm-driven-session.md. Used by /analyze to choose
+  // which work to do (pre-session grade → open-reaction → entry-hunt → post).
+  const etSeconds = Number(parts.second || 0);
+  let sessionPhase, phaseStartMin, nextKillzoneMin, nextKillzoneLabel;
+  if (isMarketClosed) {
+    sessionPhase = 'closed';
+    phaseStartMin = 0; nextKillzoneMin = -1; nextKillzoneLabel = null;
+  } else if (etMinutesTotal >= 3 * 60 && etMinutesTotal < 5 * 60) {
+    sessionPhase = 'london_open';
+    phaseStartMin = 3 * 60; nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
+  } else if (etMinutesTotal < 9 * 60 + 30) {
+    sessionPhase = 'pre_session_ny_am';
+    phaseStartMin = etMinutesTotal >= 5 * 60 ? 5 * 60 : 0;
+    nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
+  } else if (etMinutesTotal < 9 * 60 + 45) {
+    sessionPhase = 'open_reaction_ny_am';
+    phaseStartMin = 9 * 60 + 30; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+  } else if (etMinutesTotal < 12 * 60) {
+    sessionPhase = 'entry_hunt_ny_am';
+    phaseStartMin = 9 * 60 + 45; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+  } else if (etMinutesTotal < 13 * 60) {
+    sessionPhase = 'post_ny_am';
+    phaseStartMin = 12 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+  } else if (etMinutesTotal < 13 * 60 + 30) {
+    sessionPhase = 'pre_session_ny_pm';
+    phaseStartMin = 13 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+  } else if (etMinutesTotal < 13 * 60 + 45) {
+    sessionPhase = 'open_reaction_ny_pm';
+    phaseStartMin = 13 * 60 + 30;
+    nextKillzoneMin = 3 * 60 + 24 * 60;  // tomorrow's London Open
+    nextKillzoneLabel = 'London Open (next day)';
+  } else if (etMinutesTotal < 16 * 60) {
+    sessionPhase = 'entry_hunt_ny_pm';
+    phaseStartMin = 13 * 60 + 45;
+    nextKillzoneMin = 3 * 60 + 24 * 60;
+    nextKillzoneLabel = 'London Open (next day)';
+  } else if (etMinutesTotal < 17 * 60) {
+    sessionPhase = 'post_ny_pm';
+    phaseStartMin = 16 * 60;
+    nextKillzoneMin = 3 * 60 + 24 * 60;
+    nextKillzoneLabel = 'London Open (next day)';
+  } else {
+    sessionPhase = 'inter_session';
+    phaseStartMin = 17 * 60;
+    nextKillzoneMin = 3 * 60 + 24 * 60;
+    nextKillzoneLabel = 'London Open (next day)';
+  }
+  const minutesIntoPhase = Math.max(0, etMinutesTotal - phaseStartMin);
+  let secondsToNextKillzone = null;
+  if (nextKillzoneMin >= 0) {
+    const targetMin = nextKillzoneMin > etMinutesTotal
+      ? nextKillzoneMin
+      : nextKillzoneMin + 24 * 60;
+    secondsToNextKillzone = (targetMin - etMinutesTotal) * 60 - etSeconds;
+  }
 
   // -- Price-vs-pine-box context (inside-box checks) --
   // Build a coord-keyed map of FVG-study verbose boxes so we can attach the
@@ -396,6 +454,7 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
     session: {
       label: sessionLabel,
       timestamp_et: fmt.format(new Date(ts)),
+      day_of_week: weekday,
       is_weekend: isWeekend,
       is_market_closed: isMarketClosed,
       in_ny_open_window: inNyOpenWindow,
@@ -405,6 +464,13 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
         ny_am: inNyAmKillzone,
         ny_pm: inNyPmKillzone,
       },
+      // Phase + timing for LLM-driven session (docs/plans/llm-driven-session.md).
+      // LLMs are temporally blind by default (arXiv 2510.23853) — these are
+      // pre-computed so the model never does clock math.
+      phase: sessionPhase,
+      minutes_into_phase: minutesIntoPhase,
+      next_killzone_label: nextKillzoneLabel,
+      seconds_to_next_killzone: secondsToNextKillzone,
       replay: replayStatus,
     },
     price_context: {

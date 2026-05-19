@@ -115,6 +115,134 @@ export async function streamBars({ interval } = {}) {
   return pollLoop(fetchLastBar, { interval: interval || 500, label: 'bars' });
 }
 
+// ── Stream: bar-close (time-aligned; emits one event per closed bar) ──
+
+/**
+ * Fetch the current bar AND the previous bar in one CDP call. Used by
+ * streamBarClose — when we detect the bar.time has advanced, we emit using
+ * `previous` (the actual just-closed bar with its final OHLC).
+ */
+async function fetchLastTwoBars() {
+  return evaluate(`
+    (function() {
+      var chart = ${CHART_API};
+      var m = ${MODEL};
+      var bars = m.mainSeries().bars();
+      var lastIdx = bars.lastIndex();
+      var cur = bars.valueAt(lastIdx);
+      if (!cur) return null;
+      var prev = lastIdx > 0 ? bars.valueAt(lastIdx - 1) : null;
+      return {
+        symbol: chart.symbol(),
+        resolution: chart.resolution(),
+        current:  { bar_time: cur[0],  open: cur[1],  high: cur[2],  low: cur[3],  close: cur[4],  volume: cur[5]  || 0 },
+        previous: prev ? { bar_time: prev[0], open: prev[1], high: prev[2], low: prev[3], close: prev[4], volume: prev[5] || 0 } : null,
+      };
+    })()
+  `);
+}
+
+/**
+ * Bar-close detector. Time-aligned polling: sleeps to the next 60s boundary,
+ * polls fast for ~3s after the boundary to catch the close, then idles. Emits
+ * one JSON line per closed bar to stdout.
+ *
+ * Event schema:
+ *   {
+ *     kind: "bar_close",
+ *     tf: "1" | "5" | ...,           // chart's current resolution at emit time
+ *     symbol: "CME_MINI:MNQ1!",
+ *     bar_open_time:  <unix sec>,    // OPEN of the just-closed bar
+ *     bar_close_time: <unix sec>,    // when it closed (== OPEN of the new bar)
+ *     open, high, low, close, volume,
+ *     is_5m_close: true,             // only set when chart=1m AND bar_close_time % 300 == 0
+ *     _ts: <epoch ms at emit>
+ *   }
+ *
+ * Designed for the LLM-driven session pattern (docs/plans/llm-driven-session.md):
+ * pipe into the Claude Code `Monitor` tool; each line becomes a notification
+ * the LLM reacts to with phase-aware /analyze.
+ */
+export async function streamBarClose() {
+  let lastSeenBarTime = null;
+  let running = true;
+
+  const cleanup = () => { running = false; };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+
+  process.stderr.write(`⚠  tradingview-mcp  |  Unofficial tool. Not affiliated with TradingView Inc. or Anthropic.\n`);
+  process.stderr.write(`   Streams from your locally running TradingView Desktop instance only.\n`);
+  process.stderr.write(`[stream:bar-close] started. Time-aligned polling: sleeps to next bar boundary, polls fast ~3s.\n`);
+  process.stderr.write(`[stream:bar-close] Ctrl+C to stop.\n`);
+
+  while (running) {
+    try {
+      // Sleep to the next 60s boundary plus 250ms grace (let TV commit the
+      // close tick after the boundary).
+      const nowMs = Date.now();
+      const nextBoundaryMs = Math.ceil((nowMs + 100) / 60_000) * 60_000;
+      const sleepMs = Math.max(50, nextBoundaryMs - nowMs + 250);
+      await sleep(sleepMs);
+
+      // Poll fast for ~3s to catch the new bar appearing.
+      for (let i = 0; i < 30 && running; i++) {
+        const data = await fetchLastTwoBars();
+        if (!data) { await sleep(100); continue; }
+
+        if (lastSeenBarTime === null) {
+          // First poll — establish tracking baseline; don't emit.
+          lastSeenBarTime = data.current.bar_time;
+          process.stderr.write(`[stream:bar-close] tracking from bar_time=${lastSeenBarTime} (TF=${data.resolution})\n`);
+          break;
+        }
+
+        if (data.current.bar_time !== lastSeenBarTime) {
+          // New bar appeared. `previous` is the just-closed bar.
+          const closed = data.previous;
+          if (closed && closed.bar_time === lastSeenBarTime) {
+            const event = {
+              kind: 'bar_close',
+              tf: data.resolution,
+              symbol: data.symbol,
+              bar_open_time: closed.bar_time,
+              bar_close_time: data.current.bar_time,
+              open: closed.open,
+              high: closed.high,
+              low: closed.low,
+              close: closed.close,
+              volume: closed.volume,
+              _ts: Date.now(),
+            };
+            // When chart is on 1m and the bar's CLOSE aligns to a 5m boundary,
+            // the just-closed bar was the last 1m of a 5m period — i.e. a 5m
+            // candle also just closed. Flag it so consumers can multiplex.
+            if (data.resolution === '1' && data.current.bar_time % 300 === 0) {
+              event.is_5m_close = true;
+            }
+            process.stdout.write(JSON.stringify(event) + '\n');
+          }
+          lastSeenBarTime = data.current.bar_time;
+          break;
+        }
+
+        await sleep(100);
+      }
+    } catch (err) {
+      if (/CDP|ECONNREFUSED/i.test(err.message)) {
+        await sleep(2000);
+        continue;
+      }
+      process.stderr.write(`[stream:bar-close] error: ${err.message}\n`);
+      await sleep(500);
+    }
+  }
+
+  process.stderr.write(`[stream:bar-close] stopped\n`);
+  process.removeListener('SIGINT', cleanup);
+  process.removeListener('SIGTERM', cleanup);
+}
+
 // ── Stream: indicator values ──
 
 async function fetchValues() {
