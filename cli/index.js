@@ -22,6 +22,7 @@ import "./commands/pane.js";
 import "./commands/tab.js";
 import "./commands/stream.js";
 import "./commands/analyze.js";
+import "./commands/dash.js";
 
 import { run } from "./router.js";
 await run(process.argv);

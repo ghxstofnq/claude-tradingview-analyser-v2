@@ -214,6 +214,21 @@ The plan is in [docs/plans/llm-driven-session.md](docs/plans/llm-driven-session.
 
 Until the redesign lands, the existing `analyze` command + slash command still work for one-shot grading.
 
+## The `dash` recipe (live oversight TUI)
+
+`./bin/tv dash` is a terminal UI that gives you live visibility into everything the system is doing. Run it in a separate terminal alongside the detector + Claude Code session.
+
+What it shows, refreshing every 2s:
+- **Detector status** — running/stale/not-running, pid, last heartbeat age, current state (`sleeping_to_boundary` / `polling_for_close` / `emitted`), bar being tracked, last emit time.
+- **Recent bar closes** — last ~6 events from `state/session/<today>/bar-close-events.jsonl` with O/H/L/C, plus a `[5m_close]` flag when applicable.
+- **Session state files** — which of `pillar1.md`, `pillar2.md`, `open-reaction.md`, `ltf-bias.md`, `htf-summary.md`, `bars.jsonl`, `setups.jsonl` exist, when they were last modified, and the key verdict line from each markdown.
+- **Recent setups** — last ~4 entries from `setups.jsonl`, color-coded by status (green confirmed, yellow candidate, red invalidated).
+- **Phase + timing banner** — current ET, phase, minutes into phase, countdown to next killzone.
+
+Press `q + Enter` to quit. ANSI clear-and-redraw, no external deps. Reads everything from disk; no CDP calls (so it never disturbs the chart).
+
+The detector (`./bin/tv stream bar-close`) writes a heartbeat to `state/session/detector-heartbeat.json` on every poll iteration AND persists every emitted event to `state/session/<today>/bar-close-events.jsonl` (in addition to stdout). That's what the dashboard reads.
+
 ## Status
 
 - **Scaffolding pushed.** README + .gitignore on `main`. CLI vendored, port locked, `analyze` command in place, slash command in place, research and strategy saved.

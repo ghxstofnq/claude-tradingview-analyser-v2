@@ -3,6 +3,19 @@
  * Uses efficient poll + dedup: only emits when data changes.
  */
 import { evaluate } from './connection.js';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+// ET date helper for state/session/<YYYY-MM-DD>/ paths.
+function nowETDate() {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  return fmt.format(new Date()); // en-CA gives YYYY-MM-DD
+}
+
+const HEARTBEAT_PATH = 'state/session/detector-heartbeat.json';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 const MODEL = `${CHART_API}._chartWidget.model()`;
@@ -166,18 +179,50 @@ async function fetchLastTwoBars() {
 export async function streamBarClose() {
   let lastSeenBarTime = null;
   let running = true;
+  const startedAt = new Date().toISOString();
+  let lastEventAt = null;
+  let lastBar = null;
 
   const cleanup = () => { running = false; };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
+  // Heartbeat writer — the dashboard uses this to verify the detector is alive
+  // and to show what bar/TF it's tracking.
+  function writeHeartbeat(state) {
+    try {
+      mkdirSync(dirname(HEARTBEAT_PATH), { recursive: true });
+      writeFileSync(HEARTBEAT_PATH, JSON.stringify({
+        pid: process.pid,
+        started_at: startedAt,
+        last_heartbeat: new Date().toISOString(),
+        last_event_at: lastEventAt,
+        last_bar_time: lastSeenBarTime,
+        last_bar_close: lastBar,
+        current_state: state,  // "sleeping_to_boundary" | "polling_for_close" | "emitted"
+      }, null, 2));
+    } catch (e) { /* best-effort */ }
+  }
+
+  // Persist bar-close events to a per-day JSONL (in addition to stdout).
+  function persistEvent(event) {
+    try {
+      const path = `state/session/${nowETDate()}/bar-close-events.jsonl`;
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify(event) + '\n', { flag: 'a' });
+    } catch (e) { /* best-effort */ }
+  }
+
   process.stderr.write(`⚠  tradingview-mcp  |  Unofficial tool. Not affiliated with TradingView Inc. or Anthropic.\n`);
   process.stderr.write(`   Streams from your locally running TradingView Desktop instance only.\n`);
   process.stderr.write(`[stream:bar-close] started. Time-aligned polling: sleeps to next bar boundary, polls fast ~3s.\n`);
+  process.stderr.write(`[stream:bar-close] heartbeat -> ${HEARTBEAT_PATH}; events -> state/session/<today>/bar-close-events.jsonl\n`);
   process.stderr.write(`[stream:bar-close] Ctrl+C to stop.\n`);
+  writeHeartbeat('starting');
 
   while (running) {
     try {
+      writeHeartbeat('sleeping_to_boundary');
       // Sleep to the next 60s boundary plus 250ms grace (let TV commit the
       // close tick after the boundary).
       const nowMs = Date.now();
@@ -185,6 +230,7 @@ export async function streamBarClose() {
       const sleepMs = Math.max(50, nextBoundaryMs - nowMs + 250);
       await sleep(sleepMs);
 
+      writeHeartbeat('polling_for_close');
       // Poll fast for ~3s to catch the new bar appearing.
       for (let i = 0; i < 30 && running; i++) {
         const data = await fetchLastTwoBars();
@@ -221,6 +267,10 @@ export async function streamBarClose() {
               event.is_5m_close = true;
             }
             process.stdout.write(JSON.stringify(event) + '\n');
+            persistEvent(event);
+            lastEventAt = new Date().toISOString();
+            lastBar = { time: closed.bar_time, close: closed.close, tf: data.resolution };
+            writeHeartbeat('emitted');
           }
           lastSeenBarTime = data.current.bar_time;
           break;
