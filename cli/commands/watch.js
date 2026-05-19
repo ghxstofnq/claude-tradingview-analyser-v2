@@ -79,8 +79,41 @@ const SCAN_5M_PATH = `${STATE_DIR}/last-scan-5m.json`;
 const ALERTS_PATH = `${STATE_DIR}/alerts.jsonl`;
 const SNAPSHOT_DIR = `${STATE_DIR}/snapshots`;
 const WATCHES_PATH = `${STATE_DIR}/watches.json`;
+const BRIEFING_PATH = `${STATE_DIR}/briefing.json`;
 
 const STATE_SCHEMA_VERSION = 2;
+
+// Briefing loader. Strategy §7 is sequential: Pillar 1+2 must be graded by
+// the LLM (via /analyze) BEFORE the watchman starts polling Pillar 3. The
+// briefing.json file is the structured handoff — it tells the watchman:
+//   - which side to trade (long/short/both)
+//   - which specific PD-array zones to fire on (subset, bias-aligned)
+//   - whether to run at all (verdict: ready vs stand_aside vs pending)
+// Without a fresh briefing with verdict=ready, the watchman refuses to start.
+function loadBriefing() {
+  if (!existsSync(BRIEFING_PATH)) return null;
+  try {
+    return JSON.parse(readFileSync(BRIEFING_PATH, 'utf8'));
+  } catch (e) {
+    process.stderr.write(`[watch] could not parse briefing.json: ${e.message}\n`);
+    return null;
+  }
+}
+
+// Match a wick-tapped box against the briefing's priority_zones. Coordinates
+// are exact in TradingView Pine output, so equality (with small float epsilon)
+// is the right check. Returns the matched zone entry or null.
+function matchPriorityZone(box, priorityZones) {
+  if (!priorityZones || priorityZones.length === 0) return null;
+  const EPS = 0.01;
+  for (const z of priorityZones) {
+    if (z.study !== box.study) continue;
+    if (Math.abs(z.high - box.high) > EPS) continue;
+    if (Math.abs(z.low - box.low) > EPS) continue;
+    return z;
+  }
+  return null;
+}
 
 // Context gates default to ACTIVE (conservative); user opts out via flags.
 function shouldSkipByContext(bundle, allows) {
@@ -443,6 +476,51 @@ async function runWatch(opts) {
 
   mkdirSync(STATE_DIR, { recursive: true });
 
+  // BRIEFING REQUIREMENT. Strategy §7 is sequential: Pillar 1+2 graded
+  // BEFORE Pillar 3 confirmation polling. If the user wants to skip the
+  // briefing entirely (debugging, replay) they can pass --no-briefing.
+  const briefing = loadBriefing();
+  const requireBriefing = opts['no-briefing'] !== true;
+  if (requireBriefing) {
+    if (!briefing) {
+      process.stderr.write(
+        `[watch] no briefing at ${BRIEFING_PATH}. Run /analyze first to grade Pillar 1+2.\n` +
+        `[watch] Strategy §7 is sequential — watchman doesn't poll Pillar 3 until P1+P2 clear.\n` +
+        `[watch] (override with --no-briefing if you're sure)\n`,
+      );
+      process.exit(2);
+    }
+    if (briefing.verdict !== 'ready') {
+      process.stderr.write(
+        `[watch] briefing verdict is "${briefing.verdict}" (stage=${briefing.stage}). Watchman won't start.\n` +
+        `[watch] Pillar1: ${briefing.pillar1?.htf_bias} | Pillar2: ${briefing.pillar2?.verdict}\n` +
+        `[watch] Re-run /analyze when Pillar 1+2 clear (verdict=ready).\n`,
+      );
+      process.exit(2);
+    }
+    if (!briefing.watchman_directive?.active) {
+      process.stderr.write(
+        `[watch] briefing.watchman_directive.active = false. Watchman won't start.\n`,
+      );
+      process.exit(2);
+    }
+    const pz = briefing.watchman_directive.priority_zones || [];
+    if (pz.length === 0) {
+      process.stderr.write(
+        `[watch] briefing has 0 priority_zones. Watchman won't start (nothing to watch).\n`,
+      );
+      process.exit(2);
+    }
+    process.stderr.write(
+      `[watch] briefing: bias=${briefing.pillar1?.htf_bias} side=${briefing.watchman_directive.side} ` +
+      `zones=${pz.length} stage=${briefing.stage} session=${briefing.session}\n`,
+    );
+  } else {
+    process.stderr.write(`[watch] --no-briefing: running without briefing (debug mode)\n`);
+  }
+  const priorityZones = briefing?.watchman_directive?.priority_zones || null;
+  const briefingSide = briefing?.watchman_directive?.side || 'both';
+
   // Startup snapshot cleanup. Snapshots accumulate one-per-tap; without
   // retention the dir grows forever.
   {
@@ -586,6 +664,8 @@ async function runWatch(opts) {
           for (let i = 0; i < tapped.length; i++) {
             const box = tapped[i];
             if (!PD_ARRAY_PATTERN.test(box.study)) continue;
+            // Briefing filter: only fire on zones the LLM flagged as priority.
+            if (priorityZones && !matchPriorityZone(box, priorityZones)) continue;
             const key = watchKey('1m', box.study, box.high, box.low);
             if (watches[key]) continue;
             const watch = {
@@ -667,6 +747,7 @@ async function runWatch(opts) {
             for (let i = 0; i < tapped5m.length; i++) {
               const box = tapped5m[i];
               if (!PD_ARRAY_PATTERN.test(box.study)) continue;
+              if (priorityZones && !matchPriorityZone(box, priorityZones)) continue;
               const key = watchKey('5m', box.study, box.high, box.low);
               if (watches[key]) continue;
               const watch = {
@@ -742,6 +823,7 @@ register('watch', {
     'allow-poor-quality': { type: 'boolean', description: 'Opt out of the price-quality gate (applies to new TAPS only).' },
     'allow-market-closed': { type: 'boolean', description: 'Opt out of the market-closed gate (applies to new TAPS only).' },
     'snapshot-retention-days': { type: 'string', description: 'Delete snapshot bundles older than N days at startup and at each session-boundary refresh (default 7). Set 0 to disable.' },
+    'no-briefing': { type: 'boolean', description: 'Override: run without a briefing file (debug only). Watchman normally REQUIRES state/watch/briefing.json with verdict=ready — that\'s the Pillar 1+2 prerequisite per strategy §7.' },
   },
   handler: async (opts) => {
     await runWatch(opts || {});

@@ -301,6 +301,54 @@ End your response with this block, filled in. All prices must be present in the 
 }
 ```
 
+## Watchman briefing (write this file before ending the response)
+
+After the structured-output block above, use the `Write` tool to save a watchman briefing to `state/watch/briefing.json`. This is the handoff that lets `./bin/tv watch` start polling Pillar 3 — strategy §7 is sequential, so the watchman REQUIRES this file and a `verdict: ready` before it fires any alerts.
+
+The briefing's `stage` reflects what's known at grading time. Strategy §2.3: "wait the first 15–30 minutes of NY to see the reaction". User's chosen cadence: grade twice, at 09:30 ET (pre-reaction, stage 1) and 09:45 ET (post-reaction, stage 2). Same for NY PM at 13:30 / 13:45 ET. London Open / Asia: single grade at session open.
+
+Schema:
+
+```json
+{
+  "ts": "<ISO 8601 with TZ>",
+  "stage": "stage_1_pre_reaction" | "stage_2_post_reaction" | "single",
+  "session": "NY AM" | "NY PM" | "London Open" | "Asia",
+  "symbol": "<from chart.symbol>",
+  "pillar1": {
+    "htf_bias": "bullish" | "bearish" | "neutral",
+    "htf_draw": "<one-line, with cited price>",
+    "overnight": "<one-line>",
+    "ny_reaction": "<one-line or 'pending' (stage 1) or 'n/a'>"
+  },
+  "pillar2": {
+    "verdict": "good" | "marginal" | "poor"
+  },
+  "verdict": "ready" | "pending" | "stand_aside",
+  "watchman_directive": {
+    "active": true | false,
+    "side": "long" | "short" | "both",
+    "priority_zones": [
+      {
+        "study": "<exact study name from the bundle, e.g. 'FVG/iFVG (Nephew_Sam_)'>",
+        "high": <number>,
+        "low": <number>,
+        "direction": "bullish_fvg" | "bullish_ifvg" | "bearish_fvg" | "bearish_ifvg" | "unknown",
+        "rationale": "<one-line on why this zone matters for the bias>"
+      }
+    ]
+  },
+  "grade": "A+" | "B" | "no-trade"
+}
+```
+
+Rules:
+- **`verdict: ready`** ONLY in stage 2 (or single-grade sessions) with `pillar1.htf_bias != neutral` AND `pillar2.verdict != poor` AND a clear NY reaction (or n/a for non-NY sessions). Otherwise `pending` (stage 1, still waiting) or `stand_aside`.
+- **`watchman_directive.active: true`** only if `verdict: ready`. Otherwise `false` — watchman won't run.
+- **`watchman_directive.side`** matches `pillar1.htf_bias`: bullish → long, bearish → short, neutral → both (rare; usually means stand_aside).
+- **`priority_zones`** are the specific FVG/iFVG/BPR zones from the bundle that the watchman should fire on. Pick zones aligned with bias direction (a bullish bias watches bullish FVGs being retested OR bearish FVGs being broken through; same logic inverted for bearish). Maximum 6 zones — focus, don't dump everything. Use exact `high` and `low` values from `pine.boxes` or `pine_by_tf.*` so the watchman can match against `gates.price_context.wick_tapped_boxes`.
+- **No invented zones.** Each `high`/`low` must appear in the bundle.
+
 ## Constraints (also in CLAUDE.md)
 
 - CLI only — no `mcp__tradingview__*` tools.
