@@ -26,3 +26,16 @@ Outcome: 1 trade taken (B Trend-long) — stopped, ~full loss. 2 valid B Inversi
 
 - **Signal:** Both Inversion misses were caught by the user on review, not in real time.
   **Action:** The strengthened three-model checklist in `.claude/commands/analyze.md` (entry-hunt step 2) is the systemic fix — follow it literally on every bar.
+
+## 2026-05-20 — NY PM (MNQ)
+
+Outcome: 0 trades — a chop day. Five candidates flagged (2× Trend, 2× MSS, 1× Inversion); all failed to confirm or invalidated. Standing aside was correct. The three-model walk ran cleanly on every bar — no repeat of the AM Inversion tunnel-vision.
+
+- **Signal:** Twice (14:00, 14:24–14:25) a violent single-bar V-shaped sweep+recovery occurred — a big spike through liquidity then a near-full intrabar recovery. Both looked like an MSS reversal forming; neither left a clean fresh FVG and the retrace was too shallow/fast to give a tradeable entry.
+  **Action:** A single V-bar sweep is not an MSS entry. The MSS model needs a *displacement leg* (a clear move that breaks a lower high and leaves a 3-bar FVG) AFTER the sweep — not the sweep bar itself. Flag it `candidate` and wait for the leg + a real retrace; if it only V-recovers, there is no entry — don't chase.
+
+- **Signal:** The 14:37 breakout Trend-long retraced into its FVG (29317.5–29330.75); the 14:43 bar then wicked 12 pts *through* the FVG floor to 29305.5 before closing back inside. My logged invalidation ("close below 29317.5") never fired, but any structural stop below the FVG was run intrabar.
+  **Action:** Judge invalidation on whether a structural stop would have been hit intrabar, not only on a close beyond the level. A deep wick through the FVG floor breaks the clean-pullback premise even without a close beyond it — the setup is dead in practice; don't keep it alive on a close-only technicality.
+
+- **Signal:** The cleanest setup of the PM (the 14:37 breakout: real displacement, range 25 / vol 3587, fresh clean FVG) still did not produce a trade — the pullback went messy.
+  **Action:** A clean impulse + clean FVG is necessary but not sufficient. The *pullback* must also be orderly. A correct no-trade on a good-looking setup whose pullback degrades is discipline, not a miss.
