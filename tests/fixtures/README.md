@@ -8,7 +8,7 @@ Regression baselines for `/analyze` and the project's analysis pipeline. Each fi
 ## How to add a fixture
 
 1. Set the chart on TradingView (CDP 9223) to the state you want to capture.
-2. `./bin/tv analyze --out tests/fixtures/NNN-label.bundle.json` (pick the next free `NNN`). The `--out` flag is required for the multi-TF Pine bundle — piping `> bundle.json` works but the stdout buffer truncates at ~64KB and the bundle is well above that.
+2. Run `npm run fixture:new -- <label>` — picks the next free `NNN`, captures the chart via `tv analyze --out` (the `--out` flag is required: the multi-TF Pine bundle exceeds the ~64KB stdout truncation limit), and scaffolds the `expected.md` template.
 3. Hand-grade the bundle using the strategy's 7-step checklist (`docs/strategy/trading-strategy-2026.md §7`). Write to `tests/fixtures/NNN-label.expected.md`. Cite every price with `<price> (<json.path>)`.
 4. `npm run smoke:fixtures` — verifies bundle schema and that every cited price resolves to a matching value in the paired bundle.
 
@@ -26,6 +26,8 @@ Small-on-purpose. Add fixtures **as varied chart states actually occur**, not al
 - NY-open-window with no setup.
 - Outside NY window (typical state).
 - One A+ per entry model — MSS, Trend, Inversion.
+
+Run `npm run fixture:coverage` to see which of these target cells are still empty.
 
 Per [docs/research/ai-trading-analysis.md](../../docs/research/ai-trading-analysis.md) rec #7: full golden-set is ~50 fixtures eventually. The current corpus is intentionally small; build organically as interesting setups surface live.
 

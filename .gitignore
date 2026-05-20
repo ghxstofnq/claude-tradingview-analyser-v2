@@ -9,3 +9,6 @@ state/
 # Go compiled artifacts (tv-dash). Source lives in cmd/tv-dash/.
 bin/tv-dash
 cmd/tv-dash/go.sum
+
+# /judge regression artifacts — regenerated each run
+tests/fixtures/*.judge.json

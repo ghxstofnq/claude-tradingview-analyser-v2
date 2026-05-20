@@ -9,6 +9,9 @@
     "smoke": "./bin/tv status",
     "smoke:fixtures": "node ./scripts/smoke-fixtures.js",
     "verify:citations": "node ./scripts/verify-citations.js",
+    "fixture:coverage": "node ./scripts/fixture-coverage.js",
+    "fixture:new": "node ./scripts/new-fixture.js",
+    "judge:report": "node ./scripts/judge-report.js",
     "test:unit": "node --test tests/*.test.js"
   },
   "workspaces": ["packages/*"],

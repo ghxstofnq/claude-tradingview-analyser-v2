@@ -56,6 +56,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-18 | Watchman context-gating defaults ON, opt-out via flags | Filter alerts by killzone presence, market-open state, and m5/m15 candle quality. Strategy §2.2/§2.3 (liquidity moves during sessions) + §3 (stand aside when price quality is bad). Opt-out (rather than opt-in) means the conservative default matches the strategy. Direction-aware filtering (bullish-bar-into-bullish-FVG etc.) remains deferred — that's the entry-model classification step. |
 | 2026-05-18 | Tap detection wick-overlap + FVG direction tagging (carried forward) | Strategy's "tap" is wick-based, not close-inside. `gates.price_context.wick_tapped_boxes[]` lists FVG/iFVG/BPR zones whose high/low overlaps the bar's wick; `inside_boxes[]` is kept for close-based price-vs-zone checks using `quote.last`. Each FVG-study entry carries `fvg_direction` (bullish_fvg/bullish_ifvg/bearish_fvg/bearish_ifvg) from Nephew_Sam_'s bgColor. Verified 2026-05-18 09:35 ET: a bearish bar wicked through 4 FVG zones cleanly but closed in the gap — close-inside would have missed it. Watchman code that consumed these gates was deleted on 2026-05-19, but the gates themselves remain for `/analyze`. |
 | 2026-05-20 | Per-session folders: `state/session/<date>/{ny-am,ny-pm,london}/` | Each session (NY AM / NY PM / optional London) gets its own folder holding that session's pillars, open-reaction, ltf-bias, setups, bars, and a `summary.md` wrap. Sessions never overwrite each other — AM, PM, and London grades all persist for later review. Replaces the flat day folder and the short-lived day-level `htf-summary.md` append log. `bar-close-events.jsonl` stays day-level (detector output). The dashboard shows the active session's folder, derived from `gates.session.phase`. |
+| 2026-05-20 | Pillar 2 range threshold is per-symbol | `cli/lib/pillar2-thresholds.js` maps symbol → minimum acceptable range. Only the range threshold is price-scale dependent; body-ratio (0.6/0.3) is a normalised ratio and stays fixed. Uncalibrated symbols emit `range_acceptable: null` so the LLM judges the range manually rather than seeing a miscalibrated `false`. |
 
 ## Repo
 
@@ -151,7 +152,7 @@ tests/
       bias_labels: [{ text, price, study, x }]   labels matching /bias/i; empty if no indicator publishes them
     }
     pillar2: {
-      range_value, range_per_bar, range_acceptable,
+      range_value, range_per_bar, range_acceptable, range_acceptable_min,
       avg_body_ratio_last_5, candle_quality_heuristic,    current-TF body-ratio summary (backwards-compat)
       current_tf, m5, m15                                 each { body_ratios_last_5, avg_body_ratio_last_5,
                                                                   candle_quality_heuristic, engulfing_count_last_5,
@@ -239,6 +240,10 @@ After that, `./bin/tv dash` works from any session — the Node CLI shells out t
 
 The detector (`./bin/tv stream bar-close`) writes a heartbeat to `state/session/detector-heartbeat.json` on every poll iteration AND persists every emitted event to `state/session/<today>/bar-close-events.jsonl` (in addition to stdout). That's what the dashboard reads.
 
+## The `/judge` recipe (semantic regression)
+
+`/judge <id|all>` is the semantic half of fixture regression testing — `npm run smoke:fixtures` checks bundle schema + citations deterministically; `/judge` checks whether a fresh read of a bundle still reaches the same verdict as the hand-graded `expected.md`. It is a **slash command, not a script** (CLAUDE.md bans the Anthropic API in scripts): the LLM re-grades the bundle blind, then emits categorical per-dimension verdicts (`agree` / `partial` / `disagree`) to `tests/fixtures/NNN-label.judge.json` (gitignored — regenerated each run); `npm run judge:report` tallies them into agreement percentages (constraint #7 — the LLM never produces the score). Built 2026-05-20; becomes a real regression gate once the corpus reaches ~10 fixtures. See `.claude/commands/judge.md`.
+
 ## Status
 
 - **Scaffolding pushed.** README + .gitignore on `main`. CLI vendored, port locked, `analyze` command in place, slash command in place, research and strategy saved.
@@ -276,8 +281,8 @@ The detector (`./bin/tv stream bar-close`) writes a heartbeat to `state/session/
 ### Next (do in order)
 
 - **Grow the fixture corpus organically.** The current corpus has one fixture, captured post-NY-close (Inter-session). The gate logic that doesn't get exercised by this fixture — `in_ny_open_window = true`, `in_killzone = true`, weekend handling, different `candle_quality_heuristic` verdicts — is **untested**. Add fixtures over the coming weeks as varied chart states surface: NY-open A+, NY-open B, NY-open no-trade, London-open, A+ per entry model. Target ~10 by month-end. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.*
-- **Decide on heuristic thresholds per symbol/timeframe.** Current Pillar 2 thresholds (range ≥ 40, body-ratio ≥ 0.6 = good) are calibrated for MNQ 1-minute, from the seed fixture. If we add NQ / ES / other instruments or different timeframes, these need to become symbol-aware. Until then, the heuristic verdict is a hint, not a verdict — slash-command rule 5 already lets Claude override.
-- **LLM-as-judge for semantic regression.** Once the corpus exceeds ~10 fixtures, manual eyeball-grading becomes the bottleneck. Spawn a second Claude session that scores agreement between a captured `/analyze` output and the paired `.expected.md`. Until then, manual review is enough.
+- ~~**Decide on heuristic thresholds per symbol/timeframe.**~~ Done 2026-05-20. The Pillar 2 range threshold is now per-symbol (`cli/lib/pillar2-thresholds.js`); `MNQ` is calibrated (range ≥ 40), other symbols emit `range_acceptable: null` until a fixture calibrates them. Body-ratio thresholds (≥ 0.6 = good) stay fixed — a normalised 0..1 ratio is symbol-independent. Per-timeframe calibration remains a possible future refinement.
+- ~~**LLM-as-judge for semantic regression.**~~ Tooling built 2026-05-20 — the `/judge` command + `npm run judge:report`. Becomes a real regression gate once the corpus exceeds ~10 fixtures; until then its report is directional, not conclusive.
 
 ### Known gaps (deferred, by design)
 

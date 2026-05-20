@@ -49,7 +49,7 @@ After reading, look at **`gates.session.phase`** to determine what to do. Phase-
 - `gates.price_context.{inside_boxes, wick_tapped_boxes}` — which Pine boxes contain price; wick_tapped also includes boxes the bar's wick overlapped. FVG entries carry `fvg_direction`.
 - `gates.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L}` — `{label, price, position_vs_price, taken}`. `untaken_sell_side_below[]` + `untaken_buy_side_above[]` are pre-sorted "draw" targets.
 - `gates.pillar1.bias_labels[]` — any Pine label matching /bias/i (empty when no indicator publishes one).
-- `gates.pillar2.{range_value, range_acceptable, current_tf, m5, m15}` — range + per-TF candle anatomy (`{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5, last_bar}`).
+- `gates.pillar2.{range_value, range_acceptable, range_acceptable_min, current_tf, m5, m15}` — range + per-TF candle anatomy (`{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5, last_bar}`).
 - `gates.pillar3.{most_recent_structure, fvg_by_type, fvg_by_type_above, fvg_by_type_below, last_bar, last_bar_age_seconds}` — ICT structure points, FVG counts by direction, single-bar confirmation facts. **`most_recent_structure` label letters use the AMS `[type][modifier]` convention — `HL` is a Lower High, `LH` is a Higher Low. See ICT vocabulary.**
 
 ---
@@ -111,7 +111,7 @@ Read `gates.pillar1.session_levels.*` and the pre-sorted `untaken_sell_side_belo
 
 ### Step 3 — Pillar 2: Range + 5m/15m Candle Anatomy
 
-- **Range:** cite `gates.pillar2.range_value`, `gates.pillar2.range_per_bar`. Heuristic verdict in `range_acceptable`; override if you disagree (especially on MES — MNQ-calibrated).
+- **Range:** cite `gates.pillar2.range_value`, `gates.pillar2.range_per_bar`. Heuristic verdict in `range_acceptable` — `true`/`false` for a calibrated symbol, `null` when the symbol is uncalibrated (`gates.pillar2.range_acceptable_min` is then `null`). On `null`, judge the range manually against HTF context — do not treat `null` as a fail. Override the verdict if you disagree.
 - **HTF displacement:** read `bars_by_tf.h4.range` + `change_pct` and `bars_by_tf.h1.range` + `change_pct`.
 - **m5 anatomy:** `gates.pillar2.m5.{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5}`. Strategy wants "mainly engulfing, not dominated by dojis."
 - **m15 anatomy:** same fields under `gates.pillar2.m15.*`.

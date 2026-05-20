@@ -2,6 +2,7 @@ import { register } from '../router.js';
 import * as chart from '@tvmcp/core/chart';
 import * as data from '@tvmcp/core/data';
 import * as replay from '@tvmcp/core/replay';
+import { pillar2Thresholds } from '../lib/pillar2-thresholds.js';
 
 /**
  * Deterministic gate computations. Everything in here must be derivable
@@ -152,7 +153,7 @@ function computeCandleStats(last5) {
   };
 }
 
-export function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStatus }) {
+export function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStatus, symbol }) {
   const last = quote?.last ?? null;
 
   // -- Session / time classification (purely from quote.time) --
@@ -428,8 +429,12 @@ export function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, rep
   const rangeValue = bars?.range ?? null;
   const barCount = bars?.bar_count ?? null;
   const rangePerBar = rangeValue != null && barCount ? rangeValue / barCount : null;
-  // Heuristic threshold for MNQ 1m (calibrated to seed fixture).
-  const rangeAcceptable = rangeValue != null && rangeValue >= 40;
+  // Per-symbol range threshold (cli/lib/pillar2-thresholds.js). null when
+  // the symbol is uncalibrated — range_acceptable is then null, not false.
+  const { range_acceptable_min: rangeMin } = pillar2Thresholds(symbol);
+  const rangeAcceptable = rangeMin == null
+    ? null
+    : (rangeValue != null && rangeValue >= rangeMin);
   const last5 = bars?.last_5_bars || [];
   const currentTfStats = computeCandleStats(last5);
   // Strategy §7 step 3: "15m/5m candles mainly engulfing; not dominated by dojis/wicks"
@@ -504,6 +509,7 @@ export function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, rep
       range_value: rangeValue,
       range_per_bar: rangePerBar,
       range_acceptable: rangeAcceptable,
+      range_acceptable_min: rangeMin,
       // Current-TF stats (backwards-compat; also available in the structured form below).
       avg_body_ratio_last_5: currentTfStats?.avg_body_ratio_last_5 ?? null,
       candle_quality_heuristic: currentTfStats?.candle_quality_heuristic ?? 'unknown',
@@ -763,7 +769,7 @@ register('analyze', {
     ]);
 
     const pine = { lines, labels, tables, boxes };
-    const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf: bars_by_tf, replayStatus });
+    const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf: bars_by_tf, replayStatus, symbol: state.symbol });
 
     const bundle = {
       timestamp: new Date().toISOString(),
