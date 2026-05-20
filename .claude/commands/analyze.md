@@ -17,11 +17,21 @@ Architecture plan: [docs/plans/llm-driven-session.md](../../docs/plans/llm-drive
 
 ## How to run
 
+The capture command depends on whether a fresh HTF baseline is needed. Always `Read state/last-analyze.json` afterwards — it is the only data source for this invocation, and the dashboard reads it too.
+
+**Full capture** — run when: (a) it is the first invocation of the session, (b) `state/baseline.json` does not exist, (c) the triggering detector event has `is_5m_close: true`, or (d) `baseline_meta.age_seconds > 900` in the last bundle. Multi-TF sweep (~13s); refreshes the HTF baseline:
+
 ```bash
-./bin/tv analyze --out state/last-analyze.json
+./bin/tv analyze --out state/last-analyze.json && cp state/last-analyze.json state/baseline.json
 ```
 
-Then `Read state/last-analyze.json`. The bundle is the only data source for this invocation.
+**Fast capture** — run on every other 1m close (the common case during open-reaction and entry-hunt). Reuses the cached HTF baseline; returns in ~0.2s:
+
+```bash
+./bin/tv analyze --pillar3-only --baseline state/baseline.json --out state/last-analyze.json
+```
+
+A fast capture still carries fresh current-TF data plus `bars_by_tf`, `pine_by_tf`, and `gates.pillar2.m5/m15` merged from the baseline. Pre-session always uses a full capture — HTF bias needs the live sweep.
 
 After reading, look at **`gates.session.phase`** to determine what to do. Phase-driven work + state-file accumulation is what makes the session smart across many invocations.
 
@@ -40,7 +50,7 @@ After reading, look at **`gates.session.phase`** to determine what to do. Phase-
 - `gates.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L}` — `{label, price, position_vs_price, taken}`. `untaken_sell_side_below[]` + `untaken_buy_side_above[]` are pre-sorted "draw" targets.
 - `gates.pillar1.bias_labels[]` — any Pine label matching /bias/i (empty when no indicator publishes one).
 - `gates.pillar2.{range_value, range_acceptable, current_tf, m5, m15}` — range + per-TF candle anatomy (`{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5, last_bar}`).
-- `gates.pillar3.{most_recent_structure, fvg_by_type, fvg_by_type_above, fvg_by_type_below, last_bar, last_bar_age_seconds}` — ICT structure points, FVG counts by direction, single-bar confirmation facts.
+- `gates.pillar3.{most_recent_structure, fvg_by_type, fvg_by_type_above, fvg_by_type_below, last_bar, last_bar_age_seconds}` — ICT structure points, FVG counts by direction, single-bar confirmation facts. **`most_recent_structure` label letters use the AMS `[type][modifier]` convention — `HL` is a Lower High, `LH` is a Higher Low. See ICT vocabulary.**
 
 ---
 
@@ -312,6 +322,12 @@ The single-paragraph wrap. Then say what's next ("Idle until NY PM at 13:00 ET" 
 
 ## ICT vocabulary (re-read each invocation; small enough to keep in context)
 
+- **Market-structure labels (ST/IT/LT × HH/HL/LH/LL)** — the ICT Anchored Market Structures indicator names a pivot `[type][modifier]`: the FIRST letter is the pivot **type** (`H`igh or `L`ow); the SECOND is whether it is `H`igher or `L`ower than the previous pivot of that same type.
+  - `HH` = swing **high**, higher than the prior high (Higher High)
+  - `HL` = swing **high**, lower than the prior high (**Lower High**)
+  - `LH` = swing **low**, higher than the prior low (**Higher Low**)
+  - `LL` = swing **low**, lower than the prior low (Lower Low)
+  - `HH` and `HL` are both swing **highs**; `LH` and `LL` are both swing **lows**. This is the REVERSE of the textbook letter order (textbook: HL=Higher Low, LH=Lower High). Reading it the textbook way inverts every structure call — a downtrend (lower highs + lower lows = `HL` + `LL`) would look like contradictory noise. Verified empirically against the live indicator 2026-05-20.
 - **HTF / LTF** — higher TF (Daily / 4H / 1H) sets bias; LTF (15m / 5m / 1m) triggers.
 - **Liquidity** — stop pools above swing highs (buy-side) or below swing lows (sell-side).
 - **PDH / PDL** — previous day's high / low.

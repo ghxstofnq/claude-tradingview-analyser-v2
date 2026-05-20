@@ -5,7 +5,7 @@
 **Bundle time:** 2026-05-18 07:18 ET (`gates.session.timestamp_et`) — Monday morning, post-London-killzone, pre-NY.
 **Session label:** `Inter-session` (`gates.session.label`); `is_market_closed = false`; `replay.active = false`.
 
-**Note to reviewer:** Claude-graded baseline applying `trading-strategy-2026.md §7` to the bundle. Review and amend.
+**Note to reviewer:** Claude-graded baseline applying `trading-strategy-2026.md §7` to the bundle. Review and amend. *Corrected 2026-05-20: the `HL`/`LH` structure reads in Pillar 3 had been inverted — the AMS indicator names pivots `[type][modifier]`, so `ST_LH` is a Higher Low and `ST_HL` a Lower High. Pillar 3 commentary re-graded accordingly; grade unchanged (`no-trade`, driven by Pillar 2 `poor`).*
 
 ---
 
@@ -49,7 +49,7 @@ Reading: London session pushed through PDL/NYAM_L (29089.5 confluence) but bounc
 
 Notable: the **`IT_LL` (intermediate-term lower low) at 29050 (gates.pillar3.most_recent_structure.IT_LL.price) sits at LO_L 29050 (gates.pillar1.session_levels.LO_L.price)** — confluence sell-side. If price tests LO_L, that's also the intermediate-term swing low. A clean reject from 29050 is a *bullish Inversion candidate* in the HTF-bullish context. A break below 29050 invalidates intermediate-term support and opens the path to AS_L 28924.
 
-The most recent structure event is ST_LH @ 29094.25 — a lower high. That's a bearish micro-structure signal *against* the HTF bullish bias. Tension.
+The two most recent structure events: ST_HH 29108 (gates.pillar3.most_recent_structure.ST_HH.price) at x 1510, then ST_LH 29094.25 (gates.pillar3.most_recent_structure.ST_LH.price) at x 1511. Under the AMS `[type][modifier]` convention, `LH` is a **higher low** — so short-term structure just printed a higher high then a higher low. **Bullish micro-structure, aligned with the HTF bullish bias.**
 
 **FVG context (`gates.pillar3.fvg_by_type_*`):**
 - Above price: 5 bearish_fvg + 4 bearish_ifvg = 9 zones (all bearish-leaning). Heavy overhead resistance.
@@ -63,7 +63,7 @@ The most recent structure event is ST_LH @ 29094.25 — a lower high. That's a b
 So the 1m close is constructive, but the 5m and 15m are weak. Per strategy: a 1m close is a valid confirmation TF, but only if it's against the specific FVG being traded — and only if context (Pillar 1 + 2) supports.
 
 **Entry-model walk:**
-- **MSS up:** the LL → HH → LH sequence is shaping; current bar broke above prior ST_HL 29104.25... wait, no, current price 29102.25 is just *below* ST_HH 29108 and ST_HL 29104.25. So not an MSS-trigger close. The recent 1m bullish close lacks the necessary "above the most-recent ST_LH 29094.25 with displacement" component — actually price IS above 29094.25, but the close is small (range 4 ticks) so "displacement" is questionable.
+- **MSS up:** an MSS-up needs a displacement close *above the most recent swing high* after a sell-side liquidity grab. The recent swing highs are ST_HL 29104.25 (gates.pillar3.most_recent_structure.ST_HL.price) and ST_HH 29108 (gates.pillar3.most_recent_structure.ST_HH.price); current price 29102.25 (quote.last) sits below both, and the 1m bar is small-bodied (no displacement). **No MSS-up trigger** — though the recent higher-high / higher-low pair means short-term structure is already constructive.
 - **Trend up:** HTF bullish but LTF is in a counter-trend pullback. Not in continuation phase.
 - **Inversion long candidate:** the watched zone would be LO_L 29050 / IT_LL 29050 confluence. Price is currently NOT in that zone (above it at 29102.25); no tap yet, so no confirmation event possible. *Inversion long if LO_L holds on test* is the watch-list setup.
 
