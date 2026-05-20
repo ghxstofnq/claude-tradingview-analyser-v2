@@ -13,7 +13,7 @@
 //   │ ...                │  ╭─ SETUPS ─────────────────────────────────╮
 //   ╰────────────────────╯  │ Time   Model  Side   Status   Rationale  │
 //   ╭─ SESSION FILES ────╮  │ 18:30  MSS    long   confirm   ...        │
-//   │ P1 AM   bullish    │  │ ...                                       │
+//   │ P1      bullish    │  │ ...                                       │
 //   │ ...                │  ╰───────────────────────────────────────────╯
 //   ╰────────────────────╯
 //   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -120,12 +120,13 @@ type SessionFile struct {
 }
 
 type State struct {
-	Heartbeat   *Heartbeat
-	Bundle      *AnalyzeBundle
-	BarCloses   []BarClose
-	Files       []SessionFile
-	Setups      []Setup
-	JSONLCounts map[string]int
+	Heartbeat     *Heartbeat
+	Bundle        *AnalyzeBundle
+	BarCloses     []BarClose
+	Files         []SessionFile
+	Setups        []Setup
+	JSONLCounts   map[string]int
+	ActiveSession string
 }
 
 func readJSON[T any](path string) (*T, error) {
@@ -176,6 +177,34 @@ func readMdVerdict(path string) (string, time.Time) {
 	return "", mtime
 }
 
+// sessionFromPhase maps a bundle phase to its session subfolder name.
+func sessionFromPhase(phase string) string {
+	switch {
+	case strings.Contains(phase, "ny_am"):
+		return "ny-am"
+	case strings.Contains(phase, "ny_pm"):
+		return "ny-pm"
+	case strings.Contains(phase, "london"):
+		return "london"
+	}
+	return ""
+}
+
+// activeSessionDir picks the session subfolder to display: the one the current
+// phase maps to, else (inter_session / closed / no bundle) the newest session
+// folder that exists on disk.
+func activeSessionDir(sessionDir, phase string) string {
+	if s := sessionFromPhase(phase); s != "" {
+		return s
+	}
+	for _, s := range []string{"ny-pm", "ny-am", "london"} {
+		if fi, err := os.Stat(filepath.Join(sessionDir, s)); err == nil && fi.IsDir() {
+			return s
+		}
+	}
+	return ""
+}
+
 func loadState() State {
 	dateKey := nowETDate()
 	sessionDir := filepath.Join(sessionBase, dateKey)
@@ -184,28 +213,37 @@ func loadState() State {
 	if hb, err := readJSON[Heartbeat](heartbeatPath); err == nil { st.Heartbeat = hb }
 	if bundle, err := readJSON[AnalyzeBundle](lastAnalyzePath); err == nil { st.Bundle = bundle }
 
+	phase := ""
+	if st.Bundle != nil { phase = st.Bundle.Gates.Session.Phase }
+	st.ActiveSession = activeSessionDir(sessionDir, phase)
+	activeDir := sessionDir
+	if st.ActiveSession != "" {
+		activeDir = filepath.Join(sessionDir, st.ActiveSession)
+	}
+
+	// bar-close-events.jsonl is day-level (detector output).
 	if events, total, err := readJSONLines[BarClose](filepath.Join(sessionDir, "bar-close-events.jsonl"), 60); err == nil {
 		st.BarCloses = events
 		st.JSONLCounts["bar-close-events.jsonl"] = total
 	}
-	if setups, total, err := readJSONLines[Setup](filepath.Join(sessionDir, "setups.jsonl"), 30); err == nil {
+	// setups.jsonl and bars*.jsonl are session-scoped.
+	if setups, total, err := readJSONLines[Setup](filepath.Join(activeDir, "setups.jsonl"), 30); err == nil {
 		st.Setups = setups
 		st.JSONLCounts["setups.jsonl"] = total
 	}
 	for _, name := range []string{"bars.jsonl", "bars-5m.jsonl"} {
-		if _, total, err := readJSONLines[map[string]any](filepath.Join(sessionDir, name), 1); err == nil {
+		if _, total, err := readJSONLines[map[string]any](filepath.Join(activeDir, name), 1); err == nil {
 			st.JSONLCounts[name] = total
 		}
 	}
 
 	mdFiles := []struct{ name, label string }{
-		{"pillar1.md", "P1 AM"}, {"pillar2.md", "P2 AM"},
-		{"pillar1-ny-pm.md", "P1 PM"}, {"pillar2-ny-pm.md", "P2 PM"},
+		{"pillar1.md", "P1"}, {"pillar2.md", "P2"},
 		{"open-reaction.md", "open-rxn"}, {"ltf-bias.md", "ltf-bias"},
-		{"htf-summary.md", "summary"},
+		{"summary.md", "summary"},
 	}
 	for _, mf := range mdFiles {
-		p := filepath.Join(sessionDir, mf.name)
+		p := filepath.Join(activeDir, mf.name)
 		if _, err := os.Stat(p); err != nil { continue }
 		v, m := readMdVerdict(p)
 		st.Files = append(st.Files, SessionFile{Label: mf.label, Path: p, Mtime: m, Value: v})
@@ -893,7 +931,12 @@ func (m model) View() string {
 	}.render()
 
 	sub := ""
-	if c := len(m.state.Files); c > 0 {
+	if m.state.ActiveSession != "" {
+		sub = m.state.ActiveSession
+		if c := len(m.state.Files); c > 0 {
+			sub += fmt.Sprintf(" · %d", c)
+		}
+	} else if c := len(m.state.Files); c > 0 {
 		sub = fmt.Sprintf("(%d)", c)
 	}
 	filesPane := roundPane{
@@ -922,7 +965,7 @@ func (m model) View() string {
 		}.render()
 		setupsSub := ""
 		if c := m.state.JSONLCounts["setups.jsonl"]; c > 0 {
-			setupsSub = fmt.Sprintf("· %d today", c)
+			setupsSub = fmt.Sprintf("· %d", c)
 		}
 		rightBot = roundPane{
 			title: "SETUPS",

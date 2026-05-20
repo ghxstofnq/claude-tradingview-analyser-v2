@@ -12,9 +12,9 @@
 
 2. **A monitor in the Claude Code session.** Watches the detector's output. Every line printed = one event inside our conversation.
 
-3. **One smart `/analyze` command — phase-aware.** Reads the ET clock + reads everything in `state/session/<today>/` + reads the new bar's bundle. Does the right thing for the current phase. Writes updates.
+3. **One smart `/analyze` command — phase-aware.** Reads the ET clock + reads everything in the active session folder `state/session/<today>/<session>/` + reads the new bar's bundle. Does the right thing for the current phase. Writes updates.
 
-4. **A folder of session notes — `state/session/<today>/`.** Plain markdown + JSONL files. Built up through the day. Each new `/analyze` reads them and appends.
+4. **A folder per session — `state/session/<today>/<session>/`** (`<session>` = `ny-am` / `ny-pm` / `london`). Plain markdown + JSONL files. Built up through the session. Each new `/analyze` reads them and appends.
 
 ---
 
@@ -25,12 +25,14 @@
 | **Pre-session** | before 09:30 | Grade Pillar 1+2 once (HTF bias + overnight + candle quality). Save to disk. Subsequent bar events: "waiting for NY open" — no token waste. |
 | **Open reaction** | 09:30–09:45 | Read prior Pillar 1+2. Watch NY's first 15 min. Update `open-reaction.md` and `ltf-bias.md` each bar. |
 | **Entry hunt** | 09:45–12:00 | Full reasoning every bar close. References everything before + new bar. Flags potential setups in `setups.jsonl`. |
-| **Post-NYAM** | 12:00+ | Wrap with `htf-summary.md`. Idle until NY PM (13:00). |
+| **Post-NYAM** | 12:00+ | Wrap with the session's `summary.md`. Idle until NY PM (13:00). |
 | **NY PM** | 13:00 onward | Same phase pattern as NY AM: pre at 13:00, open-reaction 13:30–13:45, entry hunt 13:45–16:00. |
 
 ---
 
-## State files (`state/session/<YYYY-MM-DD>/`)
+## State files (`state/session/<YYYY-MM-DD>/<session>/`)
+
+One folder per session (`<session>` = `ny-am` / `ny-pm` / `london`); each is self-contained, so sessions never overwrite each other. The detector's `bar-close-events.jsonl` sits at the day level.
 
 - `pillar1.md` — HTF bias + overnight, frozen after pre-session grade
 - `pillar2.md` — Price quality verdict, frozen
@@ -39,7 +41,7 @@
 - `bars.jsonl` — every 1m bar captured, append-only
 - `bars-5m.jsonl` — every 5m bar
 - `setups.jsonl` — flagged potential entries, append-only with timestamp + rationale
-- `htf-summary.md` — rolling Claude-written synthesis, regenerated every ~30 min (keeps context linear, not quadratic — based on FinMem/HiAgent research)
+- `summary.md` — one-paragraph session wrap (bias picture + what happened + what to watch), written once at post-session
 
 ---
 
@@ -60,7 +62,7 @@
 - Bar closes → `/analyze` → reasoning with full session memory → "no setup" or "potential MSS-long forming, watch for confirmation candle above 7400 within 15 min."
 
 **12:00 ET:**
-- Daily wrap. `htf-summary.md` written. Idle until 13:00.
+- Session wrap. `summary.md` written to the `ny-am/` folder. Idle until 13:00.
 
 **13:00 ET:**
 - NY PM pre-session grade (Pillar 1+2 stays from morning unless materially changed).
@@ -88,7 +90,7 @@
 
 1. **Detector**: add `./bin/tv stream bar-close` — time-aligned polling, emits one JSON line per 1m close + per 5m close. ~50 LOC.
 2. **Delete watchman**: remove `cli/commands/watch.js`, registration, state files, briefing logic, CLAUDE.md sections.
-3. **State layout**: `state/session/<YYYY-MM-DD>/` skeleton + a small helper for path resolution.
+3. **State layout**: `state/session/<YYYY-MM-DD>/<session>/` skeleton + a small helper for path resolution.
 4. **Rewrite `/analyze`**: phase-aware — detects time, reads state, does the right thing per phase. Updated `.claude/commands/analyze.md`.
 5. **Test**: live during next NY AM (or replay).
 
@@ -111,5 +113,4 @@
 ## Open after v1
 
 - Whether to add the injected JS bar-index watcher (30ms vs 200ms latency).
-- Whether to formalize the `htf-summary.md` consolidation cadence into the slash-command.
 - Multi-day persistence (currently session-scoped to `<date>` folder).

@@ -55,6 +55,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-19 | LLM-driven session replaces the watchman | The deterministic watchman (`tv watch`) was a candidate-flagger that fired on bar+FVG+body conditions. Replaced with: bar-close detector (cheap) + Claude Code session + phase-aware `/analyze` that runs on every 1m + 5m close, accumulates `state/session/<date>/*` notes, and reasons across the whole session. Strategy §7 is sequential — making Claude the engine that walks the checklist end-to-end is closer to that than a separate trigger layer. Plan in [docs/plans/llm-driven-session.md](docs/plans/llm-driven-session.md). |
 | 2026-05-18 | Watchman context-gating defaults ON, opt-out via flags | Filter alerts by killzone presence, market-open state, and m5/m15 candle quality. Strategy §2.2/§2.3 (liquidity moves during sessions) + §3 (stand aside when price quality is bad). Opt-out (rather than opt-in) means the conservative default matches the strategy. Direction-aware filtering (bullish-bar-into-bullish-FVG etc.) remains deferred — that's the entry-model classification step. |
 | 2026-05-18 | Tap detection wick-overlap + FVG direction tagging (carried forward) | Strategy's "tap" is wick-based, not close-inside. `gates.price_context.wick_tapped_boxes[]` lists FVG/iFVG/BPR zones whose high/low overlaps the bar's wick; `inside_boxes[]` is kept for close-based price-vs-zone checks using `quote.last`. Each FVG-study entry carries `fvg_direction` (bullish_fvg/bullish_ifvg/bearish_fvg/bearish_ifvg) from Nephew_Sam_'s bgColor. Verified 2026-05-18 09:35 ET: a bearish bar wicked through 4 FVG zones cleanly but closed in the gap — close-inside would have missed it. Watchman code that consumed these gates was deleted on 2026-05-19, but the gates themselves remain for `/analyze`. |
+| 2026-05-20 | Per-session folders: `state/session/<date>/{ny-am,ny-pm,london}/` | Each session (NY AM / NY PM / optional London) gets its own folder holding that session's pillars, open-reaction, ltf-bias, setups, bars, and a `summary.md` wrap. Sessions never overwrite each other — AM, PM, and London grades all persist for later review. Replaces the flat day folder and the short-lived day-level `htf-summary.md` append log. `bar-close-events.jsonl` stays day-level (detector output). The dashboard shows the active session's folder, derived from `gates.session.phase`. |
 
 ## Repo
 
@@ -99,9 +100,10 @@ scripts/
   smoke-fixtures.js       schema + citation regression across all fixtures
 state/                    gitignored; created on demand
   screenshots/            verification / tests only — NOT analysis input
-  session/<YYYY-MM-DD>/   per-day session memory: pillar1.md, pillar2.md,
-                          open-reaction.md, ltf-bias.md, bars.jsonl,
-                          bars-5m.jsonl, setups.jsonl, htf-summary.md
+  session/<YYYY-MM-DD>/   per-day folder; holds bar-close-events.jsonl (detector log)
+    <session>/            one folder per session — ny-am / ny-pm / london — each with:
+                          pillar1.md, pillar2.md, open-reaction.md, ltf-bias.md,
+                          bars.jsonl, bars-5m.jsonl, setups.jsonl, summary.md
 tests/
   fixtures/               regression baselines (NNN-label.bundle.json + .expected.md)
     README.md             how to add and grade fixtures
@@ -203,14 +205,14 @@ The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabula
 
 ## The session recipe (LLM-driven, runs on every bar close)
 
-**Architecture (decided 2026-05-19):** the LLM (Claude in your Claude Code session) is the engine. It runs Lanto's 3-pillar checklist from a to z, on every 1m and 5m candle close, building up `state/session/<today>/*` notes as the day goes on.
+**Architecture (decided 2026-05-19):** the LLM (Claude in your Claude Code session) is the engine. It runs Lanto's 3-pillar checklist from a to z, on every 1m and 5m candle close, building up `state/session/<today>/<session>/*` notes as the day goes on.
 
 The plan is in [docs/plans/llm-driven-session.md](docs/plans/llm-driven-session.md) and is being implemented on a feature branch. The flow:
 
 1. **Detector** (cheap, deterministic): `./bin/tv stream bar-close` prints one JSON line per closed 1m bar; one extra line per closed 5m bar. Time-aligned polling (sleeps to next 60s boundary, polls fast post-close).
 2. **Monitor in Claude Code:** `Monitor("./bin/tv stream bar-close")` streams those lines into the session. Each line is an event Claude reacts to.
-3. **Phase-aware `/analyze`:** reads the ET clock + `state/session/<today>/*` + the current bundle. Does the right thing per phase (pre-session → grade Pillar 1+2; 09:30-09:45 → open reaction; 09:45-12:00 → entry hunt; etc.). Writes updates.
-4. **Session memory** in `state/session/<YYYY-MM-DD>/`: `pillar1.md`, `pillar2.md`, `open-reaction.md`, `ltf-bias.md`, `bars.jsonl`, `bars-5m.jsonl`, `setups.jsonl`, `htf-summary.md`.
+3. **Phase-aware `/analyze`:** reads the ET clock + `state/session/<today>/<session>/*` + the current bundle. Does the right thing per phase (pre-session → grade Pillar 1+2; 09:30-09:45 → open reaction; 09:45-12:00 → entry hunt; etc.). Writes updates.
+4. **Session memory** in per-session folders `state/session/<YYYY-MM-DD>/<session>/` (`<session>` = `ny-am` / `ny-pm` / `london`): `pillar1.md`, `pillar2.md`, `open-reaction.md`, `ltf-bias.md`, `bars.jsonl`, `bars-5m.jsonl`, `setups.jsonl`, `summary.md`. Each session folder is self-contained — sessions never overwrite each other. The detector's `bar-close-events.jsonl` stays at the day level.
 
 Until the redesign lands, the existing `analyze` command + slash command still work for one-shot grading.
 
@@ -221,7 +223,7 @@ Until the redesign lands, the existing `analyze` command + slash command still w
 What it shows, refreshing every 2s:
 - **Detector status** — running/stale/not-running, pid, last heartbeat age, current state (`sleeping_to_boundary` / `polling_for_close` / `emitted`), bar being tracked, last emit time.
 - **Recent bar closes** — last ~6 events from `state/session/<today>/bar-close-events.jsonl` with O/H/L/C, plus a `[5m_close]` flag when applicable.
-- **Session state files** — which of `pillar1.md`, `pillar2.md`, `open-reaction.md`, `ltf-bias.md`, `htf-summary.md`, `bars.jsonl`, `setups.jsonl` exist, when they were last modified, and the key verdict line from each markdown.
+- **Session state files** — for the active session folder (`ny-am` / `ny-pm` / `london`, derived from the current phase): which of `pillar1.md`, `pillar2.md`, `open-reaction.md`, `ltf-bias.md`, `summary.md`, `bars.jsonl`, `setups.jsonl` exist, when they were last modified, and the key verdict line from each markdown.
 - **Recent setups** — last ~4 entries from `setups.jsonl`, color-coded by status (green confirmed, yellow candidate, red invalidated).
 - **Phase + timing banner** — current ET, phase, minutes into phase, countdown to next killzone.
 

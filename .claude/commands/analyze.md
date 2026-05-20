@@ -1,5 +1,5 @@
 ---
-description: Phase-aware ICT analysis. Runs Lanto's 3-pillar strategy end-to-end across a trading session, building session memory in state/session/<date>/. Designed to be invoked once per bar close.
+description: Phase-aware ICT analysis. Runs Lanto's 3-pillar strategy end-to-end across a trading session, building session memory in state/session/<date>/<session>/. Designed to be invoked once per bar close.
 ---
 
 ## Strategy authority (read first)
@@ -79,7 +79,13 @@ Read `gates.session.phase`. Branch:
 | `london_open` | (Optional) one-shot grade — same as pre-session NY but for London context. |
 | `inter_session`, `closed` | Idle; emit a one-line status, no state writes. |
 
-Each phase reads & writes specific files in `state/session/<YYYY-MM-DD>/` where `<YYYY-MM-DD>` is derived from `gates.session.timestamp_et` (e.g. "Tue, 05/19/2026, 14:30:00" → `2026-05-19`). Create the directory on demand.
+Files live in a **per-session folder**, `state/session/<date>/<session>/`:
+
+- `<date>` — derived from `gates.session.timestamp_et` (e.g. "Tue, 05/19/2026, 14:30:00" → `2026-05-19`).
+- `<session>` — derived from the phase: any `*_ny_am` phase → `ny-am`; any `*_ny_pm` → `ny-pm`; `london_open` → `london`.
+- **`<sdir>`** is the shorthand used throughout this command for that full path: `<sdir>/pillar1.md` means `state/session/<date>/<session>/pillar1.md`. Create `<sdir>` on demand before the first write.
+
+Each session folder is self-contained — NY AM, NY PM, and London never overwrite each other, so every session's grade and wrap persist for later review. The one day-level file is the detector's `bar-close-events.jsonl`, which stays directly under `state/session/<date>/`.
 
 ---
 
@@ -88,9 +94,8 @@ Each phase reads & writes specific files in `state/session/<YYYY-MM-DD>/` where 
 **Goal:** grade Pillar 1 + Pillar 2 once for this session. Subsequent pre-session invocations should detect prior work and not re-grade.
 
 **Check first:**
-- For NY AM: if `state/session/<date>/pillar1.md` exists AND its frontmatter says `phase: pre_session_ny_am`, this work is done.
-- For NY PM: if `pillar1-ny-pm.md` exists with `phase: pre_session_ny_pm`, done.
-- If done: output one line "Pre-session already graded (P1=<bias>, P2=<verdict>). Idle until <next phase>." and stop.
+- If `<sdir>/pillar1.md` already exists, this session is graded — output one line "Pre-session already graded (P1=<bias>, P2=<verdict>). Idle until <next phase>." and stop.
+- Otherwise grade now. Each session has its own folder, so NY AM, NY PM, and London grades never collide.
 
 **If not done, do these in order:**
 
@@ -116,11 +121,11 @@ Read `gates.pillar1.session_levels.*` and the pre-sorted `untaken_sell_side_belo
 
 Use the `Write` tool to create:
 
-**`state/session/<date>/pillar1.md`** (or `pillar1-ny-pm.md` for the afternoon session):
+**`<sdir>/pillar1.md`**:
 
 ```markdown
 ---
-phase: pre_session_ny_am          # or pre_session_ny_pm
+phase: pre_session_ny_am          # or pre_session_ny_pm / london_open
 graded_at: <gates.session.timestamp_et>
 symbol: <chart.symbol>
 ---
@@ -141,11 +146,11 @@ symbol: <chart.symbol>
 - bias_direction_note: <one line>
 ```
 
-**`state/session/<date>/pillar2.md`** (or `pillar2-ny-pm.md`):
+**`<sdir>/pillar2.md`**:
 
 ```markdown
 ---
-phase: pre_session_ny_am
+phase: pre_session_ny_am          # or pre_session_ny_pm / london_open
 graded_at: <gates.session.timestamp_et>
 ---
 
@@ -167,7 +172,7 @@ graded_at: <gates.session.timestamp_et>
 
 ### Chat output (after writing files)
 
-Three to five lines: cited HTF bias + primary draw + Pillar 2 verdict + countdown to next phase. End with: `Saved state/session/<date>/{pillar1.md, pillar2.md}. Idle until <next killzone> (in <minutes>m).`
+Three to five lines: cited HTF bias + primary draw + Pillar 2 verdict + countdown to next phase. End with: `Saved <sdir>/{pillar1.md, pillar2.md}. Idle until <next killzone> (in <minutes>m).`
 
 ---
 
@@ -176,8 +181,8 @@ Three to five lines: cited HTF bias + primary draw + Pillar 2 verdict + countdow
 **Goal:** watch the first 15 minutes of NY's reaction to overnight levels. Build the LTF bias picture. By minute 14, finalize.
 
 **Required reads first:**
-- `state/session/<date>/pillar1.md` and `pillar2.md` (must exist; if missing, that's a Pillar 1+2 prereq error — say so and run pre-session work first).
-- `state/session/<date>/open-reaction.md` if it exists (we're updating it).
+- `<sdir>/pillar1.md` and `<sdir>/pillar2.md` (must exist; if missing, that's a Pillar 1+2 prereq error — say so and run pre-session work first).
+- `<sdir>/open-reaction.md` if it exists (we're updating it).
 
 **The work:**
 
@@ -187,7 +192,7 @@ Strategy §2.3:
 - Break + rejection in direction of HTF draw → LTF aligns with HTF (A+ potential later).
 - Break + continuation against HTF draw → "today is a retrace day" — bias may stay HTF or flip intraday.
 
-### Update `open-reaction.md`
+### Update `<sdir>/open-reaction.md`
 
 Either create or append (the file is a running log, with the latest snapshot at the top):
 
@@ -214,7 +219,7 @@ minutes_into_phase: <int>
 <older snapshots, oldest at bottom>
 ```
 
-### If minutes_into_phase >= 14, ALSO finalize `ltf-bias.md`
+### If minutes_into_phase >= 14, ALSO finalize `<sdir>/ltf-bias.md`
 
 ```markdown
 ---
@@ -240,23 +245,25 @@ Two to four lines: what NY just did + bias direction + minutes remaining in open
 **Goal:** evaluate every 1m and 5m bar close for entry-model setups. Reference all prior session memory. Flag candidates.
 
 **Required reads first:**
-- `state/session/<date>/pillar1.md`
-- `state/session/<date>/pillar2.md`
-- `state/session/<date>/ltf-bias.md`
-- `state/session/<date>/setups.jsonl` (if it exists — read recent entries to avoid re-flagging the same setup)
-- `state/session/<date>/bars.jsonl` (tail — last ~10 entries for recent context)
+- `<sdir>/pillar1.md`
+- `<sdir>/pillar2.md`
+- `<sdir>/ltf-bias.md`
+- `<sdir>/setups.jsonl` (if it exists — read recent entries to avoid re-flagging the same setup)
+- `<sdir>/bars.jsonl` (tail — last ~10 entries for recent context)
 
 If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open-reaction work didn't complete. Say so and skip entry hunt.
 
 **For each new bar (1m close, and 5m close when `gates.pillar3.last_bar.time % 300 == 0`):**
 
-1. Append the bar facts to `state/session/<date>/bars.jsonl`:
+1. Append the bar facts to `<sdir>/bars.jsonl`:
 
 ```jsonl
 {"time": <bar_time>, "tf": "1m", "o": <open>, "h": <high>, "l": <low>, "c": <close>, "body_ratio": <bratio>, "direction": "<dir>", "close_position_in_range": <cp>}
 ```
 
-(Use the bundle's `gates.pillar3.last_bar.*` fields. Write `tf: "5m"` and a separate line to `bars-5m.jsonl` when at a 5m boundary.)
+(Use the bundle's `gates.pillar3.last_bar.*` fields. Write `tf: "5m"` and a separate line to `<sdir>/bars-5m.jsonl` when at a 5m boundary.)
+
+2. **Walk all three entry models — explicitly, by name, every bar.** Read `gates.pillar3.most_recent_structure`, `gates.price_context.wick_tapped_boxes`, `gates.pillar3.fvg_by_type_above/below`. Then state a one-line verdict for **each** of MSS / Trend / Inversion — do not stop at the first model that doesn't fit. Grade each model ONLY on its own components (`entry-models.md`); never disqualify one model with another model's rule.
 
 2. **Walk all three entry models — explicitly, by name, every bar.** Read `gates.pillar3.most_recent_structure`, `gates.price_context.wick_tapped_boxes`, `gates.pillar3.fvg_by_type_above/below`. Then state a one-line verdict for **each** of MSS / Trend / Inversion — do not stop at the first model that doesn't fit. Grade each model ONLY on its own components (`entry-models.md`); never disqualify one model with another model's rule.
 
@@ -269,10 +276,10 @@ If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open
    - **The m5 `candle_quality_heuristic` is a hint, not a veto** — it is a lagging 5-bar average. Judge the displacement *at* the setup, and override the heuristic when you disagree.
    - **Don't manufacture no-trades.** When a model's own components + HTF alignment + a confirmation close are all present, that is at least a **B** — grade it. The discipline rules exist to stop *forcing* trades, not to reject valid ones.
 
-3. **If a candidate is forming or has fired**, append to `state/session/<date>/setups.jsonl`:
+3. **If a candidate is forming or has fired**, append to `<sdir>/setups.jsonl`:
 
 ```jsonl
-{"ts": "<iso>", "bar_time": <t>, "tf": "1m", "model": "MSS|Trend|Inversion", "status": "waiting|candidate|confirmed|invalidated", "side": "long|short", "rationale": "<one line with cites>", "fvg": {"high": <h>, "low": <l>, "direction": "<bullish_fvg|...>"}, "confirmation_bar": {"close": <c>, "body_ratio": <br>, "direction": "<d>"} | null}
+{"ts": "<iso>", "bar_time": <t>, "tf": "1m", "model": "MSS|Trend|Inversion", "status": "candidate|confirmed|invalidated", "side": "long|short", "rationale": "<one line with cites>", "fvg": {"high": <h>, "low": <l>, "direction": "<bullish_fvg|...>"}, "confirmation_bar": {"close": <c>, "body_ratio": <br>, "direction": "<d>"} | null}
 ```
 
 ### Chat output
@@ -280,7 +287,7 @@ If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open
 **Default (no setup):** ONE line. Format:
 `<phase>:<min>m  bar=<bar_time> body=<br> dir=<dir> | no setup (last_bar at <close>, in <list-or-none> FVGs)`
 
-**Setup forming (status=waiting or candidate):** TWO to THREE lines. Cite the FVG; note the model; say what would confirm.
+**Setup forming (status=candidate):** TWO to THREE lines. Cite the FVG; note the model; say what would confirm. `candidate` covers every pre-entry stage — from a setup just starting to form through to one bar away from confirmation.
 
 **Setup CONFIRMED:** the longer prose+JSON read. Use the structured block from the "Examples" section below. Cite entry, stop (structural invalidation), TP1 (local liquidity), TP2 (HTF draw if supported). Include the model walk per `docs/strategy/entry-models.md`.
 
@@ -288,30 +295,33 @@ If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open
 
 ## Phase: Post-session (NY AM or NY PM)
 
-**Goal:** write a one-paragraph wrap, then idle.
+**Goal:** write a one-paragraph wrap to this session's folder, then idle.
 
 **The work:**
-- If `state/session/<date>/htf-summary.md` already covers this phase (check frontmatter), output "Already wrapped." and stop.
-- Else: read pillar1.md, pillar2.md, ltf-bias.md, setups.jsonl. Write a synthesis to `htf-summary.md`:
+
+- If `<sdir>/summary.md` already exists, this session is wrapped — output "Already wrapped." and stop.
+- Otherwise read `<sdir>/pillar1.md`, `<sdir>/pillar2.md`, `<sdir>/ltf-bias.md`, `<sdir>/setups.jsonl`, then `Write` `<sdir>/summary.md`:
 
 ```markdown
 ---
+session: ny-am          # ny-am | ny-pm | london
 date: <YYYY-MM-DD>
-wrapped_at: <timestamp>
-covered_phases: [pre_session_ny_am, open_reaction_ny_am, entry_hunt_ny_am, post_ny_am]
+wrapped_at: <gates.session.timestamp_et>
 ---
 
-# Session Summary
+# Session Summary — <session>, <YYYY-MM-DD>
 
 ## Bias picture
-<one paragraph synthesizing P1 + P2 + LTF bias>
+<one paragraph synthesizing P1 + P2 + LTF bias, prices cited>
 
 ## What happened
-<one paragraph: did setups fire, did they confirm, what's the day's narrative>
+<one paragraph: did setups fire / confirm; the session's narrative>
 
-## Open questions / what to watch next session
+## Watch next session
 <one or two bullets>
 ```
+
+Each session writes its own `summary.md` inside its own folder, so the NY AM, NY PM, and London wraps all persist independently for later review — nothing is overwritten.
 
 ### Chat output
 
@@ -321,7 +331,9 @@ The single-paragraph wrap. Then say what's next ("Idle until NY PM at 13:00 ET" 
 
 ## Phase: London Open, Inter-session, Closed
 
-**Goal:** light-weight one-line status, no state writes. The system is intentionally session-focused (NY AM + NY PM). London Open is a context-build window if you want it — for now treat as a one-shot grade similar to pre-session NY AM (write a `pillar1-london.md` if doing the optional London grade). Default: just say "Outside NY sessions — no work" plus current phase + countdown.
+**London Open** — optional context-build window. The system is session-focused (NY AM + NY PM), but if you want a London read, treat it as a one-shot grade. Here `<session>` is `london`, so `<sdir>` resolves to `state/session/<date>/london/`. Write `<sdir>/pillar1.md` and `<sdir>/pillar2.md` exactly as in the Pre-session phase (`phase: london_open` in the frontmatter), then a brief `<sdir>/summary.md` wrap as in the Post-session phase. The `london/` folder is independent — NY AM and NY PM never touch it, so the London grade persists for later review. Skip the grade if `<sdir>/pillar1.md` already exists.
+
+**Inter-session, Closed** — idle. Say "Outside NY sessions — no work" plus current phase + countdown. No state writes.
 
 ---
 
