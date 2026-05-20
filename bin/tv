@@ -1,2 +1,28 @@
 #!/usr/bin/env bash
-exec node "$(dirname "$0")/../cli/index.js" "$@"
+# Entry point for the tv CLI.
+#
+# Routes most subcommands through Node (cli/index.js). One exception:
+# `tv dash` runs a Go (bubbletea) binary that needs exclusive raw-mode
+# TTY ownership; we `exec` into it directly so the binary inherits the
+# real TTY rather than being a child of Node.
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ "$1" = "dash" ]; then
+  if [ ! -x "$DIR/tv-dash" ]; then
+    cat <<EOF >&2
+error: $DIR/tv-dash not built yet.
+
+One-time setup:
+  1. install Go (e.g. brew install go)
+  2. make dash
+
+Then ./bin/tv dash will work.
+EOF
+    exit 2
+  fi
+  shift
+  exec "$DIR/tv-dash" "$@"
+fi
+
+exec node "$DIR/../cli/index.js" "$@"

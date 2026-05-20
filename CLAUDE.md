@@ -225,7 +225,15 @@ What it shows, refreshing every 2s:
 - **Recent setups** — last ~4 entries from `setups.jsonl`, color-coded by status (green confirmed, yellow candidate, red invalidated).
 - **Phase + timing banner** — current ET, phase, minutes into phase, countdown to next killzone.
 
-Press `q + Enter` to quit. ANSI clear-and-redraw, no external deps. Reads everything from disk; no CDP calls (so it never disturbs the chart).
+Press `q` / `Esc` / `Ctrl-C` to quit. Built with **Go + [bubbletea](https://github.com/charmbracelet/bubbletea) + [lipgloss](https://github.com/charmbracelet/lipgloss)** — the same Charm stack that powers lazygit, k9s, gh-dash, gum, etc. Reads disk only; no CDP calls (so it never disturbs the chart).
+
+**Setup (one-time):**
+```bash
+brew install go        # if you don't have Go 1.22+
+make dash              # compiles bin/tv-dash from cmd/tv-dash/
+```
+
+After that, `./bin/tv dash` works from any session — the Node CLI shells out to `bin/tv-dash`. Source lives at [cmd/tv-dash/main.go](cmd/tv-dash/main.go).
 
 The detector (`./bin/tv stream bar-close`) writes a heartbeat to `state/session/detector-heartbeat.json` on every poll iteration AND persists every emitted event to `state/session/<today>/bar-close-events.jsonl` (in addition to stdout). That's what the dashboard reads.
 
