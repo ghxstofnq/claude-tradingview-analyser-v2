@@ -361,6 +361,30 @@ func truncateANSI(s string, max int) string {
 	return lipgloss.NewStyle().MaxWidth(max).Render(s)
 }
 
+// wrapPlain word-wraps raw (unstyled) text to width on word boundaries,
+// measuring with lipgloss.Width so wrapped lines stay consistent with the
+// pane's width math. A single word longer than width is left whole (rare).
+func wrapPlain(text string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	lines := []string{}
+	cur := words[0]
+	for _, w := range words[1:] {
+		if lipgloss.Width(cur+" "+w) <= width {
+			cur += " " + w
+		} else {
+			lines = append(lines, cur)
+			cur = w
+		}
+	}
+	return append(lines, cur)
+}
+
 // ── Model ─────────────────────────────────────────────────────────────────
 
 type tickMsg time.Time
@@ -702,33 +726,70 @@ func (m model) fileContentLines() []string {
 	if err != nil {
 		return []string{sLoss.Render(fmt.Sprintf("error reading %s: %v", f.Path, err))}
 	}
+	// Wrap width = file pane inner content width (mirrors the layout math:
+	// rightW-4, where rightW = width - leftW and leftW = width/3, min 28).
+	leftW := m.width / 3
+	if leftW < 28 {
+		leftW = 28
+	}
+	wrapW := m.width - leftW - 4
+	if wrapW < 20 {
+		wrapW = 20
+	}
+	// wrapStyled word-wraps raw text to the pane width, then styles each
+	// visual line. Manual wrap (measured with lipgloss.Width) — lipgloss's
+	// own .Width() leaves lines that overflow by only a few cells unwrapped.
+	wrapStyled := func(s lipgloss.Style, text string) []string {
+		segs := wrapPlain(text, wrapW)
+		styled := make([]string, len(segs))
+		for i, seg := range segs {
+			styled[i] = s.Render(seg)
+		}
+		return styled
+	}
 	out := []string{
 		sAccent.Render(f.Path) + "   " + sMuted.Render("mod "+f.Mtime.In(etLocation).Format("15:04:05")),
 		sDim.Render(strings.Repeat("─", 60)),
 	}
 	inFront := false
-	for _, ln := range strings.Split(string(b), "\n") {
+	for idx, ln := range strings.Split(string(b), "\n") {
 		t := strings.TrimSpace(ln)
 		switch {
-		case t == "---":
-			inFront = !inFront
+		case idx == 0 && t == "---":
+			inFront = true // opening frontmatter delimiter
+			out = append(out, sMuted.Render(ln))
+		case inFront && t == "---":
+			inFront = false // closing frontmatter delimiter — frontmatter ends here
 			out = append(out, sMuted.Render(ln))
 		case inFront:
 			out = append(out, sMuted.Render(ln))
+		case t == "---":
+			// a `---` after frontmatter is a horizontal rule, NOT a delimiter —
+			// render it as a rule and do not re-enter frontmatter mode.
+			out = append(out, sDim.Render(strings.Repeat("─", 60)))
 		case strings.HasPrefix(t, "# "):
-			out = append(out, sAccent.Render(ln))
+			out = append(out, wrapStyled(sAccent, ln)...)
 		case strings.HasPrefix(t, "## "):
-			out = append(out, sCyan.Bold(true).Render(ln))
+			out = append(out, wrapStyled(sCyan.Bold(true), ln)...)
 		case strings.HasPrefix(t, "- "):
 			if c := strings.Index(t, ":"); c > 0 {
 				key := strings.TrimPrefix(t[:c], "- ")
 				val := strings.TrimSpace(t[c+1:])
-				out = append(out, fmt.Sprintf("- %s: %s", sBold.Render(key), valueStyle(val).Render(val)))
+				full := fmt.Sprintf("- %s: %s", key, val)
+				if lipgloss.Width(full) <= wrapW {
+					out = append(out, fmt.Sprintf("- %s: %s", sBold.Render(key), valueStyle(val).Render(val)))
+				} else {
+					out = append(out, wrapStyled(sFg, full)...)
+				}
 				continue
 			}
-			out = append(out, sFg.Render(ln))
+			out = append(out, wrapStyled(sFg, ln)...)
 		default:
-			if t == "" { out = append(out, ln) } else { out = append(out, sFg.Render(ln)) }
+			if t == "" {
+				out = append(out, ln)
+			} else {
+				out = append(out, wrapStyled(sFg, ln)...)
+			}
 		}
 	}
 	return out

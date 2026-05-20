@@ -152,7 +152,7 @@ function computeCandleStats(last5) {
   };
 }
 
-function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStatus }) {
+export function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStatus }) {
   const last = quote?.last ?? null;
 
   // -- Session / time classification (purely from quote.time) --
@@ -256,11 +256,27 @@ function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStat
     nextKillzoneLabel = 'London Open (next day)';
   }
   const minutesIntoPhase = Math.max(0, etMinutesTotal - phaseStartMin);
+  // The phase machine names the killzone its phase leads toward; that start can
+  // already be past (pre_session_ny_am spans the NY AM killzone's first hour).
+  // When it has passed, advance to the next start today before wrapping +24h.
+  const KILLZONE_STARTS = [
+    { min: LONDON_OPEN_KZ[0], label: 'London Open' },
+    { min: NY_AM_KILLZONE[0], label: 'NY AM' },
+    { min: NY_PM_KILLZONE[0], label: 'NY PM' },
+  ];
   let secondsToNextKillzone = null;
   if (nextKillzoneMin >= 0) {
-    const targetMin = nextKillzoneMin > etMinutesTotal
-      ? nextKillzoneMin
-      : nextKillzoneMin + 24 * 60;
+    let targetMin = nextKillzoneMin;
+    if (targetMin <= etMinutesTotal) {
+      const upcoming = KILLZONE_STARTS.find((k) => k.min > etMinutesTotal);
+      if (upcoming) {
+        targetMin = upcoming.min;
+        nextKillzoneLabel = upcoming.label;
+      } else {
+        targetMin = KILLZONE_STARTS[0].min + 24 * 60;
+        nextKillzoneLabel = `${KILLZONE_STARTS[0].label} (next day)`;
+      }
+    }
     secondsToNextKillzone = (targetMin - etMinutesTotal) * 60 - etSeconds;
   }
 

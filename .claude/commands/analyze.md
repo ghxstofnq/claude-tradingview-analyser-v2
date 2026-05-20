@@ -258,11 +258,16 @@ If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open
 
 (Use the bundle's `gates.pillar3.last_bar.*` fields. Write `tf: "5m"` and a separate line to `bars-5m.jsonl` when at a 5m boundary.)
 
-2. **Reason about entry-model candidates.** Read `gates.pillar3.most_recent_structure`, `gates.price_context.wick_tapped_boxes`, `gates.pillar3.fvg_by_type_above/below`. Combined with prior LTF bias:
+2. **Walk all three entry models — explicitly, by name, every bar.** Read `gates.pillar3.most_recent_structure`, `gates.price_context.wick_tapped_boxes`, `gates.pillar3.fvg_by_type_above/below`. Then state a one-line verdict for **each** of MSS / Trend / Inversion — do not stop at the first model that doesn't fit. Grade each model ONLY on its own components (`entry-models.md`); never disqualify one model with another model's rule.
 
-   - **MSS** — when a sweep just happened (recent ST_LL/ST_HH at high `x`), then displacement back the other way, followed by retrace into the freshly-created FVG.
-   - **Trend** — HTF + LTF both aligned, pullback into an internal FVG matching bias direction.
-   - **Inversion** — opposing-direction FVG just got violated by a strong close (e.g. bullish close above a bearish FVG); now watching for the inversion retest.
+   - **MSS** — a sweep of a swing low/high → sharp displacement back the other way → retrace into the freshly-created FVG → confirmation close.
+   - **Trend** — HTF + LTF aligned, an impulse leg, pullback into an internal FVG **with structure intact (higher highs / higher lows)** → confirmation close. The "structure intact" requirement is Trend-only.
+   - **Inversion** — an opposing-direction FVG violated by a strong close (e.g. a bullish close above a bearish FVG) → optional retest of the inverted zone → confirmation close. Inversions form *during* a pullback — **a broken higher low does NOT disqualify an Inversion** (that is a Trend-model rule).
+
+   Guards (each cost a real trade on 2026-05-20):
+   - **FVG size** — a small FVG is still tradeable. On MNQ a ~13-point (~50-tick) FVG is normal. Do not reject a setup for FVG size.
+   - **The m5 `candle_quality_heuristic` is a hint, not a veto** — it is a lagging 5-bar average. Judge the displacement *at* the setup, and override the heuristic when you disagree.
+   - **Don't manufacture no-trades.** When a model's own components + HTF alignment + a confirmation close are all present, that is at least a **B** — grade it. The discipline rules exist to stop *forcing* trades, not to reject valid ones.
 
 3. **If a candidate is forming or has fired**, append to `state/session/<date>/setups.jsonl`:
 
