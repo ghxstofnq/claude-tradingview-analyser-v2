@@ -2,160 +2,32 @@ import { register } from '../router.js';
 import * as chart from '@tvmcp/core/chart';
 import * as data from '@tvmcp/core/data';
 import * as replay from '@tvmcp/core/replay';
-import { pillar2Thresholds } from '../lib/pillar2-thresholds.js';
+import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser.js';
+import { computeEngineGates } from '../lib/compute-engine-gates.js';
+import { lastBarFacts } from '../lib/last-bar.js';
 
 /**
- * Deterministic gate computations. Everything in here must be derivable
- * directly from the captured bundle fields — no LLM judgment, no
- * heuristics that approximate human discretion.
+ * tv analyze — bundles chart state, quote, multi-TF bars, and the ICT Engine
+ * evidence table into one JSON object for /analyze.
  *
- * Coverage today (with the user's current chart indicators):
- *   - session.*         clock-based session label + killzone time windows
- *   - price_context.*   spatial price-vs-pine-box checks
- *   - pillar1.*         session liquidity from ICT Killzones labels
- *                       (PDH/PDL/AS.H/AS.L/LO.H/LO.L/NYAM.H/NYAM.L)
- *                       with taken/untaken derived from bars.high/low
- *   - pillar2.*         range + candle-quality stats from bars
- *   - pillar3.*         most-recent ICT swing structure (ST/IT/LT × HL/LH/HH/LL)
- *                       ordered by Pine x-index; FVG counts classified by
- *                       Nephew_Sam_'s bgColor → bullish/bearish FVG/IFVG
+ * Two pre-computed gate groups (the LLM consumes them, never recomputes):
+ *   gates.session — clock-based session / phase / killzone (computeSessionGate)
+ *   gates.engine  — the 3-pillar gates derived from the ICT Engine table
+ *                   (cli/lib/compute-engine-gates.js)
  *
- * Still LLM-interpretive (documented in CLAUDE.md "Known gaps"):
- *   - HTF Pillar 2 displacement (needs HTF candles → multi-TF, next commit)
- *   - Entry-model selection (which of MSS / Trend / Inversion)
- *   - Confirmation candle quality / 10-15 min rule
- *
- * See docs/research/ai-trading-analysis.md rec #3 and
- * docs/strategy/trading-strategy-2026.md §2.2 + §7.
+ * The single data source is the ICT Engine indicator — see
+ * docs/plans/2026-05-21-ict-engine-migration.md. The engine's evidence table
+ * is parsed by cli/lib/ict-engine-parser.js; last-bar confirmation facts
+ * (bar-derived, not engine-derived) by cli/lib/last-bar.js.
  */
-
-// FVG color mapping (provided by user, source: Nephew_Sam_'s indicator).
-// TradingView stores colors as ABGR ints; we mask alpha and key on the BGR low 3 bytes.
-// RGB hex → stored low-3-bytes after `(color >>> 0) & 0x00ffffff`:
-//   22ab94 (Bullish FVG)   → 0x94ab22
-//   3179f5 (Bullish IFVG)  → 0xf57931
-//   f7525f (Bearish FVG)   → 0x5f52f7
-//   ffa726 (Bearish IFVG)  → 0x26a7ff
-const FVG_BGR_TO_TYPE = {
-  0x94ab22: 'bullish_fvg',
-  0xf57931: 'bullish_ifvg',
-  0x5f52f7: 'bearish_fvg',
-  0x26a7ff: 'bearish_ifvg',
-};
-function classifyFvgColor(bgColor) {
-  const bgr = (bgColor >>> 0) & 0x00ffffff;
-  return FVG_BGR_TO_TYPE[bgr] || 'unknown';
-}
-
-// Session-level texts published by ICT Killzones & Pivots [TFO].
-// Suffix convention: *H = a high (buy-side liquidity), *L = a low (sell-side liquidity).
-// `key` is the citation-safe identifier; `label` preserves the indicator's original text.
-const SESSION_LEVELS = [
-  { key: 'PWH', label: 'PWH' },
-  { key: 'PWL', label: 'PWL' },
-  { key: 'PDH', label: 'PDH' },
-  { key: 'PDL', label: 'PDL' },
-  { key: 'AS_H', label: 'AS.H' },
-  { key: 'AS_L', label: 'AS.L' },
-  { key: 'LO_H', label: 'LO.H' },
-  { key: 'LO_L', label: 'LO.L' },
-  { key: 'NYAM_H', label: 'NYAM.H' },
-  { key: 'NYAM_L', label: 'NYAM.L' },
-  { key: 'NYPM_H', label: 'NYPM.H' },
-  { key: 'NYPM_L', label: 'NYPM.L' },
-];
-
-// ICT swing structure label texts published by ICT Anchored Market Structures [LuxAlgo].
-// `key` is the citation-safe identifier; `label` preserves the indicator's original text.
-const STRUCTURE_POINTS = [
-  { key: 'ST_HH', label: 'ST-HH' },
-  { key: 'ST_HL', label: 'ST-HL' },
-  { key: 'ST_LH', label: 'ST-LH' },
-  { key: 'ST_LL', label: 'ST-LL' },
-  { key: 'IT_HH', label: 'IT-HH' },
-  { key: 'IT_HL', label: 'IT-HL' },
-  { key: 'IT_LH', label: 'IT-LH' },
-  { key: 'IT_LL', label: 'IT-LL' },
-  { key: 'LT_HH', label: 'LT-HH' },
-  { key: 'LT_HL', label: 'LT-HL' },
-  { key: 'LT_LH', label: 'LT-LH' },
-  { key: 'LT_LL', label: 'LT-LL' },
-];
 
 /**
- * Compute body-ratio / engulfing / doji stats for the last 5 bars at some TF.
- * Strategy §7 step 3 specifically wants this on 5m/15m bars. Body-ratio also
- * computed for the chart's current TF as a live LTF gauge.
- *
- * Returns null when no bars are available.
- *
- * Engulfing: current candle's body fully covers the prior candle's body
- *   (regardless of direction; strategy uses "engulfing" loosely to mean
- *   "strong-bodied, decisive" rather than the strict reversal pattern).
- * Doji: body_ratio < 0.15 (catches "doji-like" candles, not just pure dojis).
+ * computeSessionGate — clock-based session gate. Indicator-independent:
+ * every field derives purely from quote.time. LLMs are temporally blind by
+ * default, so the ET clock, phase, and killzone countdown are pre-computed.
+ * Phases match docs/plans/llm-driven-session.md and drive /analyze.
  */
-function computeCandleStats(last5) {
-  if (!last5 || last5.length === 0) return null;
-  const rawRatios = last5.map((b) => {
-    const total = b.high - b.low;
-    return total > 0 ? Math.abs(b.close - b.open) / total : 0;
-  });
-  const avg = rawRatios.reduce((a, b) => a + b, 0) / rawRatios.length;
-  let quality;
-  if (avg >= 0.6) quality = 'good';
-  else if (avg >= 0.3) quality = 'marginal';
-  else quality = 'poor';
-  const dojiCount = rawRatios.filter((r) => r < 0.15).length;
-  let engulfingCount = 0;
-  for (let i = 1; i < last5.length; i++) {
-    const prev = last5[i - 1];
-    const cur = last5[i];
-    const prevBodyHigh = Math.max(prev.open, prev.close);
-    const prevBodyLow = Math.min(prev.open, prev.close);
-    const curBodyHigh = Math.max(cur.open, cur.close);
-    const curBodyLow = Math.min(cur.open, cur.close);
-    if (curBodyHigh >= prevBodyHigh && curBodyLow <= prevBodyLow) {
-      engulfingCount++;
-    }
-  }
-  // Most-recent bar facts (parallels gates.pillar3.last_bar shape).
-  // Strategy §5 / §7 step 6 / entry-models "Entry Confirmation (1m/5m)" needs
-  // per-bar direction + body + close-in-range to evaluate confirmation candles
-  // at any TF — not just the chart's current TF.
-  const lb = last5[last5.length - 1];
-  const lbRange = lb.high - lb.low;
-  const lbBody = Math.abs(lb.close - lb.open);
-  const lbBodyRatio = lbRange > 0 ? Math.round((lbBody / lbRange) * 100) / 100 : 0;
-  let lbDirection;
-  if (lbBodyRatio < 0.1) lbDirection = 'doji';
-  else if (lb.close > lb.open) lbDirection = 'bullish';
-  else if (lb.close < lb.open) lbDirection = 'bearish';
-  else lbDirection = 'doji';
-  const lbClosePos = lbRange > 0 ? Math.round(((lb.close - lb.low) / lbRange) * 100) / 100 : 0.5;
-  const lastBar = {
-    time: lb.time,
-    open: lb.open,
-    high: lb.high,
-    low: lb.low,
-    close: lb.close,
-    body_ratio: lbBodyRatio,
-    direction: lbDirection,
-    range: Math.round(lbRange * 100) / 100,
-    close_position_in_range: lbClosePos,
-  };
-  return {
-    body_ratios_last_5: rawRatios.map((r) => Math.round(r * 100) / 100),
-    avg_body_ratio_last_5: Math.round(avg * 100) / 100,
-    candle_quality_heuristic: quality,
-    engulfing_count_last_5: engulfingCount,
-    doji_count_last_5: dojiCount,
-    last_bar: lastBar,
-  };
-}
-
-export function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, replayStatus, symbol }) {
-  const last = quote?.last ?? null;
-
+export function computeSessionGate({ quote, replayStatus }) {
   // -- Session / time classification (purely from quote.time) --
   const ts = (quote?.time || 0) * 1000;
   const fmt = new Intl.DateTimeFormat('en-US', {
@@ -281,252 +153,24 @@ export function computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf, rep
     secondsToNextKillzone = (targetMin - etMinutesTotal) * 60 - etSeconds;
   }
 
-  // -- Price-vs-pine-box context (inside-box checks) --
-  // Build a coord-keyed map of FVG-study verbose boxes so we can attach the
-  // bgColor-derived direction (bullish_fvg / bullish_ifvg / bearish_fvg /
-  // bearish_ifvg) to each FVG inside-box entry. The watchman uses this for
-  // direction-aware downstream grading; without it, the alert payload can't
-  // distinguish a bullish-FVG retest from a bearish-FVG breakthrough.
-  const fvgVerboseStudyForBoxes = (fvgBoxesVerbose?.studies || []).find((s) => /FVG/i.test(s.name));
-  const fvgDirByCoords = {};
-  if (fvgVerboseStudyForBoxes) {
-    for (const b of fvgVerboseStudyForBoxes.all_boxes || []) {
-      fvgDirByCoords[`${b.high}:${b.low}`] = classifyFvgColor(b.bgColor);
-    }
-  }
-  const insideBoxes = [];
-  const boxStudies = pine?.boxes?.studies || [];
-  for (const study of boxStudies) {
-    const zones = study.zones || [];
-    for (let i = 0; i < zones.length; i++) {
-      const z = zones[i];
-      if (last != null && last >= z.low && last <= z.high) {
-        const entry = { study: study.name, zone_index: i, high: z.high, low: z.low };
-        if (/FVG/i.test(study.name)) {
-          entry.fvg_direction = fvgDirByCoords[`${z.high}:${z.low}`] || 'unknown';
-        }
-        insideBoxes.push(entry);
-      }
-    }
-  }
-
-  // Strategy's notion of a "tap" is wick-based: price touched the zone
-  // (high/low overlap), even if the body closed in the gap between zones.
-  // ICT taps are routinely wick-only; using close-inside loses real setups.
-  // (Verified live 2026-05-18: 09:35 bar wicked through 4 FVGs cleanly with
-  // body 0.75 bearish, close in the gap — the watchman missed the tap, then
-  // the subsequent confirmation candle fired as a fresh tap instead.)
-  // This is what tv watch consumes for tap detection. `inside_boxes` stays
-  // for the existing price-vs-zone discipline (which uses quote.last, not
-  // the bar's high/low).
-  const wickTappedBoxes = [];
-  const last5BarsForTap = bars?.last_5_bars || [];
-  const tapBar = last5BarsForTap[last5BarsForTap.length - 1];
-  if (tapBar) {
-    for (const study of boxStudies) {
-      const zones = study.zones || [];
-      for (let i = 0; i < zones.length; i++) {
-        const z = zones[i];
-        const wickOverlap = tapBar.high >= z.low && tapBar.low <= z.high;
-        if (wickOverlap) {
-          const entry = { study: study.name, zone_index: i, high: z.high, low: z.low };
-          if (/FVG/i.test(study.name)) {
-            entry.fvg_direction = fvgDirByCoords[`${z.high}:${z.low}`] || 'unknown';
-          }
-          wickTappedBoxes.push(entry);
-        }
-      }
-    }
-  }
-
-  // -- Pillar 1c: explicit Bias labels (auto-populates if user adds a bias indicator) --
-  // Scans every Pine label across all studies for text matching /bias/i. Strategy
-  // §2.1 references "Bias Long" / "Bias Short" readouts; this gate catches them
-  // wherever they live, without us hard-coding study names.
-  const biasLabels = [];
-  for (const study of pine?.labels?.studies || []) {
-    for (const lbl of study.labels || []) {
-      if (lbl.text && /bias/i.test(lbl.text)) {
-        biasLabels.push({
-          text: lbl.text,
-          price: lbl.price,
-          study: study.name,
-          x: typeof lbl.x === 'number' ? lbl.x : null,
-        });
-      }
-    }
-  }
-
-  // -- Pillar 1: session liquidity from ICT Killzones labels --
-  const kzStudy = (pine?.labels?.studies || []).find((s) => /Killzones/i.test(s.name));
-  const kzLabels = kzStudy?.labels || [];
-  const sessionLevels = {};
-  for (const { key, label: chartLabel } of SESSION_LEVELS) {
-    const found = kzLabels.find((l) => l.text === chartLabel);
-    if (!found || found.price == null) {
-      sessionLevels[key] = { label: chartLabel, price: null, position_vs_price: null, taken: null };
-      continue;
-    }
-    const price = found.price;
-    const isHigh = /_H$|H$/.test(key);
-    let taken = null;
-    if (isHigh) taken = bars?.high != null && bars.high > price;
-    else taken = bars?.low != null && bars.low < price;
-    sessionLevels[key] = {
-      label: chartLabel,
-      price,
-      position_vs_price:
-        last == null ? null : price > last ? 'above' : price < last ? 'below' : 'at',
-      taken,
-    };
-  }
-  const lowKeys = SESSION_LEVELS.filter(({ key }) => /_L$|L$/.test(key) && !/H$/.test(key)).map((e) => e.key);
-  const highKeys = SESSION_LEVELS.filter(({ key }) => /_H$|H$/.test(key)).map((e) => e.key);
-  const untakenSellSideBelow = lowKeys
-    .map((k) => ({ key: k, ...sessionLevels[k] }))
-    .filter((s) => s && s.position_vs_price === 'below' && s.taken === false)
-    .sort((a, b) => b.price - a.price);
-  const untakenBuySideAbove = highKeys
-    .map((k) => ({ key: k, ...sessionLevels[k] }))
-    .filter((s) => s && s.position_vs_price === 'above' && s.taken === false)
-    .sort((a, b) => a.price - b.price);
-
-  // -- Pillar 3a: most-recent ICT swing structure points (by Pine x-index) --
-  const amsStudy = (pine?.labels?.studies || []).find((s) => /Anchored/i.test(s.name));
-  const amsLabels = amsStudy?.labels || [];
-  const mostRecentStructure = {};
-  for (const { key, label: chartLabel } of STRUCTURE_POINTS) {
-    const matching = amsLabels.filter((l) => l.text === chartLabel && typeof l.x === 'number');
-    if (matching.length === 0) {
-      mostRecentStructure[key] = { label: chartLabel, price: null, x: null };
-      continue;
-    }
-    matching.sort((a, b) => b.x - a.x);
-    const top = matching[0];
-    mostRecentStructure[key] = { label: chartLabel, price: top.price, x: top.x };
-  }
-
-  // -- Pillar 3b: FVG counts by direction (color-classified) --
-  const fvgEmpty = () => ({
-    bullish_fvg: 0, bullish_ifvg: 0,
-    bearish_fvg: 0, bearish_ifvg: 0,
-    unknown: 0,
-  });
-  const fvgByType = fvgEmpty();
-  const fvgByTypeAbove = fvgEmpty();
-  const fvgByTypeBelow = fvgEmpty();
-  const fvgVerboseStudy = (fvgBoxesVerbose?.studies || []).find((s) => /FVG/i.test(s.name));
-  if (fvgVerboseStudy && last != null) {
-    for (const box of fvgVerboseStudy.all_boxes || []) {
-      const type = classifyFvgColor(box.bgColor);
-      fvgByType[type]++;
-      if (last < box.low) fvgByTypeAbove[type]++;
-      else if (last > box.high) fvgByTypeBelow[type]++;
-    }
-  }
-
-  // -- Pillar 2: range + candle quality stats --
-  const rangeValue = bars?.range ?? null;
-  const barCount = bars?.bar_count ?? null;
-  const rangePerBar = rangeValue != null && barCount ? rangeValue / barCount : null;
-  // Per-symbol range threshold (cli/lib/pillar2-thresholds.js). null when
-  // the symbol is uncalibrated — range_acceptable is then null, not false.
-  const { range_acceptable_min: rangeMin } = pillar2Thresholds(symbol);
-  const rangeAcceptable = rangeMin == null
-    ? null
-    : (rangeValue != null && rangeValue >= rangeMin);
-  const last5 = bars?.last_5_bars || [];
-  const currentTfStats = computeCandleStats(last5);
-  // Strategy §7 step 3: "15m/5m candles mainly engulfing; not dominated by dojis/wicks"
-  // — explicit per-TF stats so Pillar 2's candle check is on the right bars.
-  const m5Stats = computeCandleStats(barsByTf?.m5?.last_5_bars);
-  const m15Stats = computeCandleStats(barsByTf?.m15?.last_5_bars);
-
-  // -- Pillar 3c: last-bar confirmation facts (single-bar discipline for strategy §5/§6) --
-  let lastBar = null;
-  let lastBarAgeSeconds = null;
-  if (last5.length > 0) {
-    const lb = last5[last5.length - 1];
-    const totalRange = lb.high - lb.low;
-    const bodySize = Math.abs(lb.close - lb.open);
-    const bodyRatio = totalRange > 0 ? Math.round((bodySize / totalRange) * 100) / 100 : 0;
-    let direction;
-    if (bodyRatio < 0.1) direction = 'doji';
-    else if (lb.close > lb.open) direction = 'bullish';
-    else if (lb.close < lb.open) direction = 'bearish';
-    else direction = 'doji';
-    const closePosInRange =
-      totalRange > 0 ? Math.round(((lb.close - lb.low) / totalRange) * 100) / 100 : 0.5;
-    lastBar = {
-      time: lb.time,
-      open: lb.open,
-      high: lb.high,
-      low: lb.low,
-      close: lb.close,
-      body_ratio: bodyRatio,
-      direction,
-      range: Math.round(totalRange * 100) / 100,
-      close_position_in_range: closePosInRange,
-    };
-    if (quote?.time && lb.time) lastBarAgeSeconds = quote.time - lb.time;
-  }
-
   return {
-    session: {
-      label: sessionLabel,
-      timestamp_et: fmt.format(new Date(ts)),
-      day_of_week: weekday,
-      is_weekend: isWeekend,
-      is_market_closed: isMarketClosed,
-      in_ny_open_window: inNyOpenWindow,
-      in_killzone: inAnyKillzone,
-      in_killzone_detail: {
-        london_open: inLondonOpenKillzone,
-        ny_am: inNyAmKillzone,
-        ny_pm: inNyPmKillzone,
-      },
-      // Phase + timing for LLM-driven session (docs/plans/llm-driven-session.md).
-      // LLMs are temporally blind by default (arXiv 2510.23853) — these are
-      // pre-computed so the model never does clock math.
-      phase: sessionPhase,
-      minutes_into_phase: minutesIntoPhase,
-      next_killzone_label: nextKillzoneLabel,
-      seconds_to_next_killzone: secondsToNextKillzone,
-      replay: replayStatus,
+    label: sessionLabel,
+    timestamp_et: fmt.format(new Date(ts)),
+    day_of_week: weekday,
+    is_weekend: isWeekend,
+    is_market_closed: isMarketClosed,
+    in_ny_open_window: inNyOpenWindow,
+    in_killzone: inAnyKillzone,
+    in_killzone_detail: {
+      london_open: inLondonOpenKillzone,
+      ny_am: inNyAmKillzone,
+      ny_pm: inNyPmKillzone,
     },
-    price_context: {
-      last,
-      inside_boxes: insideBoxes,
-      wick_tapped_boxes: wickTappedBoxes,
-    },
-    pillar1: {
-      session_levels: sessionLevels,
-      untaken_sell_side_below: untakenSellSideBelow,
-      untaken_buy_side_above: untakenBuySideAbove,
-      bias_labels: biasLabels,
-    },
-    pillar2: {
-      range_value: rangeValue,
-      range_per_bar: rangePerBar,
-      range_acceptable: rangeAcceptable,
-      range_acceptable_min: rangeMin,
-      // Current-TF stats (backwards-compat; also available in the structured form below).
-      avg_body_ratio_last_5: currentTfStats?.avg_body_ratio_last_5 ?? null,
-      candle_quality_heuristic: currentTfStats?.candle_quality_heuristic ?? 'unknown',
-      // Full current-TF stats including ratios, engulfing, doji counts.
-      current_tf: currentTfStats,
-      // Strategy-aligned: 15m and 5m candle anatomy specifically.
-      m5: m5Stats,
-      m15: m15Stats,
-    },
-    pillar3: {
-      most_recent_structure: mostRecentStructure,
-      fvg_by_type: fvgByType,
-      fvg_by_type_above: fvgByTypeAbove,
-      fvg_by_type_below: fvgByTypeBelow,
-      last_bar: lastBar,
-      last_bar_age_seconds: lastBarAgeSeconds,
-    },
+    phase: sessionPhase,
+    minutes_into_phase: minutesIntoPhase,
+    next_killzone_label: nextKillzoneLabel,
+    seconds_to_next_killzone: secondsToNextKillzone,
+    replay: replayStatus,
   };
 }
 
@@ -541,62 +185,17 @@ const HTF_LTF_TIMEFRAMES = [
   { tv: '1',   key: 'm1' },
 ];
 
-// Studies we extract per-TF Pine surfaces for. Filters out noise from any
-// other indicators that happen to be loaded.
-const TRACKED_STUDY_PATTERNS = [
-  /Killzones/i,
-  /FVG/i,
-  /Anchored/i,
-  /Balanced Price Range|BPR/i,
-];
-const isTrackedStudy = (name) => TRACKED_STUDY_PATTERNS.some((re) => re.test(name || ''));
-
-// Cap per-study entries to keep bundle size manageable. Top-N by recency
-// (highest Pine x-index). 30 is plenty for HTF FVG / structure analysis.
-const PER_STUDY_LIMIT = 30;
-
-function trimBoxes(boxesResult) {
-  const studies = (boxesResult?.studies || [])
-    .filter((s) => isTrackedStudy(s.name))
-    .map((s) => {
-      const all = (s.all_boxes || []).slice().sort((a, b) => (b.x1 || 0) - (a.x1 || 0));
-      return {
-        name: s.name,
-        total_boxes: s.total_boxes,
-        showing: Math.min(all.length, PER_STUDY_LIMIT),
-        all_boxes: all.slice(0, PER_STUDY_LIMIT),
-      };
-    });
-  return { success: true, study_count: studies.length, studies };
-}
-
-function trimLabels(labelsResult) {
-  const studies = (labelsResult?.studies || [])
-    .filter((s) => isTrackedStudy(s.name))
-    .map((s) => {
-      const all = (s.labels || []).slice().sort((a, b) => (b.x || 0) - (a.x || 0));
-      return {
-        name: s.name,
-        total_labels: s.total_labels,
-        showing: Math.min(all.length, PER_STUDY_LIMIT),
-        labels: all.slice(0, PER_STUDY_LIMIT),
-      };
-    });
-  return { success: true, study_count: studies.length, studies };
-}
-
 /**
- * Switch the chart through each target timeframe; at each, fetch bars summary
- * + Pine boxes (verbose, for bgColor → FVG direction at HTF) + Pine labels
- * (verbose, for x-index ordering of HTF structure points). Restores the
- * original timeframe when done.
+ * Switch the chart through each target timeframe; at each, fetch the bars
+ * summary + the ICT Engine table (the engine recomputes for whatever TF the
+ * chart is on). Restores the original timeframe when done.
  *
- * Cost: ~2-3s per TF switch (chart redraws + Pine re-renders + 3 reads).
- * Total ~15-25s.
- * Strategy mandates this for Pillar 1a (HTF FVGs/structure) + Pillar 2 (HTF
- * displacement) + entry-model walkthroughs that reference HTF imbalances.
+ * Cost: ~2-3s per TF switch (chart redraws + engine re-renders + 2 reads).
+ * Strategy mandates per-TF data for Pillar 1a (HTF FVGs/structure) + Pillar 2
+ * (HTF displacement) + entry-model walkthroughs that reference HTF imbalances.
  *
- * Returns: { bars: {<key>: ...}, pine: {<key>: { boxes, labels }} }
+ * Returns: { bars_by_tf, engine_by_tf } keyed by TF. engine_by_tf holds the
+ * parsed ICT Engine evidence table for that TF (null if the engine is absent).
  *
  * Implementation note: always call setTimeframe explicitly on every iteration
  * and on the final restore. Skipping based on "same as previous TF" has caused
@@ -605,25 +204,20 @@ function trimLabels(labelsResult) {
 const TF_SETTLE_MS = 400;
 async function captureMultiTf(originalTf) {
   const bars_by_tf = {};
-  const pine_by_tf = {};
+  const engine_by_tf = {};
   for (const { tv, key } of HTF_LTF_TIMEFRAMES) {
     try {
       await chart.setTimeframe({ timeframe: tv });
       await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
-      const [bars, boxesVerbose, labelsVerbose] = await Promise.all([
+      const [bars, tables] = await Promise.all([
         data.getOhlcv({ summary: true }),
-        data.getPineBoxes({ verbose: true }),
-        data.getPineLabels({ verbose: true }),
+        data.getPineTables(),
       ]);
       bars_by_tf[key] = { ...bars, tv_resolution: tv };
-      pine_by_tf[key] = {
-        tv_resolution: tv,
-        boxes: trimBoxes(boxesVerbose),
-        labels: trimLabels(labelsVerbose),
-      };
+      engine_by_tf[key] = parseIctEngineTable(findIctEngineRows(tables));
     } catch (e) {
       bars_by_tf[key] = { error: e.message, tv_resolution: tv };
-      pine_by_tf[key] = { error: e.message, tv_resolution: tv };
+      engine_by_tf[key] = null;
     }
   }
   // Restore original timeframe explicitly, regardless of the last iterated TF.
@@ -633,21 +227,21 @@ async function captureMultiTf(originalTf) {
   } catch (e) {
     // best-effort restore; fall through
   }
-  return { bars_by_tf, pine_by_tf };
+  return { bars_by_tf, engine_by_tf };
 }
 
 register('analyze', {
-  description: 'Bundle current chart state, quote, multi-TF OHLCV summaries + Pine surfaces, indicator values, Pine drawings, and deterministic gates (session, liquidity, structure, FVG-by-direction) into one JSON object for ICT analysis by Claude.',
+  description: 'Bundle current chart state, quote, multi-TF OHLCV summaries, the parsed ICT Engine evidence table (per TF), and deterministic gates (session + engine-derived 3 pillars) into one JSON object for ICT analysis by Claude.',
   options: {
     'current-tf-only': { type: 'boolean', description: 'Skip multi-TF capture (faster; no chart flashing). All other data still captured.' },
-    'pillar3-only': { type: 'boolean', description: 'Alias for --current-tf-only. Skips multi-TF chart sweep but captures every other indicator (lines, tables, boxes, labels, study values). Bundle runtime ~0.4–0.6s. Used by the live-trading watchman loop.' },
-    'scan-tf': { type: 'string', description: 'Briefly switch chart to this TF (1, 5, 15, 60, 240, D) for the scan, then restore. Pairs with --pillar3-only for the watchman\'s multi-TF cadence. ~2–3s of chart flashing per call.' },
-    baseline: { type: 'string', description: 'Path to a previously-captured full bundle. Reuses its bars_by_tf and pine_by_tf instead of re-running the multi-TF chart sweep. Pairs with --pillar3-only for fast candidate evaluation that still has full HTF context. Emits baseline_meta so the consumer can see how old the cached HTF data is.' },
+    'pillar3-only': { type: 'boolean', description: 'Alias for --current-tf-only. Skips the multi-TF chart sweep but captures everything else. Bundle runtime ~0.4–0.6s. Used by the live-trading polling loop.' },
+    'scan-tf': { type: 'string', description: 'Briefly switch chart to this TF (1, 5, 15, 60, 240, D) for the scan, then restore. Pairs with --pillar3-only for the polling cadence. ~2–3s of chart flashing per call.' },
+    baseline: { type: 'string', description: 'Path to a previously-captured full bundle. Reuses its bars_by_tf and engine_by_tf instead of re-running the multi-TF chart sweep. Pairs with --pillar3-only for fast candidate evaluation that still has full HTF context. Emits baseline_meta so the consumer can see how old the cached HTF data is.' },
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
   },
   handler: async (opts) => {
     // 0. Load baseline if provided. The baseline supplies HTF context
-    //    (bars_by_tf + pine_by_tf) so we don't have to re-flash the chart
+    //    (bars_by_tf + engine_by_tf) so we don't have to re-flash the chart
     //    through 6 TFs every call. Strategy §2.4 explicitly allows reusing
     //    HTF context intraday: HTF bias doesn't change minute-to-minute.
     let baseline = null;
@@ -667,9 +261,9 @@ register('analyze', {
       } catch (e) {
         throw new Error(`baseline at '${absPath}' is not valid JSON: ${e.message}`);
       }
-      if (!baseline.bars_by_tf || !baseline.pine_by_tf) {
+      if (!baseline.bars_by_tf || !baseline.engine_by_tf) {
         throw new Error(
-          `baseline at '${absPath}' is missing bars_by_tf or pine_by_tf — it must have been captured with full tv analyze (not --pillar3-only or --current-tf-only).`,
+          `baseline at '${absPath}' is missing bars_by_tf or engine_by_tf — it must have been captured with full tv analyze (not --pillar3-only or --current-tf-only).`,
         );
       }
       const baselineMs = baseline.timestamp ? Date.parse(baseline.timestamp) : NaN;
@@ -681,10 +275,8 @@ register('analyze', {
     }
 
     // 0.5. --scan-tf support. Switch the chart to the requested TF before
-    //      capturing anything, so the bundle reflects scan-tf data. Restore
-    //      below after the bundle is built. Used by the watchman's 5m-boundary
-    //      cadence: chart stays on 1m, briefly flips to 5m, captures, flips
-    //      back. ~2-3s of flashing per scan.
+    //      capturing anything, so the bundle reflects scan-tf data. Restored
+    //      below after the bundle is built.
     const scanTf = opts?.['scan-tf'];
     let preScanTf = null;
     if (scanTf) {
@@ -718,58 +310,55 @@ register('analyze', {
       // replay API not available (no replay session active); leave defaults
     }
 
-    // 2. Multi-TF bar + Pine collection. Sources, in priority order:
+    // 2. Multi-TF bar + engine collection. Sources, in priority order:
     //    a) --baseline path:  reuse from that bundle (no chart-switching)
     //    b) --pillar3-only / --current-tf-only: skip entirely (nulls)
     //    c) Default: capture fresh via captureMultiTf
     const pillar3Only = opts?.['pillar3-only'] === true;
     const skipMultiTf = pillar3Only || opts?.['current-tf-only'] === true;
-    let bars_by_tf, pine_by_tf;
+    let bars_by_tf, engine_by_tf;
     if (baseline) {
       bars_by_tf = baseline.bars_by_tf;
-      pine_by_tf = baseline.pine_by_tf;
+      engine_by_tf = baseline.engine_by_tf;
     } else if (skipMultiTf) {
       bars_by_tf = null;
-      pine_by_tf = null;
+      engine_by_tf = null;
     } else {
       const captured = await captureMultiTf(originalTf);
       bars_by_tf = captured.bars_by_tf;
-      pine_by_tf = captured.pine_by_tf;
+      engine_by_tf = captured.engine_by_tf;
     }
 
-    // 3. At the (restored) original TF, fetch what's needed for the
-    //    requested bundle scope. --pillar3-only skips lines/tables/indicators
-    //    (not used in any gate; only in the bundle output).
-    // Strategy uses all four loaded indicators (FVG/iFVG, Killzones,
-    // Anchored Structures, BPR). Watchman + /analyze need their data on
-    // every scan. The original pillar3-only mode dropped lines/tables/
-    // study values for speed — but the strategy reads them. Capture
-    // everything except the multi-TF chart-flash (which IS too slow for
-    // per-bar polling).
-    const [
-      visibleRange,
-      quote,
-      bars,
-      indicatorValues,
-      lines,
-      labels,
-      tables,
-      boxes,
-      fvgBoxesVerbose,
-    ] = await Promise.all([
+    // 3. At the (restored) original TF, fetch the current-TF data: visible
+    //    range, quote, bars, indicator data-window values, and the Pine
+    //    tables (the ICT Engine emits its evidence table there).
+    const [visibleRange, quote, bars, indicatorValues, tables] = await Promise.all([
       chart.getVisibleRange(),
       data.getQuote(),
       data.getOhlcv({ summary: true }),
       data.getStudyValues(),
-      data.getPineLines({ verbose: false }),
-      data.getPineLabels({ verbose: true }),  // verbose: x-index unlocks structure-point ordering
       data.getPineTables(),
-      data.getPineBoxes({ verbose: false }),
-      data.getPineBoxes({ verbose: true, study_filter: 'FVG' }),  // for color-based direction classification
     ]);
 
-    const pine = { lines, labels, tables, boxes };
-    const gates = computeGates({ quote, bars, pine, fvgBoxesVerbose, barsByTf: bars_by_tf, replayStatus, symbol: state.symbol });
+    // 4. Parse the ICT Engine table at the current TF and build the gates.
+    //    Last-bar confirmation facts are bar-derived (cli/lib/last-bar.js) so
+    //    the LLM never does candle math (constraint #7).
+    const engine = parseIctEngineTable(findIctEngineRows(tables));
+    const cur = lastBarFacts(bars?.last_5_bars, quote?.time);
+    const m5 = lastBarFacts(bars_by_tf?.m5?.last_5_bars, quote?.time);
+    const m15 = lastBarFacts(bars_by_tf?.m15?.last_5_bars, quote?.time);
+    const gates = {
+      session: computeSessionGate({ quote, replayStatus }),
+      engine: computeEngineGates({
+        engine,
+        engineByTf: engine_by_tf,
+        last: quote?.last ?? null,
+        lastBar: cur.bar,
+        lastBarAgeSeconds: cur.age_seconds,
+        m5LastBar: m5.bar,
+        m15LastBar: m15.bar,
+      }),
+    };
 
     const bundle = {
       timestamp: new Date().toISOString(),
@@ -779,15 +368,15 @@ register('analyze', {
       bars,
       bars_by_tf,
       indicators: indicatorValues,
-      pine,
-      pine_by_tf,
+      engine,
+      engine_by_tf,
       gates,
       ...(baselineMeta ? { baseline_meta: baselineMeta } : {}),
     };
 
-    // 3.5. Restore the pre-scan TF if we switched for --scan-tf. Best-effort;
-    //      a failed restore leaves the chart on scan-tf which the watchman
-    //      detects and re-snaps on the next tick.
+    // 4.5. Restore the pre-scan TF if we switched for --scan-tf. Best-effort;
+    //      a failed restore leaves the chart on scan-tf which the next tick
+    //      re-snaps.
     if (scanTf && preScanTf && preScanTf !== scanTf) {
       try {
         await chart.setTimeframe({ timeframe: preScanTf });
@@ -797,7 +386,7 @@ register('analyze', {
       }
     }
 
-    // 4. Optional file output: write bundle to disk and print only the path.
+    // 5. Optional file output: write bundle to disk and print only the path.
     //    Lets the slash command Read the file instead of relying on Bash
     //    captured stdout, which has 30K-100K truncation limits depending on env.
     if (opts?.out) {

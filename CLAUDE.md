@@ -57,6 +57,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-18 | Tap detection wick-overlap + FVG direction tagging (carried forward) | Strategy's "tap" is wick-based, not close-inside. `gates.price_context.wick_tapped_boxes[]` lists FVG/iFVG/BPR zones whose high/low overlaps the bar's wick; `inside_boxes[]` is kept for close-based price-vs-zone checks using `quote.last`. Each FVG-study entry carries `fvg_direction` (bullish_fvg/bullish_ifvg/bearish_fvg/bearish_ifvg) from Nephew_Sam_'s bgColor. Verified 2026-05-18 09:35 ET: a bearish bar wicked through 4 FVG zones cleanly but closed in the gap — close-inside would have missed it. Watchman code that consumed these gates was deleted on 2026-05-19, but the gates themselves remain for `/analyze`. |
 | 2026-05-20 | Per-session folders: `state/session/<date>/{ny-am,ny-pm,london}/` | Each session (NY AM / NY PM / optional London) gets its own folder holding that session's pillars, open-reaction, ltf-bias, setups, bars, and a `summary.md` wrap. Sessions never overwrite each other — AM, PM, and London grades all persist for later review. Replaces the flat day folder and the short-lived day-level `htf-summary.md` append log. `bar-close-events.jsonl` stays day-level (detector output). The dashboard shows the active session's folder, derived from `gates.session.phase`. |
 | 2026-05-20 | Pillar 2 range threshold is per-symbol | `cli/lib/pillar2-thresholds.js` maps symbol → minimum acceptable range. Only the range threshold is price-scale dependent; body-ratio (0.6/0.3) is a normalised ratio and stays fixed. Uncalibrated symbols emit `range_acceptable: null` so the LLM judges the range manually rather than seeing a miscalibrated `false`. |
+| 2026-05-21 | Migrate `tv analyze` to the ICT Engine indicator | One schema-versioned indicator replaces the four (FVG/iFVG, AMS, Killzones, BPR) as the data source. Strict superset — adds explicit sweep events, per-FVG displacement scoring, FVG lifecycle state, mechanical MSS/BOS detection — and uses the **textbook** HH/HL/LH/LL convention. Bundle gains `engine`, `engine_by_tf`, `gates.engine.*`. Pillar 2 quality is now the engine's ATR-relative `quality` row (retires `pillar2-thresholds.js`). Plan: [docs/plans/2026-05-21-ict-engine-migration.md](docs/plans/2026-05-21-ict-engine-migration.md). |
 
 ## Repo
 
@@ -112,79 +113,53 @@ tests/
 
 ## The `analyze` recipe (what `/analyze` does)
 
-`./bin/tv analyze` returns one JSON object:
+`./bin/tv analyze` returns one JSON object. The single data source is the **ICT Engine** indicator (migrated 2026-05-21 — [docs/plans/2026-05-21-ict-engine-migration.md](docs/plans/2026-05-21-ict-engine-migration.md)):
 
 ```
 {
   timestamp:     ISO-8601 string
-  chart:         { symbol, resolution, chartType, indicators[] }
+  chart:         { symbol, resolution, chartType, studies[] }
   visible_range: { from, to } (unix seconds)
-  quote:         { last, ohlc, volume, ... }
-  bars:          OHLCV summary at the chart's current TF
-  bars_by_tf:    { daily, h4, h1, m15, m5, m1 }   per-TF OHLCV summaries (D / 240 / 60 / 15 / 5 / 1)
-                                                  captured by switching chart through each TF and restoring
-  pine_by_tf:    { daily, h4, h1, m15, m5, m1 }   per-TF Pine boxes + labels (verbose), trimmed to
-                                                  tracked studies (FVG/iFVG, Anchored Structures,
-                                                  Killzones, BPR) with ~30 most-recent entries per study.
-                                                  This is where HTF FVGs and HTF structure points live.
-  indicators:    [{ name, values: {...} }]  (current values of every visible indicator)
-  pine: {
-    lines:       [{ price, label, ... }]    horizontal levels (PDH, PDL, swing levels, equal highs/lows)
-    labels:      [{ price, text, ... }]     text annotations (bias readouts, level names)
-    tables:      [{ rows... }]              table data (session stats, analytics dashboards)
-    boxes:       [{ high, low, label }]     price zones (FVGs, order blocks, ranges)
-  }
+  quote:         { last, ohlc, volume, time, ... }
+  bars:          OHLCV summary + last_5_bars at the chart's current TF
+  bars_by_tf:    { daily, h4, h1, m15, m5, m1 }   per-TF OHLCV summaries (incl. range, change_pct)
+  indicators:    [{ name, values: {...} }]        data-window values of visible studies
+  engine:        parsed ICT Engine evidence table at the current TF —
+                 { schema, schema_supported, meta, levels[], sweeps[],
+                   fvgs[], bprs[], swings[], structures[], quality }
+  engine_by_tf:  { daily, h4, h1, m15, m5, m1 }   the same parsed object per TF;
+                                                  HTF FVGs + HTF structure live here
   gates: {
-    session: {
-      label, timestamp_et, is_weekend, is_market_closed,
-      in_ny_open_window, in_killzone, in_killzone_detail,
-      replay: { active, autoplay, current_date }      replay state at the moment of capture; non-active when chart shows live data
-    }
-    price_context:  { last, inside_boxes[], wick_tapped_boxes[] }
-                                                 inside_boxes: close-inside (uses quote.last)
-                                                 wick_tapped_boxes: bar.high/low overlap (used by tv watch tap detection)
-                                                 each FVG-study entry tagged with fvg_direction (bullish_fvg/bullish_ifvg/bearish_fvg/bearish_ifvg)
-    pillar1: {
-      session_levels: { PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L }
-                                                 each { label, price, position_vs_price, taken }
-      untaken_sell_side_below: [{ key, label, price, ... }]   sorted by nearest first
-      untaken_buy_side_above:  [{ key, label, price, ... }]   sorted by nearest first
-      bias_labels: [{ text, price, study, x }]   labels matching /bias/i; empty if no indicator publishes them
-    }
-    pillar2: {
-      range_value, range_per_bar, range_acceptable, range_acceptable_min,
-      avg_body_ratio_last_5, candle_quality_heuristic,    current-TF body-ratio summary (backwards-compat)
-      current_tf, m5, m15                                 each { body_ratios_last_5, avg_body_ratio_last_5,
-                                                                  candle_quality_heuristic, engulfing_count_last_5,
-                                                                  doji_count_last_5, last_bar }
-                                                          last_bar shape is identical to gates.pillar3.last_bar but
-                                                          for the most-recent bar at that specific TF — used to
-                                                          evaluate confirmation closes on 1m / 5m / 15m per §5.
-                                                          m5 + m15 are the strategy-aligned TFs per §7 step 3.
-    }
-    pillar3: {
-      most_recent_structure: { ST_HH, ST_HL, ST_LH, ST_LL, IT_HH, IT_HL, IT_LH, IT_LL, LT_HH, LT_HL, LT_LH, LT_LL }
-                                                 each { label, price, x }   higher x = more recent
-      fvg_by_type:       { bullish_fvg, bullish_ifvg, bearish_fvg, bearish_ifvg, unknown }
-      fvg_by_type_above: same shape, FVGs above current price
-      fvg_by_type_below: same shape, FVGs below current price
-      last_bar: { time, open, high, low, close, body_ratio, direction, range, close_position_in_range }
-                                                 single most-recent bar facts for confirmation discipline
-      last_bar_age_seconds: quote.time - last_bar.time   staleness check
+    session: { label, timestamp_et, day_of_week, is_weekend, is_market_closed,
+               in_ny_open_window, in_killzone, in_killzone_detail, phase,
+               minutes_into_phase, next_killzone_label,
+               seconds_to_next_killzone, replay }      clock-based (computeSessionGate)
+    engine:  {                                         engine-derived (computeEngineGates)
+      meta:          { schema, schema_supported, tf, emit_ny, symbol }
+      price_context: { last, inside_fvgs[], inside_bprs[] }
+      pillar1:       { session_levels:{PWH,PWL,PDH,PDL,AS_H,AS_L,LO_H,LO_L,NYAM_H,NYAM_L},
+                       untaken_sell_side_below[], untaken_buy_side_above[], sweeps[] }
+      pillar2:       { current_tf, m5, m15 }    each the engine quality row
+                                                { range_3h, range_quality, displacement,
+                                                  candle, has_chop }
+      pillar3:       { fvgs[], bprs[], swings:{internal[],swing[]},
+                       structure_events[], most_recent_structure, fvg_summary }
+      confirmation:  { last_bar, last_bar_age_seconds, m5_last_bar, m15_last_bar }
+                                                single-bar facts (bar-derived, cli/lib/last-bar.js)
     }
   }
 }
 ```
 
-Gates are pre-computed in `cli/commands/analyze.js`. The LLM consumes them directly and does not recompute. See "Workflow rules for Claude" above for the discipline.
+Gates are pre-computed: `computeSessionGate` in `cli/commands/analyze.js` (clock-based), `computeEngineGates` in `cli/lib/compute-engine-gates.js` (engine-derived). The engine table is parsed by `cli/lib/ict-engine-parser.js`. The LLM consumes gates directly and does not recompute. See "Workflow rules for Claude" above for the discipline.
 
-**Key-naming note.** Session and structure-point keys use underscore form (`AS_H`, `ST_LH`) so they're citation-safe under the verifier's path syntax. The original chart label text (`AS.H`, `ST-LH`) is preserved in each entry's `label` field for human readability. **AMS structure labels use a `[type][modifier]` convention — the first letter is the pivot type (High/Low), the second is Higher/Lower vs the prior same-type pivot — so `ST_HL` is a Lower High and `ST_LH` a Higher Low, the reverse of the textbook letter order. See `.claude/commands/analyze.md` ICT vocabulary.**
+**Key-naming note.** Engine session-level keys use underscore form (`AS_H` from the engine's `AS.H` level) so they're citation-safe under the verifier's path syntax; each entry keeps its original `name`. **Market-structure swing labels (`HH/HL/LH/LL`) use the textbook convention — the second letter is the pivot type (High/Low), the first is Higher/Lower vs the prior same-type pivot, so `HL` is a Higher Low and `LH` a Lower High.** Each engine swing also carries an explicit `is_high` boolean — trust it over letter-parsing. See `.claude/commands/analyze.md` ICT vocabulary.
 
 **File output.** Pass `--out <path>` to `tv analyze` to write the bundle to a file instead of stdout (mandatory for `/analyze` invocations because the multi-TF bundle exceeds Bash output truncation limits). The slash command writes to `state/last-analyze.json` — a full multi-TF sweep, or a fast `--pillar3-only --baseline` reuse — then `Read`s that file; see `.claude/commands/analyze.md` "How to run" for which capture runs when.
 
-**Polling mode (`--pillar3-only`).** Lightweight bundle for live bar-close polling (the strategy's confirmation discipline at §5: "1m/5m candle close"). Skips the multi-TF chart-switching loop, pine.lines, pine.tables, and indicator data-window values; keeps pine.boxes (verbose for FVG direction), pine.labels (verbose for structure-point x-index), bars, quote, and ALL gates that are computable from current-TF data. Returns in ~0.2s (vs ~13s for full `tv analyze`); bundle ~25KB compact. `gates.pillar2.m5` and `gates.pillar2.m15` are `null` in this mode because they require `bars_by_tf`; the watchman / polling consumer should rely on `gates.pillar3.*`, `gates.pillar1.session_levels.*`, `gates.session.*`, and current-TF Pine data.
+**Polling mode (`--pillar3-only`).** Lightweight bundle for live bar-close polling (strategy §5: "1m/5m candle close"). Skips the multi-TF chart-switching sweep; still captures the current-TF `engine` table, `bars`, `quote`, indicator values, and the full `gates` (`session` + `engine`). Returns in ~0.2s vs ~13s for a full sweep. `engine_by_tf` and `bars_by_tf` are `null` in this mode, so `gates.engine.pillar2.m5/m15` and `gates.engine.confirmation.m5_last_bar/m15_last_bar` are `null` too — the polling consumer relies on `gates.engine.*` (current TF) and `gates.session.*`.
 
-**Baseline reuse (`--baseline <path>`).** Loads a previously-captured full bundle and uses its `bars_by_tf` + `pine_by_tf` instead of re-running the multi-TF chart sweep. Strategy §2.4 explicitly allows reusing HTF context intraday ("HTF gives a macro direction, but immediate trades are decided by how NY reacts to overnight levels"); HTF bias doesn't change minute-to-minute. Pairs with `--pillar3-only` for the watchman pattern:
+**Baseline reuse (`--baseline <path>`).** Loads a previously-captured full bundle and uses its `bars_by_tf` + `engine_by_tf` instead of re-running the multi-TF chart sweep. Strategy §2.4 explicitly allows reusing HTF context intraday ("HTF gives a macro direction, but immediate trades are decided by how NY reacts to overnight levels"); HTF bias doesn't change minute-to-minute. Pairs with `--pillar3-only` for the watchman pattern:
 
 ```
 # Slow cadence (every 5–15 min, or session boundary):

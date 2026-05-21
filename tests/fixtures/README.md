@@ -14,7 +14,7 @@ Regression baselines for `/analyze` and the project's analysis pipeline. Each fi
 
 ## What `npm run smoke:fixtures` checks
 
-- **Bundle schema** — top-level keys (`timestamp`, `chart`, `visible_range`, `quote`, `bars`, `indicators`, `pine`) and the expected nested fields are present. Catches CLI drift (someone refactors `cli/commands/analyze.js` and accidentally breaks the schema).
+- **Bundle schema** — top-level keys (`timestamp`, `chart`, `quote`, `bars`, `bars_by_tf`, `engine`, `engine_by_tf`, `gates`) and the expected nested fields are present. Catches CLI drift (someone refactors `cli/commands/analyze.js` and accidentally breaks the schema).
 - **Citation integrity** — every `<price> (<json.path>)` pair in the expected analysis resolves to a matching value at that path. Enforces CLAUDE.md hard constraint #6 (cite-or-reject).
 
 ## When to grow the corpus
@@ -37,6 +37,6 @@ If the strategy changes (new rules in `docs/strategy/`), or if you (the trader) 
 
 Re-run `npm run smoke:fixtures` after any edit to confirm citations still verify.
 
-## Seed fixture (001-current)
+## Fixture 001-current
 
-Seeded with a NY PM session snapshot of `CME_MINI:MNQ1!` from 2026-05-15. Claude-graded as `no-trade` (HTF bias inferred-only, price quality marginal, no entry model in play). Reviewer should amend if the read differs.
+A NY AM entry-hunt snapshot of `CME_MINI:MNQ1!` from 2026-05-21, captured after the ICT Engine migration (new bundle shape — `engine` / `engine_by_tf` / `gates.engine`). Claude-graded as `no-trade`: a bullish Trend candidate is forming (price inside a high-displacement bullish FVG) but unconfirmed. Reviewer should amend if the read differs.

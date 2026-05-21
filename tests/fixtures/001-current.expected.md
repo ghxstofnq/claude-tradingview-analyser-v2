@@ -1,88 +1,57 @@
-# Fixture 001 — Expected Analysis (seed, Claude-graded)
+# Fixture 001 — Expected Analysis (Claude-graded)
 
 **Bundle:** `001-current.bundle.json`
 **Chart:** CME_MINI:MNQ1! @ 1-minute resolution
-**Bundle time:** 2026-05-18 07:18 ET (`gates.session.timestamp_et`) — Monday morning, post-London-killzone, pre-NY.
-**Session label:** `Inter-session` (`gates.session.label`); `is_market_closed = false`; `replay.active = false`.
+**Bundle time:** 2026-05-21 10:12 ET (`gates.session.timestamp_et`) — Thursday, NY AM.
+**Phase:** `entry_hunt_ny_am` (`gates.session.phase`), +27m into phase; `is_market_closed = false`.
 
-**Note to reviewer:** Claude-graded baseline applying `trading-strategy-2026.md §7` to the bundle. Review and amend. *Corrected 2026-05-20: the `HL`/`LH` structure reads in Pillar 3 had been inverted — the AMS indicator names pivots `[type][modifier]`, so `ST_LH` is a Higher Low and `ST_HL` a Lower High. Pillar 3 commentary re-graded accordingly; grade unchanged (`no-trade`, driven by Pillar 2 `poor`).*
+**Note to reviewer:** Claude-graded baseline applying `trading-strategy-2026.md §7` to the bundle, sourced entirely from the **ICT Engine** (`gates.engine.*`, `engine_by_tf`). Review and amend. *Captured 2026-05-21 as the first new-shape fixture after the ICT Engine migration (docs/plans/2026-05-21-ict-engine-migration.md). Structure labels use the textbook HH/HL/LH/LL convention.*
 
 ---
 
 ## Pillar 1 — Draw & Bias
 
-**a. HTF Bias.** No explicit bias label (`gates.pillar1.bias_labels = []`). Inferring from `bars_by_tf.*.change_pct`:
-- Daily +11.8% (bars_by_tf.daily.change_pct) — strong long-term uptrend, but softening from previous reads (was +12.4%).
-- 4H +7.81% (bars_by_tf.h4.change_pct) — still bullish, consistent with daily.
-- 1H -0.77% (bars_by_tf.h1.change_pct), 15m -0.52% (bars_by_tf.m15.change_pct) — visible LTF weakness over the overnight session.
+**a. HTF Bias.** HTF momentum is firmly up — Daily ran from 25963 (bars_by_tf.daily.open) to 29305.75 (bars_by_tf.daily.close), +12.88% (`bars_by_tf.daily.change_pct`); 4H closed 29306.75 (bars_by_tf.h4.close), +7.56% (`bars_by_tf.h4.change_pct`). 1H is a flat 824-pt range — 824 (bars_by_tf.h1.range) — consolidation, not a turn. The engine's HTF structure agrees: `engine_by_tf.daily`, `.h4`, and `.h1` each carry a bullish `bos`/`mss` as their most recent `structures` entry.
 
-**HTF bias: `bullish but weakening on LTF`.** Daily and 4H still up; the LTF pullback is now non-trivial (>0.5% on 15m), worth respecting.
+Intraday structure is bullish too — `gates.engine.pillar3.structure_events` is a clean cascade of bullish `bos`/`mss` breaks, the latest a bullish BOS at 29314.75 (gates.engine.pillar3.most_recent_structure.level), `displacement: true`.
 
-**b. Overnight & Session Correlation.** Session levels (`gates.pillar1.session_levels.*`):
-- **Sell-side taken:** PDL 29089.5 (gates.pillar1.session_levels.PDL.price) and NYAM_L 29089.5 (gates.pillar1.session_levels.NYAM_L.price) — same price, both raided overnight.
-- **Sell-side still untaken below (3, sorted nearest first):** LO_L 29050 (gates.pillar1.session_levels.LO_L.price), AS_L 28924 (gates.pillar1.session_levels.AS_L.price), PWL 28741.25 (gates.pillar1.session_levels.PWL.price).
-- **Buy-side untaken (5 above):** LO_H 29249 (gates.pillar1.session_levels.LO_H.price), AS_H 29283.75 (gates.pillar1.session_levels.AS_H.price), NYAM_H 29382.5 (gates.pillar1.session_levels.NYAM_H.price), PDH 29733.5 (gates.pillar1.session_levels.PDH.price), PWH 29783.75 (gates.pillar1.session_levels.PWH.price).
+**HTF bias: `bullish` — HTF and LTF aligned.**
 
-Reading: London session pushed through PDL/NYAM_L (29089.5 confluence) but bounced. **LO_L (29050) is the next sell-side draw below** — current price 29102.25 (quote.last) is only ~52 ticks above it. If LO_L breaks, AS_L (28924) becomes the next target. If LO_L holds and bounces, the HTF bullish bias remains intact.
+**b. Overnight & Session Correlation.** Session levels (`gates.engine.pillar1.session_levels`):
+- **Swept:** AS.H 29440 (gates.engine.pillar1.session_levels.AS_H.price), PDH 29397 (gates.engine.pillar1.session_levels.PDH.price), and LO.L 29178.25 (gates.engine.pillar1.session_levels.LO_L.price).
+- The LO.L raid is the key tell: `gates.engine.pillar1.sweeps` records a sell-side sweep at 29178.25 (gates.engine.pillar1.sweeps[1].price) with `rejected: true` — a **failure swing**, price was driven below London's low and rejected straight back up. That rejected sweep is what kicked off the bullish BOS cascade.
+- **Untaken sell-side below:** NYAM.L 29172.25 (gates.engine.pillar1.untaken_sell_side_below[0].price), AS.L 29113 (gates.engine.pillar1.untaken_sell_side_below[1].price), PDL 28796 (gates.engine.pillar1.untaken_sell_side_below[2].price).
+- **Untaken buy-side above:** NYAM.H 29338.75 (gates.engine.pillar1.session_levels.NYAM_H.price), LO.H 29463.25 (gates.engine.pillar1.session_levels.LO_H.price), PWH 29783.75 (gates.engine.pillar1.session_levels.PWH.price).
 
-**c. NY Open LTF Bias.** `gates.session.in_ny_open_window = false`; Monday 07:18 ET, NY opens at 09:30 ET. **n/a — pre-NY by ~2 hours.** No NY-reaction signal yet.
+**Primary HTF draw:** buy-side above. With price at 29296 (quote.last), the nearest draw is NYAM.H 29338.75; beyond it LO.H 29463.25. HTF bearish-FVG supply sits overhead in the ~29414–29531 band (`engine_by_tf.h1.fvgs`), so LO.H is guarded.
+
+**c. NY Open reaction.** Past the 09:30–09:45 window; LTF reaction has resolved bullish — the rejected LO.L sweep plus the BOS cascade is NY aligning with the HTF draw.
 
 ## Pillar 2 — Price Action Quality
 
-- **Range.** 163.75 (gates.pillar2.range_value) across 100 m1 bars = 1.64 per bar (gates.pillar2.range_per_bar). `range_acceptable = true`.
-- **HTF displacement.** 4H range 2793 (bars_by_tf.h4.range) with +7.81% — clear bullish HTF displacement on the wider window; recent 1H/15m drift counter-trend.
-- **5m candle anatomy (`gates.pillar2.m5`).** Avg body ratio 0.58 (gates.pillar2.m5.avg_body_ratio_last_5), 1 engulfing (gates.pillar2.m5.engulfing_count_last_5), 1 doji (gates.pillar2.m5.doji_count_last_5). Most recent 5m bar (`gates.pillar2.m5.last_bar`): direction `bearish`, body_ratio 0.15 (gates.pillar2.m5.last_bar.body_ratio) — doji-ish weak close. Close at 29102.75 (gates.pillar2.m5.last_bar.close), range 13.5 (gates.pillar2.m5.last_bar.range), close_position_in_range 0.63.
-- **15m candle anatomy (`gates.pillar2.m15`).** Avg body ratio 0.18 (gates.pillar2.m15.avg_body_ratio_last_5) → `poor`. 1 engulfing, 1 doji. Most recent 15m bar (`gates.pillar2.m15.last_bar`): bearish, body_ratio 0.19 — small-bodied. Sets the 15m verdict at `poor` per the heuristic.
-- **Verdict: `poor`** — m15 anatomy is clearly weak (avg 0.18). Strategy §3 says "If Draw & Bias are good but Price Quality is bad, he will often stand aside or heavily downsize." Stand aside.
+The engine quality verdict (`gates.engine.pillar2`):
+- **Current TF / m5 / m15:** `range_3h` is 166.5 (gates.engine.pillar2.current_tf.range_3h), `range_quality: tight`; `displacement: weak`; `has_chop: true`. m5 and m15 both report `candle: doji_wick` — small-bodied, wicky bars. m15 `range_3h` is the same — 166.5 (gates.engine.pillar2.m15.range_3h).
+- **Counterpoint:** every recent `structure_events` break carries `displacement: true`. The rolling 3-hour window is choppy/tight, but the breaks themselves displaced cleanly — the engine's `quality` row is a lagging summary, not a verdict on the setup.
+- **Verdict: `marginal`** — chop and doji-wick anatomy are real (don't force size), but the structural displacement is genuine. Not `poor`; not `good`.
 
 ## Pillar 3 — Entry Model + Confirmation
 
-**Most recent structure (sorted by `x`):**
+**Structure.** `gates.engine.pillar3.structure_events` is an all-bullish cascade — internal `mss`/`bos` breaks plus a swing-tier bullish `mss`, the latest a bullish BOS at 29314.75 (gates.engine.pillar3.most_recent_structure.level). The FVG summary (`gates.engine.pillar3.fvg_summary`) counts bullish FVGs at 3 (gates.engine.pillar3.fvg_summary.by_type.bullish_fvg), with no fresh bearish FVGs.
 
-| Label | Price | x |
-|-------|-------|---|
-| ST_LH | 29094.25 (gates.pillar3.most_recent_structure.ST_LH.price) | 1511 (gates.pillar3.most_recent_structure.ST_LH.x) |
-| ST_HH | 29108 (gates.pillar3.most_recent_structure.ST_HH.price) | 1510 (gates.pillar3.most_recent_structure.ST_HH.x) |
-| IT_LL | 29050 (gates.pillar3.most_recent_structure.IT_LL.price) | 1509 (gates.pillar3.most_recent_structure.IT_LL.x) |
-| ST_HL | 29104.25 (gates.pillar3.most_recent_structure.ST_HL.price) | 1507 (gates.pillar3.most_recent_structure.ST_HL.x) |
-| ST_LL | 29092 (gates.pillar3.most_recent_structure.ST_LL.price) | 1506 (gates.pillar3.most_recent_structure.ST_LL.x) |
-
-Notable: the **`IT_LL` (intermediate-term lower low) at 29050 (gates.pillar3.most_recent_structure.IT_LL.price) sits at LO_L 29050 (gates.pillar1.session_levels.LO_L.price)** — confluence sell-side. If price tests LO_L, that's also the intermediate-term swing low. A clean reject from 29050 is a *bullish Inversion candidate* in the HTF-bullish context. A break below 29050 invalidates intermediate-term support and opens the path to AS_L 28924.
-
-The two most recent structure events: ST_HH 29108 (gates.pillar3.most_recent_structure.ST_HH.price) at x 1510, then ST_LH 29094.25 (gates.pillar3.most_recent_structure.ST_LH.price) at x 1511. Under the AMS `[type][modifier]` convention, `LH` is a **higher low** — so short-term structure just printed a higher high then a higher low. **Bullish micro-structure, aligned with the HTF bullish bias.**
-
-**FVG context (`gates.pillar3.fvg_by_type_*`):**
-- Above price: 5 bearish_fvg + 4 bearish_ifvg = 9 zones (all bearish-leaning). Heavy overhead resistance.
-- Below price: 1 bullish_fvg + 2 bullish_ifvg = 3 zones (all bullish-leaning).
-
-**Confirmation-candle facts at each TF (the new gates):**
-- **1m close (`gates.pillar3.last_bar` / `gates.pillar2.current_tf.last_bar`):** bullish, body_ratio 0.81 (strong-bodied), close 29102.25 (gates.pillar3.last_bar.close), close_position_in_range 0.81. **Bullish strong-bodied 1m close in the upper portion of its range** — fits the 1m confirmation shape per §5/§7 step 6.
-- **5m close (`gates.pillar2.m5.last_bar`):** bearish, body_ratio 0.15 — does NOT fit the strategy's "clear body (not a doji)" confirmation criterion.
-- **15m close (`gates.pillar2.m15.last_bar`):** bearish, body_ratio 0.19 — same problem.
-
-So the 1m close is constructive, but the 5m and 15m are weak. Per strategy: a 1m close is a valid confirmation TF, but only if it's against the specific FVG being traded — and only if context (Pillar 1 + 2) supports.
+**The setup.** Price 29296 (quote.last) is sitting inside a bullish FVG — `gates.engine.price_context.inside_fvgs` carries one spanning 29296 (gates.engine.price_context.inside_fvgs[1].bottom) to 29304 (gates.engine.price_context.inside_fvgs[1].top), CE 29300 (gates.engine.price_context.inside_fvgs[1].ce), with a strong displacement score of 0.95 (gates.engine.price_context.inside_fvgs[1].disp_score).
 
 **Entry-model walk:**
-- **MSS up:** an MSS-up needs a displacement close *above the most recent swing high* after a sell-side liquidity grab. The recent swing highs are ST_HL 29104.25 (gates.pillar3.most_recent_structure.ST_HL.price) and ST_HH 29108 (gates.pillar3.most_recent_structure.ST_HH.price); current price 29102.25 (quote.last) sits below both, and the 1m bar is small-bodied (no displacement). **No MSS-up trigger** — though the recent higher-high / higher-low pair means short-term structure is already constructive.
-- **Trend up:** HTF bullish but LTF is in a counter-trend pullback. Not in continuation phase.
-- **Inversion long candidate:** the watched zone would be LO_L 29050 / IT_LL 29050 confluence. Price is currently NOT in that zone (above it at 29102.25); no tap yet, so no confirmation event possible. *Inversion long if LO_L holds on test* is the watch-list setup.
+- **MSS** — no fresh liquidity grab + reversal in play; the LO.L sweep already resolved into a trend leg, not a pending reversal. Not the model.
+- **Trend** — fits. HTF + LTF aligned bullish, an impulse leg (the BOS cascade), and price has pulled back into an **internal bullish FVG** (the 29296–29304 zone, disp_score 0.95) in the direction of the trend. This is the Trend pullback-into-FVG stage.
+- **Inversion** — no opposing PD array being violated here. Not the model.
 
-**Entry model: `null` — no model fully engaged.**
-- 1m bullish close is mildly constructive but lacks PD-array tap context.
-- LO_L 29050 is the watched zone for a potential bullish Inversion, but price hasn't tapped it.
-- Pillar 2 `poor` (m15 avg 0.18) overrides any setup until candle anatomy improves.
+**Confirmation.** Not there yet. The 1m last bar (`gates.engine.confirmation.last_bar`) is **bearish**, body ratio 0.31 (gates.engine.confirmation.last_bar.body_ratio), close 29296 (gates.engine.confirmation.last_bar.close) at close-position-in-range 0.25 (gates.engine.confirmation.last_bar.close_position_in_range) — a weak bar closing on its low. The 5m bar is also bearish, body ratio 0.64 (gates.engine.confirmation.m5_last_bar.body_ratio). The 15m closed at 29302.5 (gates.engine.confirmation.m15_last_bar.close). No bullish confirmation close into the FVG.
 
-**Confirmation status: `n/a`.**
+**Entry model: `Trend` — candidate.** **Confirmation status: `candidate`** — the setup is formed (price in the high-displacement bullish FVG) but waiting on a bullish 1m/5m close off the zone.
 
 ## Risk & Management
 
-n/a — no confirmed setup. Watch-list: bullish 1m/5m close from a tap into LO_L 29050 zone, ideally during the NY-open window. Stop below 29050; target NYAM_H 29382.5 or PDH 29733.5.
-
-## Grade
-
-**`no-trade`.** Pillar 2 `poor` (m15 avg 0.18) is the primary downgrade — strategy §3 says stand aside when Draw & Bias OK but Price Quality bad. Also outside NY window (pre-NY by 2h), no Pillar 3 confirmation. Multiple A+ criteria not met. Watch LO_L 29050 for an Inversion-long opportunity when NY opens.
-
----
+n/a — no confirmed entry. **Watch:** a strong bullish 1m/5m close holding the 29296–29304 FVG (above its CE) confirms a Trend long — stop below the FVG / below LO.L, TP1 at NYAM.H, TP2 toward LO.H. If price closes back below the FVG low and breaks the bullish structure, the candidate is invalidated.
 
 ## Structured output
 
@@ -90,26 +59,26 @@ n/a — no confirmed setup. Watch-list: bullish 1m/5m close from a tap into LO_L
 {
   "pillar1": {
     "htf_bias": "bullish",
-    "htf_draw": "HTF bullish (Daily +11.8%, 4H +7.81%) but LTF in pullback. Near-term sell-side: LO_L 29050 (also IT_LL confluence) is the immediate downside draw; if reclaimed, AS_L 28924, PWL 28741.25 deeper. Buy-side: LO_H 29249 first, then NYAM_H 29382.5, PDH 29733.5.",
-    "overnight": "Overnight took PDL/NYAM_L 29089.5 (gates.pillar1.session_levels.PDL.price) — raided sell-side. LO_L 29050 still untaken below as the next downside draw. Buy-side ladder intact above.",
-    "ny_reaction": "n/a — not in NY open window (Monday 07:18 ET; NY opens 09:30 ET)"
+    "htf_draw": "HTF bullish (Daily +12.88%, 4H +7.56%) and LTF aligned via a bullish BOS/MSS cascade. Primary draw is buy-side above: NYAM.H 29338.75 first, then LO.H 29463.25, PWH 29783.75. HTF bearish-FVG supply guards ~29414-29531.",
+    "overnight": "LO.L 29178.25 was sell-swept and rejected (failure swing) — the trigger for the bullish leg. AS.H and PDH also swept. Untaken sell-side below: NYAM.L 29172.25, AS.L 29113, PDL 28796.",
+    "ny_reaction": "NY reaction resolved bullish — rejected LO.L sweep plus a clean bullish BOS cascade; LTF aligned with the HTF draw."
   },
   "pillar2": {
-    "range_acceptable": true,
+    "range_acceptable": false,
     "displacement_present": true,
-    "candle_quality": "poor",
-    "verdict": "poor"
+    "candle_quality": "marginal",
+    "verdict": "marginal"
   },
   "pillar3": {
-    "entry_model": null,
-    "confirmation_status": "n/a"
+    "entry_model": "Trend",
+    "confirmation_status": "candidate"
   },
   "trade": {
     "entry": null,
     "stop": null,
     "target_tp1": null,
     "target_tp2": null,
-    "invalidation": "n/a"
+    "invalidation": "Bullish close back below the 29296-29304 FVG breaking structure invalidates the Trend candidate."
   },
   "grade": "no-trade"
 }

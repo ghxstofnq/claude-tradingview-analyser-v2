@@ -1,5 +1,5 @@
 // Regression coverage for gates.session.next_killzone_label /
-// seconds_to_next_killzone — the next-killzone display fields in computeGates.
+// seconds_to_next_killzone — the next-killzone display fields in computeSessionGate.
 //
 // Bug: once a killzone's start time had passed, the countdown rolled to the
 // SAME killzone tomorrow (+24h) instead of advancing to the next killzone
@@ -8,16 +8,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeGates } from '../cli/commands/analyze.js';
+import { computeSessionGate } from '../cli/commands/analyze.js';
 
-// computeGates derives the ET clock purely from quote.time (unix SECONDS).
+// computeSessionGate derives the ET clock purely from quote.time (unix SECONDS).
 // 2026-05-20 is a Wednesday; mid-May is EDT (UTC-4), so ET = UTC - 4h.
 const sessionAt = (utcIso) =>
-  computeGates({
-    quote: { time: Date.parse(utcIso) / 1000, last: null },
-    bars: {},
-    pine: {},
-  }).session;
+  computeSessionGate({ quote: { time: Date.parse(utcIso) / 1000, last: null } });
 
 test('passed NY AM start advances to NY PM the same day', () => {
   // 09:12 ET — inside the NY AM killzone, phase pre_session_ny_am.

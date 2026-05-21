@@ -11,7 +11,7 @@ This project implements **Lanto's 3-pillar ICT framework**. Authoritative spec:
 
 Strategy §7 is **sequential**: HTF bias → overnight → Pillar 2 → NY reaction → entry model → confirmation → sizing. This slash command walks that sequence across a whole session by branching on phase.
 
-Architecture plan: [docs/plans/llm-driven-session.md](../../docs/plans/llm-driven-session.md).
+Architecture plan: [docs/plans/llm-driven-session.md](../../docs/plans/llm-driven-session.md). Data source: [docs/plans/2026-05-21-ict-engine-migration.md](../../docs/plans/2026-05-21-ict-engine-migration.md).
 
 ---
 
@@ -31,7 +31,7 @@ The capture command depends on whether a fresh HTF baseline is needed. Always `R
 ./bin/tv analyze --pillar3-only --baseline state/baseline.json --out state/last-analyze.json
 ```
 
-A fast capture still carries fresh current-TF data plus `bars_by_tf`, `pine_by_tf`, and `gates.pillar2.m5/m15` merged from the baseline. Pre-session always uses a full capture — HTF bias needs the live sweep.
+A fast capture still carries fresh current-TF data plus `bars_by_tf`, `engine_by_tf`, and `gates.engine.pillar2.m5/m15` merged from the baseline. Pre-session always uses a full capture — HTF bias needs the live sweep.
 
 After reading, look at **`gates.session.phase`** to determine what to do. Phase-driven work + state-file accumulation is what makes the session smart across many invocations.
 
@@ -39,26 +39,30 @@ After reading, look at **`gates.session.phase`** to determine what to do. Phase-
 
 ## Bundle fields (quick reference)
 
+The **ICT Engine** indicator is the single data source. It emits one schema-versioned evidence table; `tv analyze` parses it into structured, numerically-typed objects. Every price resolves at a real JSON path (cite-or-reject).
+
 - `chart` — symbol, current resolution, indicators on chart.
 - `quote.last` — current price.
 - `bars` — OHLCV summary + `last_5_bars` at the current chart TF.
-- `bars_by_tf.{daily, h4, h1, m15, m5, m1}` — per-TF bar summaries (use these for HTF bias).
-- `pine_by_tf.{daily, h4, h1, m15, m5, m1}.{boxes, labels}` — HTF FVGs/structure (trimmed to FVG/iFVG, Anchored Structures, Killzones, BPR; ~30 per study per TF). `bgColor` decodes to FVG direction (0x94ab22=bullish_fvg, 0xf57931=bullish_ifvg, 0x5f52f7=bearish_fvg, 0x26a7ff=bearish_ifvg).
-- `pine.{lines, labels, tables, boxes}` — current TF only.
+- `bars_by_tf.{daily, h4, h1, m15, m5, m1}` — per-TF bar summaries incl. `range` and `change_pct` (use these for HTF momentum).
+- `engine` — the parsed ICT Engine table at the chart's current TF: `{schema, schema_supported, meta, levels[], sweeps[], fvgs[], bprs[], swings[], structures[], quality}`.
+- `engine_by_tf.{daily, h4, h1, m15, m5, m1}` — the same parsed engine object captured at each TF. **HTF FVGs and HTF structure live here** (`.fvgs`, `.structures`, `.swings`, `.quality`, `.levels`).
 - `gates.session.*` — clock-based facts (phase, label, minutes_into_phase, next_killzone_label, seconds_to_next_killzone, in_killzone, is_market_closed, replay state).
-- `gates.price_context.{inside_boxes, wick_tapped_boxes}` — which Pine boxes contain price; wick_tapped also includes boxes the bar's wick overlapped. FVG entries carry `fvg_direction`.
-- `gates.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L, NYPM_H, NYPM_L}` — `{label, price, position_vs_price, taken}`. `untaken_sell_side_below[]` + `untaken_buy_side_above[]` are pre-sorted "draw" targets.
-- `gates.pillar1.bias_labels[]` — any Pine label matching /bias/i (empty when no indicator publishes one).
-- `gates.pillar2.{range_value, range_acceptable, range_acceptable_min, current_tf, m5, m15}` — range + per-TF candle anatomy (`{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5, last_bar}`).
-- `gates.pillar3.{most_recent_structure, fvg_by_type, fvg_by_type_above, fvg_by_type_below, last_bar, last_bar_age_seconds}` — ICT structure points, FVG counts by direction, single-bar confirmation facts. **`most_recent_structure` label letters use the AMS `[type][modifier]` convention — `HL` is a Lower High, `LH` is a Higher Low. See ICT vocabulary.**
+- `gates.engine.meta` — `{schema, schema_supported, tf, emit_ny, symbol}` provenance. **If `schema_supported` is false the engine bumped its format — say so and stop.**
+- `gates.engine.price_context.{inside_fvgs, inside_bprs}` — engine zones containing current price.
+- `gates.engine.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L}` — each `{name, price, state, swept, formed_ms, position_vs_price}`. `untaken_sell_side_below[]` + `untaken_buy_side_above[]` are pre-sorted draw targets. `sweeps[]` — explicit liquidity-raid events `{target, price, side, swept_ms, rejected}` (`rejected: true` = a failure-swing).
+- `gates.engine.pillar2.{current_tf, m5, m15}` — each the engine quality verdict `{range_3h, range_quality (good|tight|na), displacement (clean|weak|na), candle (engulfing|doji_wick|normal), has_chop}`.
+- `gates.engine.pillar3.fvgs[]` — `{kind (fvg|ifvg), dir (bull|bear), top, bottom, ce, created_ms, took_liq, disp_score, state (fresh|ce_tapped|filled|inverted|invalidated)}`.
+- `gates.engine.pillar3.{bprs[], swings:{internal[], swing[]}, structure_events[], most_recent_structure, fvg_summary}` — each swing `{kind, price, bar_ms, tier, swept, is_high}`; each `structure_events` entry `{event (bos|mss), dir, level, displacement, tier, validation (break|sweep), confirmed_ms}`; `most_recent_structure` is the latest by `confirmed_ms`.
+- `gates.engine.confirmation.{last_bar, last_bar_age_seconds, m5_last_bar, m15_last_bar}` — single-bar confirmation facts `{time, open, high, low, close, body_ratio, direction, range, close_position_in_range}`.
 
 ---
 
 ## Rules (non-negotiable; derived from `docs/research/ai-trading-analysis.md`)
 
-1. **Cite or omit.** Every price must appear in the bundle and be cited `<price> (<json.path>)`. The path must resolve to the cited value. Examples: `29172.75 (quote.last)`, `29302.75 (pine.labels.studies[0].labels[0].price)`, `7393.5 (pine_by_tf.h4.boxes.studies[0].all_boxes[0].low)`. No prose-style parens like `(close)`. Verifier (`npm run smoke:fixtures`) enforces.
+1. **Cite or omit.** Every price must appear in the bundle and be cited `<price> (<json.path>)`. The path must resolve to the cited value. Examples: `29172.75 (quote.last)`, `29397 (gates.engine.pillar1.session_levels.PDH.price)`, `29326 (gates.engine.pillar3.fvgs[0].ce)`, `7393.5 (engine_by_tf.h4.fvgs[0].bottom)`. No prose-style parens like `(close)`. Verifier (`npm run smoke:fixtures`) enforces.
 2. **No arithmetic.** Don't compute stops, R:R, distances, body ratios, ATR. If the JSON doesn't have it, write `n/a — needs upstream computation`.
-3. **Don't invent.** If `pine.lines` is empty, write "no Pine lines on chart." If a section's data isn't in the JSON, write `n/a — indicator not on chart`.
+3. **Don't invent.** If `gates.engine` is `null` the ICT Engine is not on the chart — say so and stop. If `gates.engine.pillar3.fvgs` is empty, write "no FVGs from the engine." If a section's data isn't in the JSON, write `n/a`.
 4. **Prose first, JSON last.** Any structured block goes at the end of the chat response. Mid-reasoning JSON degrades accuracy.
 5. **Grade enum only.** `A+ | B | no-trade`. No "high-conviction" / "very likely" / "actionable" / "strong setup".
 6. **Match entry-model components literally.** Walk them in order, by name. Don't paraphrase.
@@ -101,21 +105,24 @@ Each session folder is self-contained — NY AM, NY PM, and London never overwri
 
 ### Step 1 — Pillar 1a: HTF Bias (Daily / 4H / 1H)
 
-Read `gates.pillar1.bias_labels[]` first. If non-empty, cite the published bias. If empty (current state), **infer** from `bars_by_tf.daily.change_pct`, `bars_by_tf.h4.change_pct`, `bars_by_tf.h1.change_pct`. Agreement = directional; mixed signs = neutral.
+Infer HTF bias from two engine-backed signals:
+- **HTF momentum** — `bars_by_tf.daily.change_pct`, `bars_by_tf.h4.change_pct`, `bars_by_tf.h1.change_pct`. Agreement = directional; mixed signs = neutral.
+- **HTF structure** — `engine_by_tf.daily.structures`, `.h4.structures`, `.h1.structures`. The most recent `event` (`bos`/`mss`) and its `dir` is the last confirmed shift on that TF.
 
-For the **HTF PD arrays** (strategy §2.1's "best imbalances"), scan `pine_by_tf.daily.boxes`, `pine_by_tf.h4.boxes`, `pine_by_tf.h1.boxes`. Filter to FVG/iFVG study, decode `bgColor`. Pick the most material HTF FVG as the primary HTF draw.
+For the **HTF PD arrays** (strategy §2.1's "best imbalances"), scan `engine_by_tf.daily.fvgs`, `engine_by_tf.h4.fvgs`, `engine_by_tf.h1.fvgs`. The engine types each FVG (`kind`, `dir`) and scores it: prefer FVGs with high `disp_score` and `took_liq: true` — that is exactly strategy §2.1's "extensive, took liquidity in creation." Pick the most material as the primary HTF draw.
 
 ### Step 2 — Pillar 1b: Overnight & Session Correlation
 
-Read `gates.pillar1.session_levels.*` and the pre-sorted `untaken_sell_side_below[]` / `untaken_buy_side_above[]`. State which liquidity is `taken` / `untaken`. State whether overnight was extending (lots taken one side) or consolidating (mixed).
+Read `gates.engine.pillar1.session_levels.*` and the pre-sorted `untaken_sell_side_below[]` / `untaken_buy_side_above[]`. State which liquidity is `swept` / untaken. `gates.engine.pillar1.sweeps[]` gives the explicit raids — each carries a `side` and a `rejected` flag (a rejected sweep is a failure-swing, a reversal tell). State whether overnight extended (lots swept one side) or consolidated (mixed / both sides swept).
 
-### Step 3 — Pillar 2: Range + 5m/15m Candle Anatomy
+### Step 3 — Pillar 2: Range + Quality
 
-- **Range:** cite `gates.pillar2.range_value`, `gates.pillar2.range_per_bar`. Heuristic verdict in `range_acceptable` — `true`/`false` for a calibrated symbol, `null` when the symbol is uncalibrated (`gates.pillar2.range_acceptable_min` is then `null`). On `null`, judge the range manually against HTF context — do not treat `null` as a fail. Override the verdict if you disagree.
-- **HTF displacement:** read `bars_by_tf.h4.range` + `change_pct` and `bars_by_tf.h1.range` + `change_pct`.
-- **m5 anatomy:** `gates.pillar2.m5.{body_ratios_last_5, avg_body_ratio_last_5, candle_quality_heuristic, engulfing_count_last_5, doji_count_last_5}`. Strategy wants "mainly engulfing, not dominated by dojis."
-- **m15 anatomy:** same fields under `gates.pillar2.m15.*`.
-- **Verdict:** `good | marginal | poor`. If marginal/poor on either m5 or m15, downgrade.
+The engine emits a quality verdict per TF — no manual candle math.
+
+- **Current TF:** `gates.engine.pillar2.current_tf.{range_3h, range_quality, displacement, candle, has_chop}`. `range_quality` is `good` (3h range large vs ATR) or `tight`; `displacement` is `clean` or `weak`; `candle` is `engulfing` / `doji_wick` / `normal`.
+- **m5 / m15:** `gates.engine.pillar2.m5.*` and `.m15.*` — strategy §7 step 3 wants 5m/15m anatomy specifically.
+- **HTF displacement:** `engine_by_tf.h4.quality` and `engine_by_tf.h1.quality`, plus `bars_by_tf.h4.range`.
+- **Verdict:** `good | marginal | poor`. `range_quality=tight` + `displacement=weak` + `candle=doji_wick` + `has_chop=true` is poor. Override the engine's verdict if you disagree — judge the displacement at the setup, not a lagging average.
 
 ### Write the two files
 
@@ -139,7 +146,7 @@ symbol: <chart.symbol>
 <one sentence: the most material HTF FVG / liquidity pool, with cited high/low>
 
 ## Overnight Summary
-<which levels are taken / untaken, with cited prices>
+<which levels are swept / untaken, with cited prices>
 
 ## Verdict
 - htf_bias: bullish | bearish | neutral
@@ -157,7 +164,7 @@ graded_at: <gates.session.timestamp_et>
 # Pillar 2 — Price Action Quality
 
 ## Range
-<cite>
+<cite gates.engine.pillar2.current_tf.range_3h + range_quality>
 
 ## HTF Displacement
 <cite>
@@ -167,7 +174,7 @@ graded_at: <gates.session.timestamp_et>
 
 ## Verdict
 - pillar2: good | marginal | poor
-- override_reason: <if you overrode the heuristic, why>
+- override_reason: <if you overrode the engine verdict, why>
 ```
 
 ### Chat output (after writing files)
@@ -186,7 +193,7 @@ Three to five lines: cited HTF bias + primary draw + Pillar 2 verdict + countdow
 
 **The work:**
 
-Read `gates.pillar3.last_bar`, `gates.pillar2.m5.last_bar`, `gates.pillar2.m15.last_bar`. Read the recent untaken levels from `gates.pillar1.untaken_*`. What's price doing relative to those levels? Is NY breaking the overnight high or low? Holding above or rejecting?
+Read `gates.engine.confirmation.{last_bar, m5_last_bar, m15_last_bar}`. Read the recent untaken levels from `gates.engine.pillar1.untaken_*` and the explicit raids from `gates.engine.pillar1.sweeps`. What's price doing relative to those levels? Is NY breaking the overnight high or low? Holding above or rejecting?
 
 Strategy §2.3:
 - Break + rejection in direction of HTF draw → LTF aligns with HTF (A+ potential later).
@@ -253,7 +260,7 @@ Two to four lines: what NY just did + bias direction + minutes remaining in open
 
 If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open-reaction work didn't complete. Say so and skip entry hunt.
 
-**For each new bar (1m close, and 5m close when `gates.pillar3.last_bar.time % 300 == 0`):**
+**For each new bar (1m close, and 5m close when `gates.engine.confirmation.last_bar.time % 300 == 0`):**
 
 1. Append the bar facts to `<sdir>/bars.jsonl`:
 
@@ -261,25 +268,23 @@ If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open
 {"time": <bar_time>, "tf": "1m", "o": <open>, "h": <high>, "l": <low>, "c": <close>, "body_ratio": <bratio>, "direction": "<dir>", "close_position_in_range": <cp>}
 ```
 
-(Use the bundle's `gates.pillar3.last_bar.*` fields. Write `tf: "5m"` and a separate line to `<sdir>/bars-5m.jsonl` when at a 5m boundary.)
+(Use the bundle's `gates.engine.confirmation.last_bar.*` fields. Write `tf: "5m"` and a separate line to `<sdir>/bars-5m.jsonl` when at a 5m boundary.)
 
-2. **Walk all three entry models — explicitly, by name, every bar.** Read `gates.pillar3.most_recent_structure`, `gates.price_context.wick_tapped_boxes`, `gates.pillar3.fvg_by_type_above/below`. Then state a one-line verdict for **each** of MSS / Trend / Inversion — do not stop at the first model that doesn't fit. Grade each model ONLY on its own components (`entry-models.md`); never disqualify one model with another model's rule.
+2. **Walk all three entry models — explicitly, by name, every bar.** Read `gates.engine.pillar3.most_recent_structure`, `gates.engine.pillar3.structure_events`, `gates.engine.price_context.inside_fvgs`, `gates.engine.pillar3.fvgs`, and `gates.engine.pillar3.fvg_summary`. Then state a one-line verdict for **each** of MSS / Trend / Inversion — do not stop at the first model that doesn't fit. Grade each model ONLY on its own components (`entry-models.md`); never disqualify one model with another model's rule.
 
-2. **Walk all three entry models — explicitly, by name, every bar.** Read `gates.pillar3.most_recent_structure`, `gates.price_context.wick_tapped_boxes`, `gates.pillar3.fvg_by_type_above/below`. Then state a one-line verdict for **each** of MSS / Trend / Inversion — do not stop at the first model that doesn't fit. Grade each model ONLY on its own components (`entry-models.md`); never disqualify one model with another model's rule.
-
-   - **MSS** — a sweep of a swing low/high → sharp displacement back the other way → retrace into the freshly-created FVG → confirmation close.
-   - **Trend** — HTF + LTF aligned, an impulse leg, pullback into an internal FVG **with structure intact (higher highs / higher lows)** → confirmation close. The "structure intact" requirement is Trend-only.
-   - **Inversion** — an opposing-direction FVG violated by a strong close (e.g. a bullish close above a bearish FVG) → optional retest of the inverted zone → confirmation close. Inversions form *during* a pullback — **a broken higher low does NOT disqualify an Inversion** (that is a Trend-model rule).
+   - **MSS** — a sweep of a swing low/high → sharp displacement back the other way → retrace into the freshly-created FVG → confirmation close. The engine emits this mechanically: a `structure_events` entry with `event=mss`, `displacement=true`, and a matching fresh `fvg`.
+   - **Trend** — HTF + LTF aligned, an impulse leg, pullback into an internal FVG **with structure intact (higher highs / higher lows)** → confirmation close. A `structure_events` entry with `event=bos` is the engine's continuation signal. The "structure intact" requirement is Trend-only.
+   - **Inversion** — an opposing-direction FVG violated by a strong close → optional retest of the inverted zone → confirmation close. The engine emits this directly: an `fvg` with `kind=ifvg` and `state=inverted`. Inversions form *during* a pullback — **a broken higher low does NOT disqualify an Inversion** (that is a Trend-model rule).
 
    Guards (each cost a real trade on 2026-05-20):
-   - **FVG size** — a small FVG is still tradeable. On MNQ a ~13-point (~50-tick) FVG is normal. Do not reject a setup for FVG size.
-   - **The m5 `candle_quality_heuristic` is a hint, not a veto** — it is a lagging 5-bar average. Judge the displacement *at* the setup, and override the heuristic when you disagree.
+   - **FVG size** — a small FVG is still tradeable. On MNQ a ~13-point (~50-tick) FVG is normal. Do not reject a setup for FVG size. `disp_score` tells you the displacement strength — trust it over raw gap size.
+   - **The engine quality fields are a hint, not a veto** — `gates.engine.pillar2.m5.candle` / `displacement` are lagging summaries. Judge the displacement *at* the setup, and override when you disagree.
    - **Don't manufacture no-trades.** When a model's own components + HTF alignment + a confirmation close are all present, that is at least a **B** — grade it. The discipline rules exist to stop *forcing* trades, not to reject valid ones.
 
 3. **If a candidate is forming or has fired**, append to `<sdir>/setups.jsonl`:
 
 ```jsonl
-{"ts": "<iso>", "bar_time": <t>, "tf": "1m", "model": "MSS|Trend|Inversion", "status": "candidate|confirmed|invalidated", "side": "long|short", "rationale": "<one line with cites>", "fvg": {"high": <h>, "low": <l>, "direction": "<bullish_fvg|...>"}, "confirmation_bar": {"close": <c>, "body_ratio": <br>, "direction": "<d>"} | null}
+{"ts": "<iso>", "bar_time": <t>, "tf": "1m", "model": "MSS|Trend|Inversion", "status": "candidate|confirmed|invalidated", "side": "long|short", "rationale": "<one line with cites>", "fvg": {"top": <t>, "bottom": <b>, "kind": "fvg|ifvg", "dir": "bull|bear"}, "confirmation_bar": {"close": <c>, "body_ratio": <br>, "direction": "<d>"} | null}
 ```
 
 ### Chat output
@@ -339,25 +344,25 @@ The single-paragraph wrap. Then say what's next ("Idle until NY PM at 13:00 ET" 
 
 ## ICT vocabulary (re-read each invocation; small enough to keep in context)
 
-- **Market-structure labels (ST/IT/LT × HH/HL/LH/LL)** — the ICT Anchored Market Structures indicator names a pivot `[type][modifier]`: the FIRST letter is the pivot **type** (`H`igh or `L`ow); the SECOND is whether it is `H`igher or `L`ower than the previous pivot of that same type.
-  - `HH` = swing **high**, higher than the prior high (Higher High)
-  - `HL` = swing **high**, lower than the prior high (**Lower High**)
-  - `LH` = swing **low**, higher than the prior low (**Higher Low**)
-  - `LL` = swing **low**, lower than the prior low (Lower Low)
-  - `HH` and `HL` are both swing **highs**; `LH` and `LL` are both swing **lows**. This is the REVERSE of the textbook letter order (textbook: HL=Higher Low, LH=Lower High). Reading it the textbook way inverts every structure call — a downtrend (lower highs + lower lows = `HL` + `LL`) would look like contradictory noise. Verified empirically against the live indicator 2026-05-20.
+- **Market-structure labels (HH/HL/LH/LL)** — the ICT Engine names a swing pivot with the **textbook** convention: the SECOND letter is the pivot **type** (`H`igh or `L`ow), the FIRST is whether it is `H`igher or `L`ower than the previous pivot of that same type.
+  - `HH` = Higher High — a swing **high** above the prior high
+  - `HL` = Higher Low — a swing **low** above the prior low
+  - `LH` = Lower High — a swing **high** below the prior high
+  - `LL` = Lower Low — a swing **low** below the prior low
+  - `HH` and `LH` are swing **highs**; `HL` and `LL` are swing **lows**. Each engine swing also carries an explicit `is_high` boolean — trust it. An uptrend prints `HH` + `HL`; a downtrend prints `LH` + `LL`.
 - **HTF / LTF** — higher TF (Daily / 4H / 1H) sets bias; LTF (15m / 5m / 1m) triggers.
 - **Liquidity** — stop pools above swing highs (buy-side) or below swing lows (sell-side).
 - **PDH / PDL** — previous day's high / low.
-- **FVG** — 3-bar imbalance. Pine box. Acts as retracement target.
-- **BPR** — Balanced Price Range. Overlapping bullish + bearish FVGs.
+- **FVG** — 3-bar imbalance. The engine emits each with `top` / `bottom` / `ce` / `state`; acts as a retracement target.
+- **BPR** — Balanced Price Range. Overlapping bullish + bearish FVGs; the engine emits these as `bprs[]`.
 - **Order block** — last opposing candle before strong displacement.
-- **Mitigation** — price returning to an FVG / OB.
-- **Inversion FVG** — bearish FVG violated bullishly (or vice versa) — flipped polarity.
+- **Mitigation** — price returning to an FVG / OB. The engine tracks it as FVG `state`: `fresh → ce_tapped → filled`.
+- **Inversion FVG** — bearish FVG violated bullishly (or vice versa) — flipped polarity. The engine emits `kind=ifvg`, `state=inverted`.
 - **Killzone** — institutional flow window (London Open, NY AM, NY PM).
-- **CE** — Consequent Encroachment, FVG midpoint.
-- **Displacement** — wide-range directional move creating an FVG.
-- **Sweep / liquidity raid** — wick beyond a swing reversing.
-- **MSS** — Market Structure Shift; break of internal structure in the opposite direction.
+- **CE** — Consequent Encroachment, FVG midpoint. The engine emits it as `ce`.
+- **Displacement** — wide-range directional move creating an FVG. The engine scores it per FVG as `disp_score` (0–1).
+- **Sweep / liquidity raid** — wick beyond a swing/level reversing. The engine emits explicit `sweep` events with a `rejected` flag.
+- **MSS / BOS** — Market Structure Shift (counter-trend break) / Break of Structure (continuation). The engine emits both as `structure_events` with `event`, `dir`, `validation`.
 - **Draw on Liquidity** — the major pool price is being pulled toward.
 
 ---
@@ -410,7 +415,7 @@ Pillar 2: good — large green candle rips back through with no rejection.
 Pillar 3 — Inversion components:
 1. Context & HTF Bias — clearly bullish; buy-side targets above. ✓
 2. Opposing FVG Forms — small bearish FVG on micro pullback. ✓
-3. Violation — 5m green candle closes well above the top of the bearish FVG. ✓
+3. Violation — 5m green candle closes well above the top of the bearish FVG (engine flips it to `kind=ifvg`, `state=inverted`). ✓
 4. Retest & Confirmation — 1m pulls into inversion zone, prints full-body bullish candle. ✓
 5. Risk & Target — stop below inversion low; TP1 intraday high, TP2 weekly high.
 

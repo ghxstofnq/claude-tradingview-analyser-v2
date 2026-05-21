@@ -1,0 +1,110 @@
+/**
+ * ict-engine-parser.js — parse the ICT Engine indicator's evidence table.
+ *
+ * The ICT Engine emits its entire output as one TradingView table: rows of
+ * "<type> | k=v|k=v|...". This module turns those strings into structured,
+ * numerically-typed objects so analyze.js can build gates whose every price
+ * resolves at a real JSON path (cite-or-reject, CLAUDE.md constraint #6).
+ *
+ * Pure functions — no CDP, no I/O. Source of the table format: the ICT Engine
+ * Pine v6 indicator (emitMeta/emitLevelAndSweep/emitFvg/... emitters).
+ */
+
+/** Engine table schema this parser understands. Guard on meta.schema. */
+export const ENGINE_SCHEMA = 1;
+
+// Per-row-type field coercion. Keys not listed default to 'str', so unknown
+// future fields survive as strings rather than being dropped or mis-coerced.
+// `displacement` is intentionally per-type: a bool on structure rows, a string
+// enum (clean|weak|na) on the quality row.
+const ROW_FIELD_TYPES = {
+  meta: { schema: 'num', count: 'num', emit_ms: 'num' },
+  level: { price: 'num', swept: 'bool', formed_ms: 'num' },
+  sweep: { price: 'num', swept_ms: 'num', rejected: 'bool' },
+  fvg: {
+    top: 'num', bottom: 'num', ce: 'num', created_ms: 'num',
+    took_liq: 'bool', disp_score: 'num', reacted: 'bool',
+  },
+  bpr: { top: 'num', bottom: 'num', created_ms: 'num', took_liq: 'bool', reacted: 'bool' },
+  swing: { price: 'num', bar_ms: 'num', swept: 'bool' },
+  structure: {
+    level: 'num', broken_swing_ms: 'num', confirmed_ms: 'num', displacement: 'bool',
+  },
+  quality: { range_3h: 'num', has_chop: 'bool' },
+};
+
+/** Coerce one payload value. 'num' → finite Number or null; 'bool' → v==='1'. */
+function coerceValue(v, kind) {
+  if (kind === 'bool') return v === '1';
+  if (kind === 'num') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return v;
+}
+
+/**
+ * Parse one table row "<type> | k=v|k=v|...".
+ * Returns { type, fields } or null when the string is not a known engine row.
+ */
+export function parseRow(row) {
+  if (typeof row !== 'string') return null;
+  const sep = row.indexOf(' | ');
+  if (sep === -1) return null;
+  const type = row.slice(0, sep).trim();
+  const typeMap = ROW_FIELD_TYPES[type];
+  if (!typeMap) return null;
+  const fields = {};
+  for (const pair of row.slice(sep + 3).split('|')) {
+    const eq = pair.indexOf('=');
+    if (eq === -1) continue;
+    const key = pair.slice(0, eq).trim();
+    if (!key) continue;
+    fields[key] = coerceValue(pair.slice(eq + 1), typeMap[key] || 'str');
+  }
+  return { type, fields };
+}
+
+/** A swing pivot's type is its kind's SECOND letter: H→high pivot, L→low. */
+function withIsHigh(swing) {
+  return { ...swing, is_high: typeof swing.kind === 'string' && swing.kind[1] === 'H' };
+}
+
+/**
+ * Parse the full engine table (array of row strings) into a structured object.
+ * Returns null when there is no meta row (not an ICT Engine table).
+ */
+export function parseIctEngineTable(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const out = {
+    schema: null, schema_supported: false, meta: null,
+    levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [], quality: null,
+  };
+  for (const raw of rows) {
+    const parsed = parseRow(raw);
+    if (!parsed) continue;
+    const { type, fields } = parsed;
+    if (type === 'meta') {
+      out.meta = fields;
+      out.schema = fields.schema ?? null;
+      out.schema_supported = out.schema === ENGINE_SCHEMA;
+    } else if (type === 'level') out.levels.push(fields);
+    else if (type === 'sweep') out.sweeps.push(fields);
+    else if (type === 'fvg') out.fvgs.push(fields);
+    else if (type === 'bpr') out.bprs.push(fields);
+    else if (type === 'swing') out.swings.push(withIsHigh(fields));
+    else if (type === 'structure') out.structures.push(fields);
+    else if (type === 'quality') out.quality = fields;
+  }
+  return out.meta == null ? null : out;
+}
+
+/**
+ * Locate the ICT Engine's rows inside a `tv data tables` (getPineTables) result.
+ * Returns the rows array, or null when the indicator is not on the chart.
+ */
+export function findIctEngineRows(pineTablesResult) {
+  const study = (pineTablesResult?.studies || []).find((s) => s?.name === 'ICT Engine');
+  const rows = study?.tables?.[0]?.rows;
+  return Array.isArray(rows) ? rows : null;
+}
