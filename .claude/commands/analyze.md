@@ -98,7 +98,7 @@ Each session folder is self-contained — NY AM, NY PM, and London never overwri
 **Goal:** grade Pillar 1 + Pillar 2 once for this session. Subsequent pre-session invocations should detect prior work and not re-grade.
 
 **Check first:**
-- If `<sdir>/pillar1.md` already exists, this session is graded — output one line "Pre-session already graded (P1=<bias>, P2=<verdict>). Idle until <next phase>." and stop.
+- If `<sdir>/pillar1.md` already exists, this session is graded — **arm the per-bar loop** (see the final step of this phase), then output one line "Pre-session already graded (P1=<bias>, P2=<verdict>). Loop armed. Idle until <next phase>." and stop.
 - Otherwise grade now. Each session has its own folder, so NY AM, NY PM, and London grades never collide.
 
 **If not done, do these in order:**
@@ -179,7 +179,17 @@ graded_at: <gates.session.timestamp_et>
 
 ### Chat output (after writing files)
 
-Three to five lines: cited HTF bias + primary draw + Pillar 2 verdict + countdown to next phase. End with: `Saved <sdir>/{pillar1.md, pillar2.md}. Idle until <next killzone> (in <minutes>m).`
+Three to five lines: cited HTF bias + primary draw + Pillar 2 verdict + countdown to next phase. End with: `Saved <sdir>/{pillar1.md, pillar2.md}. Per-bar loop armed. Idle until <next killzone> (in <minutes>m).`
+
+### Arm the per-bar loop
+
+Pillar 1 + 2 are the session's foundation. Once they exist, start the per-bar loop so `/analyze` fires on every bar close for the rest of the session. Do this at the end of **every** pre-session invocation — whether you just graded the files or found them already there:
+
+1. Read `state/session/detector-heartbeat.json`. If it exists and its heartbeat is fresh (age < 90s), the detector is already running under a monitor — **do nothing, the loop is already live.**
+2. Otherwise start it with the `Monitor` tool: `Monitor("./bin/tv stream bar-close")`. That launches the detector and streams one event per closed 1m bar (each line carries `is_5m_close: true` on 5m boundaries).
+3. React to every monitored bar-close event by running `/analyze` again. It will branch to the open-reaction / entry-hunt / post phase as the ET clock advances — a full capture when the event has `is_5m_close: true`, a fast `--baseline` capture otherwise.
+
+This is the bootstrap for the LLM-driven session (`docs/plans/llm-driven-session.md`): the pre-session grade arms the loop, and the loop drives the rest of the trading day. The loop is armed once per session and persists via the monitor; the heartbeat check in step 1 stops a second monitor from starting.
 
 ---
 
