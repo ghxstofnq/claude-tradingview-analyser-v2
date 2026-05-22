@@ -12,3 +12,6 @@ cmd/tv-dash/go.sum
 
 # /judge regression artifacts — regenerated each run
 tests/fixtures/*.judge.json
+
+# Superpowers brainstorm scratch dir
+.superpowers/

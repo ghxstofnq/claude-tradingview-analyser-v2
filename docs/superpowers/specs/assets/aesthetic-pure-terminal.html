@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trading Workstation — Pure-Terminal Aesthetic</title>
+<style>
+  body { background: #08090c; color: #c9d1d9; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0; padding: 34px 28px; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .doc-meta { font-size: 11px; color: #56606f; letter-spacing: .04em; margin: 0 0 22px; padding-bottom: 13px; border-bottom: 1px solid #1c2128; }
+  h2 { font-size: 19px; color: #e6edf3; margin: 0 0 7px; font-weight: 600; }
+  h3 { font-size: 13px; color: #e6edf3; letter-spacing: .04em; margin: 28px 0 11px; font-weight: 600; }
+  .subtitle { font-size: 13px; color: #8b949e; line-height: 1.6; margin: 0 0 22px; }
+  .caption { font-size: 11px; color: #6b7585; margin: 9px 0 0; }
+
+  .ap { max-width: 340px; background: #0a0c10; border: 1px solid #2c2f25; border-radius: 0; padding: 14px 15px; display: flex; flex-direction: column; gap: 11px; box-sizing: border-box; }
+  .ap-head { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e2228; padding-bottom: 8px; }
+  .ap-title { color: #e3b341; font-size: 11px; letter-spacing: .18em; }
+  .ap-grade { color: #0a0c10; background: #3fb950; font-size: 10px; font-weight: 700; padding: 1px 6px; letter-spacing: .08em; }
+  .ap-rows { display: flex; flex-direction: column; gap: 6px; }
+  .ap-row { display: flex; align-items: baseline; justify-content: space-between; font-size: 11.5px; }
+  .ap-row .k { color: #5f6670; letter-spacing: .04em; }
+  .ap-row .v { color: #c4ccd4; }
+  .ap-row .v.num { color: #e3b341; }
+  .ap-row .v.long { color: #3fb950; }
+  .ap-row .v.stop { color: #f0796a; }
+  .ap-row .v.tgt { color: #3fb950; }
+  .ap-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; row-gap: 8px; border-top: 1px solid #1e2228; padding-top: 9px; }
+  .ap-status { color: #3fb950; font-size: 9.5px; letter-spacing: .05em; }
+  .ap-btns { display: flex; gap: 6px; }
+  .ap-btn { background: transparent; border: 1px solid #4a4326; color: #e3b341; font: inherit; font-size: 9.5px; letter-spacing: .12em; padding: 4px 9px; border-radius: 0; cursor: default; }
+  .ap-btn.accept { border-color: #2d5a37; color: #3fb950; }
+  .ap-btn.reject { border-color: #5a3030; color: #f0796a; }
+  .ap-btn::before { content: "[ "; }
+  .ap-btn::after { content: " ]"; }
+
+  .tokens { display: flex; flex-direction: column; gap: 8px; }
+  .tok { display: flex; align-items: center; gap: 11px; font-size: 12px; }
+  .tok .sw { width: 28px; height: 16px; flex: 0 0 auto; border: 1px solid #2c2f25; }
+  .tok code { color: #c4ccd4; font-size: 11.5px; font-family: ui-monospace, Menlo, monospace; }
+  .tok .role { color: #7d8794; }
+  .rules { font-size: 12px; color: #9aa4b2; line-height: 1.7; margin: 11px 0 0; padding-left: 18px; }
+  .rules li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="doc-meta">TRADING WORKSTATION &middot; design-session reference &middot; spec: 2026-05-22-trading-workstation-design.md (&sect;12)</div>
+  <h2>Visual direction &mdash; pure terminal</h2>
+  <p class="subtitle">The chosen aesthetic. The same &ldquo;active setup&rdquo; panel that defined the direction &mdash; monospace throughout, near-black surface, hairline borders, zero rounding, semantic colour. The chart keeps TradingView's own look; this language applies to every other surface.</p>
+
+  <div class="ap">
+    <div class="ap-head"><span class="ap-title">ACTIVE SETUP</span><span class="ap-grade">A+</span></div>
+    <div class="ap-rows">
+      <div class="ap-row"><span class="k">Model</span><span class="v">MSS reversal</span></div>
+      <div class="ap-row"><span class="k">Side</span><span class="v long">Long</span></div>
+      <div class="ap-row"><span class="k">Entry</span><span class="v num">21 487.25</span></div>
+      <div class="ap-row"><span class="k">Stop</span><span class="v num stop">21 472.00</span></div>
+      <div class="ap-row"><span class="k">TP1</span><span class="v num tgt">21 521.50</span></div>
+      <div class="ap-row"><span class="k">TP2</span><span class="v num tgt">21 548.00</span></div>
+      <div class="ap-row"><span class="k">Invalidation</span><span class="v num stop">21 468.75</span></div>
+      <div class="ap-row"><span class="k">R : R</span><span class="v num">3.1</span></div>
+    </div>
+    <div class="ap-foot">
+      <span class="ap-status">&#9679; confirmed &middot; 2 bars ago</span>
+      <span class="ap-btns">
+        <button class="ap-btn accept">ACCEPT</button>
+        <button class="ap-btn reject">REJECT</button>
+      </span>
+    </div>
+  </div>
+  <p class="caption">Doubles as the field reference for the setup card &mdash; spec &sect;9 (trade flow) and &sect;13 (component inventory).</p>
+
+  <h3>Colour tokens</h3>
+  <div class="tokens">
+    <div class="tok"><span class="sw" style="background:#0a0c10;"></span> <code>#0a0c10</code> <span class="role">panel surface (near-black)</span></div>
+    <div class="tok"><span class="sw" style="background:#1e2228;"></span> <code>#1e2228</code> <span class="role">hairline border / divider</span></div>
+    <div class="tok"><span class="sw" style="background:#e3b341;"></span> <code>#e3b341</code> <span class="role">amber &mdash; headers, prices, primary accent</span></div>
+    <div class="tok"><span class="sw" style="background:#3fb950;"></span> <code>#3fb950</code> <span class="role">green &mdash; long / confirmed / healthy / pass</span></div>
+    <div class="tok"><span class="sw" style="background:#f0796a;"></span> <code>#f0796a</code> <span class="role">red &mdash; short / stop / invalidated / fail</span></div>
+    <div class="tok"><span class="sw" style="background:#5f6670;"></span> <code>#5f6670</code> <span class="role">grey &mdash; labels</span></div>
+    <div class="tok"><span class="sw" style="background:#c4ccd4;"></span> <code>#c4ccd4</code> <span class="role">grey &mdash; values</span></div>
+  </div>
+
+  <h3>Rules</h3>
+  <ul class="rules">
+    <li>Monospace throughout. Uppercase, letter-spaced labels for headers.</li>
+    <li>1px hairline borders. Zero border-radius. No shadows, no gradients.</li>
+    <li>High density &mdash; whitespace groups, it does not decorate.</li>
+    <li>Colour is semantic, never decorative. Buttons are bracketed: <code>[ ACCEPT ]</code>.</li>
+  </ul>
+</div>
+</body>
+</html>

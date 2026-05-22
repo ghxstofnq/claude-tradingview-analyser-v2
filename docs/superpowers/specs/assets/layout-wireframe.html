@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trading Workstation — Layout Wireframe</title>
+<style>
+  body { background: #08090c; color: #c9d1d9; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0; padding: 34px 28px; }
+  .wrap { max-width: 1140px; margin: 0 auto; }
+  .doc-meta { font-size: 11px; color: #56606f; letter-spacing: .04em; margin: 0 0 22px; padding-bottom: 13px; border-bottom: 1px solid #1c2128; }
+  h2 { font-size: 19px; color: #e6edf3; margin: 0 0 7px; font-weight: 600; }
+  .subtitle { font-size: 13px; color: #8b949e; line-height: 1.6; margin: 0; }
+
+  .lw-grid { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 20px; }
+  .lw-col { flex: 1; min-width: 260px; }
+  .lw-colcap { font-size: 11px; letter-spacing: .05em; color: #8b949e; margin: 0 0 8px; text-align: center; }
+  .lw-colcap b { color: #e3b341; font-weight: 600; }
+  .lw-colcap .ratio { color: #6b7585; }
+  .lw-frame { width: 100%; aspect-ratio: 16 / 10; background: #0d1117; border: 1px solid #2a3038; border-radius: 7px; overflow: hidden; display: flex; flex-direction: column; }
+  .lw-modes { flex: 0 0 21px; background: #11151c; display: flex; align-items: center; gap: 9px; padding: 0 8px; border-bottom: 1px solid #21262d; font-size: 7.5px; letter-spacing: .11em; }
+  .lw-pill { color: #56606f; }
+  .lw-pill.on { color: #e3b341; font-weight: 700; }
+  .lw-modes .clk { margin-left: auto; color: #6b7585; letter-spacing: .05em; }
+  .lw-body { flex: 1; display: flex; min-height: 0; }
+  .lw-chart { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; background: #0f151e; color: #c9d4e3; font-size: 9px; letter-spacing: .13em; min-width: 0; padding: 5px; position: relative; }
+  .lw-chart small { font-size: 6.5px; opacity: .6; letter-spacing: .03em; }
+  .lw-chart .pct { position: absolute; top: 4px; left: 6px; font-size: 6.5px; color: #44506a; letter-spacing: .04em; }
+  .lw-candles { display: flex; align-items: flex-end; gap: 2px; height: 20px; opacity: .6; }
+  .lw-candles i { width: 3px; background: #3d5a78; display: block; }
+  .lw-work { border-left: 1px solid #21262d; display: flex; flex-direction: column; min-width: 0; background: #13181f; position: relative; }
+  .lw-work .pct { position: absolute; top: 4px; right: 6px; font-size: 6.5px; color: #44506a; letter-spacing: .04em; z-index: 2; }
+  .lw-sub { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 4px; min-height: 0; font-size: 8px; letter-spacing: .1em; color: #7d8794; border-top: 1px solid #1c222b; }
+  .lw-sub:first-child { border-top: 0; }
+  .lw-sub small { font-size: 6px; opacity: .6; letter-spacing: .02em; }
+  .lw-sub.head { flex: 0 0 16px; background: #1a2031; color: #9fb0c8; font-size: 6.5px; letter-spacing: .14em; }
+  .lw-sub.claude { background: #181527; color: #b9a6e0; }
+  .lw-sub.setups { background: #121d18; color: #7faa90; }
+  .lw-sub.replay { flex: 0 0 18px; background: #181527; color: #b9a6e0; font-size: 7px; letter-spacing: .12em; flex-direction: row; gap: 7px; }
+  .lw-note { margin-top: 22px; font-size: 13px; line-height: 1.65; color: #9aa4b2; }
+  .lw-note b { color: #e3b341; }
+  .lw-note .row { margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="doc-meta">TRADING WORKSTATION &middot; design-session reference &middot; spec: 2026-05-22-trading-workstation-design.md (&sect;5, &sect;6)</div>
+  <h2>Layout &mdash; B + C hybrid across the three modes</h2>
+  <p class="subtitle">The TradingView chart is anchored on the left in every mode. The PREP / LIVE / REVIEW switch retools the right-hand workstation and the split ratio &mdash; 50/50 for prep and review, 70/30 for live. This is a structural wireframe, not final visual design.</p>
+
+  <div class="lw-grid">
+
+    <div class="lw-col">
+      <p class="lw-colcap"><b>PREP</b> &middot; pre-session &nbsp;<span class="ratio">50 / 50</span></p>
+      <div class="lw-frame">
+        <div class="lw-modes"><span class="lw-pill on">PREP</span><span class="lw-pill">LIVE</span><span class="lw-pill">REVIEW</span><span class="clk">08:55 ET</span></div>
+        <div class="lw-body">
+          <div class="lw-chart" style="flex: 0 0 50%">
+            <span class="pct">50%</span>
+            CHART
+            <div class="lw-candles"><i style="height:55%"></i><i style="height:80%"></i><i style="height:48%"></i><i style="height:68%"></i><i style="height:60%"></i></div>
+            <small>TradingView</small>
+          </div>
+          <div class="lw-work" style="flex: 1">
+            <span class="pct">50%</span>
+            <div class="lw-sub head">MORNING BRIEF</div>
+            <div class="lw-sub" style="flex: 1">HTF BIAS</div>
+            <div class="lw-sub" style="flex: 1">KEY LEVELS</div>
+            <div class="lw-sub" style="flex: 1">PLAN &middot; PILLARS 1+2</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lw-col">
+      <p class="lw-colcap"><b>LIVE</b> &middot; entry hunt &nbsp;<span class="ratio">70 / 30</span></p>
+      <div class="lw-frame">
+        <div class="lw-modes"><span class="lw-pill">PREP</span><span class="lw-pill on">LIVE</span><span class="lw-pill">REVIEW</span><span class="clk">10:14 ET</span></div>
+        <div class="lw-body">
+          <div class="lw-chart" style="flex: 0 0 70%">
+            <span class="pct">70%</span>
+            CHART
+            <div class="lw-candles"><i style="height:55%"></i><i style="height:88%"></i><i style="height:44%"></i><i style="height:72%"></i><i style="height:60%"></i><i style="height:82%"></i><i style="height:50%"></i></div>
+            <small>TradingView</small>
+          </div>
+          <div class="lw-work" style="flex: 1">
+            <span class="pct">30%</span>
+            <div class="lw-sub claude" style="flex: 1.7">CLAUDE<small>conversation</small></div>
+            <div class="lw-sub setups" style="flex: 1">SETUPS &middot; TRADES</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lw-col">
+      <p class="lw-colcap"><b>REVIEW</b> &middot; post-session &nbsp;<span class="ratio">50 / 50</span></p>
+      <div class="lw-frame">
+        <div class="lw-modes"><span class="lw-pill">PREP</span><span class="lw-pill">LIVE</span><span class="lw-pill on">REVIEW</span><span class="clk">16:30 ET</span></div>
+        <div class="lw-body">
+          <div class="lw-chart" style="flex: 0 0 50%">
+            <span class="pct">50%</span>
+            CHART &middot; REPLAY
+            <div class="lw-candles"><i style="height:55%"></i><i style="height:80%"></i><i style="height:48%"></i><i style="height:68%"></i><i style="height:58%"></i></div>
+            <small>step through the session</small>
+          </div>
+          <div class="lw-work" style="flex: 1">
+            <span class="pct">50%</span>
+            <div class="lw-sub replay">&#9664;&#9664; &nbsp; &#9646;&#9646; &nbsp; &#9654;&#9654; &nbsp; REPLAY</div>
+            <div class="lw-sub" style="flex: 1">SESSION JOURNAL</div>
+            <div class="lw-sub" style="flex: 1">OUTCOMES &middot; GRADES</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="lw-note">
+    <div class="row"><b>PREP &middot; 50 / 50</b> &mdash; equal weight: read the brief while you scan the chart for the levels it names.</div>
+    <div class="row"><b>LIVE &middot; 70 / 30</b> &mdash; chart dominates for entry-hunting; the workstation rail is Claude + setups &mdash; or, in the first ~15 min, the open-reaction tracker (spec &sect;6.2).</div>
+    <div class="row"><b>REVIEW &middot; 50 / 50</b> &mdash; equal weight: replay on the left, journal &amp; outcomes on the right.</div>
+  </div>
+</div>
+</body>
+</html>
