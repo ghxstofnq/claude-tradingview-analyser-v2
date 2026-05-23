@@ -6,6 +6,7 @@ import { LiveWorkstation } from "./Live.jsx";
 import { ReviewWorkstation } from "./Review.jsx";
 import { useHealth } from "./hooks/useHealth.js";
 import { armAlertReal, useAlertFiredListener } from "./hooks/useAlerts.js";
+import { FileViewer } from "./FileViewer.jsx";
 
 const INITIAL = {
   mode: "prep",
@@ -162,7 +163,7 @@ function fmtSize(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
-function FilesPopover({ onClose }) {
+function FilesPopover({ onClose, onView }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
 
@@ -238,21 +239,36 @@ function FilesPopover({ onClose }) {
             <span style={{ color: "var(--label)", fontSize: 10 }}>
               {f.exists ? fmtAge(f.mtime_ms) : ""}
             </span>
-            <span style={{ display: "flex", gap: 6 }}>
+            <span style={{ display: "flex", gap: 4 }}>
               <button
                 disabled={!f.exists}
-                onClick={() => window.api?.files?.open?.(f.path)}
+                onClick={() => onView?.(f)}
                 style={{
                   color: f.exists ? "var(--amber)" : "var(--label-dim)",
                   background: "transparent",
-                  border: "1px solid var(--border, #2a3038)",
-                  padding: "2px 8px",
+                  border: "1px solid var(--amber, #e3b341)",
+                  padding: "2px 7px",
                   fontSize: 9.5,
                   letterSpacing: ".12em",
                   cursor: f.exists ? "pointer" : "default",
                   fontFamily: "inherit",
                 }}>
-                OPEN
+                VIEW
+              </button>
+              <button
+                disabled={!f.exists}
+                onClick={() => window.api?.files?.open?.(f.path)}
+                style={{
+                  color: f.exists ? "var(--value)" : "var(--label-dim)",
+                  background: "transparent",
+                  border: "1px solid var(--border, #2a3038)",
+                  padding: "2px 7px",
+                  fontSize: 9.5,
+                  letterSpacing: ".12em",
+                  cursor: f.exists ? "pointer" : "default",
+                  fontFamily: "inherit",
+                }}>
+                EDIT
               </button>
               <button
                 disabled={!f.exists}
@@ -261,13 +277,13 @@ function FilesPopover({ onClose }) {
                   color: f.exists ? "var(--value)" : "var(--label-dim)",
                   background: "transparent",
                   border: "1px solid var(--border, #2a3038)",
-                  padding: "2px 8px",
+                  padding: "2px 7px",
                   fontSize: 9.5,
                   letterSpacing: ".12em",
                   cursor: f.exists ? "pointer" : "default",
                   fontFamily: "inherit",
                 }}>
-                FINDER
+                REVEAL
               </button>
             </span>
           </div>
@@ -573,6 +589,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [viewerFile, setViewerFile] = useState(null);
 
   const toggleArm = (name, px) => {
     setAlerts((a) => {
@@ -699,7 +716,12 @@ function App() {
                        onClose={() => setAlertsOpen(false)} />
       )}
       {filesOpen && (
-        <FilesPopover onClose={() => setFilesOpen(false)} />
+        <FilesPopover
+          onClose={() => setFilesOpen(false)}
+          onView={(f) => { setViewerFile(f); setFilesOpen(false); }} />
+      )}
+      {viewerFile && (
+        <FileViewer file={viewerFile} onClose={() => setViewerFile(null)} />
       )}
 
       <div className={"main " + split}>

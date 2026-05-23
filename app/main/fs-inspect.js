@@ -88,3 +88,19 @@ export function revealInFolder(absPath) {
   shell.showItemInFolder(absPath);
   return { ok: true };
 }
+
+const READ_LIMIT = 5 * 1024 * 1024;   // 5 MB hard cap for the in-app viewer
+
+export async function readFileForViewer(absPath) {
+  const st = await statSafe(absPath);
+  if (!st) return { ok: false, error: "file not found" };
+  if (st.size > READ_LIMIT) {
+    return {
+      ok: false,
+      error: `file is ${(st.size / 1024 / 1024).toFixed(1)}MB — over the 5MB in-app viewer limit; use [ OPEN ] to view in your editor.`,
+      size: st.size,
+    };
+  }
+  const content = await fs.readFile(absPath, "utf8");
+  return { ok: true, content, size: st.size, mtime_ms: st.mtimeMs };
+}

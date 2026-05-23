@@ -104,6 +104,9 @@ contextBridge.exposeInMainWorld("api", {
     reveal(p) {
       return ipcRenderer.invoke("files:reveal", { path: p });
     },
+    read(p) {
+      return ipcRenderer.invoke("files:read", { path: p });
+    },
   },
   error: {
     onError(cb) {

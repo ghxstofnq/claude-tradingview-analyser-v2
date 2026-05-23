@@ -9,7 +9,7 @@ import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { startAlertPolling, stopAlertPolling, setAlertMode } from "./alerts.js";
 import { tvAlertCreate } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, activeOrImminentSession } from "./session-brief.js";
-import { listSessionFiles, openPath, revealInFolder } from "./fs-inspect.js";
+import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -116,6 +116,14 @@ export function registerIpc(win) {
   ipcMain.handle("files:reveal", async (_evt, { path: p }) => {
     revealInFolder(p);
     return { ok: true };
+  });
+
+  ipcMain.handle("files:read", async (_evt, { path: p }) => {
+    try {
+      return await readFileForViewer(p);
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
   });
 
   return { send };
