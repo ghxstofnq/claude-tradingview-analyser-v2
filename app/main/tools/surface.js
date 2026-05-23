@@ -1,6 +1,6 @@
-// surface_setup / surface_no_trade — tools Claude calls to push structured
-// output to the UI as a card. Main captures the call, persists to disk,
-// and forwards to the renderer via the chat:tool_call IPC event.
+// surface_setup / surface_no_trade / surface_session_brief — tools Claude
+// calls to push structured output to the UI. Main captures the call,
+// persists to disk, and forwards to the renderer via IPC.
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -21,5 +21,14 @@ export async function surfaceSetup(payload) {
 
 export async function surfaceNoTrade({ reason }) {
   _send?.("chat:tool_call", { name: "surface_no_trade", payload: { reason } });
+  return { ok: true };
+}
+
+export async function surfaceSessionBrief(payload) {
+  const dir = await activeSessionDir();
+  const file = path.join(dir, "brief.json");
+  const record = { ...payload, ts: new Date().toISOString() };
+  await fs.writeFile(file, JSON.stringify(record, null, 2), "utf8");
+  _send?.("prep:brief_updated", record);
   return { ok: true };
 }

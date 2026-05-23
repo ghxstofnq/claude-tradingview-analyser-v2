@@ -1,79 +1,102 @@
-// PREP mode workstation — Morning Brief.
+// PREP mode workstation — Session Brief.
 
 import React from "react";
 import { Panel, Row, Grade, PillarsPanel } from "./Shared.jsx";
+import { useSessionBrief, formatAge } from "./hooks/useSessionBrief.js";
+
+const SESSION_LABEL = {
+  "london": "LONDON",
+  "ny-am":  "NY AM",
+  "ny-pm":  "NY PM",
+};
+
+function formatPx(p) {
+  if (typeof p === "string") return p;
+  if (typeof p !== "number") return String(p ?? "");
+  const [whole, dec = ""] = String(p).split(".");
+  const withSpaces = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return dec ? `${withSpaces}.${dec.padEnd(2, "0").slice(0, 2)}` : withSpaces;
+}
+
+function RefreshButton({ status, onClick, age }) {
+  const running = status === "running";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      <span style={{ color: "var(--label)", fontSize: 10 }}>
+        {running ? "claude is preparing…" : age != null ? `claude · ${formatAge(age)}` : ""}
+      </span>
+      <button
+        onClick={onClick}
+        disabled={running}
+        style={{
+          color: running ? "var(--label)" : "var(--amber)",
+          background: "transparent",
+          border: "1px solid var(--border, #2a3038)",
+          padding: "3px 9px",
+          fontFamily: "ui-monospace, Menlo, monospace",
+          fontSize: 9.5,
+          letterSpacing: ".16em",
+          cursor: running ? "default" : "pointer",
+        }}>
+        {running ? "[ ··· ]" : "[ REFRESH ]"}
+      </button>
+    </span>
+  );
+}
+
+function EmptyBrief({ status, session, onRefresh }) {
+  const running = status === "running";
+  return (
+    <div className="work-scroll">
+      <Panel title={`SESSION BRIEF · ${SESSION_LABEL[session] || "—"}`}
+             right={<RefreshButton status={status} onClick={onRefresh} />}>
+        <div style={{ color: "var(--label)", fontSize: 11.5, lineHeight: 1.6 }}>
+          {running
+            ? "Claude is preparing the session brief — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes ~15s."
+            : status === "error"
+            ? "The session brief failed to generate. Hit refresh to try again."
+            : session
+            ? "No brief yet for this session. Hit refresh to run one now — or wait for the next scheduled trigger (02:00 / 09:00 / 13:00 ET)."
+            : "Outside trading windows — next session opens Monday 02:00 ET (London)."}
+        </div>
+      </Panel>
+    </div>
+  );
+}
 
 function PrepWorkstation({ alerts, onToggleArm }) {
   const armed = alerts?.armed || {};
   const fired = alerts?.fired || [];
-  const htf = [
-    { tf: "DAILY", bias: "BULLISH", note: "uptrend intact · PDH untaken" },
-    { tf: "4H",    bias: "BULLISH", note: "discount → premium leg, FVG @ 21512" },
-    { tf: "1H",    bias: "BULLISH", note: "BoS overnight · pulling from ONL" },
-  ];
 
-  const overnight = [
-    { k: "Asia range",      v: "21458.75 — 21496.50" },
-    { k: "London range",    v: "21471.50 — 21516.00" },
-    { k: "London swept",    v: "ONL @ 21471.50",      tone: "amber" },
-    { k: "Direction overnight", v: "+0.34 %",         tone: "green" },
-  ];
+  const { brief, session, status, refresh, ageMs } = useSessionBrief();
 
-  const levels = [
-    { name: "PWH",  px: "21 561.25", state: "untaken", marker: "─" },
-    { name: "PDH",  px: "21 528.50", state: "untaken", marker: "─" },
-    { name: "ONH",  px: "21 516.00", state: "untaken", marker: "·" },
-    { name: "ONL",  px: "21 471.50", state: "taken",   marker: "·" },
-    { name: "PDL",  px: "21 462.75", state: "untaken", marker: "─" },
-    { name: "PWL",  px: "21 398.00", state: "untaken", marker: "─" },
-  ];
+  if (!brief) {
+    return <EmptyBrief status={status} session={session} onRefresh={refresh} />;
+  }
 
-  const prepPillars = [
-    {
-      name: "Draw & Bias",
-      status: "pass",
-      elements: [
-        { name: "HTF Draw on liquidity", status: "pass" },
-        { name: "Daily / 4H alignment",  status: "pass" },
-        { name: "Overnight context",     status: "pass" },
-      ],
-    },
-    {
-      name: "Price-Action Quality",
-      status: "weak",
-      elements: [
-        { name: "Range clarity",        status: "pass" },
-        { name: "Premium / discount",   status: "weak" },
-        { name: "Liquidity build-up",   status: "pass" },
-      ],
-    },
-    {
-      name: "Entry Model + Confirmation",
-      status: "pending",
-      elements: [
-        { name: "Entry model identified", status: "pending" },
-        { name: "Confirmation",          status: "pending" },
-      ],
-    },
-  ];
+  const levels = (brief.key_levels || []).map((lv) => ({
+    name: lv.name,
+    px: formatPx(lv.price),
+    state: lv.state || "untaken",
+    marker: lv.state === "untaken" ? "─" : "·",
+  }));
 
   return (
     <div className="work-scroll">
-      <Panel title="MORNING BRIEF · NY AM · MON MAY 25"
-             right="08:55 ET · 35m to open">
+      <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}`}
+             right={<RefreshButton status={status} onClick={refresh} age={ageMs} />}>
         <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55 }}>
-          HTF aligned long. Asia held; London swept ONL then pushed back. Pre-market
-          drifting toward PDH — expect a sweep of <em style={{color:"var(--amber)", fontStyle:"normal"}}>21 528.50</em>{" "}
-          or a discount pull to <em style={{color:"var(--amber)", fontStyle:"normal"}}>21 471.50</em>. Trade plan: <strong style={{color:"var(--value-strong)"}}>long off discount</strong>, MSS / Trend continuation.
+          {brief.brief}
         </div>
       </Panel>
 
       <Panel title="HTF BIAS">
-        {htf.map((r) => (
+        {(brief.htf_bias || []).map((r) => (
           <div className="row" key={r.tf} style={{ alignItems: "flex-start" }}>
             <span className="k" style={{ minWidth: 50 }}>{r.tf}</span>
             <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14 }}>
-              <span className="v green" style={{ letterSpacing: ".1em", marginRight: 10 }}>
+              <span className={"v " + (r.bias === "BEARISH" ? "red" : r.bias === "MIXED" || r.bias === "NEUTRAL" ? "amber" : "green")}
+                    style={{ letterSpacing: ".1em", marginRight: 10 }}>
                 {r.bias}
               </span>
               <span style={{ color: "var(--label)", fontSize: 11 }}>{r.note}</span>
@@ -83,7 +106,7 @@ function PrepWorkstation({ alerts, onToggleArm }) {
       </Panel>
 
       <Panel title="OVERNIGHT CONTEXT">
-        {overnight.map((r) => <Row key={r.k} k={r.k} v={r.v} tone={r.tone} />)}
+        {(brief.overnight || []).map((r, i) => <Row key={i} k={r.k} v={r.v} tone={r.tone} />)}
       </Panel>
 
       <section className="panel">
@@ -118,27 +141,22 @@ function PrepWorkstation({ alerts, onToggleArm }) {
         <header className="panel-head">
           <span className="title">PRE-SESSION GRADE</span>
           <span className="meta">
-            PILLARS 1 + 2 · <Grade value="B" />
+            PILLARS 1 + 2 · <Grade value={brief.pillar_grade || "no-trade"} />
           </span>
         </header>
         <div className="panel-body flush">
-          <PillarsPanel pillars={prepPillars} />
+          <PillarsPanel pillars={brief.pillars || []} />
         </div>
       </section>
 
       <Panel title="CLAUDE · PLAN FOR THE OPEN">
         <div style={{ color: "var(--value)", fontSize: 11.5, lineHeight: 1.6 }}>
-          Watch the first 15 min for the open reaction at{" "}
-          <em style={{color:"var(--amber)", fontStyle:"normal"}}>21 471.50</em>{" "}
-          (ONL). A sharp rejection up reads as HTF/LTF aligned → A+ potential
-          long off MSS toward <em style={{color:"var(--amber)", fontStyle:"normal"}}>21 528.50</em>{" "}
-          (PDH). Continuation through ONL flips this to a retrace day —
-          no-trade unless a clean B reclaim forms.
+          {brief.plan}
         </div>
         <div className="hr" />
-        <Row k="Anchored target" v="21 528.50 (PDH)" tone="num green" />
-        <Row k="Anchored stop"   v="21 462.75 (PDL)" tone="num red" />
-        <Row k="Sizing if A+ today" v="0.75 R · Mon-reduced" />
+        <Row k="Anchored target" v={brief.anchored_target} tone="num green" />
+        <Row k="Anchored stop"   v={brief.anchored_stop}   tone="num red" />
+        <Row k="Sizing if A+ today" v={brief.sizing_note} />
       </Panel>
 
       <section className="panel">

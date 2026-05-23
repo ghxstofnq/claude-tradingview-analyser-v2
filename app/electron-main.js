@@ -6,6 +6,7 @@ import { registerIpc } from "./main/ipc.js";
 import { setSurfaceSink } from "./main/tools/surface.js";
 import { startHealthMonitor } from "./main/health.js";
 import { startAlertPolling } from "./main/alerts.js";
+import { bootstrap as bootstrapSessionBrief } from "./main/session-brief.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -49,6 +50,11 @@ app.whenReady().then(async () => {
     console.error("[sdk] init failed", err);
     // Don't crash the app — the chat will just fail; the chart still works.
   }
+  // Session brief: app-open check + boundary scheduler (02:00 / 09:00 / 13:00 ET).
+  bootstrapSessionBrief({ send: ipc.send }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[session-brief] bootstrap failed", err);
+  });
 });
 
 app.on("window-all-closed", () => {

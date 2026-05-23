@@ -17,7 +17,7 @@ import { query, tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk"
 import { z } from "zod";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { tvAlertCreate, tvAlertList } from "./tools/tv-alerts.js";
-import { surfaceSetup, surfaceNoTrade } from "./tools/surface.js";
+import { surfaceSetup, surfaceNoTrade, surfaceSessionBrief } from "./tools/surface.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
@@ -48,6 +48,8 @@ You are running inside the desktop Trading Workstation, not the CLI. The worksta
 Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` is a bug — the UI will stay stuck on the previous state. Always end with one of the two surface tools.
 
 To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`mcp__tv__tv_analyze_fast\` (1-bar poll with a baseline path). To arm alerts, use \`mcp__tv__tv_alert_create\`.
+
+**EXCEPTION — session-brief turns.** When the user message asks you to run "the SESSION BRIEF for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_brief\` exactly once at the end of the turn with the structured payload. That's the only tool that surfaces the PREP panels.
 
 Reason in prose first; surface last.`;
 
@@ -160,6 +162,49 @@ function buildMcpServer() {
       async (args) => {
         try {
           return ok(await surfaceNoTrade(args));
+        } catch (e) {
+          return err(e?.message || String(e));
+        }
+      },
+    ),
+    tool(
+      "surface_session_brief",
+      "Render the SESSION BRIEF in the PREP panels. Call this ONCE at the end of a session-brief turn (not from bar-close turns and not from chat turns). Persists to state/session/<date>/<session>/brief.json.",
+      {
+        session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session this brief is for"),
+        brief: z.string().describe("Headline paragraph for the Morning Brief panel"),
+        htf_bias: z.array(z.object({
+          tf: z.enum(["DAILY", "4H", "1H"]),
+          bias: z.enum(["BULLISH", "BEARISH", "MIXED", "NEUTRAL"]),
+          note: z.string(),
+        })).describe("HTF bias per timeframe — exactly DAILY / 4H / 1H"),
+        overnight: z.array(z.object({
+          k: z.string(),
+          v: z.string(),
+          tone: z.enum(["green", "red", "amber"]).optional(),
+        })).describe("Overnight context rows: Asia range, London range, what was swept, direction overnight, etc."),
+        key_levels: z.array(z.object({
+          name: z.string().describe("PWH, PDH, ONH, ONL, PDL, PWL, AS_H, AS_L, LO_H, LO_L"),
+          price: z.union([z.number(), z.string()]).describe("Numeric or pre-formatted price"),
+          state: z.enum(["taken", "untaken"]),
+        })).describe("Key levels for the session, sorted high → low"),
+        pillar_grade: z.enum(["A+", "B", "no-trade"]).describe("Roll-up grade for Pillars 1+2 only (Pillar 3 is pending until LIVE)"),
+        pillars: z.array(z.object({
+          name: z.string(),
+          status: z.enum(["pass", "weak", "fail", "pending"]),
+          elements: z.array(z.object({
+            name: z.string(),
+            status: z.enum(["pass", "weak", "fail", "pending"]),
+          })),
+        })).describe("Three pillars: 'Draw & Bias', 'Price-Action Quality', 'Entry Model + Confirmation' (the third is pending until LIVE)"),
+        plan: z.string().describe("Claude's written plan for the open — what scenario looks like A+, what flips it to retrace, the bias direction"),
+        anchored_target: z.string().describe("e.g. '21 528.50 (PDH)'"),
+        anchored_stop: z.string().describe("e.g. '21 462.75 (PDL)'"),
+        sizing_note: z.string().describe("e.g. '0.75 R · Mon-reduced' — references the strategy sizing table"),
+      },
+      async (args) => {
+        try {
+          return ok(await surfaceSessionBrief(args));
         } catch (e) {
           return err(e?.message || String(e));
         }

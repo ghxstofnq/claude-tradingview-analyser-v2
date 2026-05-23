@@ -8,6 +8,7 @@ import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { startAlertPolling, stopAlertPolling, setAlertMode } from "./alerts.js";
 import { tvAlertCreate } from "./tools/tv-alerts.js";
+import { runManualRefresh, getBriefForToday, activeOrImminentSession } from "./session-brief.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -81,6 +82,17 @@ export function registerIpc(win) {
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }
+  });
+
+  ipcMain.handle("prep:get", async () => {
+    const session = activeOrImminentSession();
+    const brief = session ? await getBriefForToday(session) : null;
+    return { ok: true, session, brief };
+  });
+
+  ipcMain.handle("prep:run", async () => {
+    runManualRefresh().catch(() => {});
+    return { ok: true };
   });
 
   return { send };

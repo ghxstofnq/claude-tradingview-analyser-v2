@@ -76,6 +76,24 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("alert:fired", listener);
     },
   },
+  prep: {
+    get() {
+      return ipcRenderer.invoke("prep:get");
+    },
+    refresh() {
+      return ipcRenderer.invoke("prep:run");
+    },
+    onUpdated(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("prep:brief_updated", listener);
+      return () => ipcRenderer.removeListener("prep:brief_updated", listener);
+    },
+    onStatus(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("prep:status", listener);
+      return () => ipcRenderer.removeListener("prep:status", listener);
+    },
+  },
   error: {
     onError(cb) {
       const listener = (_e, ev) => cb(ev);
