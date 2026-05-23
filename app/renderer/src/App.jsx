@@ -135,6 +135,174 @@ function AlertsPopover({ fired, armed, onClose }) {
   );
 }
 
+// ---------- Files chip + popover ----------
+function FilesChip({ onClick }) {
+  return (
+    <div className="status-cell alert-chip" onClick={onClick} title="session files">
+      <span className="k">FILES</span>
+      <span className="count">≡</span>
+    </div>
+  );
+}
+
+function fmtAge(mtimeMs) {
+  if (!mtimeMs) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - mtimeMs) / 1000));
+  if (s < 60) return `${s}s old`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m old`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m old`;
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return "0";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function FilesPopover({ onClose }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+
+  const reload = () => {
+    window.api?.files?.list?.().then((res) => {
+      if (res?.ok) { setData(res); setErr(null); }
+      else setErr(res?.error || "list failed");
+    }).catch((e) => setErr(String(e?.message || e)));
+  };
+  useEffect(() => {
+    reload();
+    const id = setInterval(reload, 4000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div style={{
+      position: "absolute",
+      top: "calc(var(--topbar-h) - 1px)",
+      right: 12,
+      width: 460,
+      background: "var(--surface-0)",
+      border: "1px solid var(--border)",
+      borderTop: 0,
+      zIndex: 50,
+      fontFamily: "ui-monospace, Menlo, monospace",
+    }}>
+      <div style={{
+        padding: "6px 12px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--surface-1)",
+      }}>
+        <span style={{ color: "var(--amber)", fontSize: 10, letterSpacing: ".22em" }}>
+          SESSION FILES · {data?.session?.toUpperCase() || "—"} · {data?.date || ""}
+        </span>
+        <span onClick={onClose}
+              style={{ color: "var(--label-dim)", fontSize: 13, cursor: "pointer" }}>×</span>
+      </div>
+      <div style={{ maxHeight: 340, overflowY: "auto" }}>
+        {err && (
+          <div style={{ padding: 14, color: "var(--red)", fontSize: 11 }}>{err}</div>
+        )}
+        {data && data.files.map((f) => (
+          <div key={f.label}
+               style={{
+                 padding: "8px 12px",
+                 borderBottom: "1px solid var(--border-dim, #1e2228)",
+                 display: "grid",
+                 gridTemplateColumns: "1fr auto auto auto",
+                 columnGap: 10,
+                 alignItems: "center",
+                 opacity: f.exists ? 1 : 0.45,
+               }}>
+            <span style={{ color: f.exists ? "var(--value)" : "var(--label)", fontSize: 11 }}>
+              {f.label}
+              {f.group === "state" && (
+                <span style={{ color: "var(--label)", fontSize: 9.5, marginLeft: 6 }}>
+                  (state/)
+                </span>
+              )}
+              {f.group === "day" && (
+                <span style={{ color: "var(--label)", fontSize: 9.5, marginLeft: 6 }}>
+                  (day/)
+                </span>
+              )}
+            </span>
+            <span style={{ color: "var(--label)", fontSize: 10 }}>
+              {f.exists
+                ? (f.lines != null ? `${f.lines} lines · ${fmtSize(f.size_bytes)}` : fmtSize(f.size_bytes))
+                : "missing"}
+            </span>
+            <span style={{ color: "var(--label)", fontSize: 10 }}>
+              {f.exists ? fmtAge(f.mtime_ms) : ""}
+            </span>
+            <span style={{ display: "flex", gap: 6 }}>
+              <button
+                disabled={!f.exists}
+                onClick={() => window.api?.files?.open?.(f.path)}
+                style={{
+                  color: f.exists ? "var(--amber)" : "var(--label-dim)",
+                  background: "transparent",
+                  border: "1px solid var(--border, #2a3038)",
+                  padding: "2px 8px",
+                  fontSize: 9.5,
+                  letterSpacing: ".12em",
+                  cursor: f.exists ? "pointer" : "default",
+                  fontFamily: "inherit",
+                }}>
+                OPEN
+              </button>
+              <button
+                disabled={!f.exists}
+                onClick={() => window.api?.files?.reveal?.(f.path)}
+                style={{
+                  color: f.exists ? "var(--value)" : "var(--label-dim)",
+                  background: "transparent",
+                  border: "1px solid var(--border, #2a3038)",
+                  padding: "2px 8px",
+                  fontSize: 9.5,
+                  letterSpacing: ".12em",
+                  cursor: f.exists ? "pointer" : "default",
+                  fontFamily: "inherit",
+                }}>
+                FINDER
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+      {data && (
+        <div style={{
+          padding: "6px 12px",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          borderTop: "1px solid var(--border)",
+          background: "var(--surface-1)",
+        }}>
+          <span style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".08em" }}>
+            session dir
+          </span>
+          <button
+            onClick={() => window.api?.files?.reveal?.(data.session_dir)}
+            style={{
+              color: "var(--amber)",
+              background: "transparent",
+              border: "1px solid var(--amber, #e3b341)",
+              padding: "2px 9px",
+              fontSize: 9.5,
+              letterSpacing: ".16em",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}>
+            OPEN IN FINDER
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AlertToast({ alert, onClose }) {
   useEffect(() => {
     const id = setTimeout(onClose, 4500);
@@ -176,6 +344,7 @@ function ThemeToggle({ theme, setTheme }) {
 // ---------- Top bar ----------
 function TopBar({ mode, setMode, suggested, status, symbol, setSymbol,
                   fired, armed, alertsOpen, setAlertsOpen,
+                  filesOpen, setFilesOpen,
                   theme, setTheme }) {
   const modes = [
     { id: "prep", label: "PREP",   num: "01" },
@@ -215,6 +384,7 @@ function TopBar({ mode, setMode, suggested, status, symbol, setSymbol,
           <span className="v">{status.killzone}</span>
         </div>
         <AlertChip fired={fired} onClick={() => setAlertsOpen((o) => !o)} />
+        <FilesChip onClick={() => setFilesOpen((o) => !o)} />
         <div className="status-cell">
           <span className="k">LOOP</span>
           <span className={"loop-dot " + (status.loop !== "healthy" ? status.loop : "")}></span>
@@ -402,6 +572,7 @@ function App() {
   });
   const [toast, setToast] = useState(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
 
   const toggleArm = (name, px) => {
     setAlerts((a) => {
@@ -518,12 +689,17 @@ function App() {
               armed={alerts.armed}
               alertsOpen={alertsOpen}
               setAlertsOpen={setAlertsOpen}
+              filesOpen={filesOpen}
+              setFilesOpen={setFilesOpen}
               theme={theme}
               setTheme={setTheme} />
 
       {alertsOpen && (
         <AlertsPopover fired={alerts.fired} armed={alerts.armed}
                        onClose={() => setAlertsOpen(false)} />
+      )}
+      {filesOpen && (
+        <FilesPopover onClose={() => setFilesOpen(false)} />
       )}
 
       <div className={"main " + split}>

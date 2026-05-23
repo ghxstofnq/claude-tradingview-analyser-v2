@@ -94,6 +94,17 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("prep:status", listener);
     },
   },
+  files: {
+    list() {
+      return ipcRenderer.invoke("files:list");
+    },
+    open(p) {
+      return ipcRenderer.invoke("files:open", { path: p });
+    },
+    reveal(p) {
+      return ipcRenderer.invoke("files:reveal", { path: p });
+    },
+  },
   error: {
     onError(cb) {
       const listener = (_e, ev) => cb(ev);
