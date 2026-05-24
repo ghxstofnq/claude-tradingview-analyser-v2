@@ -49,8 +49,14 @@ export function registerIpc(win) {
 
   ipcMain.handle("alert:arm", async (_evt, { price, label }) => {
     try {
-      await tvAlertCreate({ price, label });
-      return { ok: true };
+      const result = await tvAlertCreate({ price, label });
+      // Drift > 0 means TV rounded the price (fractional ticks). Worth knowing
+      // so the renderer can show the actual created price instead of the
+      // requested one.
+      if (result.drift_warning) {
+        send("app:error", { source: "alert:arm", message: result.drift_warning, level: "warn" });
+      }
+      return { ok: true, ...result };
     } catch (err) {
       send("app:error", { source: "alert:arm", message: String(err?.message || err) });
       return { ok: false, error: String(err?.message || err) };

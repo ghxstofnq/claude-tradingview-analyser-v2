@@ -1,86 +1,120 @@
 /**
  * Core alert logic.
+ *
+ * Create flow (verified live 2026-05-24 against TradingView Desktop 3.1.0):
+ *   1. Click [aria-label="Create alert"] to open the dialog.
+ *   2. Find the dialog root via its title prefix span ([class*="textPrefix-"]
+ *      containing "Create alert").
+ *   3. JS-focus + select the lone text input. Synthetic input events DO NOT
+ *      update TV's internal alert model — only real keystrokes do.
+ *   4. Backspace to clear, then dispatch CDP keystrokes for each digit/period
+ *      of the target price (modifiers / vkc set per character).
+ *   5. Press Enter — this commits the typed price into TV's model AND submits.
+ *   6. Verify by diffing list_alerts before/after.
+ *
+ * Why the rewrite was needed:
+ *   - Previous code used [aria-label="Create Alert"] (capital A); TV's label
+ *     is lowercase "Create alert".
+ *   - Previous code wrote into the input via native-setter + dispatchEvent.
+ *     TV's framework ignores that — the DOM input value updates but the
+ *     internal alert state still holds the prefilled market price. Pressing
+ *     Create therefore creates an alert at the prefilled price, not ours.
+ *   - The list-diff verification is preserved.
+ *
+ * Message parameter: ignored. The new dialog hides custom message input
+ * behind a sub-panel click. The auto-generated TV message ("SYM Crossing PX")
+ * is used. Custom messages can be re-introduced as a follow-up.
  */
 import { evaluate, evaluateAsync, getClient } from './connection.js';
 
+const SUBMIT_BTN_PREFIX = 'submitBtn-';
+const CREATE_TITLE_PREFIX = 'Create alert';
+
+// Dispatch a single character via CDP — both keyDown and keyUp.
+async function typeChar(client, c) {
+  const isDigit = /\d/.test(c);
+  const code = isDigit ? `Digit${c}` : 'Period';
+  const vkc  = isDigit ? c.charCodeAt(0) : 190;
+  await client.Input.dispatchKeyEvent({ type: 'keyDown', text: c, key: c, code, windowsVirtualKeyCode: vkc });
+  await client.Input.dispatchKeyEvent({ type: 'keyUp',                key: c, code, windowsVirtualKeyCode: vkc });
+}
+
 export async function create({ condition, price, message }) {
-  // Snapshot existing alert IDs so we can detect the new one after the create flow.
-  // The DOM-fallback `success` flag is unreliable — it has reported false even when alerts are
-  // successfully created, and TradingView sometimes rounds/drifts fractional-tick prices.
-  // Diffing `list()` before/after is the only trustworthy confirmation.
+  // Snapshot existing alert IDs so we can verify the new one after submit.
   let preIds = new Set();
   try {
     const pre = await list();
     preIds = new Set((pre.alerts || []).map(a => a.alert_id));
   } catch (_) {}
 
+  // 1) Open the Create Alert dialog.
   const opened = await evaluate(`
     (function() {
-      var btn = document.querySelector('[aria-label="Create Alert"]')
-        || document.querySelector('[data-name="alerts"]');
+      var btn = document.querySelector('[aria-label="Create alert"]');
       if (btn) { btn.click(); return true; }
       return false;
     })()
   `);
 
   if (!opened) {
-    const client = await getClient();
-    await client.Input.dispatchKeyEvent({ type: 'keyDown', modifiers: 1, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
-    await client.Input.dispatchKeyEvent({ type: 'keyUp', key: 'a', code: 'KeyA' });
+    return {
+      success: false,
+      reason: 'Could not click [aria-label="Create alert"] — TradingView UI may have changed.',
+      requested_price: Number(price),
+      condition,
+      source: 'dom_keyboard_unverified',
+    };
   }
 
   await new Promise(r => setTimeout(r, 1000));
 
-  const priceSet = await evaluate(`
+  // 2 + 3) Find the dialog input and focus + select it.
+  const focused = await evaluate(`
     (function() {
-      var inputs = document.querySelectorAll('[class*="alert"] input[type="text"], [class*="alert"] input[type="number"]');
-      for (var i = 0; i < inputs.length; i++) {
-        var label = inputs[i].closest('[class*="row"]')?.querySelector('[class*="label"]');
-        if (label && /value|price/i.test(label.textContent)) {
-          var nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-          nativeSet.call(inputs[i], '${price}');
-          inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
-          inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
-        }
+      var ts = Array.from(document.querySelectorAll('[class*="textPrefix-"]'))
+        .find(function(s){ return s.textContent.trim().startsWith(${JSON.stringify(CREATE_TITLE_PREFIX)}); });
+      if (!ts) return false;
+      var root = ts;
+      for (var i = 0; i < 15 && root.parentElement; i++) {
+        root = root.parentElement;
+        if (root.querySelectorAll('button[class*=${JSON.stringify(SUBMIT_BTN_PREFIX)}]').length >= 1) break;
       }
-      if (inputs.length > 0) {
-        var nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-        nativeSet.call(inputs[0], '${price}');
-        inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-        return true;
-      }
-      return false;
+      var input = root.querySelector('input[type="text"]');
+      if (!input) return false;
+      input.focus();
+      input.select();
+      return true;
     })()
   `);
 
-  if (message) {
-    await evaluate(`
-      (function() {
-        var textarea = document.querySelector('[class*="alert"] textarea')
-          || document.querySelector('textarea[placeholder*="message"]');
-        if (textarea) {
-          var nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-          nativeSet.call(textarea, ${JSON.stringify(message)});
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-      })()
-    `);
+  if (!focused) {
+    return {
+      success: false,
+      reason: 'Dialog opened but could not focus the price input.',
+      requested_price: Number(price),
+      condition,
+      source: 'dom_keyboard_unverified',
+    };
   }
 
-  await new Promise(r => setTimeout(r, 500));
-  const clicked = await evaluate(`
-    (function() {
-      var btns = document.querySelectorAll('button[data-name="submit"], button');
-      for (var i = 0; i < btns.length; i++) {
-        if (/^create$/i.test(btns[i].textContent.trim())) { btns[i].click(); return true; }
-      }
-      return false;
-    })()
-  `);
+  // 4) Backspace to clear, then type the new price via CDP keystrokes.
+  const client = await getClient();
+  await client.Input.dispatchKeyEvent({ type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
+  await client.Input.dispatchKeyEvent({ type: 'keyUp',   key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
+  await new Promise(r => setTimeout(r, 80));
 
-  // Wait for TradingView to persist the alert, then verify via list diff.
-  await new Promise(r => setTimeout(r, 1500));
+  for (const c of String(price)) {
+    await typeChar(client, c);
+    await new Promise(r => setTimeout(r, 25));
+  }
+
+  // 5) Press Enter — commits the typed value to TV's model AND submits.
+  await new Promise(r => setTimeout(r, 200));
+  await client.Input.dispatchKeyEvent({ type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await client.Input.dispatchKeyEvent({ type: 'keyUp',   key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+
+  // 6) Wait for TV to persist, then verify via list diff.
+  await new Promise(r => setTimeout(r, 1800));
   let createdAlert = null;
   try {
     const post = await list();
@@ -111,23 +145,23 @@ export async function create({ condition, price, message }) {
       created_price: createdPrice,
       drift,
       drift_warning: drift !== null && drift !== 0
-        ? `Price drifted ${drift > 0 ? '+' : ''}${drift} — TV rounded or dropped fraction. Whole-integer prices land exact.`
+        ? `Price drifted ${drift > 0 ? '+' : ''}${drift} — TV rounded or dropped fraction.`
         : null,
       condition,
-      message: message || '(none)',
-      source: 'dom_fallback_verified_via_list',
+      message: createdAlert.message || '(auto)',
+      source: 'dom_keyboard_verified_via_list',
     };
   }
 
   return {
     success: false,
-    reason: 'No new alert appeared in list() after create — DOM flow may have failed.',
-    dom_clicked_create: !!clicked,
-    dom_price_set: !!priceSet,
+    reason: 'No new alert appeared in list() after submit — Enter key may not have committed.',
+    dom_opened: opened,
+    dom_input_focused: focused,
     requested_price: Number(price),
     condition,
     message: message || '(none)',
-    source: 'dom_fallback_unverified',
+    source: 'dom_keyboard_unverified',
   };
 }
 

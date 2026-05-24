@@ -26,6 +26,9 @@ function runTvCapture(args, { spawn = nodeSpawn } = {}) {
   });
 }
 
+// Create a TradingView price alert. Parses the CLI's JSON output so caller
+// (renderer) sees real failures + drift warnings — the old wrapper always
+// returned {ok:true}, hiding silent breakage when TV's DOM changed.
 export async function tvAlertCreate({ price, label, condition }, opts = {}) {
   const args = [
     "alert", "create",
@@ -33,8 +36,26 @@ export async function tvAlertCreate({ price, label, condition }, opts = {}) {
     "--message", String(label),
   ];
   if (condition) args.push("--condition", condition);
-  await runTvCapture(args, opts);
-  return { ok: true };
+  const stdout = await runTvCapture(args, opts);
+  let result;
+  try { result = JSON.parse(stdout); }
+  catch {
+    throw new Error(`alert create returned unparseable output: ${stdout.slice(0, 200)}`);
+  }
+  if (result.success === false) {
+    const detail = result.reason || result.err?.message || "unknown failure";
+    const err = new Error(`alert create failed: ${detail}`);
+    err.detail = result;
+    throw err;
+  }
+  return {
+    ok: true,
+    alert_id: result.alert_id ?? null,
+    requested_price: result.requested_price ?? Number(price),
+    created_price: result.created_price ?? null,
+    drift: result.drift ?? null,
+    drift_warning: result.drift_warning ?? null,
+  };
 }
 
 export async function tvAlertList(_input, opts = {}) {
