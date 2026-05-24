@@ -46,8 +46,12 @@ export async function listSessionFiles() {
 
   const files = await Promise.all([
     describe(path.join(sessionDir, "brief.json")),
+    describe(path.join(sessionDir, "pillar1.md")),
+    describe(path.join(sessionDir, "pillar2.md")),
     describe(path.join(sessionDir, "setups.jsonl"), { countLines: true }),
     describe(path.join(sessionDir, "trades.jsonl"), { countLines: true }),
+    describe(path.join(sessionDir, "bars.jsonl"), { countLines: true }),
+    describe(path.join(sessionDir, "bars-5m.jsonl"), { countLines: true }),
     describe(path.join(dayDir, "bar-close-events.jsonl"), { countLines: true }),
     describe(path.join(stateDir, "last-analyze.json")),
     describe(path.join(stateDir, "last-scan.json")),
@@ -57,15 +61,22 @@ export async function listSessionFiles() {
 
   const labels = [
     "brief.json",
+    "pillar1.md",
+    "pillar2.md",
     "setups.jsonl",
     "trades.jsonl",
+    "bars.jsonl",
+    "bars-5m.jsonl",
     "bar-close-events.jsonl",
     "last-analyze.json",
     "last-scan.json",
     "baseline.json",
     "detector-heartbeat.json",
   ];
-  const groups = ["session", "session", "session", "day", "state", "state", "state", "day"];
+  const groups = [
+    "session", "session", "session", "session", "session", "session", "session",
+    "day", "state", "state", "state", "day",
+  ];
 
   const items = files.map((f, i) => ({ ...f, label: labels[i], group: groups[i] }));
   return {

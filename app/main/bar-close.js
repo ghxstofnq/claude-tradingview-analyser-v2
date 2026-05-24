@@ -21,6 +21,10 @@ import { markBarReceived, markTurnComplete } from "./health.js";
 import { activeSessionDir } from "./sessions.js";
 import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 
+// How many recent JSONL entries to tail into the per-bar prompt.
+const MEMORY_SETUPS_TAIL = 5;
+const MEMORY_BARS_TAIL = 10;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const TV_BIN = path.join(REPO_ROOT, "bin", "tv");
@@ -106,6 +110,14 @@ async function handleBar(ev) {
   const phase = phaseFor(session, ev);
   if (phase === "off") return;
 
+  // Append the bar to <sdir>/bars.jsonl (or bars-5m.jsonl) BEFORE Claude's turn
+  // so the next prompt enrichment can see it. Deterministic — body_ratio etc.
+  // are computed in code per constraint #7 (no LLM arithmetic).
+  await appendBarLog(ev).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] appendBarLog threw", err?.message || err);
+  });
+
   // Don't pile up turns if Claude is still streaming the previous one.
   if (_busyWithClaude) return;
   _busyWithClaude = true;
@@ -113,10 +125,12 @@ async function handleBar(ev) {
   try {
     await maybeRefreshBaseline();
 
+    const memory = await readSessionMemory();
     const hint = phase === "open_reaction"
       ? "Watch the open reaction; do NOT call surface_setup yet — surface_no_trade or stay silent."
-      : "Walk the 3-pillar checklist; if a valid setup is in play, call surface_setup at end of the turn.";
-    const text = `A new ${ev.tf} bar just closed at ${ev.ts} (ET). Phase: ${phase}. ${hint}`;
+      : "Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). If a candidate or confirmed setup is in play, call surface_setup; otherwise surface_no_trade.";
+    const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
+    const text = `A new ${ev.tf} bar just closed at ${ev.ts} (ET). Phase: ${phase}.${memoryBlock}\n${hint}`;
 
     await userTurn({
       text,
@@ -133,6 +147,43 @@ async function handleBar(ev) {
   } finally {
     _busyWithClaude = false;
   }
+}
+
+// Append a per-bar log to the session folder. Main computes body_ratio and
+// close_position_in_range from the OHLC — Claude reads, never produces.
+async function appendBarLog(ev) {
+  const o = ev?.ohlc?.open, h = ev?.ohlc?.high, l = ev?.ohlc?.low, c = ev?.ohlc?.close;
+  if (o == null || h == null || l == null || c == null) return;
+  const range = Math.max(h - l, 1e-9);
+  const body_ratio = Number((Math.abs(c - o) / range).toFixed(3));
+  const close_position_in_range = Number(((c - l) / range).toFixed(3));
+  const direction = c > o ? "bullish" : c < o ? "bearish" : "doji";
+  const rec = { time: ev.ts, tf: ev.tf, o, h, l, c, body_ratio, direction, close_position_in_range };
+  const dir = await activeSessionDir();
+  const name = ev.tf === "5m" ? "bars-5m.jsonl" : "bars.jsonl";
+  await fs.appendFile(path.join(dir, name), JSON.stringify(rec) + "\n", "utf8");
+}
+
+// Read the per-session memory files and stitch them into a single block for
+// the per-bar prompt. Mirrors the "Required reads first" lists in analyze.md.
+// Silently skips anything that doesn't exist — early-session prompts get less.
+async function readSessionMemory() {
+  const dir = await activeSessionDir();
+  const parts = [];
+  for (const name of ["pillar1.md", "pillar2.md", "ltf-bias.md", "open-reaction.md"]) {
+    try {
+      const txt = (await fs.readFile(path.join(dir, name), "utf8")).trim();
+      if (txt) parts.push(`--- ${name} ---\n${txt}`);
+    } catch {}
+  }
+  for (const [name, tailN] of [["setups.jsonl", MEMORY_SETUPS_TAIL], ["bars.jsonl", MEMORY_BARS_TAIL]]) {
+    try {
+      const txt = await fs.readFile(path.join(dir, name), "utf8");
+      const lines = txt.trim().split("\n").filter(Boolean).slice(-tailN);
+      if (lines.length) parts.push(`--- ${name} (last ${lines.length}) ---\n${lines.join("\n")}`);
+    } catch {}
+  }
+  return parts.length ? parts.join("\n\n") : null;
 }
 
 function phaseFor(session, ev) {
