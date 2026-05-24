@@ -116,6 +116,16 @@ contextBridge.exposeInMainWorld("api", {
       return ipcRenderer.invoke("review:library", { limit });
     },
   },
+  status: {
+    lastBar() {
+      return ipcRenderer.invoke("status:last_bar_get");
+    },
+  },
+  quote: {
+    cache() {
+      return ipcRenderer.invoke("quote:cache_get");
+    },
+  },
   files: {
     list() {
       return ipcRenderer.invoke("files:list");

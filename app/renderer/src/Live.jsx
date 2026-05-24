@@ -211,7 +211,7 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
       )}
 
       <SectionHead title="CLAUDE · CONVERSATION" count="1m · NY AM" />
-      <div style={{ flex: 1.45, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <ClaudeFeed messages={messages} typing={typing} onSubmit={submit}
                     onArmPrice={onArmPrice}
                     armedPrices={alerts ? new Set(Object.values(alerts.armed || {})) : null}

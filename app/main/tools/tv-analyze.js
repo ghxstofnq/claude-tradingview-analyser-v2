@@ -10,6 +10,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { updateFromBundle } from "../symbol-cache.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -32,7 +33,10 @@ async function readBundle(outPath, opts) {
   if (opts.skipRead) return { path: outPath };
   const txt = await fs.readFile(outPath, "utf8");
   try {
-    return { path: outPath, bundle: JSON.parse(txt) };
+    const bundle = JSON.parse(txt);
+    // Fire-and-forget — symbol-cache write must not block the analyze return.
+    updateFromBundle(bundle).catch(() => {});
+    return { path: outPath, bundle };
   } catch {
     return { path: outPath, bundle_raw: txt };
   }

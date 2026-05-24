@@ -7,6 +7,8 @@ import { ReviewWorkstation } from "./Review.jsx";
 import { useHealth } from "./hooks/useHealth.js";
 import { armAlertReal, useAlertFiredListener } from "./hooks/useAlerts.js";
 import { useClock } from "./hooks/useClock.js";
+import { useLastBar } from "./hooks/useLastBar.js";
+import { useSymbolCache, formatPx as fmtCachedPx, formatAgeShort } from "./hooks/useSymbolCache.js";
 import { FileViewer } from "./FileViewer.jsx";
 
 const INITIAL = {
@@ -31,6 +33,7 @@ const SYMBOLS = [
 function SymbolSwitcher({ symbol, setSymbol }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const cache = useSymbolCache(open);
   useEffect(() => {
     const onClick = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -49,14 +52,26 @@ function SymbolSwitcher({ symbol, setSymbol }) {
       {open && (
         <div className="sym-menu">
           <div className="head">CME MICRO FUTURES</div>
-          {SYMBOLS.map((s) => (
-            <div key={s.sym}
-                 className={"opt" + (s.sym === symbol ? " cur" : "")}
-                 onClick={() => { setSymbol(s.sym); setOpen(false); }}>
-              <span className="sym">{s.sym}</span>
-              <span className="name">{s.name}</span>
-            </div>
-          ))}
+          {SYMBOLS.map((s) => {
+            const c = cache[s.sym];
+            const age = c?.ts ? formatAgeShort(c.ts) : null;
+            return (
+              <div key={s.sym}
+                   className={"opt" + (s.sym === symbol ? " cur" : "")}
+                   onClick={() => { setSymbol(s.sym); setOpen(false); }}>
+                <span className="sym">{s.sym}</span>
+                <span className="name">{s.name}</span>
+                <span className="px" style={{ color: c ? "var(--value)" : "var(--label-dim)" }}>
+                  {c ? fmtCachedPx(c.px) : "—"}
+                  {age && (
+                    <span style={{ color: "var(--label)", fontSize: 9.5, marginLeft: 6 }}>
+                      {age}
+                    </span>
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -528,14 +543,18 @@ function Workstation({ mode, tweaks, alerts, onToggleArm, onArmPrice }) {
   );
 }
 
-function buildStatus(clock, effectiveT) {
-  return {
-    clock: clock.clock,
-    phase: clock.phase,
-    killzone: clock.killzone,
-    loop: effectiveT.loopHealth,
-    lastBar: "—",
-  };
+function buildStatus(clock, effectiveT, lastBar) {
+  // Auto-stale the loop if the last bar is older than 90s during an active
+  // session window — early warning that the detector died.
+  let loop = effectiveT.loopHealth;
+  if (clock.marketState === "open"
+      && (clock.phase === "OPEN REACTION" || clock.phase === "ENTRY HUNT")
+      && lastBar.age_seconds != null
+      && lastBar.age_seconds > 90) {
+    loop = "stale";
+  }
+  const lastBarLabel = lastBar.ts ? `${lastBar.hhmm} · ${lastBar.age_label}` : "—";
+  return { clock: clock.clock, phase: clock.phase, killzone: clock.killzone, loop, lastBar: lastBarLabel };
 }
 
 function suggestedMode(tweaks, clock) {
@@ -655,7 +674,8 @@ function App() {
     ? { ...t, loopHealth: health.loop }
     : t;
   const clock = useClock();
-  const status = buildStatus(clock, effectiveT);
+  const lastBar = useLastBar();
+  const status = buildStatus(clock, effectiveT, lastBar);
   const sg = suggestedMode(t, clock);
 
   // Keyboard shortcuts: Cmd/Ctrl+1/2/3 mode switch, / to focus chat input.
