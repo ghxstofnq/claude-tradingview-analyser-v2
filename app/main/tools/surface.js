@@ -121,3 +121,150 @@ ${record.sizing_note || "_no sizing note provided_"}
 - pillar2: ${verdict}
 `;
 }
+
+// ---------- open-reaction.md ----------
+//
+// Running log written during the first 15 minutes of NY. Each call appends a
+// new read; we persist the canonical list to open-reaction.json and re-render
+// the markdown view from it. Latest snapshot at top, older below.
+export async function surfaceOpenReaction(payload) {
+  const dir = await activeSessionDir();
+  const jsonFile = path.join(dir, "open-reaction.json");
+  const mdFile = path.join(dir, "open-reaction.md");
+  const ts = new Date().toISOString();
+
+  let reads = [];
+  try {
+    reads = JSON.parse(await fs.readFile(jsonFile, "utf8")) || [];
+  } catch {}
+  const newRead = {
+    ts,
+    minutes_into_phase: payload.minutes_into_phase ?? null,
+    latest_read: payload.latest_read,
+    bias_direction: payload.bias_direction,
+    watching: payload.watching,
+  };
+  reads.unshift(newRead);   // newest first
+  await fs.writeFile(jsonFile, JSON.stringify(reads, null, 2), "utf8");
+  await fs.writeFile(mdFile, renderOpenReactionMd({ ...payload, reads, ts }), "utf8");
+  _send?.("chat:tool_call", { name: "surface_open_reaction", payload: newRead });
+  return { ok: true };
+}
+
+function renderOpenReactionMd({ session, reads, ts }) {
+  const [latest, ...prior] = reads;
+  const phase = `open_reaction_${(session || "ny-am").replace("-", "_")}`;
+  const head = `---
+phase: ${phase}
+updated_at: ${ts}
+minutes_into_phase: ${latest?.minutes_into_phase ?? "n/a"}
+---
+
+# Open Reaction
+
+## Latest read (${latest?.ts || ts}, +${latest?.minutes_into_phase ?? "?"}m)
+${latest?.latest_read || "_no read_"}
+
+## Bias direction so far
+${latest?.bias_direction || "_unclear_"}
+
+## What I'm watching
+${latest?.watching || "_n/a_"}
+`;
+  if (!prior.length) return head;
+  const priorBlock = prior
+    .map((r) => `### ${r.ts} (+${r.minutes_into_phase ?? "?"}m) — ${r.bias_direction || "unclear"}\n${r.latest_read || ""}`)
+    .join("\n\n");
+  return `${head}
+---
+## Previous reads
+${priorBlock}
+`;
+}
+
+// ---------- ltf-bias.md ----------
+//
+// Finalized LTF bias, written at +14m of the open-reaction window.
+export async function surfaceLtfBias(payload) {
+  const dir = await activeSessionDir();
+  const ts = new Date().toISOString();
+  const record = { ...payload, ts };
+  await fs.writeFile(path.join(dir, "ltf-bias.md"), renderLtfBiasMd(record), "utf8");
+  _send?.("chat:tool_call", { name: "surface_ltf_bias", payload: record });
+  return { ok: true };
+}
+
+function renderLtfBiasMd(record) {
+  const phase = `open_reaction_${(record.session || "ny-am").replace("-", "_")}_complete`;
+  return `---
+phase: ${phase}
+finalized_at: ${record.ts}
+---
+
+# LTF Bias (post-NY-open)
+
+- ltf_bias: ${record.ltf_bias || "stand_aside"}
+- htf_ltf_alignment: ${record.htf_ltf_alignment || "unclear"}
+
+## Reasoning
+${record.reasoning || "_no reasoning provided_"}
+`;
+}
+
+// ---------- summary.md ----------
+//
+// Session wrap, written shortly after the session closes. Resolves to the
+// folder of the just-completed session via payload.session — not the active
+// clock, which by then has rolled to inter-session/idle.
+export async function surfaceSessionSummary(payload) {
+  const session = payload.session;
+  const dir = await briefDirFor(session);
+  const ts = new Date().toISOString();
+  const record = { ...payload, ts };
+  await fs.writeFile(path.join(dir, "summary.md"), renderSummaryMd(record), "utf8");
+  _send?.("chat:tool_call", { name: "surface_session_summary", payload: record });
+  return { ok: true };
+}
+
+function renderSummaryMd(record) {
+  const { date } = currentSession();
+  const watch = (record.watch_next_session || []).map((w) => `- ${w}`).join("\n");
+  return `---
+session: ${record.session || ""}
+date: ${date}
+wrapped_at: ${record.ts}
+---
+
+# Session Summary — ${record.session || ""}, ${date}
+
+## Bias picture
+${record.bias_picture || "_no bias picture provided_"}
+
+## What happened
+${record.what_happened || "_no narrative provided_"}
+
+## Watch next session
+${watch || "- _no watchlist provided_"}
+`;
+}
+
+// Read this session's memory files so a wrap turn (or any caller) can build a
+// context block. Returns a stitched markdown blob, or null if nothing exists.
+export async function readSessionMemoryFor(session) {
+  const dir = await briefDirFor(session);
+  const parts = [];
+  for (const name of ["pillar1.md", "pillar2.md", "ltf-bias.md", "open-reaction.md"]) {
+    try {
+      const txt = (await fs.readFile(path.join(dir, name), "utf8")).trim();
+      if (txt) parts.push(`--- ${name} ---\n${txt}`);
+    } catch {}
+  }
+  for (const [name, tailN] of [["setups.jsonl", 20], ["bars.jsonl", 20]]) {
+    try {
+      const txt = await fs.readFile(path.join(dir, name), "utf8");
+      const lines = txt.trim().split("\n").filter(Boolean).slice(-tailN);
+      if (lines.length) parts.push(`--- ${name} (last ${lines.length}) ---\n${lines.join("\n")}`);
+    } catch {}
+  }
+  return parts.length ? parts.join("\n\n") : null;
+}

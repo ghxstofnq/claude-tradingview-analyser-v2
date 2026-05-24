@@ -126,11 +126,17 @@ async function handleBar(ev) {
     await maybeRefreshBaseline();
 
     const memory = await readSessionMemory();
-    const hint = phase === "open_reaction"
-      ? "Watch the open reaction; do NOT call surface_setup yet — surface_no_trade or stay silent."
-      : "Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). If a candidate or confirmed setup is in play, call surface_setup; otherwise surface_no_trade.";
+    const mip = minutesIntoPhase(session, ev, phase);
+    let hint;
+    if (phase === "open_reaction") {
+      const finalize = mip != null && mip >= 14;
+      hint = `Open-reaction window (+${mip ?? "?"}m of 15). Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? "minutes_into_phase >= 14 — ALSO call surface_ltf_bias to finalize bias. " : ""}End the turn with surface_no_trade. Do NOT call surface_setup during open-reaction.`;
+    } else {
+      hint = "Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). If a candidate or confirmed setup is in play, call surface_setup; otherwise surface_no_trade.";
+    }
     const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
-    const text = `A new ${ev.tf} bar just closed at ${ev.ts} (ET). Phase: ${phase}.${memoryBlock}\n${hint}`;
+    const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}.`;
+    const text = `A new ${ev.tf} bar just closed at ${ev.ts} (ET). ${phaseLine}${memoryBlock}\n${hint}`;
 
     await userTurn({
       text,
@@ -200,6 +206,23 @@ function phaseFor(session, ev) {
   if (session === "ny-pm") return mins < 13 * 60 + 15 ? "open_reaction" : "entry_hunt";
   if (session === "london") return mins < 3 * 60 + 15 ? "open_reaction" : "entry_hunt";
   return "off";
+}
+
+// Minutes since the open-reaction window opened. Used so Claude knows when
+// to call surface_ltf_bias (at >= 14). Returns null outside open-reaction.
+function minutesIntoPhase(session, ev, phase) {
+  if (phase !== "open_reaction") return null;
+  const t = new Date(ev.ts);
+  const ny = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(t);
+  const hh = Number(ny.find((p) => p.type === "hour")?.value || 0);
+  const mm = Number(ny.find((p) => p.type === "minute")?.value || 0);
+  const mins = hh * 60 + mm;
+  if (session === "ny-am") return mins - (9 * 60 + 30);
+  if (session === "ny-pm") return mins - (13 * 60);
+  if (session === "london") return mins - (3 * 60);
+  return null;
 }
 
 async function tickOpenTrades(ev) {

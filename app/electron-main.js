@@ -7,6 +7,7 @@ import { setSurfaceSink } from "./main/tools/surface.js";
 import { startHealthMonitor } from "./main/health.js";
 import { startAlertPolling } from "./main/alerts.js";
 import { bootstrap as bootstrapSessionBrief } from "./main/session-brief.js";
+import { bootstrap as bootstrapSessionWrap } from "./main/session-wrap.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -54,6 +55,11 @@ app.whenReady().then(async () => {
   bootstrapSessionBrief({ send: ipc.send }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[session-brief] bootstrap failed", err);
+  });
+  // Session wrap: app-open catch-up + boundary scheduler (06:05 / 12:05 / 16:05 ET).
+  bootstrapSessionWrap({ send: ipc.send }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[session-wrap] bootstrap failed", err);
   });
 });
 

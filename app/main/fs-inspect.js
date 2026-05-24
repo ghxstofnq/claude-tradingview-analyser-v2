@@ -48,6 +48,9 @@ export async function listSessionFiles() {
     describe(path.join(sessionDir, "brief.json")),
     describe(path.join(sessionDir, "pillar1.md")),
     describe(path.join(sessionDir, "pillar2.md")),
+    describe(path.join(sessionDir, "open-reaction.md")),
+    describe(path.join(sessionDir, "ltf-bias.md")),
+    describe(path.join(sessionDir, "summary.md")),
     describe(path.join(sessionDir, "setups.jsonl"), { countLines: true }),
     describe(path.join(sessionDir, "trades.jsonl"), { countLines: true }),
     describe(path.join(sessionDir, "bars.jsonl"), { countLines: true }),
@@ -63,6 +66,9 @@ export async function listSessionFiles() {
     "brief.json",
     "pillar1.md",
     "pillar2.md",
+    "open-reaction.md",
+    "ltf-bias.md",
+    "summary.md",
     "setups.jsonl",
     "trades.jsonl",
     "bars.jsonl",
@@ -74,7 +80,8 @@ export async function listSessionFiles() {
     "detector-heartbeat.json",
   ];
   const groups = [
-    "session", "session", "session", "session", "session", "session", "session",
+    "session", "session", "session", "session", "session", "session",
+    "session", "session", "session", "session",
     "day", "state", "state", "state", "day",
   ];
 

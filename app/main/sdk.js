@@ -17,7 +17,14 @@ import { query, tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk"
 import { z } from "zod";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { tvAlertCreate, tvAlertList } from "./tools/tv-alerts.js";
-import { surfaceSetup, surfaceNoTrade, surfaceSessionBrief } from "./tools/surface.js";
+import {
+  surfaceSetup,
+  surfaceNoTrade,
+  surfaceSessionBrief,
+  surfaceOpenReaction,
+  surfaceLtfBias,
+  surfaceSessionSummary,
+} from "./tools/surface.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
@@ -50,6 +57,10 @@ Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` i
 To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`mcp__tv__tv_analyze_fast\` (1-bar poll with a baseline path). To arm alerts, use \`mcp__tv__tv_alert_create\`.
 
 **EXCEPTION — session-brief turns.** When the user message asks you to run "the SESSION BRIEF for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_brief\` exactly once at the end of the turn with the structured payload. That's the only tool that surfaces the PREP panels.
+
+**EXCEPTION — open-reaction phase turns.** When the per-bar message says "Phase: open_reaction": call \`mcp__tv__surface_open_reaction\` with the latest read (what NY just did, bias direction so far, what you're watching) — this persists to open-reaction.md as a running log. When \`minutes_into_phase\` >= 14 in the prompt context, ALSO call \`mcp__tv__surface_ltf_bias\` to finalize the bias before ending the turn. Either way, still end the turn with \`mcp__tv__surface_no_trade\` — no setup card during open-reaction.
+
+**EXCEPTION — session-summary turns.** When the user message asks you to run "the SESSION SUMMARY for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_summary\` exactly once at the end with bias_picture, what_happened, watch_next_session.
 
 Reason in prose first; surface last.`;
 
@@ -162,6 +173,58 @@ function buildMcpServer() {
       async (args) => {
         try {
           return ok(await surfaceNoTrade(args));
+        } catch (e) {
+          return err(e?.message || String(e));
+        }
+      },
+    ),
+    tool(
+      "surface_open_reaction",
+      "Persist a running-log entry to state/session/<date>/<session>/open-reaction.md. Call once per bar during the open-reaction phase. Latest read goes to the top; previous reads archived below.",
+      {
+        session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session this read belongs to (matches the phase)"),
+        minutes_into_phase: z.number().describe("Minutes since the open-reaction window started (0–15)"),
+        latest_read: z.string().describe("One paragraph — what NY just did, with cited prices"),
+        bias_direction: z.enum(["bullish", "bearish", "mixed", "unclear"]).describe("Bias direction so far"),
+        watching: z.string().describe("One line — the level / FVG that will resolve the bias"),
+      },
+      async (args) => {
+        try {
+          return ok(await surfaceOpenReaction(args));
+        } catch (e) {
+          return err(e?.message || String(e));
+        }
+      },
+    ),
+    tool(
+      "surface_ltf_bias",
+      "Persist the finalized LTF bias to state/session/<date>/<session>/ltf-bias.md. Call ONCE at the end of the open-reaction window (when minutes_into_phase >= 14).",
+      {
+        session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session this finalizes"),
+        ltf_bias: z.enum(["bullish", "bearish", "mixed", "stand_aside"]).describe("Finalized LTF bias"),
+        htf_ltf_alignment: z.enum(["aligned", "divergent", "unclear"]).describe("How LTF bias relates to HTF draw"),
+        reasoning: z.string().describe("One paragraph, cited"),
+      },
+      async (args) => {
+        try {
+          return ok(await surfaceLtfBias(args));
+        } catch (e) {
+          return err(e?.message || String(e));
+        }
+      },
+    ),
+    tool(
+      "surface_session_summary",
+      "Persist the session wrap to state/session/<date>/<session>/summary.md. Call ONCE at the end of a session-summary turn (fired automatically a few minutes after the session closes).",
+      {
+        session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session is being wrapped"),
+        bias_picture: z.string().describe("One paragraph synthesizing P1 + P2 + LTF bias, prices cited"),
+        what_happened: z.string().describe("One paragraph — did setups fire / confirm; the session's narrative"),
+        watch_next_session: z.array(z.string()).describe("One or two bullets — what to watch in the next session"),
+      },
+      async (args) => {
+        try {
+          return ok(await surfaceSessionSummary(args));
         } catch (e) {
           return err(e?.message || String(e));
         }
