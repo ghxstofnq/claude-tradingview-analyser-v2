@@ -11,6 +11,7 @@ import { tvAlertCreate } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, activeOrImminentSession } from "./session-brief.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
 import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
+import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal } from "./review.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -146,6 +147,35 @@ export function registerIpc(win) {
   ipcMain.handle("live:setups_list", async (_evt, args = {}) => {
     try {
       return { ok: true, ...(await getSetupsList(args.session, args.limit)) };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("review:list_sessions", async () => {
+    try {
+      return { ok: true, sessions: await listSessionFolders() };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("review:get_journal", async (_evt, args = {}) => {
+    try {
+      if (args.date && args.session) {
+        const j = await getJournalFor({ date: args.date, session: args.session });
+        return { ok: true, journal: j };
+      }
+      const j = await getDefaultJournal();
+      return { ok: true, journal: j };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("review:library", async (_evt, args = {}) => {
+    try {
+      return { ok: true, rows: await getLibrary({ limit: args.limit }) };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }

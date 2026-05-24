@@ -105,6 +105,17 @@ contextBridge.exposeInMainWorld("api", {
       return ipcRenderer.invoke("live:setups_list", { session, limit });
     },
   },
+  review: {
+    listSessions() {
+      return ipcRenderer.invoke("review:list_sessions");
+    },
+    journal(date, session) {
+      return ipcRenderer.invoke("review:get_journal", { date, session });
+    },
+    library(limit) {
+      return ipcRenderer.invoke("review:library", { limit });
+    },
+  },
   files: {
     list() {
       return ipcRenderer.invoke("files:list");
