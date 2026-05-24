@@ -36,7 +36,14 @@ let _send = null;
 let _restartTimer = null;
 let _backoffMs = 1000;
 let _refreshingBaseline = false;
-let _busyWithClaude = false;            // single in-flight turn at a time
+
+// Per-tf coalescing queue. When a turn is in flight and another bar arrives,
+// we keep ONLY the most recent bar of that timeframe — stale bars don't help
+// the analysis. 5m closes drain before 1m closes because the strategy's
+// confirmation TF is 5m.
+let _q5m = null;
+let _q1m = null;
+let _running = false;
 
 export function startDetector({ send }) {
   _send = send;
@@ -97,9 +104,8 @@ async function handleBar(ev) {
   _send?.("bar:close", ev);
   markBarReceived();
 
-  // Outcome tick FIRST — deterministic, runs before Claude's turn so the
-  // per-bar read sees fresh trade state. Any TP/stop/INVALIDATED transitions
-  // get appended to trades.jsonl and pushed to the renderer.
+  // Outcome tick — deterministic, runs every bar regardless of session/queue
+  // state. Any TP/stop/INVALIDATED transitions go to trades.jsonl + IPC.
   await tickOpenTrades(ev).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[bar-close] tick threw", err?.message || err);
@@ -110,49 +116,82 @@ async function handleBar(ev) {
   const phase = phaseFor(session, ev);
   if (phase === "off") return;
 
-  // Append the bar to <sdir>/bars.jsonl (or bars-5m.jsonl) BEFORE Claude's turn
-  // so the next prompt enrichment can see it. Deterministic — body_ratio etc.
-  // are computed in code per constraint #7 (no LLM arithmetic).
+  // Append the bar to <sdir>/bars.jsonl (or bars-5m.jsonl) BEFORE queuing
+  // the Claude turn so the next prompt enrichment can see it. Deterministic —
+  // body_ratio etc. computed in code per constraint #7 (no LLM arithmetic).
   await appendBarLog(ev).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[bar-close] appendBarLog threw", err?.message || err);
   });
 
-  // Don't pile up turns if Claude is still streaming the previous one.
-  if (_busyWithClaude) return;
-  _busyWithClaude = true;
+  // Coalesce: keep only the most recent bar of this tf. If a turn is in
+  // flight and 3 more bars arrive, only the freshest one of each tf runs
+  // when the queue drains — stale bars would only generate stale analysis.
+  if (ev.tf === "5m") _q5m = ev;
+  else _q1m = ev;
 
-  try {
-    await maybeRefreshBaseline();
+  // Single drainer; concurrent handleBar calls all return here after queuing.
+  maybeRunDrain();
+}
 
-    const memory = await readSessionMemory();
-    const mip = minutesIntoPhase(session, ev, phase);
-    let hint;
-    if (phase === "open_reaction") {
-      const finalize = mip != null && mip >= 14;
-      hint = `Open-reaction window (+${mip ?? "?"}m of 15). Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? "minutes_into_phase >= 14 — ALSO call surface_ltf_bias to finalize bias. " : ""}End the turn with surface_no_trade. Do NOT call surface_setup during open-reaction.`;
-    } else {
-      hint = "Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). If a candidate or confirmed setup is in play, call surface_setup; otherwise surface_no_trade.";
+// Drain the per-tf queue sequentially. 5m gets priority because it's the
+// strategy's primary confirmation TF. _running is set synchronously before
+// any await, so concurrent maybeRunDrain calls are safe — only the first
+// gets through; the rest see _running=true and return.
+function maybeRunDrain() {
+  if (_running) return;
+  _running = true;
+  (async () => {
+    try {
+      while (_q5m || _q1m) {
+        // Prefer 5m; fall back to 1m.
+        const ev = _q5m || _q1m;
+        if (ev === _q5m) _q5m = null;
+        else _q1m = null;
+        // Re-derive session+phase from the event's clock — the queue may
+        // have crossed a session boundary while we were waiting.
+        const { session } = currentSession();
+        const phase = phaseFor(session, ev);
+        if (phase === "off") continue;
+        await runClaudeTurnFor(ev, session, phase).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error("[bar-close] runClaudeTurnFor threw", err);
+        });
+      }
+    } finally {
+      _running = false;
     }
-    const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
-    const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}.`;
-    const text = `A new ${ev.tf} bar just closed at ${ev.ts} (ET). ${phaseLine}${memoryBlock}\n${hint}`;
+  })();
+}
 
-    await userTurn({
-      text,
-      onEvent: (e) => {
-        if (e.type === "chunk") _send?.("chat:chunk", e);
-        else if (e.type === "tool_call") _send?.("chat:tool_call", e);
-        else if (e.type === "turn_complete") {
-          _send?.("chat:turn_complete", e);
-          markTurnComplete();
-        }
-        else if (e.type === "error") _send?.("app:error", { source: "sdk", message: e.message });
-      },
-    });
-  } finally {
-    _busyWithClaude = false;
+async function runClaudeTurnFor(ev, session, phase) {
+  await maybeRefreshBaseline();
+
+  const memory = await readSessionMemory();
+  const mip = minutesIntoPhase(session, ev, phase);
+  let hint;
+  if (phase === "open_reaction") {
+    const finalize = mip != null && mip >= 14;
+    hint = `Open-reaction window (+${mip ?? "?"}m of 15). Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? "minutes_into_phase >= 14 — ALSO call surface_ltf_bias to finalize bias. " : ""}End the turn with surface_no_trade. Do NOT call surface_setup during open-reaction.`;
+  } else {
+    hint = "Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). If a candidate or confirmed setup is in play, call surface_setup; otherwise surface_no_trade.";
   }
+  const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
+  const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}.`;
+  const text = `A new ${ev.tf} bar just closed at ${ev.ts} (ET). ${phaseLine}${memoryBlock}\n${hint}`;
+
+  await userTurn({
+    text,
+    onEvent: (e) => {
+      if (e.type === "chunk") _send?.("chat:chunk", e);
+      else if (e.type === "tool_call") _send?.("chat:tool_call", e);
+      else if (e.type === "turn_complete") {
+        _send?.("chat:turn_complete", e);
+        markTurnComplete();
+      }
+      else if (e.type === "error") _send?.("app:error", { source: "sdk", message: e.message });
+    },
+  });
 }
 
 // Append a per-bar log to the session folder. Main computes body_ratio and
