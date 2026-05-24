@@ -10,6 +10,7 @@ import { startAlertPolling, stopAlertPolling, setAlertMode } from "./alerts.js";
 import { tvAlertCreate } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, activeOrImminentSession } from "./session-brief.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
+import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -121,6 +122,30 @@ export function registerIpc(win) {
   ipcMain.handle("files:read", async (_evt, { path: p }) => {
     try {
       return await readFileForViewer(p);
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("prep:recap_get", async () => {
+    try {
+      return { ok: true, ...(await getSessionRecap()) };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("prep:open_reaction_get", async (_evt, args = {}) => {
+    try {
+      return { ok: true, ...(await getOpenReaction(args.session)) };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("live:setups_list", async (_evt, args = {}) => {
+    try {
+      return { ok: true, ...(await getSetupsList(args.session, args.limit)) };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }

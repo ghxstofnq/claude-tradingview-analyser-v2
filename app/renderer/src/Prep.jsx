@@ -3,12 +3,47 @@
 import React from "react";
 import { Panel, Row, Grade, PillarsPanel } from "./Shared.jsx";
 import { useSessionBrief, formatAge } from "./hooks/useSessionBrief.js";
+import { useSessionRecap } from "./hooks/useSessionRecap.js";
 
 const SESSION_LABEL = {
   "london": "LONDON",
   "ny-am":  "NY AM",
   "ny-pm":  "NY PM",
 };
+
+function RecapPanel({ session, recap }) {
+  if (!recap) return null;
+  const watch = Array.isArray(recap.watch_next_session) ? recap.watch_next_session : [];
+  return (
+    <Panel title={`LAST SESSION RECAP · ${SESSION_LABEL[session] || ""}`}
+           right={<span style={{ color: "var(--label)", fontSize: 10 }}>
+             {recap.ts ? formatAge(Date.now() - new Date(recap.ts).getTime()) : ""}
+           </span>}>
+      <div style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".14em", marginBottom: 4 }}>
+        BIAS PICTURE
+      </div>
+      <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55, marginBottom: 10 }}>
+        {recap.bias_picture || "—"}
+      </div>
+      <div style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".14em", marginBottom: 4 }}>
+        WHAT HAPPENED
+      </div>
+      <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55, marginBottom: 10 }}>
+        {recap.what_happened || "—"}
+      </div>
+      {watch.length > 0 && (
+        <>
+          <div style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".14em", marginBottom: 4 }}>
+            WATCH NEXT SESSION
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, color: "var(--value)", fontSize: 11.5, lineHeight: 1.55 }}>
+            {watch.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </>
+      )}
+    </Panel>
+  );
+}
 
 function formatPx(p) {
   if (typeof p === "string") return p;
@@ -47,20 +82,18 @@ function RefreshButton({ status, onClick, age }) {
 function EmptyBrief({ status, session, onRefresh }) {
   const running = status === "running";
   return (
-    <div className="work-scroll">
-      <Panel title={`SESSION BRIEF · ${SESSION_LABEL[session] || "—"}`}
-             right={<RefreshButton status={status} onClick={onRefresh} />}>
-        <div style={{ color: "var(--label)", fontSize: 11.5, lineHeight: 1.6 }}>
-          {running
-            ? "Claude is preparing the session brief — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes ~15s."
-            : status === "error"
-            ? "The session brief failed to generate. Hit refresh to try again."
-            : session
-            ? "No brief yet for this session. Hit refresh to run one now — or wait for the next scheduled trigger (02:00 / 09:00 / 13:00 ET)."
-            : "Outside trading windows — next session opens Monday 02:00 ET (London)."}
-        </div>
-      </Panel>
-    </div>
+    <Panel title={`SESSION BRIEF · ${SESSION_LABEL[session] || "—"}`}
+           right={<RefreshButton status={status} onClick={onRefresh} />}>
+      <div style={{ color: "var(--label)", fontSize: 11.5, lineHeight: 1.6 }}>
+        {running
+          ? "Claude is preparing the session brief — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes ~15s."
+          : status === "error"
+          ? "The session brief failed to generate. Hit refresh to try again."
+          : session
+          ? "No brief yet for this session. Hit refresh to run one now — or wait for the next scheduled trigger (02:00 / 09:00 / 13:00 ET)."
+          : "Outside trading windows — next session opens Monday 02:00 ET (London)."}
+      </div>
+    </Panel>
   );
 }
 
@@ -69,9 +102,15 @@ function PrepWorkstation({ alerts, onToggleArm }) {
   const fired = alerts?.fired || [];
 
   const { brief, session, status, refresh, ageMs } = useSessionBrief();
+  const { session: recapSession, recap } = useSessionRecap();
 
   if (!brief) {
-    return <EmptyBrief status={status} session={session} onRefresh={refresh} />;
+    return (
+      <div className="work-scroll">
+        {recap && <RecapPanel session={recapSession} recap={recap} />}
+        <EmptyBrief status={status} session={session} onRefresh={refresh} />
+      </div>
+    );
   }
 
   const levels = (brief.key_levels || []).map((lv) => ({
@@ -83,6 +122,9 @@ function PrepWorkstation({ alerts, onToggleArm }) {
 
   return (
     <div className="work-scroll">
+      {recap && recapSession !== brief.session && (
+        <RecapPanel session={recapSession} recap={recap} />
+      )}
       <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}`}
              right={<RefreshButton status={status} onClick={refresh} age={ageMs} />}>
         <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55 }}>

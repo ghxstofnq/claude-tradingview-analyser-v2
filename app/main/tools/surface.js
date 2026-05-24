@@ -184,11 +184,13 @@ ${priorBlock}
 
 // ---------- ltf-bias.md ----------
 //
-// Finalized LTF bias, written at +14m of the open-reaction window.
+// Finalized LTF bias, written at +14m of the open-reaction window. JSON
+// sidecar is the source of truth for the renderer; markdown is the human view.
 export async function surfaceLtfBias(payload) {
   const dir = await activeSessionDir();
   const ts = new Date().toISOString();
   const record = { ...payload, ts };
+  await fs.writeFile(path.join(dir, "ltf-bias.json"), JSON.stringify(record, null, 2), "utf8");
   await fs.writeFile(path.join(dir, "ltf-bias.md"), renderLtfBiasMd(record), "utf8");
   _send?.("chat:tool_call", { name: "surface_ltf_bias", payload: record });
   return { ok: true };
@@ -221,6 +223,7 @@ export async function surfaceSessionSummary(payload) {
   const dir = await briefDirFor(session);
   const ts = new Date().toISOString();
   const record = { ...payload, ts };
+  await fs.writeFile(path.join(dir, "summary.json"), JSON.stringify(record, null, 2), "utf8");
   await fs.writeFile(path.join(dir, "summary.md"), renderSummaryMd(record), "utf8");
   _send?.("chat:tool_call", { name: "surface_session_summary", payload: record });
   return { ok: true };

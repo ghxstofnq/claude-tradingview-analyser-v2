@@ -83,6 +83,12 @@ contextBridge.exposeInMainWorld("api", {
     refresh() {
       return ipcRenderer.invoke("prep:run");
     },
+    recap() {
+      return ipcRenderer.invoke("prep:recap_get");
+    },
+    openReaction(session) {
+      return ipcRenderer.invoke("prep:open_reaction_get", { session });
+    },
     onUpdated(cb) {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("prep:brief_updated", listener);
@@ -92,6 +98,11 @@ contextBridge.exposeInMainWorld("api", {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("prep:status", listener);
       return () => ipcRenderer.removeListener("prep:status", listener);
+    },
+  },
+  setups: {
+    list(session, limit) {
+      return ipcRenderer.invoke("live:setups_list", { session, limit });
     },
   },
   files: {

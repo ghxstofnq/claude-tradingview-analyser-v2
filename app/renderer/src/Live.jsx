@@ -4,81 +4,116 @@ import React, { useState as useStateL, useEffect as useEffectL, useRef as useRef
 import { Panel, Row, Grade, PillarsPanel, SetupCard, TradeCard, ClaudeFeed, SectionHead } from "./Shared.jsx";
 import { useChat } from "./hooks/useChat.js";
 import { useTrades } from "./hooks/useTrades.js";
+import { useOpenReaction } from "./hooks/useOpenReaction.js";
+import { useSetupsHistory } from "./hooks/useSetupsHistory.js";
 
-function OpenReactionTracker({ minutesIn = 8 }) {
-  const items = [
-    { k: "Asia high",    v: "21 496.50", tag: "untouched", tone: "green" },
-    { k: "Asia low",     v: "21 458.75", tag: "untouched", tone: "green" },
-    { k: "London high",  v: "21 516.00", tag: "untouched", tone: "green" },
-    { k: "London low",   v: "21 471.50", tag: "swept · 09:34", tone: "red" },
-  ];
-  const reactionPillars = [
-    { name: "Open reaction", status: "pass",
-      elements: [
-        { name: "ONL swept",          status: "pass" },
-        { name: "Reaction quality",   status: "pass" },
-        { name: "Reclaim confirmed",  status: "pass" },
-      ] },
-    { name: "LTF bias forming", status: "pass",
-      elements: [
-        { name: "5m structure long",  status: "pass" },
-        { name: "1m MSS @ 21 484.50", status: "pass" },
-      ] },
-    { name: "HTF / LTF alignment", status: "pass",
-      elements: [
-        { name: "HTF bias = long",    status: "pass" },
-        { name: "LTF bias = long",    status: "pass" },
-        { name: "Verdict",            status: "pass" },
-      ] },
-  ];
+const BIAS_TONE = { bullish: "green", bearish: "red", mixed: "amber", unclear: "amber" };
+
+function OpenReactionTracker() {
+  const { reads, latest } = useOpenReaction();
+  const minutesIn = latest?.minutes_into_phase ?? 0;
+  const left = Math.max(0, 15 - minutesIn);
+
+  if (!latest) {
+    return (
+      <Panel title="OPEN REACTION · waiting for first read">
+        <div style={{ color: "var(--label)", fontSize: 11.5, lineHeight: 1.55 }}>
+          Claude will post the first open-reaction read after the next bar close.
+          Each read covers: what NY just did, the bias direction forming, and what
+          level will resolve it. Latest read at top, prior reads below.
+        </div>
+      </Panel>
+    );
+  }
+
   return (
     <>
-      <Panel title="OPEN REACTION · 09:30–09:45 ET"
-             right={`+${minutesIn}m · ${15 - minutesIn}m left`}>
-        <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55 }}>
-          Sharp rejection of <em style={{color:"var(--amber)", fontStyle:"normal"}}>21 471.50</em>{" "}
-          (ONL) into the 5m FVG. Reclaim closed at 21 488.25.
-          LTF turning bullish — <strong style={{color:"var(--green)"}}>aligned with HTF</strong>.
-          A+ potential setting up.
+      <Panel title="OPEN REACTION · LATEST READ"
+             right={`+${minutesIn}m · ${left}m left`}>
+        <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55, marginBottom: 8 }}>
+          {latest.latest_read}
         </div>
+        <Row k="Bias direction so far"
+             v={<span className={"v " + (BIAS_TONE[latest.bias_direction] || "")}>
+                  {String(latest.bias_direction || "").toUpperCase() || "—"}
+                </span>} />
+        <Row k="Watching" v={latest.watching || "—"} />
       </Panel>
 
-      <section className="panel">
-        <header className="panel-head">
-          <span className="title">OVERNIGHT LEVELS · STATUS</span>
-          <span className="meta">live</span>
-        </header>
-        <div className="panel-body flush">
-          {items.map((it) => (
-            <div key={it.k} className="level-row" style={{ gridTemplateColumns: "1fr auto 120px" }}>
-              <span className="name" style={{ color: "var(--label)", letterSpacing: ".04em" }}>{it.k}</span>
-              <span className="price">{it.v}</span>
-              <span className={"state " + (it.tone === "red" ? "taken" : "untaken")}
-                    style={{ width: "auto" }}>
-                {it.tag.toUpperCase()}
+      {reads.length > 1 && (
+        <section className="panel">
+          <header className="panel-head">
+            <span className="title">PREVIOUS READS</span>
+            <span className="meta">{reads.length - 1} prior</span>
+          </header>
+          <div className="panel-body flush">
+            {reads.slice(1).map((r, i) => (
+              <div key={i}
+                   style={{
+                     padding: "8px 14px",
+                     borderBottom: "1px solid var(--border-dim, #1e2228)",
+                   }}>
+                <div style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "baseline",
+                  marginBottom: 4,
+                }}>
+                  <span style={{ color: "var(--label)", fontSize: 10, letterSpacing: ".08em" }}>
+                    +{r.minutes_into_phase ?? "?"}m
+                  </span>
+                  <span className={"v " + (BIAS_TONE[r.bias_direction] || "")}
+                        style={{ fontSize: 10, letterSpacing: ".1em" }}>
+                    {String(r.bias_direction || "").toUpperCase() || "—"}
+                  </span>
+                </div>
+                <div style={{ color: "var(--prose)", fontSize: 11, lineHeight: 1.5 }}>
+                  {r.latest_read}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+// Compact list of recent setups. Renders below the live setup card so the
+// trader can see the session's setup trail at a glance.
+function SetupHistoryList() {
+  const { setups } = useSetupsHistory({ limit: 8 });
+  if (!setups.length) return null;
+  return (
+    <section className="panel" style={{ marginTop: 6 }}>
+      <header className="panel-head">
+        <span className="title">SETUP HISTORY · THIS SESSION</span>
+        <span className="meta">{setups.length} entries</span>
+      </header>
+      <div className="panel-body flush">
+        {setups.map((s) => {
+          const status = s.confirmation_status || s.status || "";
+          const sideTone = s.direction === "long" || s.side === "long" ? "green" : "red";
+          const t = s.ts ? new Date(s.ts).toLocaleTimeString("en-US", {
+            hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+          }) : "—";
+          return (
+            <div key={s.id || s.ts} className="level-row"
+                 style={{ gridTemplateColumns: "auto auto auto 1fr auto", padding: "5px 14px", gap: 10 }}>
+              <span style={{ color: "var(--label-dim)", fontSize: 9.5, letterSpacing: ".08em" }}>{t}</span>
+              <Grade value={s.grade || "no-trade"} />
+              <span style={{ color: "var(--" + sideTone + ")", fontSize: 10, letterSpacing: ".1em" }}>
+                {String(s.direction || s.side || "").toUpperCase()}
+              </span>
+              <span style={{ color: "var(--label)", fontSize: 11 }}>
+                {s.model || ""}
+              </span>
+              <span style={{ color: "var(--label-dim)", fontSize: 9.5, letterSpacing: ".08em" }}>
+                {status.toUpperCase()}
               </span>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <header className="panel-head">
-          <span className="title">FORMING READ</span>
-          <span className="meta">HTF / LTF · <Grade value="A+" /></span>
-        </header>
-        <div className="panel-body flush">
-          <PillarsPanel pillars={reactionPillars} />
-        </div>
-      </section>
-
-      <Panel title="NEXT" right="entry-hunt in ~7m">
-        <Row k="Forming LTF bias" v={<span className="v green">LONG</span>} />
-        <Row k="HTF / LTF" v={<span className="v green">ALIGNED</span>} />
-        <Row k="Expected grade ceiling" v={<Grade value="A+" />} />
-        <Row k="Best draw" v="21 528.50 (PDH)" tone="num" />
-      </Panel>
-    </>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -210,6 +245,8 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
           </div>
         )}
 
+        <SetupHistoryList />
+
         {!noSetups && (
           <section className="panel" style={{ marginTop: 6 }}>
             <header className="panel-head">
@@ -264,7 +301,7 @@ function LiveWorkstation({ subState, loopDown, noSetups, alerts, onArmPrice }) {
             <span className="sub">RESTART</span>
           </div>
         )}
-        <OpenReactionTracker minutesIn={8} />
+        <OpenReactionTracker />
       </div>
     );
   }
