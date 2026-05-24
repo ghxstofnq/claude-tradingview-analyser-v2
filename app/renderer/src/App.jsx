@@ -5,7 +5,7 @@ import { PrepWorkstation } from "./Prep.jsx";
 import { LiveWorkstation } from "./Live.jsx";
 import { ReviewWorkstation } from "./Review.jsx";
 import { useHealth } from "./hooks/useHealth.js";
-import { armAlertReal, useAlertFiredListener } from "./hooks/useAlerts.js";
+import { armAlertReal, useAlertFiredListener, useAlertStateListener } from "./hooks/useAlerts.js";
 import { useClock } from "./hooks/useClock.js";
 import { useLastBar } from "./hooks/useLastBar.js";
 import { useSymbolCache, formatPx as fmtCachedPx, formatAgeShort } from "./hooks/useSymbolCache.js";
@@ -108,12 +108,19 @@ function AlertsPopover({ fired, armed, onClose }) {
         background: "var(--surface-1)",
       }}>
         <span style={{ color: "var(--amber)", fontSize: 10, letterSpacing: ".22em" }}>
-          FIRED ALERTS · TODAY
+          ALERTS
         </span>
         <span onClick={onClose}
               style={{ color: "var(--label-dim)", fontSize: 13, cursor: "pointer" }}>×</span>
       </div>
-      <div style={{ maxHeight: 280, overflowY: "auto" }}>
+      <div style={{
+        padding: "4px 12px",
+        color: "var(--label)", fontSize: 9.5, letterSpacing: ".18em",
+        background: "var(--surface-1)",
+      }}>
+        FIRED · TODAY
+      </div>
+      <div style={{ maxHeight: 240, overflowY: "auto" }}>
         {fired.length === 0 ? (
           <div className="empty-state" style={{ padding: 16 }}>
             <div style={{ color: "var(--label)" }}>no alerts fired today</div>
@@ -126,25 +133,27 @@ function AlertsPopover({ fired, armed, onClose }) {
           </div>
         ))}
       </div>
-      {armedList.length > 0 && (
-        <>
-          <div style={{
-            padding: "4px 12px",
-            color: "var(--label)", fontSize: 9.5, letterSpacing: ".18em",
-            borderTop: "1px solid var(--border)",
-            background: "var(--surface-1)",
-          }}>
-            ARMED · WATCHING
+      <div style={{
+        padding: "4px 12px",
+        color: "var(--label)", fontSize: 9.5, letterSpacing: ".18em",
+        borderTop: "1px solid var(--border)",
+        background: "var(--surface-1)",
+      }}>
+        ARMED · WATCHING
+      </div>
+      <div style={{ maxHeight: 240, overflowY: "auto" }}>
+        {armedList.length === 0 ? (
+          <div className="empty-state" style={{ padding: 16 }}>
+            <div style={{ color: "var(--label)" }}>no alerts armed</div>
           </div>
-          {armedList.map(([name, px]) => (
-            <div className="alert-entry" key={name}>
-              <span className="when">—</span>
-              <span className="what"><b>{name}</b> @ <span className="px">{px}</span></span>
-              <span style={{ color: "var(--amber)", fontSize: 9, letterSpacing: ".1em" }}>ARMED</span>
-            </div>
-          ))}
-        </>
-      )}
+        ) : armedList.map(([name, px]) => (
+          <div className="alert-entry" key={name}>
+            <span className="when">—</span>
+            <span className="what"><b>{name}</b> @ <span className="px">{px}</span></span>
+            <span style={{ color: "var(--amber)", fontSize: 9, letterSpacing: ".1em" }}>ARMED</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -337,6 +346,23 @@ function AlertToast({ alert, onClose }) {
     const id = setTimeout(onClose, 4500);
     return () => clearTimeout(id);
   }, [onClose]);
+
+  // Status toasts — arm-failure, drift-warning — share the same toast slot.
+  if (alert.statusKind) {
+    const color = alert.statusKind === "error" ? "var(--red)" : "var(--amber)";
+    const label = alert.statusKind === "error" ? "ARM FAILED" : "ARM WARNING";
+    return (
+      <div className="alert-toast">
+        <span className="ind" style={{ background: color }}></span>
+        <span className="what">
+          <b style={{ color, letterSpacing: ".18em", marginRight: 8 }}>{label}</b>
+          {alert.statusText}
+        </span>
+        <span className="dismiss" onClick={onClose}>×</span>
+      </div>
+    );
+  }
+
   // Names beginning with "@ " are free-form prices Claude mentioned; the
   // "name" duplicates the price, so just show the price once.
   const isFreeForm = typeof alert.name === "string" && alert.name.startsWith("@ ");
@@ -586,61 +612,120 @@ function App() {
     try { localStorage.setItem("theme", theme); } catch (e) {}
   }, [theme]);
 
-  // alert state — armed: { name: priceString }, fired: [{name,px,t,note}]
+  // alert state — armed: { name: priceString }, fired: [{name,px,t,note}].
+  // `armed` is replaced from main's TV poll (~5s LIVE / 30s PREP) so the
+  // panel reflects real TV state, not just what we armed via the UI.
+  // `fired` is appended live as armed→triggered transitions are observed.
   const [alerts, setAlerts] = useState({
-    armed: { "PDH": "21 528.50" },
-    fired: [
-      { name: "ONL", px: "21 471.50", t: "09:34:18", note: "swept on open" },
-    ],
+    armed: {},
+    fired: [],
   });
   const [toast, setToast] = useState(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [viewerFile, setViewerFile] = useState(null);
 
-  const toggleArm = (name, px) => {
-    setAlerts((a) => {
-      // Already armed at this exact name? toggle off (local only — TradingView
-      // disarm is a Phase-8 polish; for v1, leaving the real alert active is
-      // acceptable, the local map just hides the dot).
-      if (a.armed[name]) {
-        const newArmed = { ...a.armed };
-        delete newArmed[name];
-        return { ...a, armed: newArmed };
-      }
-      // Already armed at this same PRICE under a different name — treat as
-      // the same alert and disarm those instead of duplicating.
-      const matchingKeys = Object.entries(a.armed)
-        .filter(([, p]) => p === px)
-        .map(([k]) => k);
-      if (matchingKeys.length > 0) {
-        const newArmed = { ...a.armed };
-        for (const k of matchingKeys) delete newArmed[k];
-        return { ...a, armed: newArmed };
-      }
-      return { ...a, armed: { ...a.armed, [name]: px } };
-    });
-    // Fire the real alert into TradingView via main.
-    armAlertReal(px, name).catch(() => {});
+  // Parallel map: armed name → TV alert_id (so we can target disarm).
+  // Kept separate from `armed` so existing readers (AlertsPopover, Prep,
+  // Live) keep working with `{name: priceString}`.
+  const [armedIds, setArmedIds] = useState({});
+
+  // Push a transient toast.
+  const showStatus = (kind, text) => {
+    setToast({ statusKind: kind, statusText: text });
   };
 
-  // Arm an alert at a free-form price Claude named.
-  const armFromPrice = (px) => {
+  // Disarm = delete the real TV alert (by captured id) AND remove the local
+  // bell entry. Fire-and-forget on the TV side; the local "off" is truth.
+  const disarmReal = (key) => {
+    const id = armedIds[key];
     setAlerts((a) => {
-      if ((a.fired || []).some((f) => f.px === px)) return a;
-      const existingKeys = Object.entries(a.armed)
-        .filter(([, p]) => p === px)
-        .map(([k]) => k);
-      if (existingKeys.length > 0) {
-        const newArmed = { ...a.armed };
-        for (const k of existingKeys) delete newArmed[k];
-        return { ...a, armed: newArmed };
-      }
-      const key = "@ " + px;
-      return { ...a, armed: { ...a.armed, [key]: px } };
+      const newArmed = { ...a.armed };
+      delete newArmed[key];
+      return { ...a, armed: newArmed };
     });
-    armAlertReal(px, "@ " + px).catch(() => {});
+    setArmedIds((m) => { const n = { ...m }; delete n[key]; return n; });
+    if (id != null) {
+      window.api?.alert?.disarm?.(id).then((res) => {
+        if (!res?.ok) {
+          showStatus('warn', `disarm: TV alert ${id} couldn't be removed (${res?.error || 'unknown'}). The TV alert may still fire.`);
+        }
+      }).catch((e) => showStatus('warn', `disarm: ${e?.message || e}`));
+    }
   };
+
+  const toggleArm = async (name, px) => {
+    if (alerts.armed[name]) { disarmReal(name); return; }
+    const matchingKeys = Object.entries(alerts.armed)
+      .filter(([, p]) => p === px).map(([k]) => k);
+    if (matchingKeys.length > 0) {
+      for (const k of matchingKeys) disarmReal(k);
+      return;
+    }
+    // Optimistic add, revert on failure.
+    setAlerts((a) => ({ ...a, armed: { ...a.armed, [name]: px } }));
+    try {
+      const res = await armAlertReal(px, name);
+      if (!res?.ok) {
+        setAlerts((a) => { const n = { ...a.armed }; delete n[name]; return { ...a, armed: n }; });
+        showStatus('error', `arm failed: ${res?.error || 'unknown'}`);
+        return;
+      }
+      // Capture alert_id, update displayed price if TV drifted.
+      if (res.alert_id != null) setArmedIds((m) => ({ ...m, [name]: res.alert_id }));
+      if (res.drift_warning && res.created_price != null) {
+        const actualPx = String(res.created_price).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+        setAlerts((a) => ({ ...a, armed: { ...a.armed, [name]: actualPx } }));
+        showStatus('warn', `${name} armed at ${res.created_price} (requested ${res.requested_price}) — TV rounded`);
+      }
+    } catch (e) {
+      setAlerts((a) => { const n = { ...a.armed }; delete n[name]; return { ...a, armed: n }; });
+      showStatus('error', `arm failed: ${e?.message || e}`);
+    }
+  };
+
+  const armFromPrice = async (px) => {
+    if ((alerts.fired || []).some((f) => f.px === px)) return;
+    const existingKeys = Object.entries(alerts.armed)
+      .filter(([, p]) => p === px).map(([k]) => k);
+    if (existingKeys.length > 0) {
+      for (const k of existingKeys) disarmReal(k);
+      return;
+    }
+    const key = "@ " + px;
+    setAlerts((a) => ({ ...a, armed: { ...a.armed, [key]: px } }));
+    try {
+      const res = await armAlertReal(px, key);
+      if (!res?.ok) {
+        setAlerts((a) => { const n = { ...a.armed }; delete n[key]; return { ...a, armed: n }; });
+        showStatus('error', `arm failed: ${res?.error || 'unknown'}`);
+        return;
+      }
+      if (res.alert_id != null) setArmedIds((m) => ({ ...m, [key]: res.alert_id }));
+      if (res.drift_warning) showStatus('warn', `@ ${px} armed at ${res.created_price} — TV rounded`);
+    } catch (e) {
+      setAlerts((a) => { const n = { ...a.armed }; delete n[key]; return { ...a, armed: n }; });
+      showStatus('error', `arm failed: ${e?.message || e}`);
+    }
+  };
+
+  // Live armed list from main's TV poll: replaces local `armed` + `armedIds`
+  // on each tick so alerts created via Claude / phone / web show up here,
+  // and alerts deleted in TV disappear from the panel.
+  useAlertStateListener((ev) => {
+    const newArmed = {};
+    const newIds = {};
+    for (const a of ev?.armed || []) {
+      const name = a.label && a.label.trim() ? a.label : `@ ${a.price}`;
+      const pxStr = a.price != null
+        ? String(a.price).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+        : "";
+      newArmed[name] = pxStr;
+      newIds[name] = a.id;
+    }
+    setAlerts((cur) => ({ ...cur, armed: newArmed }));
+    setArmedIds(newIds);
+  });
 
   // Real fired-alert events from main: append to the local fired list +
   // show a toast.
@@ -650,11 +735,20 @@ function App() {
       : "";
     setAlerts((a) => {
       const newArmed = { ...a.armed };
-      // Remove any armed entry that targeted this price.
+      const removedKeys = [];
       for (const [k, v] of Object.entries(newArmed)) {
         if (v === pxStr || parseFloat(v.replace(/\s/g, "")) === Number(ev.price)) {
           delete newArmed[k];
+          removedKeys.push(k);
         }
+      }
+      // Also drop their alert_ids from the parallel map.
+      if (removedKeys.length) {
+        setArmedIds((m) => {
+          const n = { ...m };
+          for (const k of removedKeys) delete n[k];
+          return n;
+        });
       }
       const newFired = [
         { name: ev.label || pxStr, px: pxStr, t: ev.fired_at?.slice(11, 19) || nowStamp(), note: "price level reached" },

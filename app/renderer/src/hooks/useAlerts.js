@@ -16,6 +16,14 @@ export function useAlertFiredListener(onFired) {
   }, [onFired]);
 }
 
+export function useAlertStateListener(onState) {
+  useEffect(() => {
+    if (typeof onState !== "function") return;
+    const off = window.api?.alert?.onState?.(onState);
+    return () => off?.();
+  }, [onState]);
+}
+
 export async function armAlertReal(priceStr, label) {
   if (!window.api?.alert?.arm) return { ok: false };
   const price = parseFloat(String(priceStr).replace(/\s/g, "").replace(/,/g, ""));

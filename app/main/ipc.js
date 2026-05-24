@@ -7,7 +7,7 @@ import { acceptSetup, rejectSetup } from "./trades.js";
 import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { startAlertPolling, stopAlertPolling, setAlertMode } from "./alerts.js";
-import { tvAlertCreate } from "./tools/tv-alerts.js";
+import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, activeOrImminentSession } from "./session-brief.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
 import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
@@ -59,6 +59,16 @@ export function registerIpc(win) {
       return { ok: true, ...result };
     } catch (err) {
       send("app:error", { source: "alert:arm", message: String(err?.message || err) });
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("alert:disarm", async (_evt, { id }) => {
+    try {
+      const result = await tvAlertDeleteOne({ id });
+      return { ok: true, ...result };
+    } catch (err) {
+      send("app:error", { source: "alert:disarm", message: String(err?.message || err) });
       return { ok: false, error: String(err?.message || err) };
     }
   });

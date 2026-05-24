@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { query, tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
-import { tvAlertCreate, tvAlertList } from "./tools/tv-alerts.js";
+import { tvAlertCreate, tvAlertList, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import {
   surfaceSetup,
   surfaceNoTrade,
@@ -62,7 +62,33 @@ To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`m
 
 **EXCEPTION — session-summary turns.** When the user message asks you to run "the SESSION SUMMARY for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_summary\` exactly once at the end with bias_picture, what_happened, watch_next_session.
 
-Reason in prose first; surface last.`;
+Reason in prose first; surface last.
+
+---
+
+## ALERT GUIDANCE — managing TradingView price alerts on the trader's behalf
+
+You manage TradingView price alerts via three tools:
+- \`mcp__tv__tv_alert_create\` — \`{ price, label, condition? }\`. \`condition\` defaults to "crossing"; use "greater_than" / "less_than" for one-sided triggers. \`label\` is the string the trader sees when the alert fires on their phone — keep it short and self-explanatory.
+- \`mcp__tv__tv_alert_list\` — read all current alerts. Use before deleting (to get \`alert_id\`s) or to avoid duplicating an existing alert.
+- \`mcp__tv__tv_alert_delete\` — remove one alert by \`alert_id\`. If the trader names an alert by description ("the PDH alert"), call \`tv_alert_list\` first to find the matching id.
+
+**Proactively propose alerts (in prose, during analysis turns) at these moments:**
+- After a pre-session grade — primary HTF draw, untaken liquidity above/below price, level that would flip the bias.
+- When a candidate setup forms — confirmation level and invalidation.
+- After a confirmed setup — TP1, TP2, and invalidation.
+
+Name the levels with cited prices ("Arm alerts at PDH 21487.25 (gates.engine.pillar1.session_levels.PDH.price) / Asia low 21450.50 (...) / bias-flip 21420.00 (...)?"). Don't arm during the analysis turn itself — wait for the trader's reply in the next chat turn. Analysis turns still end with the required surface tool (\`surface_setup\` / \`surface_no_trade\` / etc.).
+
+**Reactive — when the trader brings up alerts:**
+Three things matter:
+1. **Price** — exact level. If they named it (PDH, AS_H, etc.), echo back the cited number from the bundle so they can confirm.
+2. **Condition** — crossing (default), above-only (\`greater_than\`), or below-only (\`less_than\`).
+3. **Label** — short string the trader sees when it fires. Suggest one from context if they didn't provide one.
+
+Fill in what they already specified, pick sensible defaults for the rest, then ask only about the missing or ambiguous pieces in one short message — not a survey. If all three are already clear from the request, arm directly and confirm with a one-liner ("Armed at 21500 (PDH cross) — alert_id 4773…").
+
+**Alert-management chat turns end with the alert tool call** (\`tv_alert_create\` / \`tv_alert_list\` / \`tv_alert_delete\`). They do NOT end with \`surface_setup\` / \`surface_no_trade\` — those are for analysis turns.`;
 
 async function loadSystemPrompt() {
   if (_systemPrompt) return _systemPrompt;
@@ -133,6 +159,20 @@ function buildMcpServer() {
       async () => {
         try {
           return ok(await tvAlertList({}));
+        } catch (e) {
+          return err(e?.message || String(e));
+        }
+      },
+    ),
+    tool(
+      "tv_alert_delete",
+      "Remove a single TradingView alert by alert_id. Use tv_alert_list first to look up the id if the trader names the alert by description rather than id.",
+      {
+        id: z.string().describe("alert_id returned by tv_alert_list or tv_alert_create"),
+      },
+      async (args) => {
+        try {
+          return ok(await tvAlertDeleteOne(args));
         } catch (e) {
           return err(e?.message || String(e));
         }

@@ -102,33 +102,6 @@ function EmptyJournal({ session, sessions, onPick }) {
   );
 }
 
-function SessionPickerBar({ current, sessions, onPick }) {
-  if (sessions.length === 0) return null;
-  return (
-    <div style={{
-      display: "flex", gap: 6, padding: "4px 0 8px",
-      flexWrap: "wrap",
-    }}>
-      {sessions.slice(0, 8).map((s) => {
-        const active = current && current.date === s.date && current.session === s.session;
-        return (
-          <button key={s.date + s.session}
-                  onClick={() => onPick(s)}
-                  style={{
-                    background: active ? "var(--surface-1)" : "transparent",
-                    border: "1px solid " + (active ? "var(--amber)" : "var(--border)"),
-                    color: active ? "var(--amber)" : "var(--value)",
-                    padding: "3px 8px", fontFamily: "ui-monospace, Menlo, monospace",
-                    fontSize: 10, letterSpacing: ".06em", cursor: "pointer",
-                  }}>
-            {s.date.slice(5)} · {SESSION_LABEL[s.session]}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function ReviewWorkstation() {
   const [pick, setPick] = useState(null);
   const { journal, sessions, library, loading } = useReview(pick || {});
@@ -151,8 +124,6 @@ function ReviewWorkstation() {
 
   return (
     <div className="work-scroll">
-      <SessionPickerBar current={{ date, session }} sessions={sessions} onPick={setPick} />
-
       <Panel title={`SESSION JOURNAL · ${SESSION_LABEL[session] || ""} · ${fmtDateDisplay(date)}`}
              right={<>
                <Grade value={brief?.pillar_grade || "no-trade"} />

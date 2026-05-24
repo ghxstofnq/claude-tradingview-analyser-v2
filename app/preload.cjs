@@ -70,10 +70,18 @@ contextBridge.exposeInMainWorld("api", {
     arm(price, label) {
       return ipcRenderer.invoke("alert:arm", { price, label });
     },
+    disarm(id) {
+      return ipcRenderer.invoke("alert:disarm", { id });
+    },
     onFired(cb) {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("alert:fired", listener);
       return () => ipcRenderer.removeListener("alert:fired", listener);
+    },
+    onState(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("alerts:state", listener);
+      return () => ipcRenderer.removeListener("alerts:state", listener);
     },
   },
   prep: {

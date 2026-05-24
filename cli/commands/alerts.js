@@ -24,9 +24,10 @@ register('alert', {
     ['delete', {
       description: 'Delete alerts',
       options: {
-        all: { type: 'boolean', description: 'Delete all alerts' },
+        all: { type: 'boolean', description: 'Delete all alerts (destructive — clears your entire alert list)' },
+        id:  { type: 'string',  description: 'Delete a single alert by alert_id' },
       },
-      handler: (opts) => core.deleteAlerts({ delete_all: opts.all }),
+      handler: (opts) => core.deleteAlerts({ delete_all: opts.all, id: opts.id }),
     }],
   ]),
 });

@@ -67,3 +67,19 @@ export async function tvAlertList(_input, opts = {}) {
     return { raw: out };
   }
 }
+
+// Per-alert delete by alert_id. Returns {ok, deleted_id} on success, throws
+// on failure (caller — IPC handler — turns the throw into {ok:false, error}).
+export async function tvAlertDeleteOne({ id }, opts = {}) {
+  if (id == null) throw new Error('tvAlertDeleteOne requires id');
+  const stdout = await runTvCapture(["alert", "delete", "--id", String(id)], opts);
+  let result;
+  try { result = JSON.parse(stdout); }
+  catch { throw new Error(`alert delete returned unparseable output: ${stdout.slice(0, 200)}`); }
+  if (result.success === false) {
+    const err = new Error(`alert delete failed: ${result.reason || 'unknown'}`);
+    err.detail = result;
+    throw err;
+  }
+  return { ok: true, deleted_id: result.deleted_id, elapsed_ms: result.elapsed_ms };
+}

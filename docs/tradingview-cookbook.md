@@ -22,8 +22,9 @@ The PR description should include a line like `Updates: docs/tradingview-cookboo
 
 Most recent first. Entry format: `YYYY-MM-DD — short summary (#PR)`.
 
+- **2026-05-24** — Per-alert delete shipped. Open the Alerts panel via **REAL CDP mouse click** (synthetic `.click()` opens the widget container but doesn't trigger the panel-populate logic). Retry up to 30s with sub-tab toggle nudges to give the panel time to render the row. Find the row by `alert.message` text, click its `[data-name="alert-delete-button"]`, click `[data-qa-id="yes-btn"]`. First call cold ~30s, subsequent calls warm <5s. Renderer's disarm flow now actually deletes the TV alert.
+- **2026-05-24** — Alerts gain custom messages + working `delete --all`. Dialog selectors switched to the modern `[data-qa-id="alerts-create-edit-dialog"]` root (the `textPrefix-` markers from PR #37 are gone). **Important: set message FIRST, type price LAST** — navigating to the message sub-dialog loses any typed price, and TV's price model only commits on Enter while the price input is focused. Renderer arm-failure UX: optimistic add → revert if `{ok:false}`, drift warnings surface as toasts.
 - **2026-05-24** — Alert create flow rewritten: opens the right dialog button (lowercase `Create alert`), uses CDP keystrokes to type the price (synthetic events don't update TV's framework state), presses Enter to commit. Wrapper now propagates failures + drift warnings. ([#37](https://github.com/ghxstofnq/claude-tradingview-analyser/pull/37))
-- **2026-05-24** — UI-scraped delete path proven live for both per-alert and delete-all. Pattern: open Alerts widgetbar tab → click `[data-name="alert-delete-button"]` on the row → click `[data-qa-id="yes-btn"]` to confirm. TV Desktop's actual delete traffic runs through Electron main-process and is invisible to renderer-level CDP — REST endpoints (`/delete_alert` etc.) don't exist as public POST.
 - **2026-05-24** — `docs/tradingview-cookbook.md` created.
 
 ---
@@ -316,24 +317,27 @@ Returns the full alert list with structured data: `alert_id`, `symbol`, `message
 #### `tv alert create`
 
 ```bash
-./bin/tv alert create --price 21528.50 --message "PDH"
+./bin/tv alert create --price 21528.50                    # auto-generated message
+./bin/tv alert create --price 21528.50 --message "PDH"    # custom message
 ```
 
 Under the hood (see [`packages/core/alerts.js`](../packages/core/alerts.js)):
 
-1. Click `[aria-label="Create alert"]` (lowercase `a` — case-sensitive!) to open the dialog.
-2. Walk up from the title span `[class*="textPrefix-"]` containing `"Create alert"` to the dialog root (the root has a `[class*="submitBtn-"]` button).
-3. `input.focus()` + `input.select()` via JS.
-4. Backspace to clear, then type the price one character at a time via `client.Input.dispatchKeyEvent` (real keystrokes — synthetic events don't update TV's framework state).
-5. Press Enter — commits the typed value into TV's model **and** submits.
+1. Click `[aria-label="Create alert"]` (lowercase `a` — case-sensitive!) to open the dialog. Dialog root is `[data-qa-id="alerts-create-edit-dialog"]`.
+2. **If a message is provided, set it FIRST:** click `[data-qa-id="alert-message-button"]` to open the message sub-dialog (`[data-qa-id="alerts-message-edit-dialog"]`). Focus `textarea#alert-message`, backspace to clear, type via CDP keystrokes, click that sub-dialog's `[data-qa-id="submit"]` to return.
+3. Focus the dialog's only `input[type="text"]` (the price field — no id/name).
+4. Backspace, then type the price via `client.Input.dispatchKeyEvent` (real keystrokes — synthetic events don't update TV's framework state).
+5. **Press Enter** — commits the typed price into TV's model **and** submits. Don't click the submit button; the typed value gets reverted to market price if you do.
 6. Wait ~1.8s, then list-diff to verify.
 
-**Returns:** `{success, alert_id, requested_price, created_price, drift, drift_warning, message, source}`.
+**Returns:** `{success, alert_id, requested_price, created_price, drift, drift_warning, message, message_set_attempted, message_set_success, source}`.
+
+**Why message-before-price:** If you set the price first then navigate to the message sub-dialog, the price input blurs and TV reverts the typed value to the prefilled market price. The message sub-dialog can be entered and left freely; the price input only commits on Enter, so it must be typed *last*.
 
 **Gotchas:**
 - TV's auto-generated message shows the **rounded** display price (e.g. "MES1! Crossing 11,111.00") but the alert's actual trigger price preserves your input (11111.11). The trigger fires at the precise value.
-- Fractional ticks can sometimes drift — `drift_warning` is set when `created_price !== requested_price`. Renderer is notified via `app:error` IPC with `level: "warn"`.
-- The dialog has a `[data-qa-id="alert-message-button"]` tab that exposes `textarea#alert-message` for custom messages. We don't currently fill this — TV uses the auto-message — but the selectors are documented for when we add it.
+- Fractional ticks can sometimes drift — `drift_warning` is set when `created_price !== requested_price`. Renderer surfaces this as an arm-warning toast in the workstation.
+- The Enter-to-commit is what makes the typed value stick. `[data-qa-id="submit"]` click without first typing Enter creates an alert at the prefilled price.
 
 #### `tv alert delete --all`
 
@@ -341,20 +345,44 @@ Under the hood (see [`packages/core/alerts.js`](../packages/core/alerts.js)):
 ./bin/tv alert delete --all
 ```
 
-**Current behavior is incomplete** — the existing CLI just opens the alerts manager's context menu and waits for manual confirmation. There is no TV "Remove all alerts" header button.
+Loops until no more `[data-name="alert-delete-button"]` elements exist:
 
-The **working pattern** (proven 2026-05-24, used to clear 329 alerts via script) is:
-
-1. Click `[data-name="alerts"]` to open the Alerts widgetbar tab.
+1. `ensureAlertsPanelOpen()` — click `[data-name="alerts"]` to open the widgetbar Alerts tab, ensure the "Alerts" sub-tab is selected (vs "Log").
 2. For each row, click `[data-name="alert-delete-button"]`.
-3. Wait ~380ms for the confirm dialog.
-4. Click `[data-qa-id="yes-btn"]`.
+3. Wait ~380ms for the confirm dialog (`[data-qa-id="yes-btn"]`).
+4. Click yes.
 5. Wait ~500ms for sync.
-6. Loop until no more `[data-name="alert-delete-button"]` elements exist.
+6. Repeat until no delete buttons remain.
 
-Rate: ~1 delete per 900ms with good timing, ~50% success rate at 280ms timing. At 380ms timing the rate climbs to ~85%.
+Rate: ~1 delete per 900ms with good timing. Cleared 329 alerts in ~11.5 minutes in the proving run.
 
-**Per-alert delete (not yet wired into the CLI):** locate the row whose ID matches the target `alert_id`, then click that row's delete button + confirm. The Alerts tab renders one button group per row.
+**Returns:** `{success, deleted, remaining, source}`.
+
+#### `tv alert delete --id <alert_id>`
+
+```bash
+./bin/tv alert delete --id 4773177343
+```
+
+Per-alert delete by ID, via UI scraping:
+
+1. `ensureAlertsPanelOpen()` — use a **REAL CDP mouse click** on `[data-name="alerts"]` (NOT `.click()` — TV's panel doesn't populate from synthetic clicks, only real mouse events trigger the render path).
+2. Retry loop (up to 30s): poll for an `[data-name="alert-item-description"]` whose text matches `target.message`. Every 3rd attempt, toggle the "Log" / "Alerts" sub-tabs to nudge a re-render.
+3. Once found, walk up from the description to the row container that holds `[data-name="alert-delete-button"]`, click it.
+4. Wait ~400ms for the confirm dialog, click `[data-qa-id="yes-btn"]`.
+5. Verify via list-diff.
+
+**Returns:** `{success, deleted_id, attempts, elapsed_ms, source}`. On failure: `{success: false, reason, target_message, attempts}`.
+
+**Timing:** first delete from a cold panel is ~30s. Subsequent deletes (panel warm) are <5s. The 30s timeout is conservative — most real deletes complete well within it.
+
+**Why so slow on first call:** TV's alerts panel is lazy. The widget container exists immediately but it only renders rows after a real mouse click on the bell triggers TV's render path. Synthetic `.click()` opens the widget but the row list stays empty until something forces a layout pass.
+
+**Workstation use:** the bell-off action calls `window.api.alert.disarm(id)` which routes here. Local bell state updates immediately (so the UI feels instant); the actual TV alert deletion runs in the background, with a warning toast if it fails (the local "off" is truth — the user wanted it off).
+
+#### Workstation behavior
+
+`window.api.alert.arm(price, label)` creates a real TV alert. The toggle-off action in the workstation is **local only** — it removes the bell dot from the UI but the TV alert lives on. The next periodic `tv alert delete --all` clears it.
 
 #### Confirmed dead ends (don't re-investigate)
 
