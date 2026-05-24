@@ -249,6 +249,7 @@ button { font: inherit; color: inherit; background: transparent; border: 0; padd
 }
 .main > * { min-width: 0; min-height: 0; }
 .main.split-50 { grid-template-columns: 1fr 1fr; }
+.main.split-60 { grid-template-columns: 6fr 4fr; }
 .main.split-70 { grid-template-columns: 7fr 3fr; }
 
 /* ---------- Chart pane ---------- */

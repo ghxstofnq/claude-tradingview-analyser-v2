@@ -247,41 +247,14 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
 
         <SetupHistoryList />
 
-        {!noSetups && (
+        {Array.isArray(activeSetup?.pillar_breakdown) && activeSetup.pillar_breakdown.length > 0 && (
           <section className="panel" style={{ marginTop: 6 }}>
             <header className="panel-head">
-              <span className="title">WHY A+ · PILLAR ALIGNMENT</span>
-              <span className="meta">6 / 6 elements</span>
+              <span className="title">PILLAR ALIGNMENT</span>
+              <span className="meta">{activeSetup.grade}</span>
             </header>
-            <div className="grade-shift">
-              <span>PREP</span>
-              <Grade value="B" />
-              <span className="arrow">→</span>
-              <span>LIVE</span>
-              <Grade value="A+" />
-              <span className="note" style={{ marginLeft: 8 }}>
-                Re-judged at open: <em>Price-Action Quality</em> weak → pass;{" "}
-                <em>Entry model</em> and <em>Confirmation</em> pending → pass.
-              </span>
-            </div>
             <div className="panel-body flush">
-              <PillarsPanel pillars={[
-                { name: "Draw & Bias", status: "pass",
-                  elements: [
-                    { name: "HTF bias",          status: "pass" },
-                    { name: "Overnight context", status: "pass" },
-                  ] },
-                { name: "Price-Action Quality", status: "pass",
-                  elements: [
-                    { name: "NY open reaction",  status: "pass" },
-                    { name: "Price quality",     status: "pass" },
-                  ] },
-                { name: "Entry + Confirmation", status: "pass",
-                  elements: [
-                    { name: "Entry model",       status: "pass" },
-                    { name: "Confirmation",      status: "pass" },
-                  ] },
-              ]} />
+              <PillarsPanel pillars={activeSetup.pillar_breakdown} />
             </div>
           </section>
         )}

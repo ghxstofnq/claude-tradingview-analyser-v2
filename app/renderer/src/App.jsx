@@ -6,6 +6,7 @@ import { LiveWorkstation } from "./Live.jsx";
 import { ReviewWorkstation } from "./Review.jsx";
 import { useHealth } from "./hooks/useHealth.js";
 import { armAlertReal, useAlertFiredListener } from "./hooks/useAlerts.js";
+import { useClock } from "./hooks/useClock.js";
 import { FileViewer } from "./FileViewer.jsx";
 
 const INITIAL = {
@@ -18,12 +19,12 @@ const INITIAL = {
 };
 
 const SYMBOLS = [
-  { sym: "MNQ1!", name: "MICRO E-MINI NASDAQ-100", px: "21 492.00", chPct: "+ 0.34 %", up: true },
-  { sym: "MES1!", name: "MICRO E-MINI S&P 500",    px: "5 924.50",  chPct: "+ 0.22 %", up: true },
-  { sym: "MYM1!", name: "MICRO E-MINI DOW",        px: "43 207.0",  chPct: "+ 0.18 %", up: true },
-  { sym: "M2K1!", name: "MICRO E-MINI RUSSELL",    px: "2 314.80",  chPct: "− 0.07 %", up: false },
-  { sym: "MGC1!", name: "MICRO GOLD",              px: "2 731.20",  chPct: "− 0.41 %", up: false },
-  { sym: "MCL1!", name: "MICRO WTI CRUDE",         px: "74.92",     chPct: "+ 1.18 %", up: true },
+  { sym: "MNQ1!", name: "MICRO E-MINI NASDAQ-100" },
+  { sym: "MES1!", name: "MICRO E-MINI S&P 500" },
+  { sym: "MYM1!", name: "MICRO E-MINI DOW" },
+  { sym: "M2K1!", name: "MICRO E-MINI RUSSELL" },
+  { sym: "MGC1!", name: "MICRO GOLD" },
+  { sym: "MCL1!", name: "MICRO WTI CRUDE" },
 ];
 
 // ---------- Symbol switcher ----------
@@ -54,9 +55,6 @@ function SymbolSwitcher({ symbol, setSymbol }) {
                  onClick={() => { setSymbol(s.sym); setOpen(false); }}>
               <span className="sym">{s.sym}</span>
               <span className="name">{s.name}</span>
-              <span className="px">
-                {s.px}<span className={"ch " + (s.up ? "up" : "dn")}>{s.chPct}</span>
-              </span>
             </div>
           ))}
         </div>
@@ -464,7 +462,10 @@ function ChartPane({ mode, symbol, theme }) {
 }
 
 // ---------- Overlays ----------
-function MarketClosedOverlay() {
+function MarketClosedOverlay({ marketState, opensIn, opensAt }) {
+  const reason = marketState === "closed-weekend"
+    ? "CME · weekend break"
+    : "CME · settlement break";
   return (
     <div style={{
       position: "absolute", inset: 0,
@@ -481,10 +482,10 @@ function MarketClosedOverlay() {
           MARKET CLOSED
         </div>
         <div style={{ color: "var(--value)", fontSize: 13, marginBottom: 4 }}>
-          CME · electronic close
+          {reason}
         </div>
         <div style={{ color: "var(--label)", fontSize: 11, letterSpacing: ".06em" }}>
-          opens Sun 18:00 ET · in 14h 02m
+          {opensAt}{opensIn ? ` · in ${opensIn}` : ""}
         </div>
       </div>
     </div>
@@ -527,35 +528,22 @@ function Workstation({ mode, tweaks, alerts, onToggleArm, onArmPrice }) {
   );
 }
 
-function computeStatus(mode, tweaks) {
-  if (tweaks.appState === "market-closed") {
-    return { clock: "23:42", phase: "MARKET CLOSED", killzone: "—",
-             loop: "down", lastBar: "—" };
-  }
-  if (tweaks.appState === "between-sessions") {
-    return { clock: "12:15", phase: "BETWEEN NY AM/PM", killzone: "—",
-             loop: "stale", lastBar: "11:30" };
-  }
-  if (mode === "prep") {
-    return { clock: "08:55", phase: "PRE-SESSION", killzone: "09:30 in 35m",
-             loop: tweaks.loopHealth, lastBar: "08:54" };
-  }
-  if (mode === "live") {
-    if (tweaks.liveSubState === "open-reaction") {
-      return { clock: "09:38", phase: "OPEN REACTION", killzone: "NY AM · 22m",
-               loop: tweaks.loopHealth, lastBar: "09:38" };
-    }
-    return { clock: "09:50", phase: "ENTRY HUNT", killzone: "NY AM · 10m",
-             loop: tweaks.loopHealth, lastBar: "09:50" };
-  }
-  return { clock: "16:30", phase: "POST-SESSION", killzone: "—",
-           loop: "healthy", lastBar: "11:30 (replay)" };
+function buildStatus(clock, effectiveT) {
+  return {
+    clock: clock.clock,
+    phase: clock.phase,
+    killzone: clock.killzone,
+    loop: effectiveT.loopHealth,
+    lastBar: "—",
+  };
 }
 
-function suggestedMode(tweaks) {
+function suggestedMode(tweaks, clock) {
   if (!tweaks.suggestMode) return null;
-  if (tweaks.appState !== "running") return null;
-  return "live";
+  if (!clock || clock.marketState !== "open") return null;
+  if (clock.phase === "OPEN REACTION" || clock.phase === "ENTRY HUNT") return "live";
+  if (clock.phase === "PRE-SESSION") return "prep";
+  return null;
 }
 
 function App() {
@@ -659,15 +647,16 @@ function App() {
   });
 
   const mode = t.mode;
-  const split = mode === "live" ? "split-70" : "split-50";
+  const split = mode === "live" ? "split-70" : "split-60";
   const health = useHealth();
   // Real loop health from main overrides the tweak default; in PREP/REVIEW
   // health may not be active yet — fall back to the tweak.
   const effectiveT = health?.loop && health.loop !== "off"
     ? { ...t, loopHealth: health.loop }
     : t;
-  const status = computeStatus(mode, effectiveT);
-  const sg = suggestedMode(t);
+  const clock = useClock();
+  const status = buildStatus(clock, effectiveT);
+  const sg = suggestedMode(t, clock);
 
   // Keyboard shortcuts: Cmd/Ctrl+1/2/3 mode switch, / to focus chat input.
   useEffect(() => {
@@ -727,8 +716,11 @@ function App() {
       <div className={"main " + split}>
         <div style={{ position: "relative", display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, height: "100%" }}>
           <ChartPane mode={mode} symbol={symbol} theme={theme} />
-          {t.appState === "market-closed" && <MarketClosedOverlay />}
-          {t.appState === "tv-signed-out" && <TvNotLoggedIn />}
+          {clock.marketState !== "open" && (
+            <MarketClosedOverlay marketState={clock.marketState}
+                                 opensIn={clock.opensIn}
+                                 opensAt={clock.opensAt} />
+          )}
           {toast && <AlertToast alert={toast} onClose={() => setToast(null)} />}
         </div>
         <div className="work-pane">

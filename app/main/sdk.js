@@ -44,7 +44,7 @@ You are running inside the desktop Trading Workstation, not the CLI. The worksta
 
 **Every analysis turn MUST end with exactly one tool call**, in this order of priority:
 
-1. If a valid setup is in play and you would call it \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status). Do this AFTER your prose reasoning.
+1. If a valid setup is in play and you would call it \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, pillar_breakdown). Do this AFTER your prose reasoning. \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements — see the schema. Skipping it hides the alignment panel.
 
 2. Otherwise (any reason you would have written "no-trade" in prose) — call \`mcp__tv__surface_no_trade\` with a short \`reason\` string. Examples:
    - "outside active session"
@@ -152,8 +152,14 @@ function buildMcpServer() {
         invalidation: z.number().describe("Price at which the setup is invalidated"),
         rr: z.number().optional().describe("Risk:reward ratio"),
         confirmation_status: z.enum(["confirmed", "candidate", "invalidated"]).optional(),
-        pillar_breakdown: z.record(z.string(), z.unknown()).optional()
-          .describe("Optional 6-element pillar breakdown {hint, bias, ...}"),
+        pillar_breakdown: z.array(z.object({
+          name: z.string().describe("Pillar name: 'Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'"),
+          status: z.enum(["pass", "weak", "fail", "pending"]),
+          elements: z.array(z.object({
+            name: z.string(),
+            status: z.enum(["pass", "weak", "fail", "pending"]),
+          })),
+        })).optional().describe("3-pillar alignment breakdown rendered in the LIVE PILLAR ALIGNMENT panel. Optional — panel is hidden when omitted."),
         label: z.string().optional().describe("Optional short label, default ACTIVE SETUP"),
       },
       async (args) => {
