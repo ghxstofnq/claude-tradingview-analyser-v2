@@ -101,13 +101,16 @@ app.whenReady().then(async () => {
   runRetentionSweep();
   setInterval(runRetentionSweep, 24 * 60 * 60 * 1000);
 
-  // Rotate metrics.jsonl on boot — yesterday's file becomes
+  // Rotate metrics.jsonl on boot AND every 24h. Yesterday's file becomes
   // metrics-<YYYY-MM-DD>.jsonl, rotated files older than 30d are swept.
-  // Was: unbounded growth, MBs after months.
-  rotateMetricsFile().catch((err) => {
+  // Was: rotation ran ONLY at boot, so an app left running >24h never
+  // rotated — same unbounded-growth problem just delayed.
+  const runMetricsRotation = () => rotateMetricsFile().catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[metrics] rotation failed", err?.message || err);
   });
+  runMetricsRotation();
+  setInterval(runMetricsRotation, 24 * 60 * 60 * 1000);
 
   // Hourly metrics summary to the console — one line aggregating
   // brief/wrap/bar-close/chat events from state/metrics.jsonl. The

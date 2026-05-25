@@ -36,6 +36,48 @@ function diffBriefs(current, prior) {
   return rows;
 }
 
+// Visible banner when the brief is from a prior trading window — e.g.
+// London brief still showing during NY AM, or NY AM brief showing
+// during NY PM. Threshold is intentionally generous (4h) to avoid
+// crying wolf during the same session.
+const STALE_BRIEF_THRESHOLD_MS = 4 * 60 * 60 * 1000;
+function StaleBriefBanner({ ageMs, onRefresh }) {
+  if (ageMs == null || ageMs < STALE_BRIEF_THRESHOLD_MS) return null;
+  const ageLabel = formatAge(ageMs);
+  return (
+    <div style={{
+      background: "var(--surface-1)",
+      border: "1px solid var(--amber, #d4a657)",
+      borderLeft: "3px solid var(--amber, #d4a657)",
+      padding: "10px 14px",
+      marginBottom: 10,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
+    }}>
+      <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.4 }}>
+        <span style={{ color: "var(--amber)", letterSpacing: ".1em", fontSize: 10 }}>STALE · </span>
+        This brief is {ageLabel} — likely from a prior session window. Refresh to grade the current session.
+      </div>
+      <button onClick={onRefresh}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--amber)",
+                color: "var(--amber)",
+                padding: "3px 12px",
+                fontFamily: "ui-monospace, Menlo, monospace",
+                fontSize: 9.5,
+                letterSpacing: ".16em",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}>
+        [ REFRESH ]
+      </button>
+    </div>
+  );
+}
+
 function ChangedPanel({ session, brief }) {
   const [prior, setPrior] = useState(null);
   const [priorDate, setPriorDate] = useState(null);
@@ -116,12 +158,30 @@ function formatPx(p) {
   return dec ? `${withSpaces}.${dec.padEnd(2, "0").slice(0, 2)}` : withSpaces;
 }
 
-function RefreshButton({ status, onClick, age }) {
+function formatEtTime(isoStr) {
+  if (!isoStr) return "";
+  try {
+    return new Date(isoStr).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+  } catch { return ""; }
+}
+
+function RefreshButton({ status, onClick, age, briefTs }) {
   const running = status === "running";
+  // Show both relative ("5m old") and absolute ET wall-clock
+  // ("09:03 ET"). Trader can pick whichever is more useful in the moment.
+  const etTime = briefTs ? formatEtTime(briefTs) : "";
+  const ageLabel = age != null ? formatAge(age) : "";
+  const captionParts = [];
+  if (ageLabel) captionParts.push(`claude · ${ageLabel}`);
+  if (etTime) captionParts.push(`@ ${etTime} ET`);
+  const caption = running ? "claude is preparing…" : captionParts.join(" ");
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
       <span style={{ color: "var(--label)", fontSize: 10 }}>
-        {running ? "claude is preparing…" : age != null ? `claude · ${formatAge(age)}` : ""}
+        {caption}
       </span>
       <button
         onClick={onClick}
@@ -226,9 +286,10 @@ function PrepWorkstation({ alerts, onToggleArm }) {
       {recap && recapSession !== brief.session && (
         <RecapPanel session={recapSession} recap={recap} />
       )}
+      <StaleBriefBanner ageMs={ageMs} onRefresh={refresh} />
       <ChangedPanel session={brief.session} brief={brief} />
       <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}${selectedSymbol ? ` · ${selectedSymbol}` : ""}`}
-             right={<RefreshButton status={status} onClick={refresh} age={ageMs} />}>
+             right={<RefreshButton status={status} onClick={refresh} age={ageMs} briefTs={brief.ts} />}>
         {availableSymbols.length > 1 && (
           <div style={{
             display: "flex", gap: 6, padding: "0 0 8px",

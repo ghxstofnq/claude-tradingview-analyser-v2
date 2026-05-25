@@ -36,6 +36,61 @@ function fmtDateDisplay(yyyymmdd) {
   return `${wd} ${mo} ${d}`.toUpperCase();
 }
 
+// Export the current session's full journal as a single JSON file to
+// the user's Downloads folder. Bundles brief + summary + setups + trades
+// so the trader can open it in a spreadsheet or share for review.
+function ExportButton({ date, session }) {
+  const [state, setState] = useState("idle"); // idle | exporting | done | error
+  const [msg, setMsg] = useState("");
+  const onClick = async () => {
+    if (!date || !session) return;
+    setState("exporting");
+    setMsg("");
+    try {
+      const res = await window.api?.review?.exportSession?.(date, session);
+      if (res?.ok) {
+        setState("done");
+        setMsg(`Saved to ${res.path}`);
+        setTimeout(() => setState("idle"), 4000);
+      } else {
+        setState("error");
+        setMsg(res?.error || "export failed");
+      }
+    } catch (e) {
+      setState("error");
+      setMsg(String(e?.message || e));
+    }
+  };
+  const label = state === "exporting" ? "[ EXPORTING… ]"
+              : state === "done" ? "[ EXPORTED ]"
+              : state === "error" ? "[ EXPORT FAILED ]"
+              : "[ EXPORT JSON ]";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
+      {msg && (
+        <span style={{ color: state === "error" ? "var(--red)" : "var(--label)", fontSize: 9.5 }}>
+          {msg.length > 60 ? "…" + msg.slice(-58) : msg}
+        </span>
+      )}
+      <button onClick={onClick}
+              disabled={state === "exporting"}
+              title="export brief + summary + setups + trades as one JSON file to ~/Downloads"
+              style={{
+                background: "transparent",
+                border: "1px solid var(--border, #2a3038)",
+                color: state === "error" ? "var(--red)" : "var(--label)",
+                padding: "2px 10px",
+                fontFamily: "ui-monospace, Menlo, monospace",
+                fontSize: 9.5,
+                letterSpacing: ".14em",
+                cursor: state === "exporting" ? "default" : "pointer",
+              }}>
+        {label}
+      </button>
+    </span>
+  );
+}
+
 // Adapt the folded-trade record to the shape TradeCard expects.
 function adaptTrade(t) {
   if (!t) return null;
@@ -130,6 +185,7 @@ function ReviewWorkstation() {
                <span style={{ marginLeft: 8, color: "var(--label)", fontSize: 10 }}>
                  {date}
                </span>
+               <ExportButton date={date} session={session} />
              </>}>
         <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55, marginBottom: 8 }}>
           {summary?.bias_picture ||

@@ -73,9 +73,27 @@ export function useSessionBrief() {
     // makes that string actually count up instead of freezing.
     const ageInterval = setInterval(() => setAgeTick((n) => n + 1), 10_000);
 
+    // 60-second refetch from main. Covers the rare case of a hand-edited
+    // brief.json (which we did during early debugging) where the file
+    // changes outside our IPC events. Cheap — one IPC roundtrip / min.
+    const pollInterval = setInterval(() => {
+      window.api?.prep?.get?.().then((res) => {
+        if (!mounted || !res?.ok) return;
+        if (res.session) setSession(res.session);
+        if (res.brief) setLegacyBrief(res.brief);
+        const map = res.briefsBySymbol || {};
+        // Only update if shape actually changed (cheap json compare).
+        setBriefsBySymbol((cur) => {
+          if (JSON.stringify(cur) === JSON.stringify(map)) return cur;
+          return map;
+        });
+      }).catch(() => {});
+    }, 60_000);
+
     return () => {
       mounted = false;
       clearInterval(ageInterval);
+      clearInterval(pollInterval);
       offUpdated?.();
       offStatus?.();
       offToolCall?.();

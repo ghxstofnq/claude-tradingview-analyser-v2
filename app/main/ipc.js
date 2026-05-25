@@ -164,6 +164,26 @@ export function registerIpc(win) {
     }
   });
 
+  ipcMain.handle("review:export_session", async (_evt, { date, session } = {}) => {
+    // Bundles brief + summary + setups + trades for one session into a
+    // single JSON file at ~/Downloads/session-<date>-<session>.json.
+    // Use case: trader exports the day's journal for spreadsheet / review
+    // outside the app. Returns { ok, path } so the renderer can show
+    // "saved to <path>".
+    try {
+      if (!date || !session) throw new Error("date and session required");
+      const journal = await getJournalFor({ date, session });
+      if (!journal) throw new Error("no journal found for that session");
+      const { app: electronApp } = await import("electron");
+      const downloads = electronApp.getPath("downloads");
+      const outPath = path.join(downloads, `session-${date}-${session}.json`);
+      await fs.writeFile(outPath, JSON.stringify(journal, null, 2), "utf8");
+      return { ok: true, path: outPath };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
   ipcMain.handle("prep:prior_brief_get", async (_evt, args = {}) => {
     // Returns the most recent brief.json for the same session that's NOT
     // today. Used by the "what changed since last brief" diff panel.

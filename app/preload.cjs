@@ -132,6 +132,9 @@ contextBridge.exposeInMainWorld("api", {
     library(limit) {
       return ipcRenderer.invoke("review:library", { limit });
     },
+    exportSession(date, session) {
+      return ipcRenderer.invoke("review:export_session", { date, session });
+    },
   },
   status: {
     lastBar() {
