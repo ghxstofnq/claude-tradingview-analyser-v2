@@ -89,3 +89,4 @@ const _driver = makeScheduledTurn({
 
 export const bootstrap = _driver.bootstrap;
 export const stopScheduler = _driver.stop;
+export const rearmScheduler = _driver.rearm;

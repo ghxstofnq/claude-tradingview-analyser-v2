@@ -18,7 +18,16 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { PAIR_PRIMARY } from "./config.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, "../..");
+// The bundle Claude analyzed during the brief turn. tv_analyze_full writes
+// here; we copy it into the session folder so the cited prices can be
+// audited later (otherwise the source data gets overwritten by the next
+// tv_analyze call).
+const SOURCE_BUNDLE = path.join(REPO_ROOT, "state", "last-analyze.json");
 
 const DEFAULT_TAIL_BARS = 10;
 const DEFAULT_TAIL_SETUPS = 5;
@@ -53,10 +62,23 @@ export async function writeBrief(dir, payload) {
     // by name and were always picking up MES (called second).
     if (payload.symbol === PAIR_PRIMARY) {
       await writeAtomic(path.join(dir, "brief.json"), json);
+      // Snapshot the source bundle alongside the primary brief. Lets
+      // someone reading brief.json 2 hours later verify the cited
+      // prices — without this, the bundle has been overwritten by the
+      // next tv_analyze run and citations are unauditable. Best-effort:
+      // missing source = no snapshot, brief still writes.
+      try {
+        const sourceBundle = await fs.readFile(SOURCE_BUNDLE, "utf8");
+        await writeAtomic(path.join(dir, "brief-bundle.json"), sourceBundle);
+      } catch { /* no source bundle — skip snapshot */ }
     }
   } else {
     // Legacy single-symbol mode — no per-symbol file, only brief.json.
     await writeAtomic(path.join(dir, "brief.json"), json);
+    try {
+      const sourceBundle = await fs.readFile(SOURCE_BUNDLE, "utf8");
+      await writeAtomic(path.join(dir, "brief-bundle.json"), sourceBundle);
+    } catch { /* no source bundle — skip snapshot */ }
   }
   await writeAtomic(path.join(dir, "pillar1.md"), renderPillar1Md(payload));
   await writeAtomic(path.join(dir, "pillar2.md"), renderPillar2Md(payload));

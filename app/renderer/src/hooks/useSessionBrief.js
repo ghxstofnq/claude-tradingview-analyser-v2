@@ -13,7 +13,12 @@ export function useSessionBrief() {
   const [legacyBrief, setLegacyBrief] = useState(null);
   const [session, setSession] = useState(null); // "london" | "ny-am" | "ny-pm" | null
   const [status, setStatus] = useState("idle"); // "idle" | "running" | "error" | "skipped"
+  const [statusReason, setStatusReason] = useState(null); // tells the user WHY skipped/error
   const [selectedSymbol, setSelectedSymbol] = useState(null);
+  // ageTick re-renders this hook every 10s so the brief-age display
+  // doesn't lie about freshness. Without it, "5m old" stays "5m old"
+  // forever until some other state change triggers a render.
+  const [, setAgeTick] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -43,11 +48,19 @@ export function useSessionBrief() {
     });
     const offStatus = window.api?.prep?.onStatus?.((ev) => {
       setStatus(ev?.state || "idle");
+      // Capture the reason for skipped/error so the UI can surface it
+      // instead of silently ignoring the event.
+      setStatusReason(ev?.reason || ev?.message || null);
       if (ev?.session) setSession(ev.session);
     });
 
+    // 10-second age refresh. The brief panel header shows "Xm old"; this
+    // makes that string actually count up instead of freezing.
+    const ageInterval = setInterval(() => setAgeTick((n) => n + 1), 10_000);
+
     return () => {
       mounted = false;
+      clearInterval(ageInterval);
       offUpdated?.();
       offStatus?.();
     };
@@ -80,6 +93,7 @@ export function useSessionBrief() {
     setSelectedSymbol,
     session,
     status,
+    statusReason,
     refresh,
     ageMs,
   };

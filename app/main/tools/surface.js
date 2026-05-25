@@ -8,6 +8,12 @@ import { fileURLToPath } from "node:url";
 import { activeSessionDir, currentSession } from "../sessions.js";
 import { writePairDecision } from "../../../cli/lib/pair-decision.js";
 import { writeBrief, readMemory, writeAtomic } from "../session-memory.js";
+import { PAIR_PRIMARY, PAIR_SECONDARY } from "../config.js";
+
+// Symbols allowed in surface_session_brief.symbol. Anything else is a typo /
+// hallucination and should fail loudly rather than write a brief-XYZ.json
+// that no UI reads. Keep in sync with config.js.
+const VALID_BRIEF_SYMBOLS = new Set([PAIR_PRIMARY, PAIR_SECONDARY]);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -70,6 +76,25 @@ async function briefDirFor(session) {
 // Renderer side picks: useSessionBrief prefers per-symbol files when
 // available, falling back to brief.json.
 export async function surfaceSessionBrief(payload) {
+  // Validate symbol against the pair allow-list. Without this, Claude can
+  // hallucinate symbol="MNQ" (no !) and the file lands as brief-MNQ.json
+  // — invisible to the UI, no error.
+  if (payload.symbol && !VALID_BRIEF_SYMBOLS.has(payload.symbol)) {
+    throw new Error(
+      `surface_session_brief: symbol "${payload.symbol}" not in pair allow-list ` +
+      `[${[...VALID_BRIEF_SYMBOLS].join(", ")}]`,
+    );
+  }
+  // Consistency check: A+ requires at least 2 pillars (P1 + P2; P3 is
+  // pending pre-session). Schema-level Zod can't easily enforce this, but
+  // a runtime check stops "A+ with empty pillars" from rendering an empty
+  // panel under a confident header.
+  if (payload.pillar_grade === "A+" && (!Array.isArray(payload.pillars) || payload.pillars.length < 2)) {
+    throw new Error(
+      `surface_session_brief: pillar_grade "A+" requires at least 2 pillars; ` +
+      `got ${payload.pillars?.length ?? 0}`,
+    );
+  }
   const dir = await briefDirFor(payload.session);
   const ts = new Date().toISOString();
   const record = { ...payload, ts };

@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, powerMonitor } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { initSdk } from "./main/sdk.js";
@@ -7,10 +7,12 @@ import { setSurfaceSink } from "./main/tools/surface.js";
 import { startHealthMonitor } from "./main/health.js";
 import { startAlertPolling } from "./main/alerts.js";
 import { bindDetectorToMode } from "./main/bar-close.js";
-import { bootstrap as bootstrapSessionBrief } from "./main/session-brief.js";
-import { bootstrap as bootstrapSessionWrap } from "./main/session-wrap.js";
+import { bootstrap as bootstrapSessionBrief, rearmScheduler as rearmBrief } from "./main/session-brief.js";
+import { bootstrap as bootstrapSessionWrap, rearmScheduler as rearmWrap } from "./main/session-wrap.js";
+import { sweepOldSessions } from "./main/state-retention.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, "..");
 const isDev = !app.isPackaged;
 
 function createWindow() {
@@ -64,6 +66,28 @@ app.whenReady().then(async () => {
   bootstrapSessionWrap({ send: ipc.send }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[session-wrap] bootstrap failed", err);
+  });
+
+  // One-shot retention sweep on boot — delete state/session/<date>/ folders
+  // older than 30 days. Was unbounded growth; the dashboard reads this dir
+  // on every refresh, so months of stale folders slow things down.
+  sweepOldSessions(REPO_ROOT).then((r) => {
+    // eslint-disable-next-line no-console
+    console.log(`[retention] swept ${r.deleted} old session folders, kept ${r.kept}`);
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[retention] sweep failed", err?.message || err);
+  });
+
+  // Power-sleep rearm. setTimeout doesn't fire while the laptop is asleep
+  // — the brief/wrap schedulers go silent on wake until rearmed. On
+  // 'resume', re-pick the next trigger; if today's brief is missing
+  // (slept through the trigger), the rearm path catches it up.
+  powerMonitor.on("resume", () => {
+    // eslint-disable-next-line no-console
+    console.log("[power] system resumed — rearming schedulers");
+    rearmBrief().catch((err) => console.warn("[brief] rearm failed", err?.message || err));
+    rearmWrap().catch((err) => console.warn("[wrap] rearm failed", err?.message || err));
   });
 });
 

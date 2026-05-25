@@ -79,19 +79,30 @@ function RefreshButton({ status, onClick, age }) {
   );
 }
 
-function EmptyBrief({ status, session, onRefresh }) {
+function EmptyBrief({ status, statusReason, session, onRefresh }) {
   const running = status === "running";
+  let message;
+  if (running) {
+    message = "Claude is preparing the session brief — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes 2-5 minutes.";
+  } else if (status === "error") {
+    message = `The session brief failed${statusReason ? `: ${statusReason}` : ""}. Hit refresh to try again.`;
+  } else if (status === "skipped") {
+    // Skipped events now carry a reason from session-brief preflights:
+    // "market closed", "TradingView replay is active", "another turn
+    // already in flight", "chart preflight failed", etc. Surfacing the
+    // reason replaces the prior silent ignore — user knows why nothing
+    // happened when they clicked refresh.
+    message = `Brief skipped${statusReason ? `: ${statusReason}` : ""}.`;
+  } else if (session) {
+    message = "No brief yet for this session. Hit refresh to run one now — or wait for the next scheduled trigger (02:00 / 09:00 / 13:00 ET).";
+  } else {
+    message = "Outside trading windows — next session opens Monday 02:00 ET (London).";
+  }
   return (
     <Panel title={`SESSION BRIEF · ${SESSION_LABEL[session] || "—"}`}
            right={<RefreshButton status={status} onClick={onRefresh} />}>
       <div style={{ color: "var(--label)", fontSize: 11.5, lineHeight: 1.6 }}>
-        {running
-          ? "Claude is preparing the session brief — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes ~15s."
-          : status === "error"
-          ? "The session brief failed to generate. Hit refresh to try again."
-          : session
-          ? "No brief yet for this session. Hit refresh to run one now — or wait for the next scheduled trigger (02:00 / 09:00 / 13:00 ET)."
-          : "Outside trading windows — next session opens Monday 02:00 ET (London)."}
+        {message}
       </div>
     </Panel>
   );
@@ -108,6 +119,7 @@ function PrepWorkstation({ alerts, onToggleArm }) {
     setSelectedSymbol,
     session,
     status,
+    statusReason,
     refresh,
     ageMs,
   } = useSessionBrief();
@@ -117,7 +129,7 @@ function PrepWorkstation({ alerts, onToggleArm }) {
     return (
       <div className="work-scroll">
         {recap && <RecapPanel session={recapSession} recap={recap} />}
-        <EmptyBrief status={status} session={session} onRefresh={refresh} />
+        <EmptyBrief status={status} statusReason={statusReason} session={session} onRefresh={refresh} />
       </div>
     );
   }

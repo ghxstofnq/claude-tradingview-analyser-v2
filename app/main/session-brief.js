@@ -13,7 +13,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as replayCore from "@tvmcp/core/replay";
 import { makeScheduledTurn } from "./scheduled-turn.js";
+import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,14 +47,25 @@ function nyParts(date = new Date()) {
 
 // Active or imminent session — used both by the scheduler (to pick which
 // session to fire for) and by the PREP panel (to pick which brief to read).
-// Window covers from the brief trigger time until the next session's brief.
+//
+// "Imminent" window: 30 minutes BEFORE the next session's brief trigger we
+// roll forward. So at 08:55 ET, the answer is "ny-am" (brief trigger at
+// 09:00), not "london" — even though we're still inside London's window by
+// clock. Prior behavior fired a stale London brief at 08:55 that the user
+// would discard 5 min later when NY AM arrived.
+const IMMINENT_LEAD_MIN = 30;
+
 export function activeOrImminentSession(date = new Date()) {
   const { hour, minute, weekday } = nyParts(date);
   if (weekday === "Sat" || weekday === "Sun") return null;
   const m = hour * 60 + minute;
-  if (m >= 2 * 60 && m < 9 * 60) return "london";
-  if (m >= 9 * 60 && m < 13 * 60) return "ny-am";
-  if (m >= 13 * 60 && m < 16 * 60 + 30) return "ny-pm";
+  const NY_AM_BRIEF = 9 * 60;     // 09:00 ET
+  const NY_PM_BRIEF = 13 * 60;    // 13:00 ET
+  // Imminent rolls: if we're within IMMINENT_LEAD_MIN of the next session's
+  // brief trigger, the answer is the next session — not the current one.
+  if (m >= NY_PM_BRIEF - IMMINENT_LEAD_MIN && m < 16 * 60 + 30) return "ny-pm";
+  if (m >= NY_AM_BRIEF - IMMINENT_LEAD_MIN && m < NY_PM_BRIEF - IMMINENT_LEAD_MIN) return "ny-am";
+  if (m >= 2 * 60 && m < NY_AM_BRIEF - IMMINENT_LEAD_MIN) return "london";
   return null;
 }
 
@@ -100,6 +113,57 @@ async function isAlreadyDone(session) {
   return !!(await getBriefForToday(session));
 }
 
+// Preflight: skip the brief turn when the market is closed (no fresh data
+// to analyze), when replay is active on the chart (would grade replay
+// state instead of live), or when the chart isn't on a pair symbol (the
+// analyze call would throw on the symbol check).
+async function preflight() {
+  const { hour, minute, weekday } = nyParts();
+  // Market-closed window for CME index futures: Friday 17:00 ET → Sunday
+  // 18:00 ET, plus daily 17:00–18:00 ET settlement break on weekdays. Match
+  // the logic in cli/commands/analyze.js#computeSessionGate.
+  const m = hour * 60 + minute;
+  const isSat = weekday === "Sat";
+  const isFridayAfter = weekday === "Fri" && m >= 17 * 60;
+  const isSundayBefore = weekday === "Sun" && m < 18 * 60;
+  const isDailyBreak = !isSat && !isFridayAfter && !isSundayBefore && m >= 17 * 60 && m < 18 * 60;
+  if (isSat || isFridayAfter || isSundayBefore || isDailyBreak) {
+    return { ok: false, reason: "market closed (CME futures pause)" };
+  }
+  // Replay mode active on the chart — grading replay would mislead the
+  // trader. Best-effort: if the call fails we proceed (no replay session
+  // means the API errors).
+  try {
+    const status = await replayCore.status();
+    if (status?.is_replay_started) {
+      return { ok: false, reason: "TradingView replay is active — toggle it off and retry" };
+    }
+  } catch { /* no replay session — proceed */ }
+  // Chart preflight: tv analyze --pair throws if the chart isn't on one of
+  // the pair symbols. Pin to PAIR_PRIMARY before the turn so the analyzer
+  // never gets a wrong-symbol bundle.
+  try {
+    await ensureChartState({ symbol: PAIR_PRIMARY });
+  } catch (err) {
+    return { ok: false, reason: `chart preflight failed: ${err?.message || err}` };
+  }
+  return { ok: true };
+}
+
+// Post-validate: confirm Claude actually called surface_session_brief
+// twice in the dual-symbol turn. Without this, a "turn completed" with no
+// briefs surfaced was silent — PREP panel just stayed on yesterday.
+function postValidate(toolCalls) {
+  const briefCalls = toolCalls.filter((n) => n && n.includes("surface_session_brief"));
+  if (briefCalls.length === 0) {
+    return "brief turn completed without calling surface_session_brief — PREP panel will stay stale";
+  }
+  if (briefCalls.length < 2) {
+    return `brief turn called surface_session_brief only ${briefCalls.length}× — expected 2 (one per symbol)`;
+  }
+  return null;
+}
+
 function buildPrompt(session) {
   return Promise.resolve(`Run the SESSION BRIEF for the ${session.toUpperCase()} session.
 
@@ -117,8 +181,11 @@ const _driver = makeScheduledTurn({
   activeSessionFn: activeOrImminentSession,
   isAlreadyDoneFn: isAlreadyDone,
   buildPromptFn: buildPrompt,
+  preflightFn: preflight,
+  postValidateFn: postValidate,
 });
 
 export const bootstrap = _driver.bootstrap;
 export const runManualRefresh = _driver.runManual;
 export const stopScheduler = _driver.stop;
+export const rearmScheduler = _driver.rearm;
