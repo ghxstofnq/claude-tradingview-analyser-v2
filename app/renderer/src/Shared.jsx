@@ -80,10 +80,26 @@ function PillarsPanel({ pillars, expanded = true }) {
 }
 
 // ---------- Setup card ----------
-function SetupCard({ setup, onAccept, onReject, featured }) {
+function SetupCard({ setup, onAccept, onReject, featured, onArmPrice }) {
   const variant =
     setup.grade === "A+" ? "featured" :
     setup.grade === "B" ? "b" : "";
+  // #56 Click-to-arm-alert. If onArmPrice prop is provided, render
+  // each price as a clickable element. The label suggests the level
+  // role ("entry", "stop", "tp1") for the alert message.
+  const ClickPx = ({ value, role, tone }) => {
+    if (!onArmPrice || !value || value === "—") {
+      return <span className={"v " + (tone || "")}>{value}</span>;
+    }
+    return (
+      <span className={"v " + (tone || "")}
+            style={{ cursor: "pointer", textDecoration: "underline dotted var(--label-dim, #4a505a)" }}
+            title={`click to arm an alert at ${value} (${role})`}
+            onClick={() => onArmPrice(value, role)}>
+        {value}
+      </span>
+    );
+  };
   return (
     <div className={"setup-card " + variant + (featured ? " featured" : "")}>
       <div className="sc-head">
@@ -111,11 +127,11 @@ function SetupCard({ setup, onAccept, onReject, featured }) {
              v={<span className={setup.side === "long" ? "v green" : "v red"}>
                  {setup.side.toUpperCase()}
                </span>} />
-        <Row k="Entry" v={setup.entry} tone="num" />
-        <Row k="Stop"  v={setup.stop}  tone="num red" />
-        <Row k="TP1"   v={setup.tp1}   tone="num green" />
-        <Row k="TP2"   v={setup.tp2}   tone="num green" />
-        <Row k="Invalidation" v={setup.invalidation} tone="num red" />
+        <Row k="Entry" v={<ClickPx value={setup.entry} role="entry" tone="num" />} />
+        <Row k="Stop"  v={<ClickPx value={setup.stop}  role="stop"  tone="num red" />} />
+        <Row k="TP1"   v={<ClickPx value={setup.tp1}   role="tp1"   tone="num green" />} />
+        <Row k="TP2"   v={<ClickPx value={setup.tp2}   role="tp2"   tone="num green" />} />
+        <Row k="Invalidation" v={<ClickPx value={setup.invalidation} role="invalidation" tone="num red" />} />
         <Row k="R : R" v={setup.rr} tone="num" />
       </div>
       <div className="sc-foot">
@@ -328,8 +344,21 @@ function SnapshotFullscreen({ trade, onClose }) {
 // ---------- Taken-trade card ----------
 function TradeCard({ trade, showSnapshot = true }) {
   const [fullscreen, setFullscreen] = useState(false);
+  // #61 BE flash — when stop just moved to BE, render a soft amber tint
+  // on the card for ~3s so the trader sees the change. Re-flashes if
+  // trade.beFlash flips between renders (e.g. after a TP1_HIT outcome).
+  const [flashing, setFlashing] = useState(false);
+  const lastBeFlashRef = useRef(false);
+  useEffect(() => {
+    if (trade.beFlash && !lastBeFlashRef.current) {
+      setFlashing(true);
+      const t = setTimeout(() => setFlashing(false), 3000);
+      return () => clearTimeout(t);
+    }
+    lastBeFlashRef.current = trade.beFlash;
+  }, [trade.beFlash]);
   return (
-    <div className={"trade-card " + trade.side}>
+    <div className={"trade-card " + trade.side + (flashing ? " flash" : "")}>
       <div className="tc-head">
         <span className="id">#{trade.id}</span>
         <Grade value={trade.grade} />
@@ -354,8 +383,27 @@ function TradeCard({ trade, showSnapshot = true }) {
         <Row k="R risked" v={trade.risk} />
         <Row k="TP1" v={trade.tp1} tone="num green" />
         <Row k="TP2" v={trade.tp2} tone="num green" />
-        <Row k="R:R" v={trade.rr || "3.1"} tone="num" />
+        <Row k="R:R" v={trade.rr || "—"} tone="num" />
         <Row k="P / L" v={trade.pnl} tone={trade.pnlPositive ? "green" : trade.pnlNegative ? "red" : ""} />
+        {/* #55 Live price + distance to targets. Renders only when we
+            have a fresh bar close to compute against. */}
+        {trade.live && (
+          <Row k="Live"
+               v={<>
+                 <span style={{ color: "var(--prose)" }}>{trade.live.lastClose}</span>
+                 {trade.live.toTP1 != null && (
+                   <span style={{ color: trade.live.toTP1 > 0 ? "var(--green)" : "var(--label)", marginLeft: 8, fontSize: 10 }}>
+                     · TP1 {Math.abs(trade.live.toTP1)} {trade.live.toTP1 > 0 ? "away" : "past"}
+                   </span>
+                 )}
+                 {trade.live.toStop != null && (
+                   <span style={{ color: trade.live.toStop < 0 ? "var(--red)" : "var(--label)", marginLeft: 6, fontSize: 10 }}>
+                     · STOP {Math.abs(trade.live.toStop)} {trade.live.toStop < 0 ? "past" : "below"}
+                   </span>
+                 )}
+               </>}
+               tone="num" />
+        )}
       </div>
       {showSnapshot && (
         <div className="snapshot-row">

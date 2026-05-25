@@ -67,6 +67,7 @@ export function tickTrades(trades, bar) {
         }
       }
 
+      const hitTP2 = t.side === "long" ? bar.high >= t.tp2 : bar.low <= t.tp2;
       if (t.side === "long") {
         if (hitTP1 && !t.tp1_hit && tp1First) {
           transitions.push({ id: t.id, ts: bar.ts, status: "TP1_HIT", r_realized: rMultiple(t, t.tp1) });
@@ -78,6 +79,15 @@ export function tickTrades(trades, bar) {
           } else {
             updated.push(next);
           }
+          continue;
+        }
+        // Runner phase: tp1 already hit on a prior bar — look for TP2
+        // or the BE-stop. Was a real bug: TP2 only fired same-bar as
+        // TP1, never later. A trade that hit TP1 then ran to TP2 on the
+        // next bar got stuck in "filled (runner)" forever.
+        if (t.tp1_hit && hitTP2) {
+          transitions.push({ id: t.id, ts: bar.ts, status: "TP2_HIT", r_realized: rMultiple(t, t.tp2) });
+          updated.push({ ...t, state: "closed", outcome: "TP2_HIT" });
           continue;
         }
         if (hitStop) {
@@ -96,6 +106,12 @@ export function tickTrades(trades, bar) {
           } else {
             updated.push(next);
           }
+          continue;
+        }
+        // Runner phase (short symmetric — same TP2-after-prior-bar bug).
+        if (t.tp1_hit && hitTP2) {
+          transitions.push({ id: t.id, ts: bar.ts, status: "TP2_HIT", r_realized: rMultiple(t, t.tp2) });
+          updated.push({ ...t, state: "closed", outcome: "TP2_HIT" });
           continue;
         }
         if (hitStop) {

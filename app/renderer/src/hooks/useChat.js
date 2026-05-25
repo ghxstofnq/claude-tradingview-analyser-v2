@@ -40,13 +40,13 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
+// #68 useChat now owns only the chat-stream concern. The activeSetup
+// + noTradeReason state lives in useActiveSetup so the setup card
+// survives chat resets and is conceptually separate.
 export function useChat() {
   const [messages, setMessages] = useState([]);
   const [typing, setTyping] = useState(false);
-  const [activeSetup, setActiveSetup] = useState(null);
-  const [noTradeReason, setNoTradeReason] = useState(null);
   // #44 "queued behind <purpose>" hint while waiting on the mutex.
-  // Null = not queued; string = name of the in-flight turn we're behind.
   const [queuedBehind, setQueuedBehind] = useState(null);
   const streamingIdxRef = useRef(null);   // index of the in-flight reply message
 
@@ -57,16 +57,6 @@ export function useChat() {
       return;
     }
     dlog("[useChat] subscribing to chat events");
-
-    // #11 Re-hydrate setup state from main. EntryHunt unmounts on mode
-    // switch, so activeSetup state would be empty when the trader comes
-    // back to LIVE. Main mirrors the latest surface_setup / surface_no_trade
-    // and we pull it on mount.
-    window.api?.setups?.current?.().then((res) => {
-      if (!res?.ok) return;
-      if (res.setup) setActiveSetup(res.setup);
-      if (res.noTradeReason) setNoTradeReason(res.noTradeReason);
-    }).catch(() => {});
 
     const offChunk = window.api.chat.onChunk((ev) => {
       dlog("[useChat] chunk", JSON.stringify(ev?.text || "").slice(0, 80));
@@ -81,19 +71,28 @@ export function useChat() {
       });
     });
 
-    const offToolCall = window.api.chat.onToolCall?.((ev) => {
-      dlog("[useChat] tool_call", ev?.name, ev?.payload);
-      if (ev?.name === "surface_setup" && ev.payload) {
-        setActiveSetup(ev.payload);
-        setNoTradeReason(null);
-      } else if (ev?.name === "surface_no_trade" && ev.payload) {
-        setActiveSetup(null);
-        setNoTradeReason(ev.payload.reason || "no-trade");
-      }
-    });
+    // (surface_setup / surface_no_trade tool_calls are handled by
+    // useActiveSetup now — see #68.)
 
-    const offTurnComplete = window.api.chat.onTurnComplete(() => {
-      dlog("[useChat] turn_complete");
+    const offTurnComplete = window.api.chat.onTurnComplete((ev) => {
+      dlog("[useChat] turn_complete", ev);
+      // #63 Append a one-line duration footer to the streaming reply so
+      // the trader sees "took 47s" without a separate panel. Skip if
+      // duration is missing (catch-up turns currently don't emit it).
+      if (ev?.durationMs && streamingIdxRef.current != null) {
+        setMessages((prev) => {
+          const idx = streamingIdxRef.current;
+          if (idx == null || !prev[idx]) return prev;
+          const secs = (ev.durationMs / 1000).toFixed(1);
+          const next = prev.slice();
+          next[idx] = {
+            ...next[idx],
+            body: (next[idx].body || "") +
+              `<div style="color:var(--label);font-size:9.5px;letter-spacing:.08em;margin-top:4px">[ ${ev.purpose || "turn"} · ${secs}s ]</div>`,
+          };
+          return next;
+        });
+      }
       streamingIdxRef.current = null;
       setTyping(false);
       setQueuedBehind(null);
@@ -121,7 +120,6 @@ export function useChat() {
 
     return () => {
       offChunk?.();
-      offToolCall?.();
       offTurnComplete?.();
       offQueued?.();
       offQueueReady?.();
@@ -171,14 +169,6 @@ export function useChat() {
     }
   }
 
-  function clearSetup() {
-    setActiveSetup(null);
-    setNoTradeReason(null);
-    // Tell main to clear its mirror too, so a mode-flip remount doesn't
-    // re-hydrate the just-accepted/rejected setup.
-    window.api?.setups?.clear?.().catch(() => {});
-  }
-
   // Kill-switch: ask main to abort the currently in-flight Claude turn.
   // Mutex releases; next queued turn proceeds normally. Useful when
   // Claude is in a loop or analyzing something obviously wrong.
@@ -192,23 +182,18 @@ export function useChat() {
   // to forget the 'chat' purpose session id. Next user message starts a
   // fresh conversation. Brief / wrap / bar-close sessions are untouched.
   //
-  // #33 Also clears the setup card + no-trade reason — was an obvious
-  // hole: clicking RESET emptied the chat but left a stale setup card
-  // sitting there from the prior conversation.
+  // #68 No longer touches activeSetup — separate concern owned by
+  // useActiveSetup. If the caller wants to clear both, they can call
+  // reset() + clearSetup() from useActiveSetup independently.
   async function reset() {
     try {
       await window.api?.chat?.reset?.();
     } catch { /* best-effort */ }
-    try {
-      await window.api?.setups?.clear?.();
-    } catch { /* best-effort */ }
     setMessages([]);
-    setActiveSetup(null);
-    setNoTradeReason(null);
     streamingIdxRef.current = null;
     setTyping(false);
     clearTypingWatchdog();
   }
 
-  return { messages, typing, send, cancel, reset, activeSetup, noTradeReason, clearSetup, queuedBehind };
+  return { messages, typing, send, cancel, reset, queuedBehind };
 }

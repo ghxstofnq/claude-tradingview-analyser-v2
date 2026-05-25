@@ -21,11 +21,15 @@ import { tvAnalyzeFull } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
+import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
 import { activeSessionDir } from "./sessions.js";
 import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
-import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
+import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
+// #65 Trade ticking + session-end audit live in trade-ticker now,
+// so this file is closer to pure orchestration.
+import { setTickerSink, tickOpenTrades, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
 
 // How many recent JSONL entries to tail into the per-bar prompt.
 const MEMORY_SETUPS_TAIL = 5;
@@ -62,6 +66,7 @@ let _running = false;
 
 export function startDetector({ send }) {
   _send = send;
+  setTickerSink(send);
   resetDetectorRestarts();
   spawnOnce();
 }
@@ -187,6 +192,9 @@ async function handleBar(ev) {
   // rolled over at this tick; is_5m_close fires every 5th minute by wall clock.
   _send?.("bar:close", ev);
   markBarReceived();
+  // #64 Watchdog uses this signal to know the detector is alive — it
+  // skips polling as long as bar events keep arriving.
+  markBarReceivedForWatchdog();
 
   // Outcome tick — deterministic, runs every minute regardless of session /
   // queue state. Uses ohlc.high / ohlc.low; running values from an in-progress
@@ -565,54 +573,10 @@ function minutesIntoPhase(session, ev, phase) {
   return null;
 }
 
-// #6 One-shot warning when a session ends with open trades. Tracked by
-// the just-ended session's folder so we only warn once per session, not
-// every minute thereafter. Resets implicitly when the next session
-// starts (we'd be in a new dir).
-let _lastWarnedKey = null;
-async function maybeWarnSessionEndedWithOpenTrades(ev) {
-  const dir = await activeSessionDir();
-  const key = dir;
-  if (_lastWarnedKey === key) return;
-  try {
-    const txt = await fs.readFile(path.join(dir, "trades.jsonl"), "utf8");
-    const events = txt.trim().split("\n").filter(Boolean).map((l) => {
-      try { return JSON.parse(l); } catch { return null; }
-    }).filter(Boolean);
-    const open = foldOpenTrades(events);
-    if (open.length > 0) {
-      const ids = open.map((t) => t.id).join(", ");
-      // eslint-disable-next-line no-console
-      console.warn(`[bar-close] session ended with ${open.length} open trade(s): ${ids}`);
-      _send?.("app:error", {
-        source: "bar-close",
-        level: "warn",
-        message: `Session ended with ${open.length} open trade(s): ${ids}. Tracker continues but no Claude reasoning.`,
-      });
-    }
-  } catch { /* no trades file or all closed */ }
-  _lastWarnedKey = key;
-}
-
-async function tickOpenTrades(ev) {
-  if (!ev?.ohlc) return;
-  const dir = await activeSessionDir();
-  const file = path.join(dir, "trades.jsonl");
-  let txt = "";
-  try { txt = await fs.readFile(file, "utf8"); } catch { return; }
-  const events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-  const open = foldOpenTrades(events);
-  if (!open.length) return;
-
-  // bar.open used by tickTrades' same-bar TP1+stop heuristic — without
-  // it, the function falls back to STOPPED (conservative).
-  const bar = { open: ev.ohlc.open, high: ev.ohlc.high, low: ev.ohlc.low, ts: ev.ts };
-  const { transitions } = tickTrades(open, bar);
-  for (const tr of transitions) {
-    await fs.appendFile(file, JSON.stringify({ type: "outcome", ...tr }) + "\n", "utf8");
-    _send?.("trade:outcome", tr);
-  }
-}
+// #65 tickOpenTrades + maybeWarnSessionEndedWithOpenTrades +
+// writeSessionEndAudit moved to ./trade-ticker.js. This file is now
+// closer to pure orchestration — detector lifecycle, event dispatch,
+// Claude turns, chart preflight.
 
 // Capture a paired baseline (~30s) and split it into per-symbol baselines so
 // open-reaction fast scans stay fast (~2s). Also writes the legacy single

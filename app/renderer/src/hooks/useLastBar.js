@@ -38,7 +38,11 @@ export function useLastBar() {
     window.api?.status?.lastBar?.().then((res) => {
       if (!mounted || !res?.ok || !res.last_bar) return;
       tsRef.current = res.last_bar.ts;
-      setLastBar({ ts: res.last_bar.ts, tf: res.last_bar.tf });
+      setLastBar({
+        ts: res.last_bar.ts,
+        tf: res.last_bar.tf,
+        close: res.last_bar.ohlc?.close ?? res.last_bar.c ?? null,
+      });
     }).catch(() => {});
     return () => { mounted = false; };
   }, []);
@@ -48,7 +52,11 @@ export function useLastBar() {
     const off = window.api?.bar?.onClose?.((ev) => {
       if (!ev?.ts) return;
       tsRef.current = ev.ts;
-      setLastBar({ ts: ev.ts, tf: ev.tf || null });
+      setLastBar({
+        ts: ev.ts,
+        tf: ev.tf || null,
+        close: ev?.ohlc?.close ?? null,
+      });
     });
     return () => off?.();
   }, []);
@@ -59,12 +67,13 @@ export function useLastBar() {
     return () => clearInterval(id);
   }, []);
 
-  if (!lastBar) return { ts: null, tf: null, age_seconds: null, age_label: "—", hhmm: "—" };
+  if (!lastBar) return { ts: null, tf: null, close: null, age_seconds: null, age_label: "—", hhmm: "—" };
 
   const ageSeconds = Math.max(0, Math.floor((Date.now() - new Date(lastBar.ts).getTime()) / 1000));
   return {
     ts: lastBar.ts,
     tf: lastBar.tf,
+    close: lastBar.close,
     age_seconds: ageSeconds,
     age_label: formatAge(ageSeconds),
     hhmm: hhmmFromIso(lastBar.ts),

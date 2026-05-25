@@ -13,6 +13,7 @@ import { sweepOldSessions } from "./main/state-retention.js";
 import { startMetricsSummary, rotateMetricsFile } from "./main/metrics.js";
 import { loadPersistedMode, setMode, getMode } from "./main/mode.js";
 import { startDetector } from "./main/bar-close.js";
+import { startTradeTickerWatchdog } from "./main/trade-ticker-watchdog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -68,6 +69,10 @@ app.whenReady().then(async () => {
   setSurfaceSink(ipc.send);
   startHealthMonitor(ipc.send);
   startAlertPolling({ send: ipc.send });
+  // #64 Defense-in-depth ticker: polls TV quote when no bar events
+  // arrive for 90s. Detector restart windows no longer pause trade
+  // outcome tracking.
+  startTradeTickerWatchdog({ send: ipc.send });
   // #15 Restore last-saved mode BEFORE wiring the detector binding —
   // otherwise the binding sees DEFAULT_MODE (prep) and doesn't start
   // the detector even if we were in LIVE before the crash.

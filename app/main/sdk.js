@@ -638,8 +638,9 @@ async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
     }, timeoutMs);
   });
 
+  const startedAt = Date.now();
   try {
-    await Promise.race([iterateMessages(q, purpose, onEvent, cancelToken), timeoutPromise]);
+    await Promise.race([iterateMessages(q, purpose, onEvent, cancelToken, startedAt), timeoutPromise]);
     if (timedOut) {
       const msg = `userTurn timed out after ${timeoutMs}ms (purpose=${purpose})`;
       // eslint-disable-next-line no-console
@@ -672,7 +673,7 @@ export function cancelCurrentTurn() {
   return true;
 }
 
-async function iterateMessages(q, purpose, onEvent, cancelToken) {
+async function iterateMessages(q, purpose, onEvent, cancelToken, startedAt) {
   let msgCount = 0;
   try {
     for await (const msg of q) {
@@ -703,7 +704,10 @@ async function iterateMessages(q, purpose, onEvent, cancelToken) {
     // threw — and only when not cancelled (the cancel path skips it so the
     // timeout path can emit its own).
     if (!cancelToken?.cancelled) {
-      onEvent?.({ type: "turn_complete" });
+      // #63 Include the wall-clock duration so the UI can show
+      // "this bar-close took 47s".
+      const durationMs = startedAt ? Date.now() - startedAt : null;
+      onEvent?.({ type: "turn_complete", durationMs, purpose });
     }
   }
 }

@@ -3,9 +3,11 @@
 import React, { useState as useStateL, useEffect as useEffectL, useRef as useRefL } from "react";
 import { Panel, Row, Grade, PillarsPanel, SetupCard, TradeCard, ClaudeFeed, SectionHead } from "./Shared.jsx";
 import { useChat } from "./hooks/useChat.js";
+import { useActiveSetup } from "./hooks/useActiveSetup.js";
 import { useTrades } from "./hooks/useTrades.js";
 import { useOpenReaction } from "./hooks/useOpenReaction.js";
 import { useSetupsHistory } from "./hooks/useSetupsHistory.js";
+import { useLastBar } from "./hooks/useLastBar.js";
 
 const BIAS_TONE = { bullish: "green", bearish: "red", mixed: "amber", unclear: "amber" };
 
@@ -64,8 +66,13 @@ function OpenReactionTracker() {
 
 // #40 Expand/collapse prior open-reaction reads. Long latest_reads
 // stack into a wall of text otherwise.
+// #58 Order toggle — "first read" (chronological, oldest first) is
+// often the most important (e.g. how NY actually opened). Default is
+// reverse-chrono (newest first) to match the rest of the trading UI.
 function PreviousReadsPanel({ reads }) {
   const [expanded, setExpanded] = useStateL(() => new Set());
+  const [chronological, setChronological] = useStateL(false);
+  const ordered = chronological ? [...reads].reverse() : reads;
   const toggle = (i) => setExpanded((prev) => {
     const next = new Set(prev);
     if (next.has(i)) next.delete(i);
@@ -76,10 +83,25 @@ function PreviousReadsPanel({ reads }) {
     <section className="panel">
       <header className="panel-head">
         <span className="title">PREVIOUS READS</span>
-        <span className="meta">{reads.length} prior · click to expand</span>
+        <span className="meta" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span>{reads.length} prior · click to expand</span>
+          <button onClick={() => setChronological((c) => !c)}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--border, #2a3038)",
+                    color: chronological ? "var(--amber)" : "var(--label)",
+                    padding: "1px 7px",
+                    fontFamily: "ui-monospace, Menlo, monospace",
+                    fontSize: 9,
+                    letterSpacing: ".12em",
+                    cursor: "pointer",
+                  }}>
+            {chronological ? "OLDEST ↓" : "NEWEST ↓"}
+          </button>
+        </span>
       </header>
       <div className="panel-body flush">
-        {reads.map((r, i) => {
+        {ordered.map((r, i) => {
           const open = expanded.has(i);
           const txt = r.latest_read || "";
           const preview = txt.length > 100 ? txt.slice(0, 100) + "…" : txt;
@@ -105,6 +127,45 @@ function PreviousReadsPanel({ reads }) {
               <div style={{ color: "var(--prose)", fontSize: 11, lineHeight: 1.5 }}>
                 {open ? txt : preview}
               </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// #45 Rejected trades panel — surfaces the useTrades.rejected list
+// (capped at 20 in the hook) below SETUPS & TRADES. Was: captured
+// silently and never rendered.
+function RejectedSetupsPanel({ rejected }) {
+  if (!rejected || rejected.length === 0) return null;
+  return (
+    <section className="panel" style={{ marginTop: 6 }}>
+      <header className="panel-head">
+        <span className="title">REJECTED · THIS SESSION</span>
+        <span className="meta">{rejected.length}</span>
+      </header>
+      <div className="panel-body flush">
+        {rejected.map((r, i) => {
+          const t = r.ts ? new Date(r.ts).toLocaleTimeString("en-US", {
+            hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+            timeZone: "America/New_York",
+          }) : "—";
+          return (
+            <div key={i} style={{
+              display: "grid",
+              gridTemplateColumns: "auto auto 1fr",
+              gap: 10,
+              padding: "5px 14px",
+              borderBottom: "1px solid var(--border-dim, #1e2228)",
+              alignItems: "baseline",
+            }}>
+              <span style={{ color: "var(--label-dim)", fontSize: 9.5, letterSpacing: ".08em" }}>{t}</span>
+              <span style={{ color: "var(--red)", fontSize: 9.5, letterSpacing: ".1em" }}>REJECTED</span>
+              <span style={{ color: "var(--prose)", fontSize: 11 }}>
+                {r.reason || <span style={{ color: "var(--label-dim)", fontStyle: "italic" }}>no reason given</span>}
+              </span>
             </div>
           );
         })}
@@ -256,11 +317,44 @@ function staleFillNote(t) {
   return `stale fill: ${ageMin}m without TP1`;
 }
 
-function adaptTakenTrade(t) {
+// #55 Live price relative to targets. Computes distance + closeness to
+// each level so the TradeCard can render "live: 21503 · TP1 12 away".
+function liveRelative(t, lastClose) {
+  if (typeof lastClose !== "number" || !Number.isFinite(lastClose) || !t) return null;
+  const fmt = (n) => Number(n.toFixed(2));
+  const distTo = (target) => {
+    const x = Number(target);
+    if (!Number.isFinite(x)) return null;
+    return fmt(t.side === "long" ? x - lastClose : lastClose - x);
+  };
+  return {
+    lastClose: fmt(lastClose),
+    toTP1: distTo(t.tp1),
+    toTP2: distTo(t.tp2),
+    toStop: distTo(t.stop),
+  };
+}
+
+// #60 Pending-entry timer — minutes since accept ts.
+// #61 BE flash — adaptTakenTrade now sets stopMovedToBE when tp1_hit
+// flipped recently; TradeCard renders a brief flash class.
+function adaptTakenTrade(t, lastClose) {
   if (!t) return null;
   const sizeLabel = t.size?.label || (t.size?.contracts != null ? `${t.size.contracts}c` : "—");
   const outcome = deriveOutcome(t);
   const stale = staleFillNote(t);
+  // #60 Pending-entry timer.
+  let pendingMin = null;
+  if (t.state === "pending_entry" && t.ts) {
+    pendingMin = Math.floor((Date.now() - new Date(t.ts).getTime()) / 60000);
+  }
+  // #55 Live price relative to targets.
+  const live = liveRelative(t, lastClose);
+  // #61 BE flash — true when tp1_hit was just set (within last 60s).
+  // We approximate by looking at ts of the most-recent TP1_HIT event;
+  // without that, fall back to "show flash if tp1_hit and trade is
+  // still open (filled state)".
+  const beFlash = !!t.tp1_hit && t.state === "filled";
   return {
     id: t.id,
     grade: t.grade,
@@ -278,19 +372,31 @@ function adaptTakenTrade(t) {
     pnlNegative: t.r_realized < 0,
     outcome: outcome.key,
     outcomeLabel: outcome.label,
-    // #23 surface staleness alongside the runner hint.
-    statusNote: stale || (t.tp1_hit ? "runner: stop at BE" : ""),
+    statusNote: stale ||
+      (t.tp1_hit ? "runner: stop at BE" : "") ||
+      (pendingMin != null && pendingMin >= 1 ? `pending entry · ${pendingMin}m waiting` : ""),
     setupId: t.setup_id || null,
-    taken: t.ts ? new Date(t.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) + " ET" : "",
+    live,
+    beFlash,
+    taken: t.ts ? new Date(t.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "America/New_York" }) + " ET" : "",
   };
 }
 
 function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
   // Real chat state + surfaced setup via the Agent SDK.
-  const { messages, typing, send: submit, cancel, reset, activeSetup, noTradeReason, clearSetup, queuedBehind } = useChat();
-  const { activeTrade, accept: acceptApi, reject: rejectApi, pnl } = useTrades();
+  const { messages, typing, send: submit, cancel, reset, queuedBehind } = useChat();
+  const { activeSetup, noTradeReason, noTradeReasonTs, clearSetup } = useActiveSetup();
+  const { activeTrade, accept: acceptApi, reject: rejectApi, rejected, pnl } = useTrades();
+  const { close: lastClose } = useLastBar();
+  // #59 / #60 Tick every 30s so the setup-age / pending-entry labels
+  // refresh even when no chat / bar activity drives a re-render.
+  const [, setTick] = useStateL(0);
+  useEffectL(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const setup = adaptSurfacedSetup(activeSetup);
-  const takenTrade = adaptTakenTrade(activeTrade);
+  const takenTrade = adaptTakenTrade(activeTrade, lastClose);
   // #2 In-flight guards prevent double-click → two trade events.
   // #3 Loop-down guard: don't let the trader accept when the detector
   // can't track outcomes. Trade would sit pending forever.
@@ -409,24 +515,49 @@ function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
           <TradeCard trade={takenTrade} showSnapshot={false} />
         )}
         {!takenTrade && setup && (
-          <SetupCard setup={setup} onAccept={accept} onReject={reject} featured />
+          <SetupCard setup={setup}
+                     onAccept={accept}
+                     onReject={reject}
+                     featured
+                     onArmPrice={onArmPrice} />
         )}
-        {!takenTrade && !setup && noTradeReason && (
-          <div className="empty-state">
-            <div className="glyph">[ NO-TRADE ]</div>
-            <div>{noTradeReason}</div>
-            <div className="sub">discipline · waiting on next setup</div>
-          </div>
-        )}
-        {!takenTrade && !setup && !noTradeReason && (
-          <div className="empty-state">
-            <div className="glyph">[ WATCHING ]</div>
-            <div>no setup surfaced yet · ask claude or wait for the live loop</div>
-            <div className="sub">no-setup is a correct state</div>
-          </div>
-        )}
+        {/* #57 no-trade expiry: fade after 90s, hide after 5 min. The
+            reason is current intent of the latest turn — older than 5
+            min it's stale enough to hide entirely. */}
+        {(() => {
+          if (takenTrade || setup || !noTradeReason) return null;
+          const ageMs = noTradeReasonTs ? Date.now() - noTradeReasonTs : 0;
+          if (ageMs > 5 * 60_000) return null;
+          const faded = ageMs > 90_000;
+          const ageMin = Math.floor(ageMs / 60_000);
+          return (
+            <div className="empty-state" style={{ opacity: faded ? 0.45 : 1 }}>
+              <div className="glyph">[ NO-TRADE ]</div>
+              <div>{noTradeReason}</div>
+              <div className="sub">
+                discipline · waiting on next setup
+                {ageMin > 0 && <span style={{ marginLeft: 8 }}>· {ageMin}m old</span>}
+              </div>
+            </div>
+          );
+        })()}
+        {(() => {
+          if (takenTrade || setup) return null;
+          // Show WATCHING when there's no no-trade reason OR the reason
+          // is expired (matches the rule in #57 above).
+          const ageMs = noTradeReasonTs ? Date.now() - noTradeReasonTs : Infinity;
+          if (noTradeReason && ageMs <= 5 * 60_000) return null;
+          return (
+            <div className="empty-state">
+              <div className="glyph">[ WATCHING ]</div>
+              <div>no setup surfaced yet · ask claude or wait for the live loop</div>
+              <div className="sub">no-setup is a correct state</div>
+            </div>
+          );
+        })()}
 
         <SetupHistoryList />
+        <RejectedSetupsPanel rejected={rejected} />
 
         {Array.isArray(activeSetup?.pillar_breakdown) && activeSetup.pillar_breakdown.length > 0 && (
           <section className="panel" style={{ marginTop: 6 }}>
