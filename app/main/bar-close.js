@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { userTurn } from "./sdk.js";
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull } from "./tools/tv-analyze.js";
+import { ensureChartState } from "./tools/tv-chart.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { activeSessionDir } from "./sessions.js";
 import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
@@ -100,12 +101,18 @@ function spawnOnce() {
 }
 
 async function handleBar(ev) {
-  // ev shape (from tv stream bar-close): { ts, tf: "1m"|"5m", ohlc: {open,high,low,close}, ... }
+  // ev shape (from tv stream bar-close):
+  //   { ts, tf: "1m", ohlc: {open,high,low,close,volume},
+  //     is_new_bar, is_5m_close, chart_tf, symbol, bar_open_time, bar_close_time, ... }
+  // The detector fires every wall-clock minute regardless of the chart's
+  // display TF. is_new_bar tells us whether the chart's TF bar actually
+  // rolled over at this tick; is_5m_close fires every 5th minute by wall clock.
   _send?.("bar:close", ev);
   markBarReceived();
 
-  // Outcome tick — deterministic, runs every bar regardless of session/queue
-  // state. Any TP/stop/INVALIDATED transitions go to trades.jsonl + IPC.
+  // Outcome tick — deterministic, runs every minute regardless of session /
+  // queue state. Uses ohlc.high / ohlc.low; running values from an in-progress
+  // bar are fine since we only need running max/min for TP/SL hit detection.
   await tickOpenTrades(ev).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[bar-close] tick threw", err?.message || err);
@@ -116,19 +123,25 @@ async function handleBar(ev) {
   const phase = phaseFor(session, ev);
   if (phase === "off") return;
 
-  // Append the bar to <sdir>/bars.jsonl (or bars-5m.jsonl) BEFORE queuing
-  // the Claude turn so the next prompt enrichment can see it. Deterministic —
-  // body_ratio etc. computed in code per constraint #7 (no LLM arithmetic).
+  // Append the bar to <sdir>/bars.jsonl BEFORE queuing the Claude turn so the
+  // next prompt enrichment can see it. Deterministic — body_ratio etc.
+  // computed in code per constraint #7 (no LLM arithmetic). Gated on
+  // is_new_bar: skip in-progress bars (avoid duplicate rows for the same
+  // chart-TF bar across multiple minute ticks).
   await appendBarLog(ev).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[bar-close] appendBarLog threw", err?.message || err);
   });
 
-  // Coalesce: keep only the most recent bar of this tf. If a turn is in
-  // flight and 3 more bars arrive, only the freshest one of each tf runs
-  // when the queue drains — stale bars would only generate stale analysis.
-  if (ev.tf === "5m") _q5m = ev;
-  else _q1m = ev;
+  // Coalesce queue: keep only the most recent event per TF. If a turn is in
+  // flight and 3 more bars arrive, only the freshest one of each TF runs when
+  // the queue drains — stale bars would only generate stale analysis. The
+  // detector emits ONE event per minute tagged tf="1m"; at 5m boundaries we
+  // synthesize a 5m-tagged copy so the strategy's 5m-close walk also fires.
+  _q1m = ev;
+  if (ev.is_5m_close) {
+    _q5m = { ...ev, tf: "5m" };
+  }
 
   // Single drainer; concurrent handleBar calls all return here after queuing.
   maybeRunDrain();
@@ -166,6 +179,10 @@ function maybeRunDrain() {
 
 async function runClaudeTurnFor(ev, session, phase) {
   await maybeRefreshBaseline();
+  await preflightChartState(ev, phase).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] preflightChartState threw", err?.message || err);
+  });
 
   const memory = await readSessionMemory();
   const mip = minutesIntoPhase(session, ev, phase);
@@ -194,19 +211,51 @@ async function runClaudeTurnFor(ev, session, phase) {
   });
 }
 
+// Before each Claude turn during entry-hunt, pin the chart to the leader
+// symbol + correct TF (1m for 1m ticks, 5m for 5m close turns). Strategy
+// §3 — entry scanning needs the chart on 1m base; at 5m closes we briefly
+// flip to 5m for the 5m-flavor walk, then the next 1m tick pulls it back.
+//
+// If pair-decision.json doesn't exist yet (pre-session / open-reaction),
+// or the leader is null (inconclusive), this is a no-op — those phases
+// run their own dual-symbol scans and don't want the chart pinned.
+async function preflightChartState(ev, phase) {
+  if (phase !== "entry_hunt") return;
+  const dir = await activeSessionDir();
+  let decision;
+  try {
+    const txt = await fs.readFile(path.join(dir, "pair-decision.json"), "utf8");
+    decision = JSON.parse(txt);
+  } catch {
+    return;  // no decision → leave chart alone
+  }
+  if (!decision?.leader) return;
+  const timeframe = ev.tf === "5m" ? "5" : "1";
+  await ensureChartState({ symbol: decision.leader, timeframe });
+}
+
 // Append a per-bar log to the session folder. Main computes body_ratio and
 // close_position_in_range from the OHLC — Claude reads, never produces.
+// Gated on is_new_bar: at minute ticks where the chart's TF bar hasn't
+// rolled over yet (chart on a higher TF), we'd otherwise write the same
+// running bar repeatedly — skip those.
 async function appendBarLog(ev) {
+  if (!ev?.is_new_bar) return;
   const o = ev?.ohlc?.open, h = ev?.ohlc?.high, l = ev?.ohlc?.low, c = ev?.ohlc?.close;
   if (o == null || h == null || l == null || c == null) return;
   const range = Math.max(h - l, 1e-9);
   const body_ratio = Number((Math.abs(c - o) / range).toFixed(3));
   const close_position_in_range = Number(((c - l) / range).toFixed(3));
   const direction = c > o ? "bullish" : c < o ? "bearish" : "doji";
-  const rec = { time: ev.ts, tf: ev.tf, o, h, l, c, body_ratio, direction, close_position_in_range };
+  const rec = { time: ev.ts, tf: ev.tf, chart_tf: ev.chart_tf, o, h, l, c, body_ratio, direction, close_position_in_range };
   const dir = await activeSessionDir();
-  const name = ev.tf === "5m" ? "bars-5m.jsonl" : "bars.jsonl";
-  await fs.appendFile(path.join(dir, name), JSON.stringify(rec) + "\n", "utf8");
+  // Always log to bars.jsonl (one per tick when a new chart-TF bar closes).
+  // Mirror to bars-5m.jsonl at wall-clock 5m boundaries — useful when chart
+  // is on 1m and we want a clean 5m stream for the strategy's confirmation TF.
+  await fs.appendFile(path.join(dir, "bars.jsonl"), JSON.stringify(rec) + "\n", "utf8");
+  if (ev.is_5m_close) {
+    await fs.appendFile(path.join(dir, "bars-5m.jsonl"), JSON.stringify({ ...rec, tf: "5m" }) + "\n", "utf8");
+  }
 }
 
 // Read the per-session memory files and stitch them into a single block for

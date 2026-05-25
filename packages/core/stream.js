@@ -156,25 +156,31 @@ async function fetchLastTwoBars() {
 }
 
 /**
- * Bar-close detector. Time-aligned polling: sleeps to the next 60s boundary,
- * polls fast for ~3s after the boundary to catch the close, then idles. Emits
- * one JSON line per closed bar to stdout.
+ * Bar-close detector. Wall-clock-driven: emits ONE event per minute boundary,
+ * regardless of the chart's display TF. This way Claude runs every minute
+ * (with 5m closes flagged) even when the user / Claude has the chart on
+ * another TF for analysis.
  *
  * Event schema:
  *   {
  *     kind: "bar_close",
- *     tf: "1" | "5" | ...,           // chart's current resolution at emit time
+ *     tf: "1m",                          // logical tick TF — always 1m here
+ *     ts: <ISO string>,                  // wall-clock minute boundary
  *     symbol: "CME_MINI:MNQ1!",
- *     bar_open_time:  <unix sec>,    // OPEN of the just-closed bar
- *     bar_close_time: <unix sec>,    // when it closed (== OPEN of the new bar)
- *     open, high, low, close, volume,
- *     is_5m_close: true,             // only set when chart=1m AND bar_close_time % 300 == 0
- *     _ts: <epoch ms at emit>
+ *     chart_tf: "1" | "5" | ...,         // chart's display TF, diagnostic only
+ *     ohlc: { open, high, low, close, volume },   // chart's latest bar (running or closed)
+ *     bar_open_time:  <unix sec>,        // OPEN of the reported bar
+ *     bar_close_time: <unix sec>,        // when chart's TF bar will close (== current.bar_time)
+ *     is_new_bar: true|false,            // chart's TF bar JUST closed at this tick
+ *     is_5m_close: true|false,           // wall-clock 5m boundary (xx:00, xx:05, xx:10, ...)
+ *     _ts: <epoch ms at emit>,
  *   }
  *
  * Designed for the LLM-driven session pattern (docs/plans/llm-driven-session.md):
  * pipe into the Claude Code `Monitor` tool; each line becomes a notification
- * the LLM reacts to with phase-aware /analyze.
+ * the LLM reacts to with phase-aware /analyze. Handler-side semantics:
+ * tickOpenTrades runs every minute (running ohlc fine for TP/SL hit detection);
+ * appendBarLog only runs when is_new_bar (no duplicate rows for in-progress bars).
  */
 export async function streamBarClose() {
   let lastSeenBarTime = null;
@@ -187,8 +193,10 @@ export async function streamBarClose() {
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
-  // Heartbeat writer — the dashboard uses this to verify the detector is alive
-  // and to show what bar/TF it's tracking.
+  // Heartbeat writer — the dashboard + main-process health monitor use this
+  // to verify the detector is alive and to show what bar / TF it's tracking.
+  // Updated every ~5s during sleep (not just at state transitions) so the
+  // health monitor's >30s STALE threshold doesn't false-alarm.
   function writeHeartbeat(state) {
     try {
       mkdirSync(dirname(HEARTBEAT_PATH), { recursive: true });
@@ -213,71 +221,95 @@ export async function streamBarClose() {
     } catch (e) { /* best-effort */ }
   }
 
+  // Heartbeat cadence during the sleep-to-boundary phase. Health monitor
+  // flags STALE at >30s; 5s gives plenty of margin.
+  const SLEEP_HEARTBEAT_MS = 5000;
+
   process.stderr.write(`⚠  tradingview-mcp  |  Unofficial tool. Not affiliated with TradingView Inc. or Anthropic.\n`);
   process.stderr.write(`   Streams from your locally running TradingView Desktop instance only.\n`);
-  process.stderr.write(`[stream:bar-close] started. Time-aligned polling: sleeps to next bar boundary, polls fast ~3s.\n`);
+  process.stderr.write(`[stream:bar-close] started. Wall-clock minute ticking — emits every minute regardless of chart TF.\n`);
   process.stderr.write(`[stream:bar-close] heartbeat -> ${HEARTBEAT_PATH}; events -> state/session/<today>/bar-close-events.jsonl\n`);
   process.stderr.write(`[stream:bar-close] Ctrl+C to stop.\n`);
   writeHeartbeat('starting');
 
   while (running) {
     try {
-      writeHeartbeat('sleeping_to_boundary');
-      // Sleep to the next 60s boundary plus 250ms grace (let TV commit the
-      // close tick after the boundary).
-      const nowMs = Date.now();
-      const nextBoundaryMs = Math.ceil((nowMs + 100) / 60_000) * 60_000;
-      const sleepMs = Math.max(50, nextBoundaryMs - nowMs + 250);
-      await sleep(sleepMs);
+      // Sleep until the next wall-clock minute boundary + 250ms grace (let TV
+      // commit the close tick after the boundary). Tick the heartbeat every
+      // ~5s during sleep so the health monitor keeps seeing a fresh detector.
+      const targetMs = Math.ceil((Date.now() + 100) / 60_000) * 60_000 + 250;
+      while (running && Date.now() < targetMs) {
+        writeHeartbeat('sleeping_to_boundary');
+        const remaining = targetMs - Date.now();
+        await sleep(Math.min(SLEEP_HEARTBEAT_MS, remaining));
+      }
+      if (!running) break;
 
       writeHeartbeat('polling_for_close');
-      // Poll fast for ~3s to catch the new bar appearing.
+      // Poll fast for ~3s to catch the new bar appearing on the chart's TF
+      // (only relevant when chart is on 1m — for higher TFs, the bar most
+      // likely hasn't closed at this minute boundary, and is_new_bar=false).
+      let data = null;
+      let isNewBar = false;
       for (let i = 0; i < 30 && running; i++) {
-        const data = await fetchLastTwoBars();
-        if (!data) { await sleep(100); continue; }
-
-        if (lastSeenBarTime === null) {
-          // First poll — establish tracking baseline; don't emit.
-          lastSeenBarTime = data.current.bar_time;
-          process.stderr.write(`[stream:bar-close] tracking from bar_time=${lastSeenBarTime} (TF=${data.resolution})\n`);
+        const fetched = await fetchLastTwoBars();
+        if (!fetched) { await sleep(100); continue; }
+        data = fetched;
+        if (lastSeenBarTime !== null && fetched.current.bar_time !== lastSeenBarTime) {
+          isNewBar = true;
           break;
         }
-
-        if (data.current.bar_time !== lastSeenBarTime) {
-          // New bar appeared. `previous` is the just-closed bar.
-          const closed = data.previous;
-          if (closed && closed.bar_time === lastSeenBarTime) {
-            const event = {
-              kind: 'bar_close',
-              tf: data.resolution,
-              symbol: data.symbol,
-              bar_open_time: closed.bar_time,
-              bar_close_time: data.current.bar_time,
-              open: closed.open,
-              high: closed.high,
-              low: closed.low,
-              close: closed.close,
-              volume: closed.volume,
-              _ts: Date.now(),
-            };
-            // When chart is on 1m and the bar's CLOSE aligns to a 5m boundary,
-            // the just-closed bar was the last 1m of a 5m period — i.e. a 5m
-            // candle also just closed. Flag it so consumers can multiplex.
-            if (data.resolution === '1' && data.current.bar_time % 300 === 0) {
-              event.is_5m_close = true;
-            }
-            process.stdout.write(JSON.stringify(event) + '\n');
-            persistEvent(event);
-            lastEventAt = new Date().toISOString();
-            lastBar = { time: closed.bar_time, close: closed.close, tf: data.resolution };
-            writeHeartbeat('emitted');
-          }
-          lastSeenBarTime = data.current.bar_time;
-          break;
-        }
-
         await sleep(100);
       }
+      if (!data) continue;  // poll never returned data — skip this tick
+
+      // First poll — establish baseline and don't emit (no previous to
+      // compare against; downstream "is_new_bar" would be misleading).
+      if (lastSeenBarTime === null) {
+        lastSeenBarTime = data.current.bar_time;
+        process.stderr.write(`[stream:bar-close] tracking baseline bar_time=${lastSeenBarTime} (chart_tf=${data.resolution})\n`);
+        continue;
+      }
+
+      // Choose which bar to report: the just-closed one (when chart's TF
+      // bar actually rolled over) or the in-progress current bar (when chart
+      // is on a higher TF and no new bar appeared this minute).
+      const reportedBar = isNewBar && data.previous && data.previous.bar_time === lastSeenBarTime
+        ? data.previous
+        : data.current;
+
+      // Wall-clock 5m boundary: derive from the minute boundary that just
+      // passed, not from chart bar timestamps. The detector ticks every
+      // minute regardless of chart TF, so this is the source of truth.
+      const boundaryUnix = Math.floor((targetMs - 250) / 60_000) * 60;
+      const is5mClose = boundaryUnix % 300 === 0;
+
+      const event = {
+        kind: 'bar_close',
+        tf: '1m',
+        ts: new Date(boundaryUnix * 1000).toISOString(),
+        symbol: data.symbol,
+        chart_tf: data.resolution,
+        ohlc: {
+          open: reportedBar.open,
+          high: reportedBar.high,
+          low: reportedBar.low,
+          close: reportedBar.close,
+          volume: reportedBar.volume,
+        },
+        bar_open_time: reportedBar.bar_time,
+        bar_close_time: data.current.bar_time,
+        is_new_bar: isNewBar,
+        is_5m_close: is5mClose,
+        _ts: Date.now(),
+      };
+
+      process.stdout.write(JSON.stringify(event) + '\n');
+      persistEvent(event);
+      lastEventAt = new Date().toISOString();
+      lastBar = { time: reportedBar.bar_time, close: reportedBar.close, chart_tf: data.resolution };
+      if (isNewBar) lastSeenBarTime = data.current.bar_time;
+      writeHeartbeat('emitted');
     } catch (err) {
       if (/CDP|ECONNREFUSED/i.test(err.message)) {
         await sleep(2000);
