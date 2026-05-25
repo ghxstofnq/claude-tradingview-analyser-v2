@@ -187,6 +187,116 @@ const HTF_LTF_TIMEFRAMES = [
   { tv: '1',   key: 'm1' },
 ];
 
+// Trim bars_by_tf and engine_by_tf to {m1, m5} only — used by --pillar3-only
+// to keep the per-bar polling bundle small enough for one Read call.
+// HTF (daily/h4/h1/m15) context lives in pillar1.md / pillar2.md from the
+// brief, and Pillar 1 live signals are in gates.engine.pillar1.* — Claude
+// doesn't need the raw HTF arrays on every bar.
+const POLL_TFS_KEEP = ['m1', 'm5'];
+function trimByTf(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = {};
+  for (const k of POLL_TFS_KEEP) if (k in obj) out[k] = obj[k];
+  return out;
+}
+function slimForPolling(bundle) {
+  if (bundle.engine_by_tf) bundle.engine_by_tf = trimByTf(bundle.engine_by_tf);
+  if (bundle.bars_by_tf)   bundle.bars_by_tf   = trimByTf(bundle.bars_by_tf);
+  if (bundle.pair?.symbols) {
+    for (const sym of Object.keys(bundle.pair.symbols)) {
+      const sub = bundle.pair.symbols[sym];
+      if (sub.engine_by_tf) sub.engine_by_tf = trimByTf(sub.engine_by_tf);
+      if (sub.bars_by_tf)   sub.bars_by_tf   = trimByTf(sub.bars_by_tf);
+    }
+  }
+  return bundle;
+}
+
+// projectSlim — build the entry-hunt projection (~5-10 KB) written alongside
+// the full --out file as <out>.slim.json when --pillar3-only is set. The
+// per-bar handler points Claude at this slim instead of the full ~60 KB bundle,
+// so Read returns it in one chunk (no chunking / no staleness drift).
+//
+// Keeps only what the entry-hunt loop consumes per the in-app Claude's own
+// list: quote.last, last ~10 engine events of each kind, engine.quality,
+// gates.session, gates.engine.{pillar1, pillar2, confirmation, price_context}.
+// Drops bars/bars_by_tf/indicators/baseline_meta — session-memory bars.jsonl
+// already carries bar context; indicator values are summarized into gates.
+const SLIM_TAIL_N = 10;
+function tailArr(a) { return Array.isArray(a) ? a.slice(-SLIM_TAIL_N) : a; }
+function slimEngine(e) {
+  if (e == null) return null;
+  return {
+    schema: e.schema,
+    schema_supported: e.schema_supported,
+    meta: e.meta,
+    quality: e.quality,
+    levels: e.levels,
+    fvgs: tailArr(e.fvgs),
+    bprs: tailArr(e.bprs),
+    sweeps: tailArr(e.sweeps),
+    swings: tailArr(e.swings),
+    structures: tailArr(e.structures),
+  };
+}
+function slimGates(g) {
+  if (g == null) return null;
+  const out = { session: g.session };
+  if (g.engine) {
+    out.engine = {
+      meta: g.engine.meta,
+      price_context: g.engine.price_context,
+      pillar1: g.engine.pillar1,
+      pillar2: g.engine.pillar2,
+      confirmation: g.engine.confirmation,
+    };
+  }
+  return out;
+}
+function slimEngineByTf(byTf) {
+  if (byTf == null || typeof byTf !== 'object') return byTf;
+  const out = {};
+  for (const k of Object.keys(byTf)) out[k] = slimEngine(byTf[k]);
+  return out;
+}
+function slimSymbolBundle(sub) {
+  return {
+    chart: sub.chart,
+    quote: sub.quote ? { last: sub.quote.last, time: sub.quote.time, ohlc: sub.quote.ohlc } : null,
+    engine: slimEngine(sub.engine),
+    engine_by_tf: slimEngineByTf(sub.engine_by_tf),
+    gates: slimGates(sub.gates),
+  };
+}
+function projectSlim(bundle) {
+  const slim = {
+    timestamp: bundle.timestamp,
+    chart: bundle.chart,
+    quote: bundle.quote
+      ? { last: bundle.quote.last, time: bundle.quote.time, ohlc: bundle.quote.ohlc }
+      : null,
+    engine: slimEngine(bundle.engine),
+    engine_by_tf: slimEngineByTf(bundle.engine_by_tf),
+    gates: slimGates(bundle.gates),
+  };
+  if (bundle.pair?.symbols) {
+    slim.pair = {
+      primary: bundle.pair.primary,
+      secondary: bundle.pair.secondary,
+      leader: bundle.pair.leader,
+      leader_decided: bundle.pair.leader_decided,
+      leader_evidence: bundle.pair.leader_evidence,
+      window_start_ms: bundle.pair.window_start_ms,
+      window_end_ms: bundle.pair.window_end_ms,
+      symbols: {},
+    };
+    for (const sym of Object.keys(bundle.pair.symbols)) {
+      slim.pair.symbols[sym] = slimSymbolBundle(bundle.pair.symbols[sym]);
+    }
+  }
+  return slim;
+}
+
 /**
  * Switch the chart through each target timeframe; at each, fetch the bars
  * summary + the ICT Engine table (the engine recomputes for whatever TF the
@@ -669,6 +779,17 @@ register('analyze', {
       ...(pairShortCircuited ? { pair_short_circuited: true } : {}),
     };
 
+    // 4.6. Slim the bundle for --pillar3-only polling. Strip HTF (Daily /
+    //      4H / 1H / 15m) bar arrays and engine sub-tables — those are
+    //      ~64 KB of redundant data the per-bar handler doesn't need:
+    //      HTF context is already captured in pillar1.md by the brief, and
+    //      Pillar 1 live signals (session levels, draw, swept status) are
+    //      in gates.engine.pillar1.*. Keeps only m1 + m5 in *_by_tf so the
+    //      bundle drops from ~130 KB → ~35 KB (single) / ~70 KB (paired),
+    //      which fits in one Claude Read call instead of forcing chunked
+    //      reads that take 30s+ per turn.
+    if (pillar3Only) slimForPolling(bundle);
+
     // 4.5. Restore the pre-scan TF if we switched for --scan-tf. Best-effort;
     //      a failed restore leaves the chart on scan-tf which the next tick
     //      re-snaps.
@@ -689,8 +810,34 @@ register('analyze', {
       const { dirname, resolve } = await import('node:path');
       const absPath = resolve(opts.out);
       mkdirSync(dirname(absPath), { recursive: true });
-      writeFileSync(absPath, JSON.stringify(bundle, null, 2));
-      return { saved_to: absPath, bytes: JSON.stringify(bundle).length };
+      // Compact JSON (no indentation). Pretty-printing turns a 140KB paired
+      // bundle into 8869 lines and Claude's Read tool defaults to a 2000-
+      // line cap, which silently truncated engine_by_tf — Claude's no-trade
+      // reasons started saying "analyze bundle exceeded context, engine
+      // layer unread". Compact = 1 line, full bundle returned in one Read.
+      // The dashboard + harness JSON.parse this fine; nobody reads it raw.
+      const bundleText = JSON.stringify(bundle);
+      writeFileSync(absPath, bundleText);
+
+      // Sibling slim projection (~5-10 KB) for --pillar3-only polling.
+      // Read returns it in one chunk; entry-hunt prompt points Claude here
+      // instead of the full bundle. See projectSlim() above for shape.
+      let slimPath = null;
+      let slimBytes = null;
+      if (pillar3Only) {
+        slimPath = absPath.endsWith('.json')
+          ? absPath.replace(/\.json$/, '.slim.json')
+          : absPath + '.slim';
+        const slimText = JSON.stringify(projectSlim(bundle));
+        writeFileSync(slimPath, slimText);
+        slimBytes = slimText.length;
+      }
+
+      return {
+        saved_to: absPath,
+        bytes: bundleText.length,
+        ...(slimPath ? { slim_saved_to: slimPath, slim_bytes: slimBytes } : {}),
+      };
     }
     return bundle;
   },

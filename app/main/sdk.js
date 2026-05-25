@@ -31,9 +31,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
 
 let _systemPrompt = null;
-let _sessionId = null;
+// Per-purpose session IDs. Splitting the conversation by purpose stops
+// brief / wrap / bar-close / chat from contaminating each other's history.
+// One global _sessionId — the old design — meant a NY AM brief and a 13:00
+// bar-close ended up resuming the same conversation, and yesterday's London
+// brief was in context when today's London brief ran.
+const _sessionIds = new Map(); // purpose -> sessionId
 let _mcpServer = null;
 let _allowedToolNames = [];
+
+// Global mutex serializing all userTurn calls. There are four callers
+// (chat:send_message, session-brief, session-wrap, bar-close) and three
+// auto-firing schedulers. Without the mutex, a 13:00 brief and a 13:01
+// bar-close tick start in parallel — even with per-purpose session ids,
+// resource contention on the Claude subprocess + the shared MCP server
+// makes parallel turns unsafe in practice. Mutex keeps it predictable.
+let _turnInFlight = Promise.resolve();
+
+// Wall-clock timeout per turn. If Claude / the network hangs, we don't want
+// the mutex held forever — that would freeze every other caller.
+//
+// Observed (2026-05-25): briefs legitimately need 2-5 minutes — tv_analyze_full
+// is ~15s, Opus 4.7 high-effort reasoning over a dual-symbol bundle plus two
+// surface tool calls adds up. Bar-close turns are smaller — closer to 30-90s.
+// Default to 300s; bar-close + chat callers should pass a tighter value
+// (90s) so a stalled per-bar turn doesn't block the next minute's tick.
+const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 
 const OUTPUT_PROTOCOL = `
 
@@ -57,7 +80,7 @@ Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` i
 
 To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`mcp__tv__tv_analyze_fast\` (1-bar poll with a baseline path). To arm alerts, use \`mcp__tv__tv_alert_create\`.
 
-**EXCEPTION — session-brief turns.** When the user message asks you to run "the SESSION BRIEF for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_brief\` exactly once at the end of the turn with the structured payload. That's the only tool that surfaces the PREP panels.
+**EXCEPTION — session-brief turns.** When the user message asks you to run "the SESSION BRIEF for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_brief\` **once per symbol** at the end of the turn — for dual-symbol pair scans (e.g. MNQ + MES) call it TWICE (once with symbol="MNQ1!" and once with symbol="MES1!"), each carrying that symbol's structured payload. The user message will tell you which symbols. That's the only tool that surfaces the PREP panels.
 
 **EXCEPTION — open-reaction phase turns.** When the per-bar message says "Phase: open_reaction": call \`mcp__tv__surface_open_reaction\` with the latest read (what NY just did, bias direction so far, what you're watching) — this persists to open-reaction.md as a running log. When \`minutes_into_phase\` >= 14 in the prompt context, ALSO call \`mcp__tv__surface_ltf_bias\` to finalize the bias before ending the turn. Either way, still end the turn with \`mcp__tv__surface_no_trade\` — no setup card during open-reaction.
 
@@ -365,7 +388,12 @@ function buildMcpServer() {
   // prompts.
   const serverName = "tv";
   _allowedToolNames = tools.map((t) => `mcp__${serverName}__${t.name}`);
-  return createSdkMcpServer({ name: serverName, version: "0.1.0", tools });
+  // alwaysLoad: true forces the SDK MCP server to be available in turn 1
+  // (per 0.3.142 release notes — by default MCP servers connect in the
+  // background and may be "pending" during the first turn). Without this,
+  // the first per-bar turn after restart can see tv_analyze_* as not
+  // resolvable and fall back to a degraded "no data" no-trade.
+  return createSdkMcpServer({ name: serverName, version: "0.1.0", tools, alwaysLoad: true });
 }
 
 export async function initSdk() {
@@ -375,47 +403,113 @@ export async function initSdk() {
   console.log("[sdk] init ok, prompt length", _systemPrompt.length, "tools", _allowedToolNames);
 }
 
-export function resetSession() {
-  _sessionId = null;
+export function resetSession(purpose) {
+  if (purpose) _sessionIds.delete(purpose);
+  else _sessionIds.clear();
 }
 
-// Model config. Opus 4.6 Fast keeps Opus-tier judgement on the grade enum
-// (A+/B/no-trade) — the call the trader actually acts on — while running
-// fast enough to keep up with the per-bar cadence (~400-500 turns/day
-// during a full session: 1m ticks + 5m doubles + dual-symbol open-reaction).
-// 1M context native to Opus 4.6.
+// Model config. Per Claude Code docs (code.claude.com/docs/en/model-config):
+// the "opus" alias on Max/Team/Enterprise plans auto-resolves to Opus 4.7
+// with 1M context — no [1m] suffix needed, no full model ID gymnastics.
+// "sonnet" fallback (also auto-1M-context on Max) so the per-bar loop
+// survives a transient Opus outage without losing session context.
 //
-// Why not Opus 4.7: its strengths (high-res vision, deep agentic tool
-// selection, advanced memory) don't apply here — bundles are pre-computed
-// JSON, no screenshots (constraint #5), fixed small toolset, no memory tools.
-// Pure latency cost for capabilities we don't use, and risks the coalesce
-// queue silently dropping ticks under load.
-//
-// Why not Sonnet 4.6: borderline A+/B/no-trade calls are exactly where you
-// need Opus-tier discipline — a sloppier grader produces noise the trader
-// learns to ignore, defeating the system.
-//
-// Sonnet 4.6 fallback (also 1M context) so the loop survives a transient
-// Opus outage without losing session context.
-const MODEL = "claude-opus-4-6-fast";
-const FALLBACK_MODEL = "claude-sonnet-4-6";
+// Pre-merge (PR #43 squash) used "claude-opus-4-6-fast" + a long comment
+// arguing against 4.7. That decision was reversed during the day's work:
+// the account doesn't have Fast Mode access, and 4.7's strict literal
+// instruction-following turned out to be exactly what the dual-symbol
+// brief needed to reliably emit surface_session_brief twice. Keeping the
+// "opus" alias here so it tracks whatever current Opus the account has.
+const MODEL = "opus";
+const FALLBACK_MODEL = "sonnet";
 
-export async function userTurn({ text, onEvent }) {
+// Effort level: how hard Claude thinks per turn.
+//
+// Started at "medium" (one notch below xhigh default) but observed Claude
+// skipping the trailing surface_session_brief tool call — at medium effort,
+// the docs note "fewer and more-consolidated tool calls". For our prompts
+// that end with a mandatory surface_* call, that consolidation drops the
+// final tool and we get streamed prose with no UI update.
+//
+// "high" is the docs' explicit minimum for intelligence-sensitive work and
+// reliably honors multi-step prompts. Trade-off: more tokens per turn vs
+// xhigh's max, but the brief / setup / pillar files actually get written.
+//
+// Levels: low | medium | high | xhigh | max.
+const EFFORT = "high";
+
+/**
+ * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close
+ * / chat). Three deepening guarantees:
+ *
+ *  1. **Mutex** — only one turn runs at a time. Eliminates the concurrent-
+ *     resume class of bug where a brief and a bar-close fired in parallel.
+ *  2. **Per-purpose session id** — each `purpose` keeps its own conversation
+ *     history. NY AM brief doesn't see yesterday's London brief.
+ *  3. **Timeout** — if a turn hangs, it's released after `timeoutMs` so the
+ *     mutex never freezes the rest of the system.
+ *
+ * Caller contract:
+ *   - `purpose`: required. One of 'brief' | 'wrap' | 'bar-close' | 'chat' |
+ *     'catch-up'. Used as the session-id key.
+ *   - `text`: the user-turn message.
+ *   - `onEvent`: event callback (chunk / tool_call / turn_complete / error).
+ *   - `timeoutMs`: optional override (default 300_000).
+ */
+export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS }) {
+  if (!purpose) {
+    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | catch-up)";
+    onEvent?.({ type: "error", message: msg });
+    onEvent?.({ type: "turn_complete" });
+    throw new Error(msg);
+  }
+
+  // Chain onto the in-flight turn (mutex). The release function is captured
+  // in `release` and called in the finally block so the next queued turn can
+  // proceed even if this one throws.
+  let release;
+  const lock = new Promise((r) => (release = r));
+  const prev = _turnInFlight;
+  _turnInFlight = lock;
+  await prev;
+
+  try {
+    await runOneTurn({ text, purpose, onEvent, timeoutMs });
+  } finally {
+    release();
+  }
+}
+
+async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
   const systemPrompt = await loadSystemPrompt();
+  const resumeId = _sessionIds.get(purpose);
   const opts = {
     systemPrompt,
     model: MODEL,
     fallbackModel: FALLBACK_MODEL,
-    // Disable built-in Claude Code tools (Read/Edit/Bash/etc) — only our
-    // MCP tools below should be callable.
-    tools: [],
+    effort: EFFORT,
+    // tools: ["Read", "Glob"] — explicitly load ONLY these built-in tools
+    // (no Edit / Write / Bash / Task / etc). Read is critical because
+    // tv_analyze_* writes its bundle to disk and the bundle is too big to
+    // fit in the tool result body. The pre-merge version used tools:[] —
+    // empty — but Claude then couldn't Read state/last-scan.slim.json on
+    // the per-bar polling path. Read is essential, Glob is cheap insurance
+    // for "find the latest bundle" cases.
+    tools: ["Read", "Glob"],
     mcpServers: _mcpServer ? { tv: _mcpServer } : undefined,
-    allowedTools: _allowedToolNames,
-    includePartialMessages: true,      // emit SDKPartialAssistantMessage so chunks stream
-    ...(_sessionId ? { resume: _sessionId } : {}),
+    allowedTools: ["Read", "Glob", ..._allowedToolNames],
+    // MCP_CONNECTION_NONBLOCKING=0 — per 0.3.142 release notes, MCP servers
+    // connect in the background by default and may report "pending" in
+    // turn 1. Setting this to 0 forces the SDK to wait up to 5s for MCP
+    // servers to connect before the first query. env REPLACES process.env
+    // per 0.3.149 docs — must spread process.env explicitly to keep PATH,
+    // OAuth refresh creds, etc.
+    env: { ...process.env, MCP_CONNECTION_NONBLOCKING: "0" },
+    includePartialMessages: true,
+    ...(resumeId ? { resume: resumeId } : {}),
   };
   // eslint-disable-next-line no-console
-  console.log("[sdk] userTurn start", { textLen: text.length, resuming: !!_sessionId });
+  console.log("[sdk] userTurn start", { purpose, textLen: text.length, resuming: !!resumeId, timeoutMs });
 
   let q;
   try {
@@ -428,23 +522,78 @@ export async function userTurn({ text, onEvent }) {
     return;
   }
 
+  // Race the iteration against a wall-clock timeout. On timeout:
+  //   1. Flip a cancel flag so iterateMessages breaks the for-await loop
+  //      on its next message (the SDK's async iterator can't be force-
+  //      cancelled from outside, but checking a flag per message means
+  //      iteration stops as soon as the next message arrives).
+  //   2. Call q.return() to signal the iterator to wind down — most SDKs
+  //      honor this and clean up the underlying subprocess.
+  //   3. Emit error + turn_complete + release the mutex so the next turn
+  //      can start. The bug we hit before: timeout emitted error but
+  //      iteration kept going, so the "retry" ran in parallel with the
+  //      original. Now the original is told to stop.
+  const cancelToken = { cancelled: false };
+  let timeoutHandle;
+  let timedOut = false;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      cancelToken.cancelled = true;
+      // Tell the SDK iterator to stop. Best-effort; some SDKs don't
+      // honor .return() on async iterators.
+      try { q.return?.(); } catch { /* ignore */ }
+      resolve();
+    }, timeoutMs);
+  });
+
+  try {
+    await Promise.race([iterateMessages(q, purpose, onEvent, cancelToken), timeoutPromise]);
+    if (timedOut) {
+      const msg = `userTurn timed out after ${timeoutMs}ms (purpose=${purpose})`;
+      // eslint-disable-next-line no-console
+      console.warn("[sdk]", msg);
+      onEvent?.({ type: "error", message: msg });
+      onEvent?.({ type: "turn_complete" });
+    }
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
+async function iterateMessages(q, purpose, onEvent, cancelToken) {
   let msgCount = 0;
   try {
     for await (const msg of q) {
+      // Cancellation gate: the timeout path flips cancelToken.cancelled and
+      // we exit immediately. The SDK's async iterator can't be force-stopped
+      // mid-await, so the first message after the timeout is processed —
+      // but no more after that. Prevents the "two parallel turns" bug.
+      if (cancelToken?.cancelled) {
+        // eslint-disable-next-line no-console
+        console.log("[sdk] iteration cancelled", { purpose, msgCount });
+        return;
+      }
       msgCount += 1;
-      if (msg.session_id) _sessionId = msg.session_id;
+      if (msg.session_id) _sessionIds.set(purpose, msg.session_id);
       // eslint-disable-next-line no-console
-      console.log("[sdk] msg", msg.type, msg.type === "stream_event" ? msg.event?.type : "");
+      console.log("[sdk] msg", purpose, msg.type, msg.type === "stream_event" ? msg.event?.type : "");
       handleSdkMessage(msg, onEvent);
     }
     // eslint-disable-next-line no-console
-    console.log("[sdk] userTurn done", { msgCount });
+    console.log("[sdk] userTurn done", { purpose, msgCount });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[sdk] iteration threw", err);
     onEvent?.({ type: "error", message: String(err?.message || err) });
   } finally {
-    onEvent?.({ type: "turn_complete" });
+    // turn_complete is emitted by the caller (runOneTurn) on the timeout
+    // path. Emit it here ONLY when iteration ran to natural completion or
+    // threw — and only when not cancelled (the cancel path skips it so the
+    // timeout path can emit its own).
+    if (!cancelToken?.cancelled) {
+      onEvent?.({ type: "turn_complete" });
+    }
   }
 }
 
@@ -482,7 +631,17 @@ function handleSdkMessage(msg, onEvent) {
   // System init / hook / status / etc. — log in dev, ignore.
   if (msg.type === "system") {
     // eslint-disable-next-line no-console
-    console.log("[sdk system]", msg.subtype, msg.session_id);
+    if (msg.subtype === "init") {
+      // Surface the actual model + tools the CLI is using — separate from
+      // whatever the model self-reports in chat (which can lag training).
+      console.log("[sdk system] init",
+        "session=", msg.session_id,
+        "model=", msg.model,
+        "tools=", Array.isArray(msg.tools) ? msg.tools.length : "?",
+      );
+    } else {
+      console.log("[sdk system]", msg.subtype, msg.session_id);
+    }
     return;
   }
 }

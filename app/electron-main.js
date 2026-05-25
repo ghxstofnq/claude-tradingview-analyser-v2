@@ -6,6 +6,7 @@ import { registerIpc } from "./main/ipc.js";
 import { setSurfaceSink } from "./main/tools/surface.js";
 import { startHealthMonitor } from "./main/health.js";
 import { startAlertPolling } from "./main/alerts.js";
+import { bindDetectorToMode } from "./main/bar-close.js";
 import { bootstrap as bootstrapSessionBrief } from "./main/session-brief.js";
 import { bootstrap as bootstrapSessionWrap } from "./main/session-wrap.js";
 
@@ -44,6 +45,9 @@ app.whenReady().then(async () => {
   setSurfaceSink(ipc.send);
   startHealthMonitor(ipc.send);
   startAlertPolling({ send: ipc.send });
+  // Detector lifecycle is now driven by mode changes — see app/main/mode.js.
+  // ipc.mode:switch sets mode; bar-close subscribes and start/stops itself.
+  bindDetectorToMode({ send: ipc.send });
   try {
     await initSdk();
   } catch (err) {

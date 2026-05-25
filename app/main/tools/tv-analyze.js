@@ -6,28 +6,19 @@
 //
 // The functions are exported so they can be unit-tested with a stub spawn.
 
-import { spawn as nodeSpawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { updateFromBundle } from "../symbol-cache.js";
+import { runTv } from "./tv-process.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
-const TV_BIN = path.join(REPO_ROOT, "bin", "tv");
 
-function runTv(args, { spawn = nodeSpawn } = {}) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(TV_BIN, args, { cwd: REPO_ROOT });
-    let stderr = "";
-    proc.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
-    proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`tv ${args.join(" ")} exited ${code}: ${stderr.slice(0, 400)}`));
-    });
-    proc.on("error", (err) => reject(err));
-  });
-}
+// Timeouts: full multi-TF capture is ~15s nominal, ~25s worst case.
+// Fast pillar3 with cached baseline is sub-second to a few seconds.
+const ANALYZE_FULL_TIMEOUT_MS = 60_000;
+const ANALYZE_FAST_TIMEOUT_MS = 30_000;
 
 async function readBundle(outPath, opts) {
   if (opts.skipRead) return { path: outPath };
@@ -47,7 +38,7 @@ export async function tvAnalyzeFull({ pair, baselineSecondary } = {}, opts = {})
   const args = ["analyze", "--out", outPath];
   if (pair) args.push("--pair", pair);
   if (baselineSecondary) args.push("--baseline-secondary", baselineSecondary);
-  await runTv(args, opts);
+  await runTv(args, { ...opts, timeoutMs: opts.timeoutMs ?? ANALYZE_FULL_TIMEOUT_MS, label: "analyze full" });
   return readBundle(outPath, opts);
 }
 
@@ -57,6 +48,6 @@ export async function tvAnalyzeFast({ baseline, pair, baselineSecondary } = {}, 
   if (baseline) args.push("--baseline", baseline);
   if (pair) args.push("--pair", pair);
   if (baselineSecondary) args.push("--baseline-secondary", baselineSecondary);
-  await runTv(args, opts);
+  await runTv(args, { ...opts, timeoutMs: opts.timeoutMs ?? ANALYZE_FAST_TIMEOUT_MS, label: "analyze fast" });
   return readBundle(outPath, opts);
 }

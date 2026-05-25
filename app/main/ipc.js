@@ -2,11 +2,11 @@
 
 import { ipcMain } from "electron";
 import { userTurn } from "./sdk.js";
-import { startDetector, stopDetector } from "./bar-close.js";
 import { acceptSetup, rejectSetup } from "./trades.js";
 import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
-import { startAlertPolling, stopAlertPolling, setAlertMode } from "./alerts.js";
+import { startAlertPolling, stopAlertPolling } from "./alerts.js";
+import { setMode } from "./mode.js";
 import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
@@ -26,6 +26,7 @@ export function registerIpc(win) {
     try {
       await userTurn({
         text,
+        purpose: "chat",
         onEvent: (ev) => {
           if (ev.type === "chunk") send("chat:chunk", ev);
           else if (ev.type === "tool_call") send("chat:tool_call", ev);
@@ -41,10 +42,12 @@ export function registerIpc(win) {
   });
 
   ipcMain.handle("mode:switch", async (_evt, { mode }) => {
-    if (mode === "live") startDetector({ send });
-    else stopDetector();
-    setAlertMode(mode);
-    return { ok: true };
+    try {
+      setMode(mode);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
   });
 
   ipcMain.handle("alert:arm", async (_evt, { price, label }) => {

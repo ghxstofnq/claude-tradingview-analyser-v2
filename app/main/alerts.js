@@ -8,11 +8,12 @@
 // alerts at boot are history, not new signals.
 
 import { tvAlertList } from "./tools/tv-alerts.js";
+import { getMode, onModeChange } from "./mode.js";
 
 let _send = null;
 let _snapshot = null;      // Map<id, status>; null until initial snapshot
 let _timer = null;
-let _mode = "prep";
+let _unsubscribeMode = null;
 
 // Normalize a single alert from `tv alert list`. TV's REST shape:
 //   { alert_id, message, active: true|false, last_fired: null|<iso>,
@@ -39,13 +40,11 @@ const CADENCE_MS = {
   // review / idle / other → off
 };
 
-export function setAlertMode(mode) {
-  _mode = mode;
-  scheduleNext();
-}
-
 export function startAlertPolling({ send }) {
   _send = send;
+  // Subscribe to mode changes — replaces the prior setAlertMode plumbing
+  // through IPC. Reschedule on every mode change so the cadence adapts.
+  _unsubscribeMode = onModeChange(() => scheduleNext());
   // First tick populates _snapshot AND pushes the initial alerts:state so
   // the renderer panel reflects TV state immediately, not 30s into PREP.
   tick();
@@ -53,12 +52,13 @@ export function startAlertPolling({ send }) {
 
 export function stopAlertPolling() {
   if (_timer) { clearTimeout(_timer); _timer = null; }
+  if (_unsubscribeMode) { _unsubscribeMode(); _unsubscribeMode = null; }
   _send?.("health:update", { alerts: "off" });
 }
 
 function scheduleNext() {
   if (_timer) { clearTimeout(_timer); _timer = null; }
-  const ms = CADENCE_MS[_mode];
+  const ms = CADENCE_MS[getMode()];
   if (!ms) {
     _send?.("health:update", { alerts: "off" });
     return;

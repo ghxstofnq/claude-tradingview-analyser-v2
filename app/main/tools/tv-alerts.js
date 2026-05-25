@@ -2,29 +2,16 @@
 //
 // tvAlertCreate({ price, label, condition? }) → tv alert create --price <p> --message <label>
 // tvAlertList() → tv alert list (returns parsed JSON from stdout)
+//
+// All subprocess spawns go through ./tv-process (one global queue +
+// per-call timeout) so a hung CLI call can't freeze the queue and
+// concurrent chart-touching calls can't collide.
 
-import { spawn as nodeSpawn } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { runTvCapture } from "./tv-process.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-const TV_BIN = path.join(REPO_ROOT, "bin", "tv");
-
-function runTvCapture(args, { spawn = nodeSpawn } = {}) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(TV_BIN, args, { cwd: REPO_ROOT });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
-    proc.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
-    proc.on("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`tv ${args.join(" ")} exited ${code}: ${stderr.slice(0, 400)}`));
-    });
-    proc.on("error", (err) => reject(err));
-  });
-}
+// Alert ops are fast (~200ms typical); 15s timeout protects against TV
+// being unresponsive without blocking the alert poll loop too long.
+const ALERT_TIMEOUT_MS = 15_000;
 
 // Create a TradingView price alert. Parses the CLI's JSON output so caller
 // (renderer) sees real failures + drift warnings — the old wrapper always
@@ -36,7 +23,7 @@ export async function tvAlertCreate({ price, label, condition }, opts = {}) {
     "--message", String(label),
   ];
   if (condition) args.push("--condition", condition);
-  const stdout = await runTvCapture(args, opts);
+  const stdout = await runTvCapture(args, { ...opts, timeoutMs: opts.timeoutMs ?? ALERT_TIMEOUT_MS, label: args.slice(0, 2).join(" ") });
   let result;
   try { result = JSON.parse(stdout); }
   catch {
@@ -59,7 +46,7 @@ export async function tvAlertCreate({ price, label, condition }, opts = {}) {
 }
 
 export async function tvAlertList(_input, opts = {}) {
-  const out = await runTvCapture(["alert", "list"], opts);
+  const out = await runTvCapture(["alert", "list"], { ...opts, timeoutMs: opts.timeoutMs ?? ALERT_TIMEOUT_MS, label: "alert list" });
   // The CLI prints JSON-able output; try to parse, fall back to raw string.
   try {
     return JSON.parse(out);
@@ -72,7 +59,7 @@ export async function tvAlertList(_input, opts = {}) {
 // on failure (caller — IPC handler — turns the throw into {ok:false, error}).
 export async function tvAlertDeleteOne({ id }, opts = {}) {
   if (id == null) throw new Error('tvAlertDeleteOne requires id');
-  const stdout = await runTvCapture(["alert", "delete", "--id", String(id)], opts);
+  const stdout = await runTvCapture(["alert", "delete", "--id", String(id)], { ...opts, timeoutMs: opts.timeoutMs ?? ALERT_TIMEOUT_MS, label: "alert delete" });
   let result;
   try { result = JSON.parse(stdout); }
   catch { throw new Error(`alert delete returned unparseable output: ${stdout.slice(0, 200)}`); }

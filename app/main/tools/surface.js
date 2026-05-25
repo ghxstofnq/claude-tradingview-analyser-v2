@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { activeSessionDir, currentSession } from "../sessions.js";
 import { writePairDecision } from "../../../cli/lib/pair-decision.js";
+import { writeBrief, readMemory, writeAtomic } from "../session-memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -14,18 +15,37 @@ const REPO_ROOT = path.resolve(__dirname, "../../..");
 let _send = null;
 export function setSurfaceSink(sendFn) { _send = sendFn; }
 
+// Shared persist helper for tools that write {baseName}.json (+ optional
+// {baseName}.md). Atomic via session-memory.writeAtomic — readers never
+// see a partial file. Tools with custom shapes (setups.jsonl append,
+// pair-decision.json) skip this and use their own writers.
+async function persistRecord(dir, baseName, record, mdRenderer) {
+  const json = JSON.stringify(record, null, 2);
+  await writeAtomic(path.join(dir, `${baseName}.json`), json);
+  if (mdRenderer) {
+    await writeAtomic(path.join(dir, `${baseName}.md`), mdRenderer(record));
+  }
+}
+
+// Centralized tool_call IPC emission. Every surface tool ends with one.
+function emitToolCall(name, payload) {
+  _send?.("chat:tool_call", { name, payload });
+}
+
 export async function surfaceSetup(payload) {
   const dir = await activeSessionDir();
   const file = path.join(dir, "setups.jsonl");
   const id = payload.id || `S-${Date.now().toString(36)}`;
   const record = { ...payload, id, ts: new Date().toISOString() };
+  // Append (not atomic-via-rename — appendFile is its own atomicity story
+  // for jsonl logs; partial line at crash time, but never a torn record).
   await fs.appendFile(file, JSON.stringify(record) + "\n", "utf8");
-  _send?.("chat:tool_call", { name: "surface_setup", payload: record });
+  emitToolCall("surface_setup", record);
   return { ok: true, id };
 }
 
 export async function surfaceNoTrade({ reason }) {
-  _send?.("chat:tool_call", { name: "surface_no_trade", payload: { reason } });
+  emitToolCall("surface_no_trade", { reason });
   return { ok: true };
 }
 
@@ -53,89 +73,14 @@ export async function surfaceSessionBrief(payload) {
   const dir = await briefDirFor(payload.session);
   const ts = new Date().toISOString();
   const record = { ...payload, ts };
-  const json = JSON.stringify(record, null, 2);
-  if (payload.symbol) {
-    await fs.writeFile(path.join(dir, `brief-${payload.symbol}.json`), json, "utf8");
-  }
-  // Legacy brief.json: always written so review/journal panels (which read
-  // brief.json by name) keep working. In dual-symbol mode this ends up as
-  // whichever symbol Claude wrote last — usually the secondary.
-  await fs.writeFile(path.join(dir, "brief.json"), json, "utf8");
-  await fs.writeFile(path.join(dir, "pillar1.md"), renderPillar1Md(record), "utf8");
-  await fs.writeFile(path.join(dir, "pillar2.md"), renderPillar2Md(record), "utf8");
+  // session-memory.writeBrief handles atomic writes (.tmp + rename) and
+  // the brief.json mirror policy (PRIMARY only, not last-written).
+  await writeBrief(dir, record);
+  // prep:brief_updated is the UI-facing event; chat:tool_call is the
+  // generic transcript event. Emit both — they serve different consumers.
   _send?.("prep:brief_updated", record);
+  emitToolCall("surface_session_brief", record);
   return { ok: true };
-}
-
-// Render pillar1.md from the brief payload — Draw & Bias section. Mirrors the
-// frontmatter + section structure the /analyze slash command writes, so the
-// per-bar prompt enrichment can re-read it as session memory.
-function renderPillar1Md(record) {
-  const phase = `pre_session_${(record.session || "ny-am").replace("-", "_")}`;
-  const bias = (record.htf_bias || [])
-    .map((b) => `- **${b.tf}** — ${b.bias}: ${b.note}`).join("\n");
-  const overnight = (record.overnight || [])
-    .map((o) => `- ${o.k}: ${o.v}`).join("\n");
-  const levels = (record.key_levels || [])
-    .map((l) => `- ${l.name}: ${l.price} (${l.state})`).join("\n");
-  const p1 = (record.pillars || []).find((p) => /draw|bias/i.test(p.name || ""));
-  const verdict = p1?.status || "pending";
-
-  return `---
-session: ${record.session || ""}
-phase: ${phase}
-graded_at: ${record.ts}
----
-
-# Pillar 1 — Draw & Bias
-
-## HTF Bias
-${bias || "_no HTF bias provided_"}
-
-## Primary HTF Draw
-- target: ${record.anchored_target || "_n/a_"}
-- structural stop ref: ${record.anchored_stop || "_n/a_"}
-
-## Overnight Summary
-${overnight || "_no overnight context provided_"}
-
-## Key Levels
-${levels || "_no levels provided_"}
-
-## Plan
-${record.plan || "_no plan provided_"}
-
-## Verdict
-- pillar1: ${verdict}
-- pillar_grade (P1+P2 roll-up): ${record.pillar_grade || "pending"}
-`;
-}
-
-// Render pillar2.md — Price-Action Quality.
-function renderPillar2Md(record) {
-  const phase = `pre_session_${(record.session || "ny-am").replace("-", "_")}`;
-  const p2 = (record.pillars || []).find((p) => /quality/i.test(p.name || ""));
-  const elements = (p2?.elements || [])
-    .map((e) => `- ${e.name}: ${e.status}`).join("\n");
-  const verdict = p2?.status || "pending";
-
-  return `---
-session: ${record.session || ""}
-phase: ${phase}
-graded_at: ${record.ts}
----
-
-# Pillar 2 — Price-Action Quality
-
-## Elements
-${elements || "_no elements provided_"}
-
-## Sizing
-${record.sizing_note || "_no sizing note provided_"}
-
-## Verdict
-- pillar2: ${verdict}
-`;
 }
 
 // ---------- open-reaction.md ----------
@@ -146,7 +91,6 @@ ${record.sizing_note || "_no sizing note provided_"}
 export async function surfaceOpenReaction(payload) {
   const dir = await activeSessionDir();
   const jsonFile = path.join(dir, "open-reaction.json");
-  const mdFile = path.join(dir, "open-reaction.md");
   const ts = new Date().toISOString();
 
   let reads = [];
@@ -161,9 +105,12 @@ export async function surfaceOpenReaction(payload) {
     watching: payload.watching,
   };
   reads.unshift(newRead);   // newest first
-  await fs.writeFile(jsonFile, JSON.stringify(reads, null, 2), "utf8");
-  await fs.writeFile(mdFile, renderOpenReactionMd({ ...payload, reads, ts }), "utf8");
-  _send?.("chat:tool_call", { name: "surface_open_reaction", payload: newRead });
+  // Atomic — open-reaction.md is read by the bar-close per-bar memory
+  // loader, same race as pillar1/pillar2. Use writeAtomic via persistRecord
+  // for the markdown; the JSON is written first (it's the source of truth).
+  await writeAtomic(jsonFile, JSON.stringify(reads, null, 2));
+  await writeAtomic(path.join(dir, "open-reaction.md"), renderOpenReactionMd({ ...payload, reads, ts }));
+  emitToolCall("surface_open_reaction", newRead);
   return { ok: true };
 }
 
@@ -204,11 +151,9 @@ ${priorBlock}
 // sidecar is the source of truth for the renderer; markdown is the human view.
 export async function surfaceLtfBias(payload) {
   const dir = await activeSessionDir();
-  const ts = new Date().toISOString();
-  const record = { ...payload, ts };
-  await fs.writeFile(path.join(dir, "ltf-bias.json"), JSON.stringify(record, null, 2), "utf8");
-  await fs.writeFile(path.join(dir, "ltf-bias.md"), renderLtfBiasMd(record), "utf8");
-  _send?.("chat:tool_call", { name: "surface_ltf_bias", payload: record });
+  const record = { ...payload, ts: new Date().toISOString() };
+  await persistRecord(dir, "ltf-bias", record, renderLtfBiasMd);
+  emitToolCall("surface_ltf_bias", record);
   return { ok: true };
 }
 
@@ -235,13 +180,10 @@ ${record.reasoning || "_no reasoning provided_"}
 // folder of the just-completed session via payload.session — not the active
 // clock, which by then has rolled to inter-session/idle.
 export async function surfaceSessionSummary(payload) {
-  const session = payload.session;
-  const dir = await briefDirFor(session);
-  const ts = new Date().toISOString();
-  const record = { ...payload, ts };
-  await fs.writeFile(path.join(dir, "summary.json"), JSON.stringify(record, null, 2), "utf8");
-  await fs.writeFile(path.join(dir, "summary.md"), renderSummaryMd(record), "utf8");
-  _send?.("chat:tool_call", { name: "surface_session_summary", payload: record });
+  const dir = await briefDirFor(payload.session);
+  const record = { ...payload, ts: new Date().toISOString() };
+  await persistRecord(dir, "summary", record, renderSummaryMd);
+  emitToolCall("surface_session_summary", record);
   return { ok: true };
 }
 
@@ -287,27 +229,14 @@ export async function surfaceLeaderDecision(payload) {
     reason: reason || null,
   };
   await writePairDecision(sessionDir, record);
-  _send?.("chat:tool_call", { name: "surface_leader_decision", payload: record });
+  emitToolCall("surface_leader_decision", record);
   return { ok: true, leader: record.leader };
 }
 
 // Read this session's memory files so a wrap turn (or any caller) can build a
-// context block. Returns a stitched markdown blob, or null if nothing exists.
+// context block. Delegates to session-memory.readMemory. Kept as a re-export
+// here for backward compat with existing callers (session-wrap).
 export async function readSessionMemoryFor(session) {
   const dir = await briefDirFor(session);
-  const parts = [];
-  for (const name of ["pillar1.md", "pillar2.md", "ltf-bias.md", "open-reaction.md"]) {
-    try {
-      const txt = (await fs.readFile(path.join(dir, name), "utf8")).trim();
-      if (txt) parts.push(`--- ${name} ---\n${txt}`);
-    } catch {}
-  }
-  for (const [name, tailN] of [["setups.jsonl", 20], ["bars.jsonl", 20]]) {
-    try {
-      const txt = await fs.readFile(path.join(dir, name), "utf8");
-      const lines = txt.trim().split("\n").filter(Boolean).slice(-tailN);
-      if (lines.length) parts.push(`--- ${name} (last ${lines.length}) ---\n${lines.join("\n")}`);
-    } catch {}
-  }
-  return parts.length ? parts.join("\n\n") : null;
+  return readMemory(dir, { tailBars: 20, tailSetups: 20 });
 }
