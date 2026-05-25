@@ -42,6 +42,24 @@ function createWindow() {
   return win;
 }
 
+// Single-instance lock. Running `npm run dev` twice (or double-clicking
+// the packaged app) would spawn two main processes — two detectors, two
+// schedulers, two competing tv subprocesses, and two writers to the same
+// state files. Now: the second instance silently quits, and we focus
+// the existing window so the user sees their existing app.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const all = BrowserWindow.getAllWindows();
+    if (all.length === 0) return;
+    const win = all[0];
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+}
+
 app.whenReady().then(async () => {
   const win = createWindow();
   const ipc = registerIpc(win);

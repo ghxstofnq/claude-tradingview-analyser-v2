@@ -184,7 +184,7 @@ function adaptTakenTrade(t) {
 
 function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
   // Real chat state + surfaced setup via the Agent SDK.
-  const { messages, typing, send: submit, activeSetup, noTradeReason, clearSetup } = useChat();
+  const { messages, typing, send: submit, cancel, reset, activeSetup, noTradeReason, clearSetup } = useChat();
   const { activeTrade, accept: acceptApi, reject: rejectApi } = useTrades();
   const setup = adaptSurfacedSetup(activeSetup);
   const takenTrade = adaptTakenTrade(activeTrade);
@@ -213,6 +213,7 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
       <SectionHead title="CLAUDE · CONVERSATION" count="1m · NY AM" />
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <ClaudeFeed messages={messages} typing={typing} onSubmit={submit}
+                    onCancel={cancel} onReset={reset}
                     onArmPrice={onArmPrice}
                     armedPrices={alerts ? new Set(Object.values(alerts.armed || {})) : null}
                     firedPrices={alerts ? new Set((alerts.fired || []).map((f) => f.px)) : null} />

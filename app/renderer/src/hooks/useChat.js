@@ -130,5 +130,26 @@ export function useChat() {
     setNoTradeReason(null);
   }
 
-  return { messages, typing, send, activeSetup, noTradeReason, clearSetup };
+  // Kill-switch: ask main to abort the currently in-flight Claude turn.
+  // Mutex releases; next queued turn proceeds normally. Useful when
+  // Claude is in a loop or analyzing something obviously wrong.
+  async function cancel() {
+    try {
+      await window.api?.chat?.cancel?.();
+    } catch { /* best-effort */ }
+  }
+
+  // Reset chat conversation: clears the renderer history AND tells main
+  // to forget the 'chat' purpose session id. Next user message starts a
+  // fresh conversation. Brief / wrap / bar-close sessions are untouched.
+  async function reset() {
+    try {
+      await window.api?.chat?.reset?.();
+    } catch { /* best-effort */ }
+    setMessages([]);
+    streamingIdxRef.current = null;
+    setTyping(false);
+  }
+
+  return { messages, typing, send, cancel, reset, activeSetup, noTradeReason, clearSetup };
 }

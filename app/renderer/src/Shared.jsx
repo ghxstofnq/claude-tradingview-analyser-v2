@@ -383,7 +383,7 @@ function TradeCard({ trade, showSnapshot = true }) {
 }
 
 // ---------- Claude conversation feed ----------
-function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, firedPrices }) {
+function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, firedPrices, onCancel, onReset }) {
   const feedRef = useRef(null);
   const [input, setInput] = useState("");
   useEffect(() => {
@@ -460,6 +460,48 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
                placeholder={onArmPrice ? "ask claude… (click any price to arm an alert)" : "ask claude…"} />
         <span className="caret"></span>
       </form>
+      {/* Compact controls: STOP appears only while Claude is mid-turn
+          (kill switch). RESET is always available and starts the chat
+          conversation fresh. Both call IPC handlers in main. */}
+      {(onCancel || onReset) && (
+        <div style={{
+          display: "flex", justifyContent: "flex-end", gap: 8,
+          padding: "4px 12px 8px",
+        }}>
+          {typing && onCancel && (
+            <button onClick={onCancel}
+                    title="abort Claude's current turn"
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--red, #f0796a)",
+                      color: "var(--red, #f0796a)",
+                      padding: "2px 10px",
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: 9.5,
+                      letterSpacing: ".16em",
+                      cursor: "pointer",
+                    }}>
+              [ STOP ]
+            </button>
+          )}
+          {onReset && (
+            <button onClick={onReset}
+                    title="clear chat history and start a fresh conversation with Claude"
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--border, #2a3038)",
+                      color: "var(--label)",
+                      padding: "2px 10px",
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: 9.5,
+                      letterSpacing: ".16em",
+                      cursor: "pointer",
+                    }}>
+              [ RESET ]
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

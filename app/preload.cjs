@@ -5,6 +5,12 @@ contextBridge.exposeInMainWorld("api", {
     send(text) {
       return ipcRenderer.invoke("chat:send_message", { text });
     },
+    cancel() {
+      return ipcRenderer.invoke("chat:cancel_turn");
+    },
+    reset() {
+      return ipcRenderer.invoke("chat:reset");
+    },
     onChunk(cb) {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("chat:chunk", listener);

@@ -153,7 +153,8 @@ async function preflight() {
 // Post-validate: confirm Claude actually called surface_session_brief
 // twice in the dual-symbol turn. Without this, a "turn completed" with no
 // briefs surfaced was silent — PREP panel just stayed on yesterday.
-function postValidate(toolCalls) {
+// Exported for tests/brief-flow.test.js.
+export function postValidate(toolCalls) {
   const briefCalls = toolCalls.filter((n) => n && n.includes("surface_session_brief"));
   if (briefCalls.length === 0) {
     return "brief turn completed without calling surface_session_brief — PREP panel will stay stale";

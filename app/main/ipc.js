@@ -1,7 +1,7 @@
 // IPC handlers — the bridge between the renderer's UI and main's services.
 
 import { ipcMain } from "electron";
-import { userTurn } from "./sdk.js";
+import { userTurn, cancelCurrentTurn, resetSession } from "./sdk.js";
 import { acceptSetup, rejectSetup } from "./trades.js";
 import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
@@ -39,6 +39,20 @@ export function registerIpc(win) {
       send("app:error", { source: "ipc:chat", message: String(err?.message || err) });
       return { ok: false, error: String(err?.message || err) };
     }
+  });
+
+  ipcMain.handle("chat:cancel_turn", async () => {
+    // Kill switch: abort the currently-running Claude turn (any purpose).
+    // Mutex releases; next queued turn starts as usual.
+    const cancelled = cancelCurrentTurn();
+    return { ok: true, cancelled };
+  });
+
+  ipcMain.handle("chat:reset", async () => {
+    // Reset the 'chat' purpose session id so the next user message starts
+    // a fresh conversation. Doesn't touch brief / wrap / bar-close sessions.
+    resetSession("chat");
+    return { ok: true };
   });
 
   ipcMain.handle("mode:switch", async (_evt, { mode }) => {

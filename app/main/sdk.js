@@ -48,6 +48,12 @@ let _allowedToolNames = [];
 // makes parallel turns unsafe in practice. Mutex keeps it predictable.
 let _turnInFlight = Promise.resolve();
 
+// Handle on the in-flight turn so cancelCurrentTurn() can abort it from
+// outside. Cleared when the turn finishes naturally. Lets the UI offer
+// a "stop" button when Claude is mid-thought (token-burning loop, wrong
+// analysis worth aborting, etc.) without forcing an app restart.
+let _currentCancel = null; // { cancelToken, q, purpose }
+
 // Wall-clock timeout per turn. If Claude / the network hangs, we don't want
 // the mutex held forever — that would freeze every other caller.
 //
@@ -114,11 +120,16 @@ Fill in what they already specified, pick sensible defaults for the rest, then a
 
 **Alert-management chat turns end with the alert tool call** (\`tv_alert_create\` / \`tv_alert_list\` / \`tv_alert_delete\`). They do NOT end with \`surface_setup\` / \`surface_no_trade\` — those are for analysis turns.`;
 
+// Hot-reload prompts: re-read analyze.md on every turn. Trade-off is a
+// tiny disk read (~35 KB) per turn — invisible next to model latency.
+// Pre-cache made iteration painful: tweak a word in the prompt → restart
+// the whole app → run a brief → repeat. Now: edit, fire, see.
+//
+// OUTPUT_PROTOCOL stays inline (it's tightly coupled to the JS tool
+// schemas defined right next to it). Move-to-file is a separate refactor.
 async function loadSystemPrompt() {
-  if (_systemPrompt) return _systemPrompt;
   const base = await fs.readFile(PROMPT_PATH, "utf8");
-  _systemPrompt = base + OUTPUT_PROTOCOL;
-  return _systemPrompt;
+  return base + OUTPUT_PROTOCOL;
 }
 
 // CallToolResult envelope expected by the SDK's MCP tool API.
@@ -343,10 +354,14 @@ function buildMcpServer() {
         pillars: z.array(z.object({
           name: z.string(),
           status: z.enum(["pass", "weak", "fail", "pending"]),
+          // Each pillar must articulate at least one element. Was
+          // unconstrained — Claude could submit elements:[] and the
+          // UI rendered a status with no detail underneath (a pill
+          // marked "pass" with nothing to verify against).
           elements: z.array(z.object({
             name: z.string(),
             status: z.enum(["pass", "weak", "fail", "pending"]),
-          })),
+          })).min(1, "each pillar must list at least one element so the panel shows what was graded"),
         })).describe("Three pillars: 'Draw & Bias', 'Price-Action Quality', 'Entry Model + Confirmation' (the third is pending until LIVE)"),
         plan: z.string().describe("Claude's written plan for the open — what scenario looks like A+, what flips it to retrace, the bias direction"),
         // anchored_target / anchored_stop are free strings (Claude wraps
@@ -547,6 +562,9 @@ async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
   //      iteration kept going, so the "retry" ran in parallel with the
   //      original. Now the original is told to stop.
   const cancelToken = { cancelled: false };
+  // Expose this turn's cancel handle so cancelCurrentTurn() can abort
+  // from outside (the chat panel's STOP button).
+  _currentCancel = { cancelToken, q, purpose };
   let timeoutHandle;
   let timedOut = false;
   const timeoutPromise = new Promise((resolve) => {
@@ -568,10 +586,30 @@ async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
       console.warn("[sdk]", msg);
       onEvent?.({ type: "error", message: msg });
       onEvent?.({ type: "turn_complete" });
+    } else if (cancelToken.cancelled) {
+      // External cancel (kill switch). Emit a clean error + turn_complete
+      // so callers (and the UI) see the turn ended, just like a timeout.
+      onEvent?.({ type: "error", message: `turn cancelled by user (purpose=${purpose})` });
+      onEvent?.({ type: "turn_complete" });
     }
   } finally {
     clearTimeout(timeoutHandle);
+    _currentCancel = null;
   }
+}
+
+/**
+ * cancelCurrentTurn — abort the currently in-flight userTurn, if any.
+ * Returns true if a turn was cancelled, false if nothing was running.
+ * The next queued turn proceeds normally once the mutex releases.
+ */
+export function cancelCurrentTurn() {
+  if (!_currentCancel) return false;
+  // eslint-disable-next-line no-console
+  console.log(`[sdk] cancelCurrentTurn purpose=${_currentCancel.purpose}`);
+  _currentCancel.cancelToken.cancelled = true;
+  try { _currentCancel.q.return?.(); } catch { /* ignore */ }
+  return true;
 }
 
 async function iterateMessages(q, purpose, onEvent, cancelToken) {
