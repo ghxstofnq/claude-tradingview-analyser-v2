@@ -9,6 +9,23 @@ import { useSetupsHistory } from "./hooks/useSetupsHistory.js";
 
 const BIAS_TONE = { bullish: "green", bearish: "red", mixed: "amber", unclear: "amber" };
 
+// #27 Dynamic session label — was hardcoded "1m · NY AM" even during
+// PM and London. Derive from ET clock.
+function sessionLabel() {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit", minute: "2-digit", hour12: false, weekday: "short",
+  }).formatToParts(new Date());
+  const get = (t) => fmt.find((p) => p.type === t)?.value;
+  const wd = get("weekday");
+  if (wd === "Sat" || wd === "Sun") return "1m · CLOSED";
+  const m = Number(get("hour")) * 60 + Number(get("minute"));
+  if (m >= 9 * 60 + 30 && m < 12 * 60) return "1m · NY AM";
+  if (m >= 13 * 60 && m < 16 * 60) return "1m · NY PM";
+  if (m >= 3 * 60 && m < 6 * 60) return "1m · LONDON";
+  return "1m · INTER-SESSION";
+}
+
 function OpenReactionTracker() {
   const { reads, latest } = useOpenReaction();
   const minutesIn = latest?.minutes_into_phase ?? 0;
@@ -40,53 +57,96 @@ function OpenReactionTracker() {
         <Row k="Watching" v={latest.watching || "—"} />
       </Panel>
 
-      {reads.length > 1 && (
-        <section className="panel">
-          <header className="panel-head">
-            <span className="title">PREVIOUS READS</span>
-            <span className="meta">{reads.length - 1} prior</span>
-          </header>
-          <div className="panel-body flush">
-            {reads.slice(1).map((r, i) => (
-              <div key={i}
-                   style={{
-                     padding: "8px 14px",
-                     borderBottom: "1px solid var(--border-dim, #1e2228)",
-                   }}>
-                <div style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "baseline",
-                  marginBottom: 4,
-                }}>
-                  <span style={{ color: "var(--label)", fontSize: 10, letterSpacing: ".08em" }}>
-                    +{r.minutes_into_phase ?? "?"}m
-                  </span>
-                  <span className={"v " + (BIAS_TONE[r.bias_direction] || "")}
-                        style={{ fontSize: 10, letterSpacing: ".1em" }}>
-                    {String(r.bias_direction || "").toUpperCase() || "—"}
-                  </span>
-                </div>
-                <div style={{ color: "var(--prose)", fontSize: 11, lineHeight: 1.5 }}>
-                  {r.latest_read}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {reads.length > 1 && <PreviousReadsPanel reads={reads.slice(1)} />}
     </>
+  );
+}
+
+// #40 Expand/collapse prior open-reaction reads. Long latest_reads
+// stack into a wall of text otherwise.
+function PreviousReadsPanel({ reads }) {
+  const [expanded, setExpanded] = useStateL(() => new Set());
+  const toggle = (i) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(i)) next.delete(i);
+    else next.add(i);
+    return next;
+  });
+  return (
+    <section className="panel">
+      <header className="panel-head">
+        <span className="title">PREVIOUS READS</span>
+        <span className="meta">{reads.length} prior · click to expand</span>
+      </header>
+      <div className="panel-body flush">
+        {reads.map((r, i) => {
+          const open = expanded.has(i);
+          const txt = r.latest_read || "";
+          const preview = txt.length > 100 ? txt.slice(0, 100) + "…" : txt;
+          return (
+            <div key={i} onClick={() => toggle(i)}
+                 style={{
+                   padding: "8px 14px",
+                   borderBottom: "1px solid var(--border-dim, #1e2228)",
+                   cursor: txt.length > 100 ? "pointer" : "default",
+                 }}>
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "baseline",
+                marginBottom: 4,
+              }}>
+                <span style={{ color: "var(--label)", fontSize: 10, letterSpacing: ".08em" }}>
+                  +{r.minutes_into_phase ?? "?"}m{txt.length > 100 ? (open ? " ▾" : " ▸") : ""}
+                </span>
+                <span className={"v " + (BIAS_TONE[r.bias_direction] || "")}
+                      style={{ fontSize: 10, letterSpacing: ".1em" }}>
+                  {String(r.bias_direction || "").toUpperCase() || "—"}
+                </span>
+              </div>
+              <div style={{ color: "var(--prose)", fontSize: 11, lineHeight: 1.5 }}>
+                {open ? txt : preview}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
 // Compact list of recent setups. Renders below the live setup card so the
 // trader can see the session's setup trail at a glance.
+//
+// #26 Default: show only A+ / B (real setups). Toggle to see no-trades
+// too. A flurry of no-trades used to push real setups off the last-8.
 function SetupHistoryList() {
-  const { setups } = useSetupsHistory({ limit: 8 });
-  if (!setups.length) return null;
+  const [showAll, setShowAll] = useStateL(false);
+  // Pull 30 so we have enough after filtering to fill the panel.
+  const { setups: allSetups } = useSetupsHistory({ limit: 30 });
+  const filtered = showAll
+    ? allSetups
+    : allSetups.filter((s) => s.grade === "A+" || s.grade === "B");
+  const setups = filtered.slice(0, 8);
+  if (!allSetups.length) return null;
   return (
     <section className="panel" style={{ marginTop: 6 }}>
       <header className="panel-head">
         <span className="title">SETUP HISTORY · THIS SESSION</span>
-        <span className="meta">{setups.length} entries</span>
+        <span className="meta" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span>{setups.length} of {allSetups.length}</span>
+          <button onClick={() => setShowAll((s) => !s)}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--border, #2a3038)",
+                    color: showAll ? "var(--amber)" : "var(--label)",
+                    padding: "1px 7px",
+                    fontFamily: "ui-monospace, Menlo, monospace",
+                    fontSize: 9,
+                    letterSpacing: ".12em",
+                    cursor: "pointer",
+                  }}>
+            {showAll ? "A+/B ONLY" : "SHOW ALL"}
+          </button>
+        </span>
       </header>
       <div className="panel-body flush">
         {setups.map((s) => {
@@ -124,6 +184,19 @@ function formatPx(n) {
   return dec ? `${withSpaces}.${dec.padEnd(2, "0").slice(0, 2)}` : withSpaces;
 }
 
+// #31 Compute setup age from setup.ts on every render. Previously hard-
+// coded "fresh" — misleading when a setup sat unaccepted for 8 minutes.
+function computeAge(ts) {
+  if (!ts) return "fresh";
+  const ms = Date.now() - new Date(ts).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "fresh";
+  const s = Math.floor(ms / 1000);
+  if (s < 30) return "fresh";
+  if (s < 60) return `${s}s old`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m old` : `${Math.floor(m / 60)}h ${m % 60}m old`;
+}
+
 function adaptSurfacedSetup(s) {
   if (!s) return null;
   return {
@@ -139,27 +212,55 @@ function adaptSurfacedSetup(s) {
     confirmed: s.confirmation_status === "confirmed",
     confirmAge: "",
     label: s.label || "ACTIVE SETUP",
-    age: "fresh",
+    age: computeAge(s.ts),
     _raw: s,
   };
+}
+
+// #51 Outcome derivation as a tiny lookup table — simpler than 5 nested
+// conditionals. closed-with-outcome takes priority; otherwise we look
+// at state + tp1_hit.
+const OUTCOME_MAP = {
+  TP1_HIT: { key: "tp1", label: "● TP1 HIT" },
+  TP2_HIT: { key: "tp2", label: "● TP2 HIT" },
+  STOPPED: { key: "stopped", label: "● STOPPED" },
+  INVALIDATED: { key: "invalidated", label: "● INVALIDATED" },
+};
+function deriveOutcome(t) {
+  if (t.outcome && OUTCOME_MAP[t.outcome]) return OUTCOME_MAP[t.outcome];
+  if (t.state === "pending_entry") return { key: "open", label: "● PENDING ENTRY" };
+  if (t.state === "filled" && t.tp1_hit) return { key: "tp1", label: "● TP1 HIT (runner)" };
+  return { key: "open", label: "● OPEN" };
+}
+
+// #38 Show both $ and R when both are available, instead of forcing
+// one-or-the-other.
+function riskLabel(size) {
+  if (!size) return "—";
+  const dollars = size.dollar_risk != null ? `$${size.dollar_risk}` : null;
+  const r = size.r_unit != null ? `${size.r_unit} R` : null;
+  if (dollars && r) return `${dollars} · ${r}`;
+  return dollars || r || "—";
+}
+
+// #23 Stale-fill indicator — if a filled trade hasn't progressed in
+// STALE_FILL_MIN minutes, surface a hint. "Progressed" means filled_ts
+// or accepted_ts is older than the threshold and no tp1_hit yet.
+const STALE_FILL_MIN = 60;
+function staleFillNote(t) {
+  if (t.state !== "filled" || t.tp1_hit) return "";
+  const stampStr = t.filled_ts || t.ts;
+  if (!stampStr) return "";
+  const ageMin = Math.floor((Date.now() - new Date(stampStr).getTime()) / 60000);
+  if (ageMin < STALE_FILL_MIN) return "";
+  return `stale fill: ${ageMin}m without TP1`;
 }
 
 function adaptTakenTrade(t) {
   if (!t) return null;
   const sizeLabel = t.size?.label || (t.size?.contracts != null ? `${t.size.contracts}c` : "—");
-  const outcome = t.outcome
-    ? t.outcome === "TP1_HIT" ? "tp1"
-      : t.outcome === "TP2_HIT" ? "tp2"
-      : t.outcome === "STOPPED" ? "stopped"
-      : t.outcome === "INVALIDATED" ? "invalidated"
-      : "open"
-    : (t.state === "filled" ? (t.tp1_hit ? "tp1" : "open") : "open");
-  const outcomeLabel = outcome === "tp1" ? "● TP1 HIT"
-    : outcome === "tp2" ? "● TP2 HIT"
-    : outcome === "stopped" ? "● STOPPED"
-    : outcome === "invalidated" ? "● INVALIDATED"
-    : t.state === "pending_entry" ? "● PENDING ENTRY"
-    : "● OPEN";
+  const outcome = deriveOutcome(t);
+  const stale = staleFillNote(t);
   return {
     id: t.id,
     grade: t.grade,
@@ -171,21 +272,23 @@ function adaptTakenTrade(t) {
     tp2: formatPx(t.tp2),
     rr: t.rr != null ? String(t.rr) : "—",
     size: sizeLabel,
-    risk: t.size?.dollar_risk != null ? `$${t.size.dollar_risk}` : (t.size?.r_unit != null ? `${t.size.r_unit} R` : "—"),
+    risk: riskLabel(t.size),
     pnl: t.r_realized != null ? `${t.r_realized > 0 ? "+" : ""}${t.r_realized} R` : "—",
     pnlPositive: t.r_realized > 0,
     pnlNegative: t.r_realized < 0,
-    outcome,
-    outcomeLabel,
-    statusNote: t.tp1_hit ? "runner: stop at BE" : "",
+    outcome: outcome.key,
+    outcomeLabel: outcome.label,
+    // #23 surface staleness alongside the runner hint.
+    statusNote: stale || (t.tp1_hit ? "runner: stop at BE" : ""),
+    setupId: t.setup_id || null,
     taken: t.ts ? new Date(t.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) + " ET" : "",
   };
 }
 
-function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
+function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
   // Real chat state + surfaced setup via the Agent SDK.
-  const { messages, typing, send: submit, cancel, reset, activeSetup, noTradeReason, clearSetup } = useChat();
-  const { activeTrade, accept: acceptApi, reject: rejectApi } = useTrades();
+  const { messages, typing, send: submit, cancel, reset, activeSetup, noTradeReason, clearSetup, queuedBehind } = useChat();
+  const { activeTrade, accept: acceptApi, reject: rejectApi, pnl } = useTrades();
   const setup = adaptSurfacedSetup(activeSetup);
   const takenTrade = adaptTakenTrade(activeTrade);
   // #2 In-flight guards prevent double-click → two trade events.
@@ -200,9 +303,13 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
       alert("Loop is DOWN — detector isn't tracking trades. Wait for it to recover before accepting.");
       return;
     }
+    // #25 Snapshot activeSetup at click time. If a new surface_setup
+    // lands between click and IPC roundtrip, we accept the ORIGINAL
+    // setup the trader actually saw — not whatever overwrote it.
+    const setupSnapshot = activeSetup;
     setAcceptPending(true);
     try {
-      const res = await acceptApi(activeSetup);
+      const res = await acceptApi(setupSnapshot);
       if (res?.ok) clearSetup();
       else if (res?.error) alert(`Couldn't accept: ${res.error}`);
     } finally {
@@ -211,9 +318,12 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
   };
   const reject = async () => {
     if (!activeSetup || rejectPending) return;
+    const setupSnapshot = activeSetup;
     setRejectPending(true);
     try {
-      await rejectApi(activeSetup.id, "");
+      // #30 capture a reason via a prompt — empty string still acceptable.
+      const reason = window.prompt("Reject reason (optional):", "") || "";
+      await rejectApi(setupSnapshot.id, reason);
       clearSetup();
     } finally {
       setRejectPending(false);
@@ -225,12 +335,35 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
       {loopDown && (
         <div className="banner">
           <span className="glyph">● LOOP DOWN</span>
-          <span className="txt">bar-close detector not reporting · last bar 09:46 ET</span>
+          <span className="txt">bar-close detector not reporting</span>
           <span className="sub">RESTART</span>
         </div>
       )}
+      {/* #21 Surface "stale" — heartbeat older than 30s but not yet
+          down. Was: only "down" got a banner; stale was silent. */}
+      {!loopDown && loopStale && (
+        <div className="banner" style={{ borderColor: "var(--amber, #d4a657)", color: "var(--amber)" }}>
+          <span className="glyph">● LOOP STALE</span>
+          <span className="txt">detector heartbeat slow · trade ticking may lag</span>
+        </div>
+      )}
 
-      <SectionHead title="CLAUDE · CONVERSATION" count="1m · NY AM" />
+      <SectionHead title="CLAUDE · CONVERSATION" count={sessionLabel()} />
+      {/* #44 Queued-behind hint. Mutex makes chat wait behind bar-close
+          and brief turns — was silent before. */}
+      {queuedBehind && (
+        <div style={{
+          padding: "6px 14px",
+          background: "var(--surface-1)",
+          color: "var(--amber)",
+          fontSize: 10,
+          fontFamily: "ui-monospace, Menlo, monospace",
+          letterSpacing: ".08em",
+          borderBottom: "1px solid var(--border-dim, #1e2228)",
+        }}>
+          QUEUED · waiting on {queuedBehind} turn to finish
+        </div>
+      )}
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <ClaudeFeed messages={messages} typing={typing} onSubmit={submit}
                     onCancel={cancel} onReset={reset}
@@ -238,6 +371,33 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
                     armedPrices={alerts ? new Set(Object.values(alerts.armed || {})) : null}
                     firedPrices={alerts ? new Set((alerts.fired || []).map((f) => f.px)) : null} />
       </div>
+
+      {/* #46 Compact live P&L line above the setups/trades section. */}
+      {pnl.decided + pnl.openCount > 0 && (
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "4px 14px",
+          background: "var(--surface-1)",
+          borderBottom: "1px solid var(--border-dim, #1e2228)",
+          fontFamily: "ui-monospace, Menlo, monospace",
+          fontSize: 10,
+          letterSpacing: ".08em",
+        }}>
+          <span style={{ color: "var(--label)" }}>SESSION P&amp;L</span>
+          <span style={{ display: "flex", gap: 14, alignItems: "center" }}>
+            <span style={{
+              color: pnl.totalR > 0 ? "var(--green)" : pnl.totalR < 0 ? "var(--red)" : "var(--prose)",
+              fontWeight: 600,
+            }}>
+              {pnl.totalR > 0 ? "+" : ""}{pnl.totalR} R
+            </span>
+            <span style={{ color: "var(--label)" }}>
+              {pnl.wins}W / {pnl.losses}L
+              {pnl.openCount > 0 && <span style={{ color: "var(--amber)" }}> · {pnl.openCount} open</span>}
+            </span>
+          </span>
+        </div>
+      )}
 
       <SectionHead title="SETUPS & TRADES"
                    count={takenTrade ? "1 active"
@@ -284,7 +444,7 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
   );
 }
 
-function LiveWorkstation({ subState, loopDown, noSetups, alerts, onArmPrice }) {
+function LiveWorkstation({ subState, loopDown, loopStale, noSetups, alerts, onArmPrice }) {
   if (subState === "open-reaction") {
     return (
       <div className="work-scroll">
@@ -301,7 +461,7 @@ function LiveWorkstation({ subState, loopDown, noSetups, alerts, onArmPrice }) {
   }
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
-      <EntryHunt loopDown={loopDown} noSetups={noSetups}
+      <EntryHunt loopDown={loopDown} loopStale={loopStale} noSetups={noSetups}
                  alerts={alerts}
                  onArmPrice={onArmPrice} />
     </div>

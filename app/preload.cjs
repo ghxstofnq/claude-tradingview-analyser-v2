@@ -26,6 +26,16 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("chat:turn_complete", listener);
       return () => ipcRenderer.removeListener("chat:turn_complete", listener);
     },
+    onQueued(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("chat:queued", listener);
+      return () => ipcRenderer.removeListener("chat:queued", listener);
+    },
+    onQueueReady(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("chat:queue_ready", listener);
+      return () => ipcRenderer.removeListener("chat:queue_ready", listener);
+    },
   },
   mode: {
     switch(mode) {
@@ -107,6 +117,9 @@ contextBridge.exposeInMainWorld("api", {
     },
     priorBrief(session, excludeDate) {
       return ipcRenderer.invoke("prep:prior_brief_get", { session, excludeDate });
+    },
+    resetPairDecision() {
+      return ipcRenderer.invoke("pair-decision:reset");
     },
     openReaction(session) {
       return ipcRenderer.invoke("prep:open_reaction_get", { session });

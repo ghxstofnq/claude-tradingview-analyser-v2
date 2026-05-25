@@ -287,8 +287,8 @@ function buildMcpServer() {
           elements: z.array(z.object({
             name: z.string(),
             status: z.enum(["pass", "weak", "fail", "pending"]),
-          })),
-        })).optional().describe("3-pillar alignment breakdown rendered in the LIVE PILLAR ALIGNMENT panel. Optional — panel is hidden when omitted."),
+          })).min(1),
+        })).optional().describe("3-pillar alignment breakdown rendered in the LIVE PILLAR ALIGNMENT panel. Required for A+ setups (runtime-enforced in surface.js); panel hidden when omitted on B / no-trade."),
         label: z.string().optional().describe("Optional short label, default ACTIVE SETUP"),
       },
       async (args) => {
@@ -550,9 +550,18 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
   const lock = new Promise((r) => (release = r));
   const prev = _turnInFlight;
   _turnInFlight = lock;
+  // #44 Notify if we have to wait. Chat-on-bar-close was the worst
+  // case: trader typed, waited 30-90s, no feedback. Now onEvent gets a
+  // "queued" event right after the user message lands.
+  let queued = false;
+  if (_currentCancel) {
+    queued = true;
+    onEvent?.({ type: "queued", waitingOn: _currentCancel.purpose });
+  }
   await prev;
 
   try {
+    if (queued) onEvent?.({ type: "queue_ready" });
     await runOneTurn({ text, purpose, onEvent, timeoutMs });
   } finally {
     release();

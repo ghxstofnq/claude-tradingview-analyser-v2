@@ -73,10 +73,19 @@ export async function acceptSetup({ setup, send }) {
   try {
     const id = nextTradeId();
     const size = sizeFor({ grade: setup.grade, dow: dayOfWeek() });
+    // #47 setup_id was nullable — broke setup→trade linkage in journal
+    // stats ("which % of A+ setups got accepted"). If the caller didn't
+    // pass one, the renderer didn't have it — but surface_setup now
+    // always writes an id to setups.jsonl, so reject the accept with a
+    // diagnostic if the caller's payload is missing it.
+    if (!setup.id) {
+      _acceptInFlight.delete(dedupeKey);
+      return { error: "accept payload missing setup.id — cannot link to setups.jsonl entry" };
+    }
     const event = {
       type: "accept",
       id,
-      setup_id: setup.id || null,
+      setup_id: setup.id,
       ts: new Date().toISOString(),
       side: setup.direction,
       model: setup.model,

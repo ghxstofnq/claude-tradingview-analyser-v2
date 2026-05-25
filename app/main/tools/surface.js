@@ -91,10 +91,28 @@ export function getCurrentSurfaceState() {
 }
 
 export async function surfaceSetup(payload) {
+  // #32 A+ requires pillar_breakdown — these setups carry the most risk
+  // and the trader needs the alignment view. Reject A+ without it
+  // so Claude retries with the missing field.
+  if (payload.grade === "A+" && (!Array.isArray(payload.pillar_breakdown) || payload.pillar_breakdown.length < 2)) {
+    throw new Error("surface_setup: grade A+ requires pillar_breakdown with at least 2 pillars");
+  }
   const dir = await activeSessionDir();
   const file = path.join(dir, "setups.jsonl");
   const id = payload.id || `S-${Date.now().toString(36)}`;
   const record = { ...payload, id, ts: new Date().toISOString() };
+
+  // #43 Snapshot the slim bundle Claude analyzed for this setup. The
+  // live state/last-scan.slim.json gets overwritten constantly; if the
+  // trader (or auditor) wants to know "what data did Claude see when
+  // setup S-Xyz fired", this is the only way to reproduce it.
+  try {
+    const slimPath = path.join(REPO_ROOT, "state", "last-scan.slim.json");
+    const slim = await fs.readFile(slimPath, "utf8");
+    const snapshotsDir = path.join(dir, "setup-bundles");
+    await fs.mkdir(snapshotsDir, { recursive: true });
+    await writeAtomic(path.join(snapshotsDir, `${id}.json`), slim);
+  } catch { /* no slim bundle yet — skip snapshot */ }
   // Append (not atomic-via-rename — appendFile is its own atomicity story
   // for jsonl logs; partial line at crash time, but never a torn record).
   await fs.appendFile(file, JSON.stringify(record) + "\n", "utf8");
@@ -127,6 +145,21 @@ export async function surfaceSetup(payload) {
 }
 
 export async function surfaceNoTrade({ reason }) {
+  // #19 If a surface_setup just fired in this turn, surface_no_trade
+  // would race with it — UI shows whichever lands last. The setup is
+  // the higher-value signal; ignore no_trade if a setup is live and
+  // less than the same-turn window old.
+  const recentSetupMs = _lastSetupTs ? Date.now() - _lastSetupTs : Infinity;
+  if (_currentSetup && recentSetupMs < SETUP_WINDOW_MS) {
+    // eslint-disable-next-line no-console
+    console.warn(`[surface] surface_no_trade("${reason}") suppressed — surface_setup ${Math.round(recentSetupMs/1000)}s ago wins`);
+    _send?.("app:error", {
+      source: "surface_no_trade",
+      level: "warn",
+      message: `no_trade suppressed: setup still in play (${Math.round(recentSetupMs/1000)}s old)`,
+    });
+    return { ok: true, suppressed: true };
+  }
   emitToolCall("surface_no_trade", { reason });
   _currentSetup = null;
   _currentNoTradeReason = reason;
@@ -198,7 +231,22 @@ export async function surfaceSessionBrief(payload) {
 // Running log written during the first 15 minutes of NY. Each call appends a
 // new read; we persist the canonical list to open-reaction.json and re-render
 // the markdown view from it. Latest snapshot at top, older below.
+// #53 Dedup guard. Claude can call surface_open_reaction twice in one
+// turn (retries, iterations). Same minutes_into_phase + bias within
+// 30s = same read; suppress to keep open-reaction.json terse.
+const OPEN_REACTION_DEDUP_MS = 30_000;
+let _lastOpenReaction = { ts: 0, key: null };
+
 export async function surfaceOpenReaction(payload) {
+  const dedupeKey = `${payload.minutes_into_phase}-${payload.bias_direction}`;
+  const sinceLast = Date.now() - _lastOpenReaction.ts;
+  if (_lastOpenReaction.key === dedupeKey && sinceLast < OPEN_REACTION_DEDUP_MS) {
+    // eslint-disable-next-line no-console
+    console.warn(`[surface] open-reaction dedup: "${dedupeKey}" ${Math.round(sinceLast/1000)}s ago`);
+    return { ok: true, deduped: true };
+  }
+  _lastOpenReaction = { ts: Date.now(), key: dedupeKey };
+
   const dir = await activeSessionDir();
   const jsonFile = path.join(dir, "open-reaction.json");
   const ts = new Date().toISOString();

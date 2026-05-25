@@ -579,6 +579,7 @@ function Workstation({ mode, tweaks, alerts, onToggleArm, onArmPrice }) {
       <LiveWorkstation
         subState={tweaks.liveSubState}
         loopDown={tweaks.loopHealth === "down"}
+        loopStale={tweaks.loopHealth === "stale"}
         noSetups={tweaks.noSetups}
         alerts={alerts}
         onArmPrice={onArmPrice}

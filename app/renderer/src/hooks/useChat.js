@@ -7,24 +7,30 @@
 
 import { useEffect, useRef, useState } from "react";
 
-// Cap chat history to avoid unbounded memory growth. Each brief generates
-// 200+ chunk events; an 8h trading session can produce hundreds of
-// thousands of accumulated entries. Drop the oldest when exceeding MAX,
-// keep KEEP so a streaming reply isn't truncated mid-flight.
-const CHAT_HISTORY_MAX = 500;
-const CHAT_HISTORY_KEEP = 400;
+// #20 Gate verbose console logging behind a localStorage flag so
+// production runs aren't noisy. Set `localStorage.debug_chat = "1"` in
+// devtools to re-enable.
+const DEBUG = typeof window !== "undefined" && window?.localStorage?.getItem?.("debug_chat") === "1";
+function dlog(...args) { if (DEBUG) console.log(...args); }
+
+// #35 Bumped from 500 (PREP-default) — LIVE generates 6-12 messages
+// per bar-close turn × 60 turns/hour = up to 700/hour. 500 was hit in
+// <1h. 2000 covers a full 8h session with margin.
+const CHAT_HISTORY_MAX = 2000;
+const CHAT_HISTORY_KEEP = 1600;
 
 function trimHistory(arr) {
   if (arr.length <= CHAT_HISTORY_MAX) return arr;
-  // Keep the last CHAT_HISTORY_KEEP entries. Dropping ~100 at a time
-  // means the trim only fires every ~100 new messages, not on every push.
   return arr.slice(-CHAT_HISTORY_KEEP);
 }
 
+// #41 ET timestamp instead of trader's local clock — matches brief +
+// recap which already use ET. Trader's eye doesn't have to convert.
 function nowStamp() {
-  const d = new Date();
-  return [d.getHours(), d.getMinutes()]
-    .map((x) => String(x).padStart(2, "0")).join(":");
+  return new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
 }
 
 function escapeHtml(s) {
@@ -39,6 +45,9 @@ export function useChat() {
   const [typing, setTyping] = useState(false);
   const [activeSetup, setActiveSetup] = useState(null);
   const [noTradeReason, setNoTradeReason] = useState(null);
+  // #44 "queued behind <purpose>" hint while waiting on the mutex.
+  // Null = not queued; string = name of the in-flight turn we're behind.
+  const [queuedBehind, setQueuedBehind] = useState(null);
   const streamingIdxRef = useRef(null);   // index of the in-flight reply message
 
   useEffect(() => {
@@ -47,8 +56,7 @@ export function useChat() {
       console.error("[useChat] window.api.chat is undefined — preload script failed to load");
       return;
     }
-    // eslint-disable-next-line no-console
-    console.log("[useChat] subscribing to chat events");
+    dlog("[useChat] subscribing to chat events");
 
     // #11 Re-hydrate setup state from main. EntryHunt unmounts on mode
     // switch, so activeSetup state would be empty when the trader comes
@@ -61,8 +69,7 @@ export function useChat() {
     }).catch(() => {});
 
     const offChunk = window.api.chat.onChunk((ev) => {
-      // eslint-disable-next-line no-console
-      console.log("[useChat] chunk", JSON.stringify(ev?.text || "").slice(0, 80));
+      dlog("[useChat] chunk", JSON.stringify(ev?.text || "").slice(0, 80));
       setMessages((prev) => {
         const idx = streamingIdxRef.current;
         if (idx == null) return prev;
@@ -75,8 +82,7 @@ export function useChat() {
     });
 
     const offToolCall = window.api.chat.onToolCall?.((ev) => {
-      // eslint-disable-next-line no-console
-      console.log("[useChat] tool_call", ev?.name, ev?.payload);
+      dlog("[useChat] tool_call", ev?.name, ev?.payload);
       if (ev?.name === "surface_setup" && ev.payload) {
         setActiveSetup(ev.payload);
         setNoTradeReason(null);
@@ -87,11 +93,18 @@ export function useChat() {
     });
 
     const offTurnComplete = window.api.chat.onTurnComplete(() => {
-      // eslint-disable-next-line no-console
-      console.log("[useChat] turn_complete");
+      dlog("[useChat] turn_complete");
       streamingIdxRef.current = null;
       setTyping(false);
+      setQueuedBehind(null);
       clearTypingWatchdog();
+    });
+
+    const offQueued = window.api.chat.onQueued?.((ev) => {
+      setQueuedBehind(ev?.waitingOn || "another turn");
+    });
+    const offQueueReady = window.api.chat.onQueueReady?.(() => {
+      setQueuedBehind(null);
     });
 
     const offError = window.api.error?.onError?.((ev) => {
@@ -110,6 +123,8 @@ export function useChat() {
       offChunk?.();
       offToolCall?.();
       offTurnComplete?.();
+      offQueued?.();
+      offQueueReady?.();
       offError?.();
     };
   }, []);
@@ -134,8 +149,7 @@ export function useChat() {
   }
 
   async function send(text) {
-    // eslint-disable-next-line no-console
-    console.log("[useChat] send", JSON.stringify(text).slice(0, 80));
+    dlog("[useChat] send", JSON.stringify(text).slice(0, 80));
     setMessages((prev) => {
       const next = trimHistory(prev.slice());
       next.push({ type: "user", t: nowStamp(), body: escapeHtml(text) });
@@ -147,8 +161,7 @@ export function useChat() {
     armTypingWatchdog();
     try {
       const res = await window.api.chat.send(text);
-      // eslint-disable-next-line no-console
-      console.log("[useChat] send returned", res);
+      dlog("[useChat] send returned", res);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[useChat] send threw", err);
@@ -178,14 +191,24 @@ export function useChat() {
   // Reset chat conversation: clears the renderer history AND tells main
   // to forget the 'chat' purpose session id. Next user message starts a
   // fresh conversation. Brief / wrap / bar-close sessions are untouched.
+  //
+  // #33 Also clears the setup card + no-trade reason — was an obvious
+  // hole: clicking RESET emptied the chat but left a stale setup card
+  // sitting there from the prior conversation.
   async function reset() {
     try {
       await window.api?.chat?.reset?.();
     } catch { /* best-effort */ }
+    try {
+      await window.api?.setups?.clear?.();
+    } catch { /* best-effort */ }
     setMessages([]);
+    setActiveSetup(null);
+    setNoTradeReason(null);
     streamingIdxRef.current = null;
     setTyping(false);
+    clearTypingWatchdog();
   }
 
-  return { messages, typing, send, cancel, reset, activeSetup, noTradeReason, clearSetup };
+  return { messages, typing, send, cancel, reset, activeSetup, noTradeReason, clearSetup, queuedBehind };
 }

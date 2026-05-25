@@ -4,7 +4,7 @@
 // and exposes a trades map keyed by id. Also hydrates from main on mount
 // via window.api.trade.list().
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export function useTrades() {
   const [trades, setTrades] = useState({});         // { id: foldedTrade }
@@ -66,10 +66,45 @@ export function useTrades() {
     return window.api.trade.reject(setupId, reason);
   }
 
-  // Active trade = the most recently accepted, non-closed one (v1 single-trade).
-  const activeTrade = Object.values(trades)
-    .filter((t) => t.state !== "closed")
-    .sort((a, b) => (b.ts || "").localeCompare(a.ts || ""))[0] || null;
+  // #24 Active trade selection — sort by ts then id as a tiebreaker so
+  // millisecond-tied trades have a deterministic order. #49 memoize so
+  // every consumer's render doesn't re-walk Object.values + sort.
+  const activeTrade = useMemo(() => {
+    const open = Object.values(trades).filter((t) => t.state !== "closed");
+    if (!open.length) return null;
+    open.sort((a, b) => {
+      const c = (b.ts || "").localeCompare(a.ts || "");
+      return c !== 0 ? c : (b.id || "").localeCompare(a.id || "");
+    });
+    return open[0];
+  }, [trades]);
 
-  return { trades, activeTrade, rejected, accept, reject };
+  // #46 Live P&L summary — totals across all trades in the current
+  // in-memory map. Re-derives via useMemo so consumers only re-render
+  // when trades actually change.
+  const pnl = useMemo(() => {
+    let totalR = 0;
+    let wins = 0;
+    let losses = 0;
+    let openCount = 0;
+    for (const t of Object.values(trades)) {
+      const r = Number(t.r_realized);
+      if (Number.isFinite(r)) totalR += r;
+      if (t.state === "closed") {
+        if (t.outcome === "TP1_HIT" || t.outcome === "TP2_HIT") wins += 1;
+        else if (t.outcome === "STOPPED" || t.outcome === "INVALIDATED") losses += 1;
+      } else {
+        openCount += 1;
+      }
+    }
+    return {
+      totalR: Number(totalR.toFixed(2)),
+      wins,
+      losses,
+      openCount,
+      decided: wins + losses,
+    };
+  }, [trades]);
+
+  return { trades, activeTrade, rejected, accept, reject, pnl };
 }

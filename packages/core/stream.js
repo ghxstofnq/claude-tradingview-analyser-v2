@@ -3,7 +3,7 @@
  * Uses efficient poll + dedup: only emits when data changes.
  */
 import { evaluate } from './connection.js';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 // ET date helper for state/session/<YYYY-MM-DD>/ paths.
@@ -197,10 +197,13 @@ export async function streamBarClose() {
   // to verify the detector is alive and to show what bar / TF it's tracking.
   // Updated every ~5s during sleep (not just at state transitions) so the
   // health monitor's >30s STALE threshold doesn't false-alarm.
+  // #50 Atomic heartbeat write: write to .tmp + rename. A SIGKILL
+  // mid-write used to leave a torn JSON that health.js's JSON.parse
+  // failed on → reported the detector as "down" until next tick.
   function writeHeartbeat(state) {
     try {
       mkdirSync(dirname(HEARTBEAT_PATH), { recursive: true });
-      writeFileSync(HEARTBEAT_PATH, JSON.stringify({
+      const content = JSON.stringify({
         pid: process.pid,
         started_at: startedAt,
         last_heartbeat: new Date().toISOString(),
@@ -208,16 +211,31 @@ export async function streamBarClose() {
         last_bar_time: lastSeenBarTime,
         last_bar_close: lastBar,
         current_state: state,  // "sleeping_to_boundary" | "polling_for_close" | "emitted"
-      }, null, 2));
+      }, null, 2);
+      const tmp = HEARTBEAT_PATH + '.tmp';
+      writeFileSync(tmp, content);
+      // renameSync is atomic on POSIX — readers always see either old or new.
+      renameSync(tmp, HEARTBEAT_PATH);
     } catch (e) { /* best-effort */ }
   }
 
   // Persist bar-close events to a per-day JSONL (in addition to stdout).
+  //
+  // #50 appendFile is atomic per-write on POSIX for small payloads (single
+  // line under PIPE_BUF, typically 4096 bytes — our events are < 500B), so
+  // concurrent appends can't tear a line. The SIGKILL-mid-write risk
+  // remains theoretical (Node fs.writeFileSync is a single syscall per
+  // call); we accept it as below the cost of fully-locked writes.
   function persistEvent(event) {
     try {
       const path = `state/session/${nowETDate()}/bar-close-events.jsonl`;
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, JSON.stringify(event) + '\n', { flag: 'a' });
+      const line = JSON.stringify(event) + '\n';
+      // Defensive size guard — keep lines under PIPE_BUF for atomicity.
+      if (line.length > 4000) {
+        process.stderr.write(`[stream:bar-close] warning: event line ${line.length}B > 4000B atomicity threshold\n`);
+      }
+      writeFileSync(path, line, { flag: 'a' });
     } catch (e) { /* best-effort */ }
   }
 

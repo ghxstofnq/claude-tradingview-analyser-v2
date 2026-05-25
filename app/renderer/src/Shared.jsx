@@ -337,6 +337,14 @@ function TradeCard({ trade, showSnapshot = true }) {
         <span style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".1em" }}>
           {trade.model}
         </span>
+        {/* #29 Surface the originating setup id so the trader can find
+            the rationale in setups.jsonl / history list. */}
+        {trade.setupId && (
+          <span style={{ color: "var(--label-dim, #6b7178)", fontSize: 9, letterSpacing: ".08em" }}
+                title={`from setup ${trade.setupId}`}>
+            ← {trade.setupId}
+          </span>
+        )}
         <span className="when">{trade.taken}</span>
       </div>
       <div className="tc-body">
@@ -386,10 +394,27 @@ function TradeCard({ trade, showSnapshot = true }) {
 function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, firedPrices, onCancel, onReset }) {
   const feedRef = useRef(null);
   const [input, setInput] = useState("");
+  // #34 Don't auto-scroll if the user has scrolled up to read history.
+  // Threshold: 40px from the bottom counts as "at the bottom" — anything
+  // further up means the user is reading and we should leave them alone.
+  // A "JUMP TO LATEST" affordance below the feed lets them snap back.
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
   useEffect(() => {
     const el = feedRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, typing]);
+    if (!el || !pinnedToBottom) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages.length, typing, pinnedToBottom]);
+
+  useEffect(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setPinnedToBottom(distFromBottom < 40);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
   // Delegated click handler: clicking a price <em> in Claude's prose arms
   // an alert. Hover styling tells the user the price is interactive.
@@ -453,6 +478,29 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
           </div>
         )}
       </div>
+      {/* #34 JUMP TO LATEST — visible only when the user has scrolled up.
+          Clicking re-pins to the bottom so subsequent chunks auto-scroll. */}
+      {!pinnedToBottom && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "4px 0" }}>
+          <button onClick={() => {
+                    setPinnedToBottom(true);
+                    const el = feedRef.current;
+                    if (el) el.scrollTop = el.scrollHeight;
+                  }}
+                  style={{
+                    background: "var(--surface-1)",
+                    border: "1px solid var(--amber)",
+                    color: "var(--amber)",
+                    padding: "2px 12px",
+                    fontFamily: "ui-monospace, Menlo, monospace",
+                    fontSize: 9.5,
+                    letterSpacing: ".16em",
+                    cursor: "pointer",
+                  }}>
+            [ JUMP TO LATEST ↓ ]
+          </button>
+        </div>
+      )}
       <form className="claude-compose"
             onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <span className="prompt">&gt;</span>

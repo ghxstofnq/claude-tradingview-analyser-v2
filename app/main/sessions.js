@@ -37,15 +37,28 @@ export function currentSession() {
   return { date, session, et_hour: hour, et_minute: minute, weekday };
 }
 
+// #39 During idle (between sessions), pick the MOST-RECENTLY-CLOSED
+// session for the day, NOT a blind fallback to ny-am. Was: at 12:01-
+// 13:00 ET, activeSessionDir wrote to ny-am/ even though that session
+// just ended — mixing post-AM activity (e.g. trade outcomes from a
+// position open at the close) with the AM session log.
+function mostRecentSession(hour, minute) {
+  const m = hour * 60 + minute;
+  if (m >= 16 * 60) return "ny-pm";        // post-PM
+  if (m >= 13 * 60) return "ny-pm";        // during PM (handled by currentSession, just defensive)
+  if (m >= 12 * 60) return "ny-am";        // inter-session 12:00-13:00
+  if (m >= 9 * 60 + 30) return "ny-am";    // during AM (defensive)
+  if (m >= 6 * 60) return "london";        // post-London
+  if (m >= 3 * 60) return "london";        // during London (defensive)
+  return "ny-pm";                          // overnight / pre-London — last NY PM
+}
+
 export async function activeSessionDir() {
-  const { date, session } = currentSession();
-  const dir = path.join(
-    REPO_ROOT,
-    "state",
-    "session",
-    date,
-    session === "idle" ? "ny-am" : session,
-  );
+  const { date, session, et_hour, et_minute } = currentSession();
+  const folder = session === "idle"
+    ? mostRecentSession(et_hour, et_minute)
+    : session;
+  const dir = path.join(REPO_ROOT, "state", "session", date, folder);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }

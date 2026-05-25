@@ -32,6 +32,9 @@ export function registerIpc(win) {
           if (ev.type === "chunk") send("chat:chunk", ev);
           else if (ev.type === "tool_call") send("chat:tool_call", ev);
           else if (ev.type === "turn_complete") send("chat:turn_complete", ev);
+          // #44 Surface queue events to the chat panel.
+          else if (ev.type === "queued") send("chat:queued", ev);
+          else if (ev.type === "queue_ready") send("chat:queue_ready", ev);
           else if (ev.type === "error") send("app:error", { source: "sdk", message: ev.message });
         },
       });
@@ -47,6 +50,21 @@ export function registerIpc(win) {
     // Mutex releases; next queued turn starts as usual.
     const cancelled = cancelCurrentTurn();
     return { ok: true, cancelled };
+  });
+
+  ipcMain.handle("pair-decision:reset", async () => {
+    // #37 Trader wants to switch pair mid-day (e.g. MNQ → MGC).
+    // Delete pair-decision.json so the next bar-close catch-up turn
+    // re-picks. activeSessionDir gives us today's folder.
+    try {
+      const dir = await activeSessionDir();
+      const file = path.join(dir, "pair-decision.json");
+      await fs.unlink(file);
+      return { ok: true, deleted: file };
+    } catch (err) {
+      if (err?.code === "ENOENT") return { ok: true, deleted: null };
+      return { ok: false, error: String(err?.message || err) };
+    }
   });
 
   ipcMain.handle("setup:current", async () => {
