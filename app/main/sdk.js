@@ -379,10 +379,33 @@ export function resetSession() {
   _sessionId = null;
 }
 
+// Model config. Opus 4.6 Fast keeps Opus-tier judgement on the grade enum
+// (A+/B/no-trade) — the call the trader actually acts on — while running
+// fast enough to keep up with the per-bar cadence (~400-500 turns/day
+// during a full session: 1m ticks + 5m doubles + dual-symbol open-reaction).
+// 1M context native to Opus 4.6.
+//
+// Why not Opus 4.7: its strengths (high-res vision, deep agentic tool
+// selection, advanced memory) don't apply here — bundles are pre-computed
+// JSON, no screenshots (constraint #5), fixed small toolset, no memory tools.
+// Pure latency cost for capabilities we don't use, and risks the coalesce
+// queue silently dropping ticks under load.
+//
+// Why not Sonnet 4.6: borderline A+/B/no-trade calls are exactly where you
+// need Opus-tier discipline — a sloppier grader produces noise the trader
+// learns to ignore, defeating the system.
+//
+// Sonnet 4.6 fallback (also 1M context) so the loop survives a transient
+// Opus outage without losing session context.
+const MODEL = "claude-opus-4-6-fast";
+const FALLBACK_MODEL = "claude-sonnet-4-6";
+
 export async function userTurn({ text, onEvent }) {
   const systemPrompt = await loadSystemPrompt();
   const opts = {
     systemPrompt,
+    model: MODEL,
+    fallbackModel: FALLBACK_MODEL,
     // Disable built-in Claude Code tools (Read/Edit/Bash/etc) — only our
     // MCP tools below should be callable.
     tools: [],
