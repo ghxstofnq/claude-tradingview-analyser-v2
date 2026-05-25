@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { userTurn } from "./sdk.js";
 import { currentSession } from "./sessions.js";
+import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -96,6 +97,7 @@ async function briefPathFor(session, date = nyParts().date) {
   return path.join(dir, "brief.json");
 }
 
+// Returns the legacy single-symbol brief (brief.json) for a session, or null.
 export async function getBriefForToday(session) {
   if (!session) return null;
   try {
@@ -107,6 +109,29 @@ export async function getBriefForToday(session) {
   }
 }
 
+// Returns per-symbol briefs as { [symbol]: payload } for a session, or {}.
+// Reads brief-<symbol>.json for each known pair symbol — falls back to
+// legacy brief.json (under PAIR_PRIMARY) if no per-symbol files exist yet.
+export async function getBriefsBySymbolForToday(session) {
+  if (!session) return {};
+  const out = {};
+  for (const symbol of [PAIR_PRIMARY, PAIR_SECONDARY]) {
+    try {
+      const dir = path.join(REPO_ROOT, "state", "session", nyParts().date, session);
+      const file = path.join(dir, `brief-${symbol}.json`);
+      const txt = await fs.readFile(file, "utf8");
+      out[symbol] = JSON.parse(txt);
+    } catch { /* missing — leave undefined */ }
+  }
+  // Backward compat — surface the legacy brief.json under the primary key
+  // when no per-symbol file exists yet.
+  if (!out[PAIR_PRIMARY]) {
+    const legacy = await getBriefForToday(session);
+    if (legacy) out[PAIR_PRIMARY] = legacy;
+  }
+  return out;
+}
+
 async function runBriefFor(session) {
   if (!session) return;
   if (_running) return;
@@ -116,9 +141,9 @@ async function runBriefFor(session) {
     const text = `Run the SESSION BRIEF for the ${session.toUpperCase()} session.
 
 Steps:
-1. Call mcp__tv__tv_analyze_full to load HTF context (Daily / 4H / 1H, overnight ranges).
-2. Reason in prose: grade Pillars 1 (Draw & Bias) and 2 (Price-Action Quality). Identify HTF bias per timeframe, overnight context (Asia / London ranges, what was swept), key levels (PWH / PDH / ONH / ONL / PDL / PWL with taken/untaken state), and a written plan for the session open.
-3. At the END of the turn, call mcp__tv__surface_session_brief with the structured payload. This is the only tool call that surfaces the brief to the PREP panels — do NOT call surface_setup or surface_no_trade in a session-brief turn.`;
+1. Call mcp__tv__tv_analyze_full with pair="${PAIR_DEFAULT}" to load dual-symbol HTF context (Daily / 4H / 1H, overnight ranges, both symbols).
+2. Reason in prose — for EACH symbol independently — grade Pillars 1 (Draw & Bias) and 2 (Price-Action Quality). Identify HTF bias per timeframe, overnight context (Asia / London ranges, what was swept), key levels (PWH / PDH / ONH / ONL / PDL / PWL with taken/untaken state), and a written plan for the session open. Cite from pair.symbols.${PAIR_PRIMARY}.* and pair.symbols.${PAIR_SECONDARY}.* — not the top-level fields (those mirror the primary only).
+3. At the END of the turn, call mcp__tv__surface_session_brief TWICE — once with symbol="${PAIR_PRIMARY}" and once with symbol="${PAIR_SECONDARY}". Each call carries the per-symbol structured payload. This is the only tool call that surfaces briefs to the PREP panels — do NOT call surface_setup or surface_no_trade in a session-brief turn.`;
     await userTurn({
       text,
       onEvent: (e) => {

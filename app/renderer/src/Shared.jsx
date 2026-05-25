@@ -88,6 +88,20 @@ function SetupCard({ setup, onAccept, onReject, featured }) {
     <div className={"setup-card " + variant + (featured ? " featured" : "")}>
       <div className="sc-head">
         <Grade value={setup.grade} />
+        {setup.tf && (
+          <span style={{
+            display: "inline-block",
+            border: "1px solid var(--border)",
+            color: "var(--label)",
+            fontSize: 9.5,
+            letterSpacing: ".12em",
+            padding: "1px 6px",
+            marginLeft: 6,
+            borderRadius: 2,
+          }} title={`Fired on ${setup.tf} bar close`}>
+            {setup.tf.toUpperCase()}
+          </span>
+        )}
         <span className="label">{setup.label || "ACTIVE SETUP"}</span>
         <span className="age">{setup.age}</span>
       </div>

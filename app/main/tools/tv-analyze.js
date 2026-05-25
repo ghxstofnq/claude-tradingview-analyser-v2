@@ -42,16 +42,21 @@ async function readBundle(outPath, opts) {
   }
 }
 
-export async function tvAnalyzeFull(_input, opts = {}) {
+export async function tvAnalyzeFull({ pair, baselineSecondary } = {}, opts = {}) {
   const outPath = opts.outPath || path.join(REPO_ROOT, "state", "last-analyze.json");
-  await runTv(["analyze", "--out", outPath], opts);
+  const args = ["analyze", "--out", outPath];
+  if (pair) args.push("--pair", pair);
+  if (baselineSecondary) args.push("--baseline-secondary", baselineSecondary);
+  await runTv(args, opts);
   return readBundle(outPath, opts);
 }
 
-export async function tvAnalyzeFast({ baseline } = {}, opts = {}) {
+export async function tvAnalyzeFast({ baseline, pair, baselineSecondary } = {}, opts = {}) {
   const outPath = opts.outPath || path.join(REPO_ROOT, "state", "last-scan.json");
   const args = ["analyze", "--pillar3-only", "--out", outPath];
   if (baseline) args.push("--baseline", baseline);
+  if (pair) args.push("--pair", pair);
+  if (baselineSecondary) args.push("--baseline-secondary", baselineSecondary);
   await runTv(args, opts);
   return readBundle(outPath, opts);
 }

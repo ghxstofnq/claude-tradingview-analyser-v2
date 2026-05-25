@@ -18,6 +18,7 @@ import { userTurn } from "./sdk.js";
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
+import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { activeSessionDir } from "./sessions.js";
 import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
@@ -30,6 +31,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const TV_BIN = path.join(REPO_ROOT, "bin", "tv");
 const BASELINE = path.join(REPO_ROOT, "state", "baseline.json");
+const BASELINE_PRIMARY = path.join(REPO_ROOT, baselinePathFor(PAIR_PRIMARY));
+const BASELINE_SECONDARY = path.join(REPO_ROOT, baselinePathFor(PAIR_SECONDARY));
 const BASELINE_STALE_S = 900;          // 15 min
 
 let _proc = null;
@@ -189,12 +192,17 @@ async function runClaudeTurnFor(ev, session, phase) {
   let hint;
   if (phase === "open_reaction") {
     const finalize = mip != null && mip >= 14;
-    hint = `Open-reaction window (+${mip ?? "?"}m of 15). Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? "minutes_into_phase >= 14 — ALSO call surface_ltf_bias to finalize bias. " : ""}End the turn with surface_no_trade. Do NOT call surface_setup during open-reaction.`;
+    const pairLine =
+      `PAIR CONFIG: pass pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}" to tv_analyze_fast — the dual-symbol bundle is required to compute leader_evidence and to call surface_leader_decision at minute 14.`;
+    hint = `Open-reaction window (+${mip ?? "?"}m of 15). ${pairLine} Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? `minutes_into_phase >= 14 — ALSO call surface_leader_decision with the values from pair.leader_evidence AND surface_ltf_bias to finalize bias. ` : ""}End the turn with surface_no_trade. Do NOT call surface_setup during open-reaction.`;
   } else {
-    hint = "Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). If a candidate or confirmed setup is in play, call surface_setup; otherwise surface_no_trade.";
+    // Entry hunt: leader decision is in place (or never made). The bundle
+    // is single-symbol on the leader because tv analyze short-circuits.
+    // Claude can use the cached single-symbol baseline directly.
+    hint = `Pass baseline="${baselinePathFor(PAIR_PRIMARY)}" (or the leader's baseline) to tv_analyze_fast. Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). If a candidate or confirmed setup is in play, call surface_setup with tf="${ev.tf}"; otherwise surface_no_trade.`;
   }
   const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
-  const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}.`;
+  const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}. TF tick: ${ev.tf}${ev.is_5m_close ? " (also a 5m close)" : ""}.`;
   const text = `A new ${ev.tf} bar just closed at ${ev.ts} (ET). ${phaseLine}${memoryBlock}\n${hint}`;
 
   await userTurn({
@@ -331,10 +339,18 @@ async function tickOpenTrades(ev) {
   }
 }
 
+// Capture a paired baseline (~30s) and split it into per-symbol baselines so
+// open-reaction fast scans stay fast (~2s). Also writes the legacy single
+// baseline.json for backward compat with any consumer that still reads it.
+//
+// When the analyzer short-circuits (pair-decision.json exists during
+// entry-hunt), tvAnalyzeFull --pair returns a single-symbol bundle (no
+// pair block). In that case we just write that single-symbol bundle to
+// the leader's baseline + legacy baseline.json.
 async function maybeRefreshBaseline() {
   if (_refreshingBaseline) return;
   try {
-    const stat = await fs.stat(BASELINE);
+    const stat = await fs.stat(BASELINE_PRIMARY);
     const ageSec = (Date.now() - stat.mtimeMs) / 1000;
     if (ageSec < BASELINE_STALE_S) return;
   } catch {
@@ -343,8 +359,37 @@ async function maybeRefreshBaseline() {
   _refreshingBaseline = true;
   try {
     // eslint-disable-next-line no-console
-    console.log("[bar-close] refreshing baseline");
-    await tvAnalyzeFull({}, { outPath: BASELINE });
+    console.log("[bar-close] refreshing paired baseline");
+    await tvAnalyzeFull({ pair: PAIR_DEFAULT }, { outPath: BASELINE, skipRead: true });
+    const bundle = JSON.parse(await fs.readFile(BASELINE, "utf8"));
+    if (bundle?.pair?.symbols) {
+      // Split paired bundle into per-symbol baselines. Each per-symbol
+      // baseline mirrors the shape of a normal single-symbol bundle so
+      // tv analyze --baseline can consume it directly.
+      for (const symbol of [bundle.pair.primary, bundle.pair.secondary]) {
+        const sub = bundle.pair.symbols[symbol];
+        if (!sub) continue;
+        const subBaseline = {
+          timestamp: bundle.timestamp,
+          chart: sub.chart,
+          quote: sub.quote,
+          bars: sub.bars,
+          bars_by_tf: sub.bars_by_tf,
+          engine: sub.engine,
+          engine_by_tf: sub.engine_by_tf,
+          gates: sub.gates,
+        };
+        await fs.writeFile(
+          path.join(REPO_ROOT, baselinePathFor(symbol)),
+          JSON.stringify(subBaseline),
+          "utf8",
+        );
+      }
+    } else {
+      // Single-symbol bundle (e.g. analyzer short-circuited because
+      // pair-decision.json exists). Use it as the primary's baseline.
+      await fs.writeFile(BASELINE_PRIMARY, JSON.stringify(bundle), "utf8");
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("[bar-close] baseline refresh failed", err?.message || err);

@@ -41,11 +41,26 @@ async function briefDirFor(session) {
   return dir;
 }
 
+// Persist the session brief. If `payload.symbol` is set (dual-symbol mode,
+// PAIR_PRIMARY / PAIR_SECONDARY), the brief writes to brief-<symbol>.json
+// alongside the legacy brief.json (which mirrors whichever was written last
+// for review/journal backward compat). Without `symbol`, writes brief.json
+// only — preserving single-symbol behavior.
+//
+// Renderer side picks: useSessionBrief prefers per-symbol files when
+// available, falling back to brief.json.
 export async function surfaceSessionBrief(payload) {
   const dir = await briefDirFor(payload.session);
   const ts = new Date().toISOString();
   const record = { ...payload, ts };
-  await fs.writeFile(path.join(dir, "brief.json"), JSON.stringify(record, null, 2), "utf8");
+  const json = JSON.stringify(record, null, 2);
+  if (payload.symbol) {
+    await fs.writeFile(path.join(dir, `brief-${payload.symbol}.json`), json, "utf8");
+  }
+  // Legacy brief.json: always written so review/journal panels (which read
+  // brief.json by name) keep working. In dual-symbol mode this ends up as
+  // whichever symbol Claude wrote last — usually the secondary.
+  await fs.writeFile(path.join(dir, "brief.json"), json, "utf8");
   await fs.writeFile(path.join(dir, "pillar1.md"), renderPillar1Md(record), "utf8");
   await fs.writeFile(path.join(dir, "pillar2.md"), renderPillar2Md(record), "utf8");
   _send?.("prep:brief_updated", record);

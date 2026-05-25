@@ -101,7 +101,16 @@ function PrepWorkstation({ alerts, onToggleArm }) {
   const armed = alerts?.armed || {};
   const fired = alerts?.fired || [];
 
-  const { brief, session, status, refresh, ageMs } = useSessionBrief();
+  const {
+    brief,
+    availableSymbols,
+    selectedSymbol,
+    setSelectedSymbol,
+    session,
+    status,
+    refresh,
+    ageMs,
+  } = useSessionBrief();
   const { session: recapSession, recap } = useSessionRecap();
 
   if (!brief) {
@@ -125,8 +134,30 @@ function PrepWorkstation({ alerts, onToggleArm }) {
       {recap && recapSession !== brief.session && (
         <RecapPanel session={recapSession} recap={recap} />
       )}
-      <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}`}
+      <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}${selectedSymbol ? ` · ${selectedSymbol}` : ""}`}
              right={<RefreshButton status={status} onClick={refresh} age={ageMs} />}>
+        {availableSymbols.length > 1 && (
+          <div style={{
+            display: "flex", gap: 6, padding: "0 0 8px",
+          }}>
+            {availableSymbols.map((sym) => {
+              const active = sym === selectedSymbol;
+              return (
+                <button key={sym}
+                        onClick={() => setSelectedSymbol(sym)}
+                        style={{
+                          background: active ? "var(--surface-1)" : "transparent",
+                          border: "1px solid " + (active ? "var(--amber)" : "var(--border)"),
+                          color: active ? "var(--amber)" : "var(--value)",
+                          padding: "3px 10px", fontFamily: "ui-monospace, Menlo, monospace",
+                          fontSize: 10, letterSpacing: ".06em", cursor: "pointer",
+                        }}>
+                  {sym}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55 }}>
           {brief.brief}
         </div>

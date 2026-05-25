@@ -8,7 +8,7 @@ import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { startAlertPolling, stopAlertPolling, setAlertMode } from "./alerts.js";
 import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
-import { runManualRefresh, getBriefForToday, activeOrImminentSession } from "./session-brief.js";
+import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
 import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
 import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal } from "./review.js";
@@ -108,7 +108,8 @@ export function registerIpc(win) {
   ipcMain.handle("prep:get", async () => {
     const session = activeOrImminentSession();
     const brief = session ? await getBriefForToday(session) : null;
-    return { ok: true, session, brief };
+    const briefsBySymbol = session ? await getBriefsBySymbolForToday(session) : {};
+    return { ok: true, session, brief, briefsBySymbol };
   });
 
   ipcMain.handle("prep:run", async () => {

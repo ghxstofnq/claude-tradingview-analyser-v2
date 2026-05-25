@@ -45,7 +45,7 @@ You are running inside the desktop Trading Workstation, not the CLI. The worksta
 
 **Every analysis turn MUST end with exactly one tool call**, in this order of priority:
 
-1. If a valid setup is in play and you would call it \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, pillar_breakdown). Do this AFTER your prose reasoning. \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements — see the schema. Skipping it hides the alignment panel.
+1. If a valid setup is in play and you would call it \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, tf, pillar_breakdown). Do this AFTER your prose reasoning. \`tf\` is "1m" or "5m" — stamp it to match the TF of the bar that triggered this turn (the per-bar prompt tells you which). \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements — see the schema. Skipping pillar_breakdown hides the alignment panel.
 
 2. Otherwise (any reason you would have written "no-trade" in prose) — call \`mcp__tv__surface_no_trade\` with a short \`reason\` string. Examples:
    - "outside active session"
@@ -110,11 +110,17 @@ function buildMcpServer() {
   const tools = [
     tool(
       "tv_analyze_full",
-      "Run the full multi-timeframe TradingView analysis sweep. Returns { path } pointing to the JSON bundle.",
-      {},
-      async () => {
+      "Run the full multi-timeframe TradingView analysis sweep. Returns { path } pointing to the JSON bundle. Pass `pair` during pre-session or open-reaction phases to capture both symbols in one bundle.",
+      {
+        pair: z.string().optional().describe('Dual-symbol scan format: "<primary>,<secondary>" (e.g. "MNQ1!,MES1!"). Adds a top-level `pair` block to the bundle with both symbols\' data + `leader_evidence`. Required for pre-session and open-reaction work; omit during entry-hunt (which runs single-symbol on the leader).'),
+        baseline_secondary: z.string().optional().describe("Per-symbol baseline path for the secondary symbol when using `pair`. Default `state/baseline-<secondary>.json`."),
+      },
+      async (args) => {
         try {
-          const res = await tvAnalyzeFull({});
+          const res = await tvAnalyzeFull({
+            pair: args?.pair,
+            baselineSecondary: args?.baseline_secondary,
+          });
           return ok(res);
         } catch (e) {
           return err(e?.message || String(e));
@@ -123,13 +129,19 @@ function buildMcpServer() {
     ),
     tool(
       "tv_analyze_fast",
-      "Run a fast pillar-3 analysis poll, optionally reusing a cached baseline. Returns { path }.",
+      "Run a fast pillar-3 analysis poll, optionally reusing a cached baseline. Returns { path }. Pass `pair` during open-reaction to keep the dual-symbol bundle structure.",
       {
-        baseline: z.string().optional().describe("Path to a previously captured baseline JSON; omit on first call"),
+        baseline: z.string().optional().describe("Path to a previously captured baseline JSON; omit on first call. Default `state/baseline-<primary>.json` when paired, else `state/baseline.json`."),
+        pair: z.string().optional().describe('Dual-symbol scan format: "<primary>,<secondary>". MUST be passed during open-reaction so the bundle has a `pair` block + `leader_evidence`. Omit during entry-hunt (the analyzer auto-short-circuits to single-symbol when pair-decision.json exists).'),
+        baseline_secondary: z.string().optional().describe("Per-symbol baseline path for the secondary symbol when using `pair`. Default `state/baseline-<secondary>.json`. Required for fast paired scans — without it the secondary falls back to a fresh multi-TF sweep (~13s)."),
       },
       async (args) => {
         try {
-          const res = await tvAnalyzeFast(args || {});
+          const res = await tvAnalyzeFast({
+            baseline: args?.baseline,
+            pair: args?.pair,
+            baselineSecondary: args?.baseline_secondary,
+          });
           return ok(res);
         } catch (e) {
           return err(e?.message || String(e));
@@ -193,6 +205,7 @@ function buildMcpServer() {
         invalidation: z.number().describe("Price at which the setup is invalidated"),
         rr: z.number().optional().describe("Risk:reward ratio"),
         confirmation_status: z.enum(["confirmed", "candidate", "invalidated"]).optional(),
+        tf: z.enum(["1m", "5m"]).optional().describe('Timeframe of the bar that triggered this setup ("1m" or "5m"). Stamp it on the card so the trader can see at a glance whether the setup is a 1m or 5m read. Match the tf in the per-bar prompt that fired this turn.'),
         pillar_breakdown: z.array(z.object({
           name: z.string().describe("Pillar name: 'Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'"),
           status: z.enum(["pass", "weak", "fail", "pending"]),
@@ -279,9 +292,10 @@ function buildMcpServer() {
     ),
     tool(
       "surface_session_brief",
-      "Render the SESSION BRIEF in the PREP panels. Call this ONCE at the end of a session-brief turn (not from bar-close turns and not from chat turns). Persists to state/session/<date>/<session>/brief.json.",
+      "Render the SESSION BRIEF in the PREP panels. Call this ONCE per symbol at the end of a session-brief turn (dual-symbol turns call it TWICE — once for each symbol). Persists to state/session/<date>/<session>/brief-<symbol>.json (and brief.json as legacy mirror).",
       {
         session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session this brief is for"),
+        symbol: z.string().optional().describe("Which symbol this brief is for (e.g. 'MNQ1!' or 'MES1!'). Required in dual-symbol mode — call surface_session_brief once per symbol. Omit for legacy single-symbol mode."),
         brief: z.string().describe("Headline paragraph for the Morning Brief panel"),
         htf_bias: z.array(z.object({
           tf: z.enum(["DAILY", "4H", "1H"]),
