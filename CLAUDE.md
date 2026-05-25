@@ -58,6 +58,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 | 2026-05-20 | Per-session folders: `state/session/<date>/{ny-am,ny-pm,london}/` | Each session (NY AM / NY PM / optional London) gets its own folder holding that session's pillars, open-reaction, ltf-bias, setups, bars, and a `summary.md` wrap. Sessions never overwrite each other — AM, PM, and London grades all persist for later review. Replaces the flat day folder and the short-lived day-level `htf-summary.md` append log. `bar-close-events.jsonl` stays day-level (detector output). The dashboard shows the active session's folder, derived from `gates.session.phase`. |
 | 2026-05-20 | Pillar 2 range threshold is per-symbol | `cli/lib/pillar2-thresholds.js` maps symbol → minimum acceptable range. Only the range threshold is price-scale dependent; body-ratio (0.6/0.3) is a normalised ratio and stays fixed. Uncalibrated symbols emit `range_acceptable: null` so the LLM judges the range manually rather than seeing a miscalibrated `false`. |
 | 2026-05-21 | Migrate `tv analyze` to the ICT Engine indicator | One schema-versioned indicator replaces the four (FVG/iFVG, AMS, Killzones, BPR) as the data source. Strict superset — adds explicit sweep events, per-FVG displacement scoring, FVG lifecycle state, mechanical MSS/BOS detection — and uses the **textbook** HH/HL/LH/LL convention. Bundle gains `engine`, `engine_by_tf`, `gates.engine.*`. Pillar 2 quality is now the engine's ATR-relative `quality` row (retires `pillar2-thresholds.js`). Plan: [docs/plans/2026-05-21-ict-engine-migration.md](docs/plans/2026-05-21-ict-engine-migration.md). |
+| 2026-05-26 | Full ICT Engine utilization — close the gap between what Pine emits and what we use | Audit against the indicator's Pine source surfaced six unused fields and one whole row type. Parser was silently dropping every `liquidity` row (equal-high/low pools — strategy §2.1's draw-target liquidity) and miscoercing the engine's Wilder `atr_14`/`atr_17` as strings. The bundle now exposes: `gates.engine.pillar1.{liquidity_pools, untaken_pools_above, untaken_pools_below}`; `pillar3.fvgs_ranked[]` pre-sorted by `(state=fresh, took_liq, disp_score)`; `pillar3.failure_swings[]` (pre-filtered `event=mss + validation=sweep` — ICT's failure-swing reversal); `pillar3.structures_by_tier:{swing,internal}` mirroring Pine's tier separation; `meta.{emit_age_seconds, stale, engine_session}` for staleness + clock cross-check; signed `distance_to_top/bottom/ce` on every in-zone FVG/BPR; `nearest_opposing_fvg_above/below`; and the previously-unparsed `size_quality`, `reaction_dir`, and `displacement=acceptable` enum value. Additive only — no existing citation paths renamed. |
 
 ## Repo
 
@@ -126,7 +127,7 @@ tests/
   indicators:    [{ name, values: {...} }]        data-window values of visible studies
   engine:        parsed ICT Engine evidence table at the current TF —
                  { schema, schema_supported, meta, levels[], sweeps[],
-                   fvgs[], bprs[], swings[], structures[], quality }
+                   fvgs[], bprs[], swings[], structures[], pools[], quality }
   engine_by_tf:  { daily, h4, h1, m15, m5, m1 }   the same parsed object per TF;
                                                   HTF FVGs + HTF structure live here
   gates: {
@@ -135,15 +136,21 @@ tests/
                minutes_into_phase, next_killzone_label,
                seconds_to_next_killzone, replay }      clock-based (computeSessionGate)
     engine:  {                                         engine-derived (computeEngineGates)
-      meta:          { schema, schema_supported, tf, emit_ny, symbol }
-      price_context: { last, inside_fvgs[], inside_bprs[] }
+      meta:          { schema, schema_supported, tf, emit_ny, symbol,
+                       emit_ms, emit_age_seconds, stale, engine_session }
+      price_context: { last, inside_fvgs[], inside_bprs[],
+                       nearest_opposing_fvg_above, nearest_opposing_fvg_below }
+                                                each zone carries distance_to_top/bottom/ce
       pillar1:       { session_levels:{PWH,PWL,PDH,PDL,AS_H,AS_L,LO_H,LO_L,NYAM_H,NYAM_L},
-                       untaken_sell_side_below[], untaken_buy_side_above[], sweeps[] }
+                       untaken_sell_side_below[], untaken_buy_side_above[], sweeps[],
+                       liquidity_pools[], untaken_pools_above[], untaken_pools_below[] }
       pillar2:       { current_tf, m5, m15 }    each the engine quality row
                                                 { range_3h, range_quality, displacement,
-                                                  candle, has_chop }
-      pillar3:       { fvgs[], bprs[], swings:{internal[],swing[]},
-                       structure_events[], most_recent_structure, fvg_summary }
+                                                  candle, atr_14, atr_17, session }
+                                                displacement: clean|acceptable|weak|na
+      pillar3:       { fvgs[], fvgs_ranked[], bprs[], swings:{internal[],swing[]},
+                       structure_events[], structures_by_tier:{swing[],internal[]},
+                       failure_swings[], most_recent_structure, fvg_summary }
       confirmation:  { last_bar, last_bar_age_seconds, m5_last_bar, m15_last_bar }
                                                 single-bar facts (bar-derived, cli/lib/last-bar.js)
     }

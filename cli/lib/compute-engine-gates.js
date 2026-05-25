@@ -37,6 +37,46 @@ function summarizeFvgs(fvgs) {
   return { total: fvgs.length, by_type, by_state };
 }
 
+// FVG lifecycle ranking — fresh first (most actionable), invalidated last
+// (no signal). Used by fvgs_ranked so consumers can read fvgs_ranked[0]
+// and get the freshest, liquidity-aware, highest-displacement FVG.
+const FVG_STATE_ORDER = { fresh: 0, inverted: 1, ce_tapped: 2, filled: 3, invalidated: 4 };
+
+/**
+ * Rank FVGs by ICT priority: fresh > inverted > tapped > filled > invalidated,
+ * then by took_liq (true beats false — strategy §2.1 weights this), then by
+ * disp_score (higher first). Returns a NEW array — does not mutate fvgs[].
+ *
+ * Why additive (instead of reordering fvgs[]): existing citations like
+ * `gates.engine.pillar3.fvgs[0].ce` would silently point at a different zone
+ * if we reordered. fvgs_ranked is the new path; fvgs stays Pine order.
+ */
+function rankFvgs(fvgs) {
+  return fvgs.slice().sort((a, b) => {
+    const stateDelta = (FVG_STATE_ORDER[a.state] ?? 99) - (FVG_STATE_ORDER[b.state] ?? 99);
+    if (stateDelta !== 0) return stateDelta;
+    const liqDelta = (b.took_liq ? 1 : 0) - (a.took_liq ? 1 : 0);
+    if (liqDelta !== 0) return liqDelta;
+    return (b.disp_score || 0) - (a.disp_score || 0);
+  });
+}
+
+/**
+ * Annotate a zone with signed distances to its edges and centre relative to
+ * the current price (positive = price above that edge). Strategy needs
+ * "how far is the CE" without making the LLM subtract — constraint #7.
+ */
+function withProximity(zone, last) {
+  if (last == null || zone == null) return zone;
+  const ce = zone.ce != null ? zone.ce : (zone.top + zone.bottom) / 2;
+  return {
+    ...zone,
+    distance_to_top: last - zone.top,
+    distance_to_bottom: last - zone.bottom,
+    distance_to_ce: last - ce,
+  };
+}
+
 /**
  * Build the engine-derived gate object.
  *
@@ -47,6 +87,7 @@ function summarizeFvgs(fvgs) {
  * @param {number|null} lastBarAgeSeconds  quote.time - lastBar.time
  * @param {object|null} m5LastBar  5m last-bar facts (confirmation closes, §5)
  * @param {object|null} m15LastBar 15m last-bar facts
+ * @param {number|null} quoteTimeMs  quote.time * 1000, for engine staleness math
  * @returns {object|null} null when the engine is not on the chart
  *
  * The last-bar facts are bar-derived (OHLCV), not engine-derived; they are
@@ -56,11 +97,12 @@ function summarizeFvgs(fvgs) {
  */
 export function computeEngineGates({
   engine, engineByTf, last, lastBar, lastBarAgeSeconds, m5LastBar, m15LastBar,
+  quoteTimeMs,
 }) {
   if (!engine) return null;
   const px = typeof last === 'number' ? last : null;
 
-  // -- Pillar 1: session levels, untaken draws, sweeps --
+  // -- Pillar 1: session levels, untaken draws, sweeps, liquidity pools --
   const session_levels = {};
   for (const lvl of engine.levels || []) {
     session_levels[levelKey(lvl.name)] = {
@@ -82,6 +124,22 @@ export function computeEngineGates({
     .filter((l) => isHighSideLevel(l.name) && l.position_vs_price === 'above' && l.swept === false)
     .sort((a, b) => a.price - b.price);
 
+  // Liquidity pools — equal-high/low draw targets the engine maintains
+  // (strategy §2.1). Pre-partition into "untaken above" / "untaken below"
+  // sorted by proximity to current price so the LLM cites the closest pool
+  // without arithmetic.
+  const pools = engine.pools || [];
+  const untaken_pools_above = px == null
+    ? []
+    : pools
+        .filter((p) => p.kind === 'eqh' && p.swept === false && p.price > px)
+        .sort((a, b) => a.price - b.price);
+  const untaken_pools_below = px == null
+    ? []
+    : pools
+        .filter((p) => p.kind === 'eql' && p.swept === false && p.price < px)
+        .sort((a, b) => b.price - a.price);
+
   // -- Pillar 2: price-action quality, sourced from the engine quality row --
   const pillar2 = {
     current_tf: engine.quality,
@@ -91,14 +149,57 @@ export function computeEngineGates({
 
   // -- Pillar 3: FVGs, BPRs, swings, structure events --
   const fvgs = engine.fvgs || [];
+  const bprs = engine.bprs || [];
   const structures = engine.structures || [];
   const most_recent_structure = structures.length
     ? structures.slice().sort((a, b) => (b.confirmed_ms || 0) - (a.confirmed_ms || 0))[0]
     : null;
   const swings = engine.swings || [];
 
+  // Engine emits structure events in two tiers (Pine caps each at 12 so
+  // internal pivots can't crowd out external "real" swings). Mirror that
+  // split here so consumers can target external structure only.
+  const structures_by_tier = {
+    swing: structures.filter((s) => s.tier === 'swing'),
+    internal: structures.filter((s) => s.tier === 'internal'),
+  };
+
+  // Failure-swing MSS events — Pine flags `validation: "sweep"` when a close
+  // broke a level by less than the ATR band. Combined with `event=mss`,
+  // that is one of ICT's strongest reversal cues. Pre-filtered here so the
+  // prompt can read it as a discrete pool instead of scanning structures.
+  const failure_swings = structures.filter(
+    (s) => s.event === 'mss' && s.validation === 'sweep',
+  );
+
   // -- price context: which current-TF engine zones contain price --
   const inZone = (z) => px != null && px >= z.bottom && px <= z.top;
+  const inside_fvgs = fvgs.filter(inZone).map((f) => withProximity(f, px));
+  const inside_bprs = bprs.filter(inZone).map((b) => withProximity(b, px));
+
+  // Nearest unfilled opposing FVG above/below — the "untapped imbalance
+  // closest in the direction we might reach" question, computed in code so
+  // the LLM doesn't loop through fvgs comparing prices.
+  const liveFvg = (f) => f.state !== 'invalidated' && f.state !== 'filled';
+  const above = px == null ? [] : fvgs.filter((f) => liveFvg(f) && f.bottom > px)
+    .sort((a, b) => a.bottom - b.bottom);
+  const below = px == null ? [] : fvgs.filter((f) => liveFvg(f) && f.top < px)
+    .sort((a, b) => b.top - a.top);
+  const nearest_opposing_fvg_above = above.length
+    ? withProximity(above[0], px)
+    : null;
+  const nearest_opposing_fvg_below = below.length
+    ? withProximity(below[0], px)
+    : null;
+
+  // -- Meta: provenance + staleness + engine-derived session --
+  const emit_ms = engine.meta?.emit_ms ?? null;
+  const emit_age_seconds = quoteTimeMs != null && emit_ms != null
+    ? Math.floor((quoteTimeMs - emit_ms) / 1000)
+    : null;
+  // 90s threshold = one minute past a 1m close + a 30s render-lag grace.
+  // Matches the bar-watchdog stale threshold in trade-ticker-watchdog.js.
+  const stale = emit_age_seconds != null && emit_age_seconds > 90;
 
   return {
     meta: {
@@ -107,27 +208,39 @@ export function computeEngineGates({
       tf: engine.meta?.tf ?? null,
       emit_ny: engine.meta?.emit_ny ?? null,
       symbol: engine.meta?.symbol ?? null,
+      emit_ms,
+      emit_age_seconds,
+      stale,
+      engine_session: engine.quality?.session ?? null,
     },
     price_context: {
       last: px,
-      inside_fvgs: fvgs.filter(inZone),
-      inside_bprs: (engine.bprs || []).filter(inZone),
+      inside_fvgs,
+      inside_bprs,
+      nearest_opposing_fvg_above,
+      nearest_opposing_fvg_below,
     },
     pillar1: {
       session_levels,
       untaken_sell_side_below,
       untaken_buy_side_above,
       sweeps: engine.sweeps || [],
+      liquidity_pools: pools,
+      untaken_pools_above,
+      untaken_pools_below,
     },
     pillar2,
     pillar3: {
       fvgs,
-      bprs: engine.bprs || [],
+      fvgs_ranked: rankFvgs(fvgs),
+      bprs,
       swings: {
         internal: swings.filter((s) => s.tier === 'internal'),
         swing: swings.filter((s) => s.tier === 'swing'),
       },
       structure_events: structures,
+      structures_by_tier,
+      failure_swings,
       most_recent_structure,
       fvg_summary: summarizeFvgs(fvgs),
     },

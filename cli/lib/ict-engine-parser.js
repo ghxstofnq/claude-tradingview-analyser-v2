@@ -16,7 +16,14 @@ export const ENGINE_SCHEMA = 1;
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
 // `displacement` is intentionally per-type: a bool on structure rows, a string
-// enum (clean|weak|na) on the quality row.
+// enum (na|clean|acceptable|weak) on the quality row.
+//
+// `liquidity` rows = equal-high / equal-low pools the engine maintains
+// (strategy §2.1 draw-target liquidity). Without an entry here, parseRow
+// returned null for every liquidity row and the pools array was silently
+// empty. atr_14 / atr_17 in the quality row used to arrive as strings
+// because the parser didn't know to coerce them — Pine ships these so the
+// backend can re-use Wilder ATR instead of running its own proxy.
 const ROW_FIELD_TYPES = {
   meta: { schema: 'num', count: 'num', emit_ms: 'num' },
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },
@@ -30,7 +37,8 @@ const ROW_FIELD_TYPES = {
   structure: {
     level: 'num', broken_swing_ms: 'num', confirmed_ms: 'num', displacement: 'bool',
   },
-  quality: { range_3h: 'num', has_chop: 'bool' },
+  liquidity: { price: 'num', swept: 'bool' },
+  quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num' },
 };
 
 /** Coerce one payload value. 'num' → finite Number or null; 'bool' → v==='1'. */
@@ -78,7 +86,8 @@ export function parseIctEngineTable(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
   const out = {
     schema: null, schema_supported: false, meta: null,
-    levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [], quality: null,
+    levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [],
+    pools: [], quality: null,
   };
   for (const raw of rows) {
     const parsed = parseRow(raw);
@@ -94,6 +103,7 @@ export function parseIctEngineTable(rows) {
     else if (type === 'bpr') out.bprs.push(fields);
     else if (type === 'swing') out.swings.push(withIsHigh(fields));
     else if (type === 'structure') out.structures.push(fields);
+    else if (type === 'liquidity') out.pools.push(fields);
     else if (type === 'quality') out.quality = fields;
   }
   return out.meta == null ? null : out;

@@ -435,6 +435,8 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
       lastBarAgeSeconds: cur.age_seconds,
       m5LastBar: m5.bar,
       m15LastBar: m15.bar,
+      // quote.time is unix seconds; Pine emits emit_ms in unix ms.
+      quoteTimeMs: typeof quote?.time === 'number' ? quote.time * 1000 : null,
     }),
   };
   return {
@@ -669,6 +671,8 @@ register('analyze', {
         lastBarAgeSeconds: cur.age_seconds,
         m5LastBar: m5.bar,
         m15LastBar: m15.bar,
+        // quote.time is unix seconds; Pine emits emit_ms in unix ms.
+        quoteTimeMs: typeof quote?.time === 'number' ? quote.time * 1000 : null,
       }),
     };
 

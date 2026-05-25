@@ -26,17 +26,37 @@ test('parseRow keeps quality.displacement a string but structure.displacement a 
   assert.equal(s.fields.level, 29350.25);
 });
 
+test('parseRow coerces atr_14 and atr_17 as numbers and recognises acceptable displacement', () => {
+  const q = parseRow('quality | range_3h=16|range_quality=tight|displacement=acceptable|candle=normal|atr_14=1.50|atr_17=1.50|session=ny_am');
+  assert.equal(q.fields.atr_14, 1.5);
+  assert.equal(q.fields.atr_17, 1.5);
+  assert.equal(typeof q.fields.atr_14, 'number');
+  assert.equal(typeof q.fields.atr_17, 'number');
+  assert.equal(q.fields.displacement, 'acceptable');
+  assert.equal(q.fields.session, 'ny_am');
+});
+
+test('parseRow parses a liquidity row with numeric price and boolean swept', () => {
+  const r = parseRow('liquidity | kind=eqh|side=buy|price=29397.50|swept=0');
+  assert.equal(r.type, 'liquidity');
+  assert.deepEqual(r.fields, {
+    kind: 'eqh', side: 'buy', price: 29397.50, swept: false,
+  });
+});
+
 test('parseIctEngineTable buckets rows and derives swing.is_high', () => {
   const rows = [
     'meta | schema=1|count=6|emit_ny=09:20:20|emit_ms=1779369620478|tf=15|symbol=MNQ1!',
     'level | name=PWH|price=29783.75|state=complete|swept=0|formed_ms=0',
     'sweep | target=PDH|price=29397.00|side=buy|swept_ms=1779336900000|rejected=0',
-    'fvg | kind=fvg|dir=bear|top=29355.50|bottom=29296.50|ce=29326.00|created_ms=1779358500000|took_liq=1|disp_score=0.74|reacted=0|reaction_dir=none|state=fresh',
+    'fvg | kind=fvg|dir=bear|top=29355.50|bottom=29296.50|ce=29326.00|created_ms=1779358500000|took_liq=1|disp_score=0.74|reacted=0|reaction_dir=none|state=fresh|size_quality=normal',
     'bpr | dir=bull|top=28965.00|bottom=28964.00|created_ms=1779256800000|took_liq=0|reacted=0|reaction_dir=none|state=fresh',
     'swing | kind=HL|price=29350.25|bar_ms=1779353100000|tier=internal|swept=1',
     'swing | kind=LH|price=29429.75|bar_ms=1779355800000|tier=internal|swept=0',
     'structure | event=mss|dir=bear|level=29350.25|broken_swing_ms=1779353100000|confirmed_ms=1779358500000|displacement=1|tier=internal|validation=break',
-    'quality | range_3h=110.75|range_quality=tight|displacement=weak|candle=doji_wick|has_chop=1',
+    'liquidity | kind=eqh|side=buy|price=29550.00|swept=0',
+    'liquidity | kind=eql|side=sell|price=29150.25|swept=1',
+    'quality | range_3h=110.75|range_quality=tight|displacement=weak|candle=doji_wick|atr_14=85.75|atr_17=87.50|session=ny_am',
   ];
   const t = parseIctEngineTable(rows);
   assert.equal(t.schema, 1);
@@ -48,11 +68,23 @@ test('parseIctEngineTable buckets rows and derives swing.is_high', () => {
   assert.equal(t.bprs.length, 1);
   assert.equal(t.swings.length, 2);
   assert.equal(t.structures.length, 1);
+  assert.equal(t.pools.length, 2);
   assert.equal(t.quality.range_3h, 110.75);
+  assert.equal(t.quality.atr_14, 85.75);
+  assert.equal(t.quality.atr_17, 87.5);
+  assert.equal(t.quality.session, 'ny_am');
   // textbook convention: HL is a low pivot, LH is a high pivot
   assert.equal(t.swings[0].is_high, false);
   assert.equal(t.swings[1].is_high, true);
   assert.equal(t.fvgs[0].ce, 29326.00);
+  // size_quality survives as string default (not in ROW_FIELD_TYPES coercion)
+  assert.equal(t.fvgs[0].size_quality, 'normal');
+  // liquidity pools: numeric price, boolean swept, string kind/side
+  assert.equal(t.pools[0].kind, 'eqh');
+  assert.equal(t.pools[0].price, 29550);
+  assert.equal(t.pools[0].swept, false);
+  assert.equal(t.pools[1].kind, 'eql');
+  assert.equal(t.pools[1].swept, true);
 });
 
 test('parseIctEngineTable flags an unsupported schema', () => {
