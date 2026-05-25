@@ -16,6 +16,7 @@
 //   - "skipped" status now reports a reason, surfaced in onStatus events.
 
 import { userTurn } from "./sdk.js";
+import { record as recordMetric } from "./metrics.js";
 
 const TRIGGER_LOOKAHEAD_MIN = 72 * 60; // walk up to 72 hours for next trigger
 const RETRY_AFTER_MS = 60_000;          // one retry on failure
@@ -97,10 +98,12 @@ export function makeScheduledTurn(config) {
     if (!session) return;
     if (_running) {
       _send?.(config.statusChannel, { state: "skipped", session, reason: "another turn already in flight" });
+      recordMetric({ kind: config.purpose, event: "skipped", session, reason: "concurrent" });
       return;
     }
     if (await config.isAlreadyDoneFn(session)) {
       _send?.(config.statusChannel, { state: "skipped", session, reason: "already complete" });
+      recordMetric({ kind: config.purpose, event: "skipped", session, reason: "already complete" });
       return;
     }
 
@@ -114,12 +117,15 @@ export function makeScheduledTurn(config) {
         _send?.(config.statusChannel, {
           state: "skipped", session, reason: preflight?.reason || "preflight failed",
         });
+        recordMetric({ kind: config.purpose, event: "skipped", session, reason: preflight?.reason || "preflight failed" });
         return;
       }
     }
 
     _running = true;
     _send?.(config.statusChannel, { state: "running", session });
+    recordMetric({ kind: config.purpose, event: "started", session });
+    const startedAt = Date.now();
     const toolCalls = [];
     let errored = false;
     try {
@@ -149,9 +155,23 @@ export function makeScheduledTurn(config) {
           errored = true;
           _send?.("app:error", { source: config.name, message: problem });
           _send?.(config.statusChannel, { state: "error", session, message: problem });
+          recordMetric({ kind: config.purpose, event: "post_validate_failed", session, reason: problem, durationMs: Date.now() - startedAt });
         }
       }
-      if (!errored) _send?.(config.statusChannel, { state: "idle", session });
+      if (!errored) {
+        _send?.(config.statusChannel, { state: "idle", session });
+        recordMetric({ kind: config.purpose, event: "succeeded", session, durationMs: Date.now() - startedAt });
+      }
+    } catch (err) {
+      errored = true;
+      // eslint-disable-next-line no-console
+      console.error(`[${config.name}] run failed`, err);
+      const msg = String(err?.message || err);
+      _send?.(config.statusChannel, { state: "error", session, message: msg });
+      recordMetric({ kind: config.purpose, event: "failed", session, reason: msg, durationMs: Date.now() - startedAt });
+    } finally {
+      _running = false;
+    }
 
     // One retry on error. Guarded by isRetry so a failed retry doesn't loop.
     if (errored && !isRetry) {

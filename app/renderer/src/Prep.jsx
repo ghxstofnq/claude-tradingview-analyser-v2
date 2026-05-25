@@ -170,7 +170,7 @@ function PrepWorkstation({ alerts, onToggleArm }) {
             })}
           </div>
         )}
-        <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55 }}>
+        <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
           {brief.brief}
         </div>
       </Panel>
@@ -235,7 +235,7 @@ function PrepWorkstation({ alerts, onToggleArm }) {
       </section>
 
       <Panel title="CLAUDE · PLAN FOR THE OPEN">
-        <div style={{ color: "var(--value)", fontSize: 11.5, lineHeight: 1.6 }}>
+        <div style={{ color: "var(--value)", fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
           {brief.plan}
         </div>
         <div className="hr" />

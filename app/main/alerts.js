@@ -36,7 +36,10 @@ function normalizeAlert(raw) {
 
 const CADENCE_MS = {
   live: 5_000,
-  prep: 30_000,
+  // PREP was 30s — manually-armed alerts in TV took that long to appear
+  // in the panel. 10s is enough to feel responsive during pre-session
+  // planning without spamming CDP.
+  prep: 10_000,
   // review / idle / other → off
 };
 

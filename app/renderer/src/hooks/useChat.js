@@ -7,6 +7,20 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// Cap chat history to avoid unbounded memory growth. Each brief generates
+// 200+ chunk events; an 8h trading session can produce hundreds of
+// thousands of accumulated entries. Drop the oldest when exceeding MAX,
+// keep KEEP so a streaming reply isn't truncated mid-flight.
+const CHAT_HISTORY_MAX = 500;
+const CHAT_HISTORY_KEEP = 400;
+
+function trimHistory(arr) {
+  if (arr.length <= CHAT_HISTORY_MAX) return arr;
+  // Keep the last CHAT_HISTORY_KEEP entries. Dropping ~100 at a time
+  // means the trim only fires every ~100 new messages, not on every push.
+  return arr.slice(-CHAT_HISTORY_KEEP);
+}
+
 function nowStamp() {
   const d = new Date();
   return [d.getHours(), d.getMinutes()]
@@ -72,10 +86,10 @@ export function useChat() {
     const offError = window.api.error?.onError?.((ev) => {
       // eslint-disable-next-line no-console
       console.error("[useChat] app:error", ev);
-      setMessages((prev) => [
+      setMessages((prev) => trimHistory([
         ...prev,
         { type: "reply", t: nowStamp(), body: `<span style="color:#f0796a">error: ${escapeHtml(ev.message || "unknown")}</span>` },
-      ]);
+      ]));
       streamingIdxRef.current = null;
       setTyping(false);
     });
@@ -92,7 +106,7 @@ export function useChat() {
     // eslint-disable-next-line no-console
     console.log("[useChat] send", JSON.stringify(text).slice(0, 80));
     setMessages((prev) => {
-      const next = prev.slice();
+      const next = trimHistory(prev.slice());
       next.push({ type: "user", t: nowStamp(), body: escapeHtml(text) });
       next.push({ type: "reply", t: nowStamp(), body: "" });
       streamingIdxRef.current = next.length - 1;

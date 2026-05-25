@@ -10,6 +10,7 @@ import { bindDetectorToMode } from "./main/bar-close.js";
 import { bootstrap as bootstrapSessionBrief, rearmScheduler as rearmBrief } from "./main/session-brief.js";
 import { bootstrap as bootstrapSessionWrap, rearmScheduler as rearmWrap } from "./main/session-wrap.js";
 import { sweepOldSessions } from "./main/state-retention.js";
+import { startMetricsSummary } from "./main/metrics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -68,16 +69,24 @@ app.whenReady().then(async () => {
     console.error("[session-wrap] bootstrap failed", err);
   });
 
-  // One-shot retention sweep on boot — delete state/session/<date>/ folders
-  // older than 30 days. Was unbounded growth; the dashboard reads this dir
-  // on every refresh, so months of stale folders slow things down.
-  sweepOldSessions(REPO_ROOT).then((r) => {
+  // Retention sweep: delete state/session/<date>/ folders older than 30
+  // days. Runs once on boot AND every 24h afterward — long-running apps
+  // (left open across many trading days) used to never sweep because the
+  // boot-only sweep had already run weeks ago.
+  const runRetentionSweep = () => sweepOldSessions(REPO_ROOT).then((r) => {
     // eslint-disable-next-line no-console
     console.log(`[retention] swept ${r.deleted} old session folders, kept ${r.kept}`);
   }).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[retention] sweep failed", err?.message || err);
   });
+  runRetentionSweep();
+  setInterval(runRetentionSweep, 24 * 60 * 60 * 1000);
+
+  // Hourly metrics summary to the console — one line aggregating
+  // brief/wrap/bar-close/chat events from state/metrics.jsonl. The
+  // detailed per-event log is appended as JSONL; this is the digest.
+  startMetricsSummary();
 
   // Power-sleep rearm. setTimeout doesn't fire while the laptop is asleep
   // — the brief/wrap schedulers go silent on wake until rearmed. On
