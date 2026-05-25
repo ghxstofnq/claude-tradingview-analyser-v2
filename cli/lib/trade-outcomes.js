@@ -56,9 +56,19 @@ export function tickTrades(trades, bar) {
       // TP1 first; otherwise toward stop. Bar.open required (added to
       // bar shape in bar-close.js). If missing, fall back to STOPPED
       // (conservative — assume the bad outcome).
+      //
+      // GAP-OPEN GUARD (#4 from self-audit): if the bar OPENS past the
+      // stop (gap-down for long / gap-up for short), the trader's stop
+      // executes at the gap-open price — the bar never had a chance to
+      // hit TP1 first. Force STOPPED regardless of TP1 hit.
       let tp1First = true;
       if (hitTP1 && hitStop && !t.tp1_hit) {
-        if (typeof bar.open === "number" && Number.isFinite(bar.open)) {
+        const openPastStop = typeof bar.open === "number" && Number.isFinite(bar.open)
+          ? (t.side === "long" ? bar.open <= t.stop : bar.open >= t.stop)
+          : false;
+        if (openPastStop) {
+          tp1First = false;     // gap blew past stop — definitely STOPPED
+        } else if (typeof bar.open === "number" && Number.isFinite(bar.open)) {
           const distToTP1 = Math.abs(bar.open - t.tp1);
           const distToStop = Math.abs(bar.open - t.stop);
           tp1First = distToTP1 < distToStop;

@@ -11,15 +11,8 @@
 // the timer). When the detector is dead, the watchdog keeps trades
 // tracked.
 
-import fs from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import * as data from "@tvmcp/core/data";
-import { activeSessionDir } from "./sessions.js";
-import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, "../..");
+import { tickOpenTrades } from "./trade-ticker.js";
 
 // Cadence: run every 30s. Polling more often would spam CDP; less
 // often and we'd miss outcomes longer than necessary.
@@ -50,22 +43,10 @@ async function tick() {
   // Skip if detector is healthy (recent bar event).
   if (Date.now() - _lastBarTs < WATCHDOG_STALE_MS) return;
 
-  // Need open trades to bother polling — if none, nothing to tick.
-  let open = [];
-  let tradesFile;
-  try {
-    const dir = await activeSessionDir();
-    tradesFile = path.join(dir, "trades.jsonl");
-    const txt = await fs.readFile(tradesFile, "utf8");
-    const events = txt.trim().split("\n").filter(Boolean).map((l) => {
-      try { return JSON.parse(l); } catch { return null; }
-    }).filter(Boolean);
-    open = foldOpenTrades(events);
-  } catch { return; }
-  if (open.length === 0) return;
-
-  // Poll the chart's current quote — fast CDP call (~50ms). Use the
-  // ohlc.high/low so tickTrades sees the bar's full intra-bar range.
+  // Poll the chart's current quote — fast CDP call (~50ms). Synthesize
+  // a bar event and feed it through trade-ticker's tickOpenTrades.
+  // That path now owns the dedup logic — overlapping detector recovery
+  // and watchdog polls can't double-write the same TP1_HIT.
   let quote;
   try {
     quote = await data.getQuote();
@@ -75,27 +56,11 @@ async function tick() {
     return;
   }
   if (!quote?.ohlc) return;
-  // eslint-disable-next-line no-console
-  console.log(`[trade-watchdog] detector stale — ticking ${open.length} trade(s) from polled quote`);
-
-  const bar = {
-    open: quote.ohlc.open,
-    high: quote.ohlc.high,
-    low: quote.ohlc.low,
-    ts: new Date().toISOString(),
-  };
-  const { transitions } = tickTrades(open, bar);
-  for (const tr of transitions) {
-    try {
-      await fs.appendFile(tradesFile, JSON.stringify({ type: "outcome", source: "watchdog", ...tr }) + "\n", "utf8");
-      _send?.("trade:outcome", tr);
-    } catch { /* best-effort */ }
-  }
-  if (transitions.length > 0) {
-    _send?.("app:error", {
-      source: "trade-watchdog",
-      level: "info",
-      message: `${transitions.length} outcome event(s) fired from polled quote (detector stale)`,
-    });
+  const ev = { ohlc: quote.ohlc, ts: new Date().toISOString() };
+  try {
+    await tickOpenTrades(ev, { source: "watchdog" });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[trade-watchdog] tick failed", err?.message || err);
   }
 }

@@ -12,25 +12,76 @@ import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 let _send = null;
 let _lastWarnedKey = null;
 
+// #1 Per-trade dedup of recent transitions. Detector and watchdog can
+// both call tickOpenTrades in overlapping windows. Without dedup, the
+// same TP1_HIT could fire from each path (the file ends up with two
+// outcome events; foldOpenTrades absorbs both, but trade:outcome IPC
+// double-fires and metrics.jsonl counts the same hit twice). Cache:
+// trade_id → { status, ts }. Skip if same status fired within
+// DEDUP_WINDOW_MS.
+const DEDUP_WINDOW_MS = 30_000;
+const _recentTransitions = new Map();
+function alreadyEmitted(tradeId, status) {
+  const prev = _recentTransitions.get(tradeId);
+  if (!prev) return false;
+  return prev.status === status && (Date.now() - prev.ts) < DEDUP_WINDOW_MS;
+}
+function markEmitted(tradeId, status) {
+  _recentTransitions.set(tradeId, { status, ts: Date.now() });
+  // Opportunistic sweep — entries older than the window are useless.
+  // Keeps the Map bounded across a long-running session with many
+  // trades (otherwise it grows once per trade for the app lifetime).
+  if (_recentTransitions.size > 50) {
+    const cutoff = Date.now() - DEDUP_WINDOW_MS;
+    for (const [id, rec] of _recentTransitions) {
+      if (rec.ts < cutoff) _recentTransitions.delete(id);
+    }
+  }
+}
+
+// #7 mtime-gated read cache for trades.jsonl. Watchdog reads this file
+// every 30s; if it hasn't changed since the last read, return the
+// cached fold rather than re-parsing.
+let _cachedFile = null;
+let _cachedMtime = 0;
+let _cachedEvents = null;
+
 export function setTickerSink(send) { _send = send; }
 
 /**
  * tickOpenTrades — fold open trades from disk, tick them against the
  * latest bar OHLC, persist any state transitions back as outcome
- * events. Called by the bar-close handler on every bar event.
+ * events. Single entry point called from BOTH the bar-close handler
+ * (detector path) and the watchdog (polled-quote path) — dedup ensures
+ * neither double-writes if they overlap.
+ *
+ * opts.source: tagged on outcome events so audits can tell which
+ * path fired ("detector" | "watchdog"). Defaults to "detector".
  */
-export async function tickOpenTrades(ev) {
+export async function tickOpenTrades(ev, opts = {}) {
   if (!ev?.ohlc) return;
+  const source = opts.source || "detector";
   const dir = await activeSessionDir();
   const file = path.join(dir, "trades.jsonl");
-  let txt = "";
-  try { txt = await fs.readFile(file, "utf8"); } catch { return; }
-  const events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+  // mtime-gated read cache (#7) — if the file hasn't changed since
+  // last call AND we're inside the cache window, reuse parsed events.
+  let events;
+  try {
+    const stat = await fs.stat(file);
+    if (file === _cachedFile && stat.mtimeMs === _cachedMtime && _cachedEvents) {
+      events = _cachedEvents;
+    } else {
+      const txt = await fs.readFile(file, "utf8");
+      events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      _cachedFile = file;
+      _cachedMtime = stat.mtimeMs;
+      _cachedEvents = events;
+    }
+  } catch { return; }
   const open = foldOpenTrades(events);
   if (!open.length) return;
 
-  // bar.open is required for the same-bar TP1+stop heuristic — fall
-  // back gracefully if the detector didn't include it.
   const bar = {
     open: ev.ohlc.open,
     high: ev.ohlc.high,
@@ -39,7 +90,18 @@ export async function tickOpenTrades(ev) {
   };
   const { transitions } = tickTrades(open, bar);
   for (const tr of transitions) {
-    await fs.appendFile(file, JSON.stringify({ type: "outcome", ...tr }) + "\n", "utf8");
+    // #1 Dedup: skip the write+IPC if the same status fired for this
+    // trade in the dedup window. The other path will have already
+    // written it.
+    if (alreadyEmitted(tr.id, tr.status)) {
+      // eslint-disable-next-line no-console
+      console.log(`[trade-ticker] dedup: ${tr.id} ${tr.status} already emitted within ${DEDUP_WINDOW_MS}ms`);
+      continue;
+    }
+    markEmitted(tr.id, tr.status);
+    await fs.appendFile(file, JSON.stringify({ type: "outcome", source, ...tr }) + "\n", "utf8");
+    // Bust the cache after a write so the next read picks up the new event.
+    _cachedMtime = 0;
     _send?.("trade:outcome", tr);
   }
 }

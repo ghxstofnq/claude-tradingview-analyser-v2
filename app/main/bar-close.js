@@ -476,6 +476,13 @@ Do NOT walk entry models or call surface_setup in this turn. It is leader-pick o
 // If pair-decision.json doesn't exist yet (pre-session / open-reaction),
 // or the leader is null (inconclusive), this is a no-op — those phases
 // run their own dual-symbol scans and don't want the chart pinned.
+// #2 Throttle the chart-revert notice — if the trader keeps clicking
+// away every couple minutes, they'd get a toast every minute back.
+// Notify once per CHART_REVERT_NOTICE_MS window. Trader sees the
+// message once, then we stay quiet about repeated reverts.
+const CHART_REVERT_NOTICE_MS = 10 * 60 * 1000;   // 10 min
+let _lastChartRevertNoticeTs = 0;
+
 async function preflightChartState(ev, phase) {
   if (phase !== "entry_hunt") return;
   const dir = await activeSessionDir();
@@ -488,17 +495,17 @@ async function preflightChartState(ev, phase) {
   }
   if (!decision?.leader) return;
   const timeframe = ev.tf === "5m" ? "5" : "1";
-  // #12 ensureChartState reports whether it actually changed the chart.
-  // If the user (or anything else) had moved the chart off leader/TF,
-  // we now surface a one-shot notification so the trader knows their
-  // manual change was reverted — previously it was silent.
   const result = await ensureChartState({ symbol: decision.leader, timeframe });
   if (result?.changed) {
-    _send?.("app:error", {
-      source: "preflight",
-      level: "warn",
-      message: `Chart reverted to ${decision.leader} @ ${timeframe}m (entry-hunt requires it). Manual changes will keep snapping back.`,
-    });
+    const sinceLast = Date.now() - _lastChartRevertNoticeTs;
+    if (sinceLast > CHART_REVERT_NOTICE_MS) {
+      _send?.("app:error", {
+        source: "preflight",
+        level: "warn",
+        message: `Chart reverted to ${decision.leader} @ ${timeframe}m (entry-hunt requires it). Manual changes will keep snapping back.`,
+      });
+      _lastChartRevertNoticeTs = Date.now();
+    }
   }
 }
 

@@ -17,6 +17,17 @@ export function useTrades() {
       const map = {};
       for (const t of res.open || []) map[t.id] = t;
       setTrades(map);
+      // #10 Also hydrate the rejected list — reject events live in
+      // trades.jsonl alongside accepts. Was: rejected stayed empty
+      // until a new reject fired post-mount, so app restart blanked
+      // the REJECTED panel.
+      if (Array.isArray(res.events)) {
+        const recentRejects = res.events
+          .filter((e) => e?.type === "reject")
+          .slice(-20)              // match the live cap
+          .reverse();               // newest first
+        if (recentRejects.length) setRejected(recentRejects);
+      }
     }).catch(() => {});
 
     const offAccepted = window.api?.trade?.onAccepted?.((ev) => {

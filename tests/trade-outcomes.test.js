@@ -72,6 +72,36 @@ test("filled long → same-bar TP1+stop, no bar.open → fall back to STOPPED", 
   assert.equal(out.transitions[0].status, "STOPPED");
 });
 
+test("filled long → bar gaps below stop → STOPPED regardless of TP1 reach", () => {
+  // Bar opens BELOW stop (gap down). Even if it later rallies into TP1
+  // range, the stop already triggered on the gap. Don't credit TP1.
+  const trade = { ...baseLong, state: "filled" };
+  const out = tickTrades([trade], { open: 92, high: 112, low: 91, ts: "T" });
+  assert.equal(out.transitions[0].status, "STOPPED");
+  assert.equal(out.updated[0].outcome, "STOPPED");
+});
+
+test("filled short → bar gaps above stop → STOPPED regardless of TP1 reach", () => {
+  const trade = { ...baseLong, side: "short", state: "filled",
+    entry: 100, stop: 105, tp1: 90, tp2: 80, invalidation: 110 };
+  const out = tickTrades([trade], { open: 108, high: 109, low: 88, ts: "T" });
+  assert.equal(out.transitions[0].status, "STOPPED");
+});
+
+test("pending → same-bar FILLED + TP1_HIT (rapid breakout)", () => {
+  // Bar crosses entry AND tp1 in one print — common on a breakout
+  // candle. Was untested. tickTrades' pending-state branch transitions
+  // pending → filled, then the next iteration through filled should
+  // catch TP1. But we only run ONE iteration per call, so TP1 fires
+  // on the NEXT bar. Current behavior: only FILLED transition.
+  const out = tickTrades([baseLong], { open: 99, high: 112, low: 99, ts: "T" });
+  // Pending state only fires FILLED in this iteration — TP1 needs a
+  // subsequent bar (or a refold + re-tick).
+  assert.equal(out.transitions[0].status, "FILLED");
+  assert.equal(out.updated[0].state, "filled");
+  assert.equal(out.transitions.length, 1, "only FILLED fires in pending-state iteration");
+});
+
 test("rMultiple returns null on entry===stop (no division by zero)", () => {
   const trade = { ...baseLong, state: "filled", entry: 100, stop: 100 };
   const out = tickTrades([trade], { high: 112, low: 100, ts: "T" });

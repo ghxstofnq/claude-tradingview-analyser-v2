@@ -135,34 +135,38 @@ const PROTOCOL_BY_PURPOSE = {
   "chat": CORE_PROTOCOL + ALERTS_PROTOCOL,
 };
 
-// Hot-reload prompts: re-read analyze.md on every turn. Trade-off is a
-// tiny disk read (~35 KB) per turn — invisible next to model latency.
-// Pre-cache made iteration painful: tweak a word in the prompt → restart
-// the whole app → run a brief → repeat. Now: edit, fire, see.
+// Hot-reload prompts: re-read analyze.md ONLY when its mtime changes.
+// Was: every turn re-read the full 35KB. With bar-close at 60/hour +
+// chat + brief + wrap, that's MBs/hour of disk I/O re-reading the same
+// file. Now: stat() on every turn (cheap), readFile only if changed.
 //
 // SAFETY: keep a last-known-good copy of the base prompt. If a hot read
 // returns an empty / partial / oversized file (editor mid-save), use the
-// cached version instead of letting Claude operate on garbage instructions.
+// cached version instead of letting Claude operate on garbage.
 let _lastGoodBase = null;
+let _lastGoodMtime = 0;
 const PROMPT_MIN_LENGTH = 1000;        // analyze.md is ~35 KB; <1KB = mid-save
 const PROMPT_MAX_LENGTH = 500_000;     // hard cap so a corrupt file doesn't OOM
 
 async function loadSystemPrompt(purpose) {
-  let base;
+  let base = _lastGoodBase;
   try {
-    const text = await fs.readFile(PROMPT_PATH, "utf8");
-    if (text.length < PROMPT_MIN_LENGTH || text.length > PROMPT_MAX_LENGTH) {
-      // eslint-disable-next-line no-console
-      console.warn(`[sdk] system prompt looks wrong size (${text.length} bytes) — using last-known-good`);
-      base = _lastGoodBase;
-    } else {
-      base = text;
-      _lastGoodBase = text;
+    const stat = await fs.stat(PROMPT_PATH);
+    if (stat.mtimeMs !== _lastGoodMtime) {
+      // File changed (or first call) — re-read.
+      const text = await fs.readFile(PROMPT_PATH, "utf8");
+      if (text.length < PROMPT_MIN_LENGTH || text.length > PROMPT_MAX_LENGTH) {
+        // eslint-disable-next-line no-console
+        console.warn(`[sdk] system prompt looks wrong size (${text.length} bytes) — using last-known-good`);
+      } else {
+        base = text;
+        _lastGoodBase = text;
+        _lastGoodMtime = stat.mtimeMs;
+      }
     }
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn(`[sdk] system prompt read failed (${err?.message}) — using last-known-good`);
-    base = _lastGoodBase;
+    console.warn(`[sdk] system prompt stat/read failed (${err?.message}) — using last-known-good`);
   }
   if (!base) {
     // First call AND read failed — no fallback. Throw rather than send
