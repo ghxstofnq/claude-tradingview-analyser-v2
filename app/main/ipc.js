@@ -11,7 +11,7 @@ import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
 import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
-import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal } from "./review.js";
+import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal, getPriorBrief } from "./review.js";
 import { getLastBar } from "./last-bar.js";
 import { getCache as getSymbolCache } from "./symbol-cache.js";
 import fs from "node:fs/promises";
@@ -159,6 +159,20 @@ export function registerIpc(win) {
   ipcMain.handle("files:read", async (_evt, { path: p }) => {
     try {
       return await readFileForViewer(p);
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("prep:prior_brief_get", async (_evt, args = {}) => {
+    // Returns the most recent brief.json for the same session that's NOT
+    // today. Used by the "what changed since last brief" diff panel.
+    try {
+      const prior = await getPriorBrief({
+        session: args.session,
+        excludeDate: args.excludeDate,
+      });
+      return { ok: true, prior };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }

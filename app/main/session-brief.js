@@ -170,8 +170,9 @@ function buildPrompt(session) {
 
 Steps:
 1. Call mcp__tv__tv_analyze_full with pair="${PAIR_DEFAULT}" to load dual-symbol HTF context (Daily / 4H / 1H, overnight ranges, both symbols).
-2. Reason in prose — for EACH symbol independently — grade Pillars 1 (Draw & Bias) and 2 (Price-Action Quality). Identify HTF bias per timeframe, overnight context (Asia / London ranges, what was swept), key levels (PWH / PDH / ONH / ONL / PDL / PWL with taken/untaken state), and a written plan for the session open. Cite from pair.symbols.${PAIR_PRIMARY}.* and pair.symbols.${PAIR_SECONDARY}.* — not the top-level fields (those mirror the primary only).
-3. At the END of the turn, call mcp__tv__surface_session_brief TWICE — once with symbol="${PAIR_PRIMARY}" and once with symbol="${PAIR_SECONDARY}". Each call carries the per-symbol structured payload. This is the only tool call that surfaces briefs to the PREP panels — do NOT call surface_setup or surface_no_trade in a session-brief turn.`);
+2. Reason in prose — for EACH symbol independently — grade Pillars 1 (Draw & Bias) and 2 (Price-Action Quality). Identify HTF bias per timeframe, overnight context (Asia / London ranges, what was swept), key levels (PWH / PDH / ONH / ONL / PDL / PWL with taken/untaken state), a one-paragraph headline plan, AND 2–4 structured IF/THEN scenarios for the session open. Cite from pair.symbols.${PAIR_PRIMARY}.* and pair.symbols.${PAIR_SECONDARY}.* — not the top-level fields (those mirror the primary only).
+3. Scenarios must be concrete and actionable. Each scenario has a condition ("NY opens above 21487.25 (PDH) and holds") and an action ("long continuation, target Asia high"). The trader reads these LIVE during the open — terse and decisive beats long prose.
+4. At the END of the turn, call mcp__tv__surface_session_brief TWICE — once with symbol="${PAIR_PRIMARY}" and once with symbol="${PAIR_SECONDARY}". Each call carries the per-symbol structured payload (including the scenarios array). This is the only tool call that surfaces briefs to the PREP panels — do NOT call surface_setup or surface_no_trade in a session-brief turn.`);
 }
 
 const _driver = makeScheduledTurn({

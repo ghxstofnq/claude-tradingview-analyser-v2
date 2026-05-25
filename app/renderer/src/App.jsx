@@ -4,6 +4,7 @@ import { TradingViewChart, TvSignInBanner } from "./TvChart.jsx";
 import { PrepWorkstation } from "./Prep.jsx";
 import { LiveWorkstation } from "./Live.jsx";
 import { ReviewWorkstation } from "./Review.jsx";
+import { ErrorBoundary } from "./ErrorBoundary.jsx";
 import { useHealth } from "./hooks/useHealth.js";
 import { armAlertReal, useAlertFiredListener, useAlertStateListener } from "./hooks/useAlerts.js";
 import { useClock } from "./hooks/useClock.js";
@@ -556,16 +557,33 @@ function TvNotLoggedIn() {
 }
 
 function Workstation({ mode, tweaks, alerts, onToggleArm, onArmPrice }) {
-  if (mode === "prep")   return <PrepWorkstation alerts={alerts} onToggleArm={onToggleArm} />;
-  if (mode === "review") return <ReviewWorkstation />;
+  // Each workstation gets its own error boundary so a render crash in
+  // one (bad data shape, null deref) doesn't blank-screen the entire
+  // app. Trader can [TRY AGAIN] to recover the panel.
+  if (mode === "prep") {
+    return (
+      <ErrorBoundary label="PREP">
+        <PrepWorkstation alerts={alerts} onToggleArm={onToggleArm} />
+      </ErrorBoundary>
+    );
+  }
+  if (mode === "review") {
+    return (
+      <ErrorBoundary label="REVIEW">
+        <ReviewWorkstation />
+      </ErrorBoundary>
+    );
+  }
   return (
-    <LiveWorkstation
-      subState={tweaks.liveSubState}
-      loopDown={tweaks.loopHealth === "down"}
-      noSetups={tweaks.noSetups}
-      alerts={alerts}
-      onArmPrice={onArmPrice}
-    />
+    <ErrorBoundary label="LIVE">
+      <LiveWorkstation
+        subState={tweaks.liveSubState}
+        loopDown={tweaks.loopHealth === "down"}
+        noSetups={tweaks.noSetups}
+        alerts={alerts}
+        onArmPrice={onArmPrice}
+      />
+    </ErrorBoundary>
   );
 }
 

@@ -9,11 +9,45 @@ import { activeSessionDir, currentSession } from "../sessions.js";
 import { writePairDecision } from "../../../cli/lib/pair-decision.js";
 import { writeBrief, readMemory, writeAtomic } from "../session-memory.js";
 import { PAIR_PRIMARY, PAIR_SECONDARY } from "../config.js";
+import { record as recordMetric } from "../metrics.js";
 
 // Symbols allowed in surface_session_brief.symbol. Anything else is a typo /
 // hallucination and should fail loudly rather than write a brief-XYZ.json
 // that no UI reads. Keep in sync with config.js.
 const VALID_BRIEF_SYMBOLS = new Set([PAIR_PRIMARY, PAIR_SECONDARY]);
+
+// Brief-usefulness signal: when a setup fires during a session, was its
+// price grounded in the brief's key levels? If most setups ignore the
+// brief, the brief content isn't earning its cost. ±0.5pt tolerance
+// catches "stop at 21487 vs PDH 21487.25" without flagging unrelated.
+const BRIEF_PRICE_TOLERANCE = 0.5;
+
+async function recordSetupVsBrief(setup) {
+  try {
+    const dir = await activeSessionDir();
+    const briefJson = await fs.readFile(path.join(dir, "brief.json"), "utf8");
+    const brief = JSON.parse(briefJson);
+    const levelPrices = (brief.key_levels || [])
+      .map((l) => l.price)
+      .filter((p) => typeof p === "number" && Number.isFinite(p));
+    if (levelPrices.length === 0) {
+      recordMetric({ kind: "brief-usefulness", event: "no_levels", session: brief.session });
+      return;
+    }
+    const setupPrices = [setup.entry, setup.stop, setup.tp1, setup.tp2]
+      .filter((p) => typeof p === "number" && Number.isFinite(p));
+    const matched = setupPrices.some((sp) =>
+      levelPrices.some((bp) => Math.abs(sp - bp) <= BRIEF_PRICE_TOLERANCE)
+    );
+    recordMetric({
+      kind: "brief-usefulness",
+      event: matched ? "setup_cited_brief_level" : "setup_no_brief_overlap",
+      session: brief.session,
+    });
+  } catch {
+    // No brief on disk — nothing to compare. Skip silently.
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -47,6 +81,11 @@ export async function surfaceSetup(payload) {
   // for jsonl logs; partial line at crash time, but never a torn record).
   await fs.appendFile(file, JSON.stringify(record) + "\n", "utf8");
   emitToolCall("surface_setup", record);
+  // Brief-usefulness telemetry: did this setup's prices overlap any of
+  // the brief's key_levels? Fire-and-forget; failure doesn't affect
+  // the surface. Aggregate via the metrics file to answer "is the brief
+  // actually informing Claude's bar-close decisions?"
+  recordSetupVsBrief(payload).catch(() => {});
   return { ok: true, id };
 }
 

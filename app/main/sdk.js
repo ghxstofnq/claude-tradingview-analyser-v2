@@ -30,7 +30,8 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
 
-let _systemPrompt = null;
+// (Was `let _systemPrompt = null` for caching — removed when hot-reload
+// landed. loadSystemPrompt(purpose) re-reads + composes per call now.)
 // Per-purpose session IDs. Splitting the conversation by purpose stops
 // brief / wrap / bar-close / chat from contaminating each other's history.
 // One global _sessionId — the old design — meant a NY AM brief and a 13:00
@@ -64,72 +65,84 @@ let _currentCancel = null; // { cancelToken, q, purpose }
 // (90s) so a stalled per-bar turn doesn't block the next minute's tick.
 const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 
-const OUTPUT_PROTOCOL = `
+// PROTOCOL FRAGMENTS — composed per-purpose to keep each turn's system
+// prompt scoped to what THAT turn actually needs. Previously a single
+// 3KB OUTPUT_PROTOCOL was appended to every turn — chat turns saw the
+// brief / wrap / open-reaction exception text they could never act on.
+
+const CORE_PROTOCOL = `
 
 ---
 
-## OUTPUT PROTOCOL — TOOL SURFACES (read carefully)
+## OUTPUT PROTOCOL — TOOL SURFACES
 
-You are running inside the desktop Trading Workstation, not the CLI. The workstation panel renders setup cards from your tool calls — prose alone does not surface a card.
+You are running inside the desktop Trading Workstation, not the CLI. The workstation panel renders cards from your tool calls — prose alone does not surface a card.
+
+Reason in prose first; surface last.`;
+
+const ANALYSIS_PROTOCOL = `
 
 **Every analysis turn MUST end with exactly one tool call**, in this order of priority:
 
-1. If a valid setup is in play and you would call it \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, tf, pillar_breakdown). Do this AFTER your prose reasoning. \`tf\` is "1m" or "5m" — stamp it to match the TF of the bar that triggered this turn (the per-bar prompt tells you which). \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements — see the schema. Skipping pillar_breakdown hides the alignment panel.
+1. If a valid setup is in play and you would call it \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, tf, pillar_breakdown). Do this AFTER your prose reasoning. \`tf\` is "1m" or "5m" — stamp it to match the TF of the bar that triggered this turn. \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements. Skipping pillar_breakdown hides the alignment panel.
 
-2. Otherwise (any reason you would have written "no-trade" in prose) — call \`mcp__tv__surface_no_trade\` with a short \`reason\` string. Examples:
-   - "outside active session"
-   - "no entry model in play"
-   - "price quality weak — premium/discount unclear"
-   - "HTF/LTF opposed — retrace day"
+2. Otherwise (any reason you would have written "no-trade" in prose) — call \`mcp__tv__surface_no_trade\` with a short \`reason\` string. Examples: "outside active session", "no entry model in play", "price quality weak — premium/discount unclear", "HTF/LTF opposed — retrace day".
 
-Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` is a bug — the UI will stay stuck on the previous state. Always end with one of the two surface tools.
+Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` is a bug — the UI will stay stuck on the previous state.
 
-To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`mcp__tv__tv_analyze_fast\` (1-bar poll with a baseline path). To arm alerts, use \`mcp__tv__tv_alert_create\`.
+To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`mcp__tv__tv_analyze_fast\` (1-bar poll with a baseline path).
 
-**EXCEPTION — session-brief turns.** When the user message asks you to run "the SESSION BRIEF for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_brief\` **once per symbol** at the end of the turn — for dual-symbol pair scans (e.g. MNQ + MES) call it TWICE (once with symbol="MNQ1!" and once with symbol="MES1!"), each carrying that symbol's structured payload. The user message will tell you which symbols. That's the only tool that surfaces the PREP panels.
+**EXCEPTION — open-reaction phase turns.** When the per-bar message says "Phase: open_reaction": call \`mcp__tv__surface_open_reaction\` with the latest read. When \`minutes_into_phase\` >= 14, ALSO call \`mcp__tv__surface_ltf_bias\` to finalize the bias. Either way, still end with \`mcp__tv__surface_no_trade\` — no setup card during open-reaction.`;
 
-**EXCEPTION — open-reaction phase turns.** When the per-bar message says "Phase: open_reaction": call \`mcp__tv__surface_open_reaction\` with the latest read (what NY just did, bias direction so far, what you're watching) — this persists to open-reaction.md as a running log. When \`minutes_into_phase\` >= 14 in the prompt context, ALSO call \`mcp__tv__surface_ltf_bias\` to finalize the bias before ending the turn. Either way, still end the turn with \`mcp__tv__surface_no_trade\` — no setup card during open-reaction.
+const BRIEF_PROTOCOL = `
 
-**EXCEPTION — session-summary turns.** When the user message asks you to run "the SESSION SUMMARY for the X session", do NOT call surface_setup or surface_no_trade. Instead, call \`mcp__tv__surface_session_summary\` exactly once at the end with bias_picture, what_happened, watch_next_session.
+This is a SESSION BRIEF turn. Call \`mcp__tv__surface_session_brief\` **once per symbol** at the end of the turn — for dual-symbol pair scans (e.g. MNQ + MES) call it TWICE (once with symbol="MNQ1!" and once with symbol="MES1!"), each carrying that symbol's structured payload. The user message tells you which symbols. Do NOT call surface_setup or surface_no_trade.`;
 
-Reason in prose first; surface last.
+const WRAP_PROTOCOL = `
+
+This is a SESSION SUMMARY turn. Call \`mcp__tv__surface_session_summary\` exactly once at the end with \`bias_picture\`, \`what_happened\`, \`watch_next_session\`. Do NOT call surface_setup or surface_no_trade.`;
+
+const ALERTS_PROTOCOL = `
 
 ---
 
 ## ALERT GUIDANCE — managing TradingView price alerts on the trader's behalf
 
 You manage TradingView price alerts via three tools:
-- \`mcp__tv__tv_alert_create\` — \`{ price, label, condition? }\`. \`condition\` defaults to "crossing"; use "greater_than" / "less_than" for one-sided triggers. \`label\` is the string the trader sees when the alert fires on their phone — keep it short and self-explanatory.
-- \`mcp__tv__tv_alert_list\` — read all current alerts. Use before deleting (to get \`alert_id\`s) or to avoid duplicating an existing alert.
-- \`mcp__tv__tv_alert_delete\` — remove one alert by \`alert_id\`. If the trader names an alert by description ("the PDH alert"), call \`tv_alert_list\` first to find the matching id.
+- \`mcp__tv__tv_alert_create\` — \`{ price, label, condition? }\`. \`condition\` defaults to "crossing"; use "greater_than" / "less_than" for one-sided triggers.
+- \`mcp__tv__tv_alert_list\` — read all current alerts. Use before deleting (to get \`alert_id\`s) or to avoid duplicating.
+- \`mcp__tv__tv_alert_delete\` — remove one alert by \`alert_id\`.
 
-**Proactively propose alerts (in prose, during analysis turns) at these moments:**
-- After a pre-session grade — primary HTF draw, untaken liquidity above/below price, level that would flip the bias.
-- When a candidate setup forms — confirmation level and invalidation.
-- After a confirmed setup — TP1, TP2, and invalidation.
+**Proactively propose alerts (in prose during analysis turns):** after a pre-session grade (HTF draw, untaken liquidity, bias-flip level); when a candidate setup forms (confirmation + invalidation); after a confirmed setup (TP1, TP2, invalidation). Name the levels with cited prices — don't arm during analysis turns, wait for the trader's reply.
 
-Name the levels with cited prices ("Arm alerts at PDH 21487.25 (gates.engine.pillar1.session_levels.PDH.price) / Asia low 21450.50 (...) / bias-flip 21420.00 (...)?"). Don't arm during the analysis turn itself — wait for the trader's reply in the next chat turn. Analysis turns still end with the required surface tool (\`surface_setup\` / \`surface_no_trade\` / etc.).
+**Reactive — when the trader brings up alerts:** three things matter: price (exact level — echo back the cited number if they named PDH/AS_H/etc), condition (crossing default; greater_than / less_than for one-sided), label (short string they'll see when it fires). Fill in what they specified, default the rest, ask only about ambiguous pieces in one short message — not a survey. Alert-management chat turns end with the alert tool call, NOT with surface_setup / surface_no_trade.`;
 
-**Reactive — when the trader brings up alerts:**
-Three things matter:
-1. **Price** — exact level. If they named it (PDH, AS_H, etc.), echo back the cited number from the bundle so they can confirm.
-2. **Condition** — crossing (default), above-only (\`greater_than\`), or below-only (\`less_than\`).
-3. **Label** — short string the trader sees when it fires. Suggest one from context if they didn't provide one.
-
-Fill in what they already specified, pick sensible defaults for the rest, then ask only about the missing or ambiguous pieces in one short message — not a survey. If all three are already clear from the request, arm directly and confirm with a one-liner ("Armed at 21500 (PDH cross) — alert_id 4773…").
-
-**Alert-management chat turns end with the alert tool call** (\`tv_alert_create\` / \`tv_alert_list\` / \`tv_alert_delete\`). They do NOT end with \`surface_setup\` / \`surface_no_trade\` — those are for analysis turns.`;
+// Per-purpose system-prompt composition. Each turn assembles only the
+// rules it can act on, cutting OUTPUT_PROTOCOL token cost where possible.
+const PROTOCOL_BY_PURPOSE = {
+  // Per-bar analysis: full surface_setup / surface_no_trade rules plus
+  // alert proposal during analysis.
+  "bar-close": CORE_PROTOCOL + ANALYSIS_PROTOCOL + ALERTS_PROTOCOL,
+  // Same rules as bar-close — catch-up turns walk the same protocol.
+  "catch-up": CORE_PROTOCOL + ANALYSIS_PROTOCOL,
+  // Brief turns surface session-brief; they may also propose alerts
+  // after the pre-session grade.
+  "brief": CORE_PROTOCOL + BRIEF_PROTOCOL + ALERTS_PROTOCOL,
+  // Wrap turns only need session-summary; no setup, no alerts.
+  "wrap": CORE_PROTOCOL + WRAP_PROTOCOL,
+  // Chat turns need just core + alerts (the trader's natural way to
+  // arm/disarm alerts). No surface tool obligations.
+  "chat": CORE_PROTOCOL + ALERTS_PROTOCOL,
+};
 
 // Hot-reload prompts: re-read analyze.md on every turn. Trade-off is a
 // tiny disk read (~35 KB) per turn — invisible next to model latency.
 // Pre-cache made iteration painful: tweak a word in the prompt → restart
 // the whole app → run a brief → repeat. Now: edit, fire, see.
-//
-// OUTPUT_PROTOCOL stays inline (it's tightly coupled to the JS tool
-// schemas defined right next to it). Move-to-file is a separate refactor.
-async function loadSystemPrompt() {
+async function loadSystemPrompt(purpose) {
   const base = await fs.readFile(PROMPT_PATH, "utf8");
-  return base + OUTPUT_PROTOCOL;
+  const protocol = PROTOCOL_BY_PURPOSE[purpose] || PROTOCOL_BY_PURPOSE["bar-close"];
+  return base + protocol;
 }
 
 // CallToolResult envelope expected by the SDK's MCP tool API.
@@ -363,7 +376,15 @@ function buildMcpServer() {
             status: z.enum(["pass", "weak", "fail", "pending"]),
           })).min(1, "each pillar must list at least one element so the panel shows what was graded"),
         })).describe("Three pillars: 'Draw & Bias', 'Price-Action Quality', 'Entry Model + Confirmation' (the third is pending until LIVE)"),
-        plan: z.string().describe("Claude's written plan for the open — what scenario looks like A+, what flips it to retrace, the bias direction"),
+        // plan: prose paragraph for headline. scenarios: structured IF/THEN
+        // rows so the trader can see "IF NY opens above X THEN bias is Y /
+        // IF below THEN Z" at a glance. Was: one paragraph of unstructured
+        // prose; trader had to parse it on every read.
+        plan: z.string().describe("One-paragraph headline plan — bias direction, what looks A+, what would flip it"),
+        scenarios: z.array(z.object({
+          condition: z.string().describe("Trigger condition — 'NY opens above 21487.25 (PDH)', 'sweep of Asia low without close back'"),
+          action: z.string().describe("Reaction / bias — 'long continuation toward 21528', 'short reversal targeting AS_L'"),
+        })).min(1).max(4).describe("Structured IF/THEN scenarios for the open. Min 1, max 4 — keep it tight, the trader reads these live."),
         // anchored_target / anchored_stop are free strings (Claude wraps
         // a price with a label like "(PDH)"), but they MUST cite an
         // actual price — empty / "TBD" / whitespace-only is a degenerate
@@ -425,10 +446,12 @@ function buildMcpServer() {
 }
 
 export async function initSdk() {
-  await loadSystemPrompt();
+  // Warm the prompt path (catch missing-file errors at boot, not first turn)
+  // — bar-close is the most common purpose, use it as the warm-up shape.
+  const warmup = await loadSystemPrompt("bar-close");
   _mcpServer = buildMcpServer();
   // eslint-disable-next-line no-console
-  console.log("[sdk] init ok, prompt length", _systemPrompt.length, "tools", _allowedToolNames);
+  console.log("[sdk] init ok, prompt length (bar-close)", warmup.length, "tools", _allowedToolNames);
 }
 
 export function resetSession(purpose) {
@@ -509,7 +532,7 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
 }
 
 async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
-  const systemPrompt = await loadSystemPrompt();
+  const systemPrompt = await loadSystemPrompt(purpose);
   const resumeId = _sessionIds.get(purpose);
   const opts = {
     systemPrompt,

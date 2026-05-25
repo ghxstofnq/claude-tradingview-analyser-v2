@@ -168,8 +168,27 @@ function JsonlViewer({ text, maxRows = 500 }) {
 
 // ---------- Markdown ----------
 
+// Lightweight XSS guard for marked output. Claude writes the source
+// markdown (pillar1.md, pillar2.md, etc); if Claude ever emits raw HTML
+// (intentionally or via a confused prompt), marked passes it through
+// unchanged. This stripper removes the obvious vectors. Not a substitute
+// for DOMPurify but blocks <script>, <iframe>, <object>, <embed>, <style>,
+// and inline event handlers. Good enough for a trusted-but-not-perfectly-
+// trusted source like Claude.
+function sanitizeMarkdownHtml(html) {
+  return html
+    .replace(/<\s*(script|iframe|object|embed|style)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(script|iframe|object|embed|style|link|meta)\b[^>]*\/?\s*>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, "")
+    .replace(/\s+(href|src)\s*=\s*"javascript:[^"]*"/gi, "")
+    .replace(/\s+(href|src)\s*=\s*'javascript:[^']*'/gi, "");
+}
+
 function MarkdownViewer({ text }) {
-  const html = marked.parse(text, { breaks: true });
+  const rawHtml = marked.parse(text, { breaks: true });
+  const html = sanitizeMarkdownHtml(rawHtml);
   return (
     <div
       dangerouslySetInnerHTML={{ __html: html }}

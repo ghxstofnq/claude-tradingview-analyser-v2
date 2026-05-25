@@ -95,6 +95,25 @@ function computeStats(setups, events) {
   };
 }
 
+/**
+ * getPriorBrief — find the most recent brief.json for `session` (NY AM /
+ * NY PM / London) that is NOT from `excludeDate` (today). Used by the
+ * "WHAT CHANGED SINCE LAST BRIEF" diff panel in PREP.
+ *
+ * Returns { date, brief } or null if no prior brief exists.
+ */
+export async function getPriorBrief({ session, excludeDate }) {
+  if (!session) return null;
+  const folders = await listSessionFolders();
+  for (const f of folders) {
+    if (f.session !== session) continue;
+    if (excludeDate && f.date === excludeDate) continue;
+    const brief = await readJsonOrNull(path.join(SESSION_ROOT, f.date, f.session, "brief.json"));
+    if (brief) return { date: f.date, brief };
+  }
+  return null;
+}
+
 // Full journal for one session.
 export async function getJournalFor({ date, session }) {
   const dir = path.join(SESSION_ROOT, date, session);

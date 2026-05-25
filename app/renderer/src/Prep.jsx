@@ -1,6 +1,6 @@
 // PREP mode workstation — Session Brief.
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Panel, Row, Grade, PillarsPanel } from "./Shared.jsx";
 import { useSessionBrief, formatAge } from "./hooks/useSessionBrief.js";
 import { useSessionRecap } from "./hooks/useSessionRecap.js";
@@ -10,6 +10,69 @@ const SESSION_LABEL = {
   "ny-am":  "NY AM",
   "ny-pm":  "NY PM",
 };
+
+// Compute a summary of what changed between two briefs. Compares:
+//   - bias direction (htf_bias[0].bias as the headline)
+//   - pillar_grade
+//   - key_levels added / removed (by name)
+// Returns an array of human-readable change rows.
+function diffBriefs(current, prior) {
+  if (!current || !prior) return [];
+  const rows = [];
+  const curBias = (current.htf_bias || [])[0]?.bias;
+  const priBias = (prior.htf_bias || [])[0]?.bias;
+  if (curBias && priBias && curBias !== priBias) {
+    rows.push({ k: "Daily bias", from: priBias, to: curBias });
+  }
+  if (current.pillar_grade && prior.pillar_grade && current.pillar_grade !== prior.pillar_grade) {
+    rows.push({ k: "Pillar grade", from: prior.pillar_grade, to: current.pillar_grade });
+  }
+  const curLevels = new Set((current.key_levels || []).map((l) => l.name));
+  const priLevels = new Set((prior.key_levels || []).map((l) => l.name));
+  const added = [...curLevels].filter((n) => !priLevels.has(n));
+  const removed = [...priLevels].filter((n) => !curLevels.has(n));
+  if (added.length) rows.push({ k: "New levels", v: added.join(", ") });
+  if (removed.length) rows.push({ k: "Dropped levels", v: removed.join(", ") });
+  return rows;
+}
+
+function ChangedPanel({ session, brief }) {
+  const [prior, setPrior] = useState(null);
+  const [priorDate, setPriorDate] = useState(null);
+  useEffect(() => {
+    if (!session || !brief) return;
+    // The brief's `ts` is the day it was written. Extract YYYY-MM-DD
+    // so we don't compare today vs today.
+    const today = (brief.ts || "").slice(0, 10);
+    window.api?.prep?.priorBrief?.(session, today).then((res) => {
+      if (res?.ok && res.prior) {
+        setPrior(res.prior.brief);
+        setPriorDate(res.prior.date);
+      } else {
+        setPrior(null);
+        setPriorDate(null);
+      }
+    }).catch(() => {});
+  }, [session, brief?.ts]);
+
+  if (!prior) return null;
+  const changes = diffBriefs(brief, prior);
+  if (!changes.length) return null;
+
+  return (
+    <Panel title={`CHANGED SINCE LAST ${SESSION_LABEL[session] || ""} BRIEF`}
+           right={<span style={{ color: "var(--label)", fontSize: 10 }}>vs {priorDate}</span>}>
+      {changes.map((c, i) => (
+        <div key={i} className="row" style={{ alignItems: "flex-start" }}>
+          <span className="k">{c.k}</span>
+          <span className="v" style={{ color: "var(--prose)" }}>
+            {c.from ? <><span style={{ color: "var(--label)" }}>{c.from}</span>{" → "}<span style={{ color: "var(--amber)" }}>{c.to}</span></> : c.v}
+          </span>
+        </div>
+      ))}
+    </Panel>
+  );
+}
 
 function RecapPanel({ session, recap }) {
   if (!recap) return null;
@@ -79,11 +142,16 @@ function RefreshButton({ status, onClick, age }) {
   );
 }
 
-function EmptyBrief({ status, statusReason, session, onRefresh }) {
+function EmptyBrief({ status, statusReason, progress, session, onRefresh }) {
   const running = status === "running";
   let message;
   if (running) {
-    message = "Claude is preparing the session brief — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes 2-5 minutes.";
+    // Show tool-call progress so the trader sees something is happening
+    // instead of staring at static text for 5 minutes. First call is
+    // tv_analyze_full (chart capture), subsequent calls are the surface
+    // tools (session brief × 2 in dual mode).
+    const progressNote = progress > 0 ? ` (${progress} tool ${progress === 1 ? "call" : "calls"} so far)` : "";
+    message = `Claude is preparing the session brief${progressNote} — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes 2-5 minutes.`;
   } else if (status === "error") {
     message = `The session brief failed${statusReason ? `: ${statusReason}` : ""}. Hit refresh to try again.`;
   } else if (status === "skipped") {
@@ -120,6 +188,7 @@ function PrepWorkstation({ alerts, onToggleArm }) {
     session,
     status,
     statusReason,
+    progress,
     refresh,
     ageMs,
   } = useSessionBrief();
@@ -129,23 +198,35 @@ function PrepWorkstation({ alerts, onToggleArm }) {
     return (
       <div className="work-scroll">
         {recap && <RecapPanel session={recapSession} recap={recap} />}
-        <EmptyBrief status={status} statusReason={statusReason} session={session} onRefresh={refresh} />
+        <EmptyBrief status={status} statusReason={statusReason} progress={progress} session={session} onRefresh={refresh} />
       </div>
     );
   }
 
-  const levels = (brief.key_levels || []).map((lv) => ({
-    name: lv.name,
-    px: formatPx(lv.price),
-    state: lv.state || "untaken",
-    marker: lv.state === "untaken" ? "─" : "·",
-  }));
+  // Sort high → low defensively. The schema description asks Claude for
+  // this ordering, but Zod doesn't enforce it — and an unsorted level
+  // panel is hard to scan ("where's PDH?"). Sort by numeric price desc;
+  // any string prices fall to the bottom in submitted order.
+  const levels = (brief.key_levels || [])
+    .slice()
+    .sort((a, b) => {
+      const an = typeof a.price === "number" ? a.price : -Infinity;
+      const bn = typeof b.price === "number" ? b.price : -Infinity;
+      return bn - an;
+    })
+    .map((lv) => ({
+      name: lv.name,
+      px: formatPx(lv.price),
+      state: lv.state || "untaken",
+      marker: lv.state === "untaken" ? "─" : "·",
+    }));
 
   return (
     <div className="work-scroll">
       {recap && recapSession !== brief.session && (
         <RecapPanel session={recapSession} recap={recap} />
       )}
+      <ChangedPanel session={brief.session} brief={brief} />
       <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}${selectedSymbol ? ` · ${selectedSymbol}` : ""}`}
              right={<RefreshButton status={status} onClick={refresh} age={ageMs} />}>
         {availableSymbols.length > 1 && (
@@ -238,6 +319,28 @@ function PrepWorkstation({ alerts, onToggleArm }) {
         <div style={{ color: "var(--value)", fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
           {brief.plan}
         </div>
+        {Array.isArray(brief.scenarios) && brief.scenarios.length > 0 && (
+          <>
+            <div className="hr" />
+            <div style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".14em", marginBottom: 6 }}>
+              SCENARIOS
+            </div>
+            {brief.scenarios.map((s, i) => (
+              <div key={i} style={{
+                display: "flex", flexDirection: "column", gap: 2,
+                padding: "6px 0",
+                borderTop: i > 0 ? "1px dashed var(--border-dim, #2a3038)" : "none",
+              }}>
+                <div style={{ color: "var(--amber)", fontSize: 11 }}>
+                  <span style={{ color: "var(--label)" }}>IF&nbsp;</span>{s.condition}
+                </div>
+                <div style={{ color: "var(--prose)", fontSize: 11, paddingLeft: 28 }}>
+                  <span style={{ color: "var(--label)" }}>THEN&nbsp;</span>{s.action}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
         <div className="hr" />
         <Row k="Anchored target" v={brief.anchored_target} tone="num green" />
         <Row k="Anchored stop"   v={brief.anchored_stop}   tone="num red" />

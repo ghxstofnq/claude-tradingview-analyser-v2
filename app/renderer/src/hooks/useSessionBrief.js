@@ -14,6 +14,7 @@ export function useSessionBrief() {
   const [session, setSession] = useState(null); // "london" | "ny-am" | "ny-pm" | null
   const [status, setStatus] = useState("idle"); // "idle" | "running" | "error" | "skipped"
   const [statusReason, setStatusReason] = useState(null); // tells the user WHY skipped/error
+  const [progress, setProgress] = useState(0); // tool-call count during a running brief
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   // ageTick re-renders this hook every 10s so the brief-age display
   // doesn't lie about freshness. Without it, "5m old" stays "5m old"
@@ -47,11 +48,25 @@ export function useSessionBrief() {
       if (record.session) setSession(record.session);
     });
     const offStatus = window.api?.prep?.onStatus?.((ev) => {
-      setStatus(ev?.state || "idle");
+      const next = ev?.state || "idle";
+      setStatus(next);
       // Capture the reason for skipped/error so the UI can surface it
       // instead of silently ignoring the event.
       setStatusReason(ev?.reason || ev?.message || null);
       if (ev?.session) setSession(ev.session);
+      // Reset progress when a turn starts; keep the final count visible
+      // briefly on idle/error transitions for the user to see.
+      if (next === "running") setProgress(0);
+    });
+
+    // Brief progress = count of tool_call events fired during a brief.
+    // First call is tv_analyze_full; subsequent calls are the surface
+    // tools. Lets the "preparing 2-5 min" message become "preparing
+    // (3 tool calls so far)" instead of staring at static text.
+    const offToolCall = window.api?.chat?.onToolCall?.(() => {
+      if (status === "running" || status === "idle") {
+        setProgress((n) => n + 1);
+      }
     });
 
     // 10-second age refresh. The brief panel header shows "Xm old"; this
@@ -63,6 +78,7 @@ export function useSessionBrief() {
       clearInterval(ageInterval);
       offUpdated?.();
       offStatus?.();
+      offToolCall?.();
     };
   }, []);
 
@@ -94,6 +110,7 @@ export function useSessionBrief() {
     session,
     status,
     statusReason,
+    progress,
     refresh,
     ageMs,
   };

@@ -23,9 +23,16 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
-const METRICS_FILE = path.join(REPO_ROOT, "state", "metrics.jsonl");
+const METRICS_DIR = path.join(REPO_ROOT, "state");
+const METRICS_FILE = path.join(METRICS_DIR, "metrics.jsonl");
 // Hourly summary cadence. Console-only; doesn't write to the jsonl.
 const SUMMARY_INTERVAL_MS = 60 * 60 * 1000;
+// Rotation policy: at boot, rotate `metrics.jsonl` to
+// `metrics-<YYYY-MM-DD>.jsonl` if it has content from a previous day.
+// Sweep rotated files older than RETENTION_DAYS. Was: unbounded growth
+// — months in, this file was MBs and `tail -f` got slow.
+const ROTATION_RETENTION_DAYS = 30;
+const ROTATED_PATTERN = /^metrics-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
 // In-memory tally for the hourly summary. Reset on each summary so the
 // log shows "in the last hour" rather than ever-growing totals.
@@ -95,4 +102,71 @@ export function startMetricsSummary() {
 
 export function stopMetricsSummary() {
   if (_summaryTimer) { clearInterval(_summaryTimer); _summaryTimer = null; }
+}
+
+/**
+ * rotateMetricsFile — call once at boot.
+ *
+ * If metrics.jsonl has content from a previous ET day, rename it to
+ * metrics-<that-date>.jsonl so today gets a fresh file. Then sweep any
+ * rotated files older than ROTATION_RETENTION_DAYS.
+ *
+ * "Day" is determined by the file's mtime in ET — same timezone the
+ * rest of the system uses.
+ */
+export async function rotateMetricsFile() {
+  // Step 1: rotate current file if it's from a prior day.
+  try {
+    const stat = await fs.stat(METRICS_FILE);
+    const mtimeDateEt = etDateString(stat.mtime);
+    const todayEt = etDateString(new Date());
+    if (mtimeDateEt && mtimeDateEt !== todayEt) {
+      const rotated = path.join(METRICS_DIR, `metrics-${mtimeDateEt}.jsonl`);
+      // If a rotated file for that date already exists (e.g. app started
+      // twice on that day), append instead of overwriting.
+      try {
+        const existing = await fs.readFile(METRICS_FILE, "utf8");
+        await fs.appendFile(rotated, existing, "utf8");
+        await fs.unlink(METRICS_FILE);
+      } catch {
+        // fallback to plain rename
+        await fs.rename(METRICS_FILE, rotated);
+      }
+      // eslint-disable-next-line no-console
+      console.log(`[metrics] rotated metrics.jsonl → metrics-${mtimeDateEt}.jsonl`);
+    }
+  } catch { /* no metrics file yet — first boot */ }
+
+  // Step 2: sweep rotated files older than retention.
+  let deleted = 0;
+  try {
+    const entries = await fs.readdir(METRICS_DIR, { withFileTypes: true });
+    const cutoff = Date.now() - ROTATION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const m = entry.name.match(ROTATED_PATTERN);
+      if (!m) continue;
+      const fileDate = Date.parse(m[1] + "T00:00:00Z");
+      if (Number.isFinite(fileDate) && fileDate < cutoff) {
+        try { await fs.unlink(path.join(METRICS_DIR, entry.name)); deleted += 1; }
+        catch { /* best-effort */ }
+      }
+    }
+  } catch { /* metrics dir missing — nothing to sweep */ }
+  if (deleted > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[metrics] swept ${deleted} rotated file(s) older than ${ROTATION_RETENTION_DAYS}d`);
+  }
+}
+
+function etDateString(date) {
+  if (!date) return null;
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const get = (t) => fmt.find((p) => p.type === t)?.value;
+  const y = get("year"), m = get("month"), d = get("day");
+  if (!y || !m || !d) return null;
+  return `${y}-${m}-${d}`;
 }

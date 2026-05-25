@@ -100,6 +100,9 @@ contextBridge.exposeInMainWorld("api", {
     recap() {
       return ipcRenderer.invoke("prep:recap_get");
     },
+    priorBrief(session, excludeDate) {
+      return ipcRenderer.invoke("prep:prior_brief_get", { session, excludeDate });
+    },
     openReaction(session) {
       return ipcRenderer.invoke("prep:open_reaction_get", { session });
     },

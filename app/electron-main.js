@@ -10,7 +10,7 @@ import { bindDetectorToMode } from "./main/bar-close.js";
 import { bootstrap as bootstrapSessionBrief, rearmScheduler as rearmBrief } from "./main/session-brief.js";
 import { bootstrap as bootstrapSessionWrap, rearmScheduler as rearmWrap } from "./main/session-wrap.js";
 import { sweepOldSessions } from "./main/state-retention.js";
-import { startMetricsSummary } from "./main/metrics.js";
+import { startMetricsSummary, rotateMetricsFile } from "./main/metrics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -100,6 +100,14 @@ app.whenReady().then(async () => {
   });
   runRetentionSweep();
   setInterval(runRetentionSweep, 24 * 60 * 60 * 1000);
+
+  // Rotate metrics.jsonl on boot — yesterday's file becomes
+  // metrics-<YYYY-MM-DD>.jsonl, rotated files older than 30d are swept.
+  // Was: unbounded growth, MBs after months.
+  rotateMetricsFile().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[metrics] rotation failed", err?.message || err);
+  });
 
   // Hourly metrics summary to the console — one line aggregating
   // brief/wrap/bar-close/chat events from state/metrics.jsonl. The
