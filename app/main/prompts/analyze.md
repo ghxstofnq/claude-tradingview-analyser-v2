@@ -47,6 +47,8 @@ The **ICT Engine** indicator is the single data source. It emits one schema-vers
 - `bars_by_tf.{daily, h4, h1, m15, m5, m1}` — per-TF bar summaries incl. `range` and `change_pct` (use these for HTF momentum).
 - `engine` — the parsed ICT Engine table at the chart's current TF: `{schema, schema_supported, meta, levels[], sweeps[], fvgs[], bprs[], swings[], structures[], quality}`.
 - `engine_by_tf.{daily, h4, h1, m15, m5, m1}` — the same parsed engine object captured at each TF. **HTF FVGs and HTF structure live here** (`.fvgs`, `.structures`, `.swings`, `.quality`, `.levels`).
+- `pair` (present only when `tv analyze --pair` was used) — dual-symbol scan: `{primary, secondary, window_start_ms, window_end_ms, symbols, leader_evidence, leader_decided, leader}`. `pair.symbols.<symbol>` carries the same shape as the top-level bundle (`chart`, `quote`, `bars`, `bars_by_tf`, `engine`, `engine_by_tf`, `gates`) for each symbol. `pair.leader_evidence` is `{primary_disp_score, secondary_disp_score, margin, threshold, reason, primary_fvg_path, secondary_fvg_path}` — computed in code, never recompute. `pair.leader` is `null` until `surface_leader_decision` fires; the chosen symbol thereafter.
+- `pair_short_circuited` (present only when the analyzer detected an existing pair-decision.json for the active session) — `true` means the bundle is single-symbol on the leader; no `pair` block this turn.
 - `gates.session.*` — clock-based facts (phase, label, minutes_into_phase, next_killzone_label, seconds_to_next_killzone, in_killzone, is_market_closed, replay state).
 - `gates.engine.meta` — `{schema, schema_supported, tf, emit_ny, symbol}` provenance. **If `schema_supported` is false the engine bumped its format — say so and stop.**
 - `gates.engine.price_context.{inside_fvgs, inside_bprs}` — engine zones containing current price.
@@ -96,6 +98,8 @@ Each session folder is self-contained — NY AM, NY PM, and London never overwri
 ## Phase: Pre-session (NY AM or NY PM)
 
 **Goal:** grade Pillar 1 + Pillar 2 once for this session. Subsequent pre-session invocations should detect prior work and not re-grade.
+
+**If `pair` is in the bundle** you're scanning two symbols (e.g. MNQ + MES). Write ONE `pillar1.md` and ONE `pillar2.md` that synthesize both symbols comparatively: HTF bias for both, primary HTF draw for each, overnight context for each. Single grade for the pair (it applies to whichever ends up being the leader). Cite from `pair.symbols.<primary>.*` and `pair.symbols.<secondary>.*` — never reach into the top-level fields for cross-asset comparisons; the top-level fields only mirror the primary.
 
 **Check first:**
 - If `<sdir>/pillar1.md` already exists, this session is graded — **arm the per-bar loop** (see the final step of this phase), then output one line "Pre-session already graded (P1=<bias>, P2=<verdict>). Loop armed. Idle until <next phase>." and stop.
@@ -201,6 +205,11 @@ This is the bootstrap for the LLM-driven session (`docs/plans/llm-driven-session
 - `<sdir>/pillar1.md` and `<sdir>/pillar2.md` (must exist; if missing, that's a Pillar 1+2 prereq error — say so and run pre-session work first).
 - `<sdir>/open-reaction.md` if it exists (we're updating it).
 
+**If `pair` is in the bundle**, you're still in dual-symbol mode. Per bar:
+- Surface `pair.leader_evidence` in the chat line: e.g. "MNQ disp=0.74, MES disp=0.41, margin=0.33, reason=primary_higher_disp_score" — all four cited from `pair.leader_evidence.*`.
+- When updating `open-reaction.md`, describe both symbols' behavior — which swept what level first, who broke structure first, who has cleaner candles. Cite from `pair.symbols.<primary>.*` and `pair.symbols.<secondary>.*`.
+- When `minutes_into_phase >= 14`, you MUST call `surface_leader_decision(...)` exactly once, with the values from `pair.leader_evidence`. Pass the same `reason` string verbatim. This is in ADDITION to the existing `surface_ltf_bias(...)` call. After this fires, the next `tv analyze --pair` run will short-circuit to single-symbol on the leader for the rest of the session.
+
 **The work:**
 
 Read `gates.engine.confirmation.{last_bar, m5_last_bar, m15_last_bar}`. Read the recent untaken levels from `gates.engine.pillar1.untaken_*` and the explicit raids from `gates.engine.pillar1.sweeps`. What's price doing relative to those levels? Is NY breaking the overnight high or low? Holding above or rejecting?
@@ -269,6 +278,11 @@ Two to four lines: what NY just did + bias direction + minutes remaining in open
 - `<sdir>/bars.jsonl` (tail — last ~10 entries for recent context)
 
 If any of pillar1/pillar2/ltf-bias is missing, that's a phase error — the open-reaction work didn't complete. Say so and skip entry hunt.
+
+**Dual-symbol awareness:**
+- If `pair_short_circuited: true` is in the bundle, the leader has already been chosen — the bundle is single-symbol on the leader. Run the entry hunt exactly as today. Cite from the top-level fields (no `pair` block this turn).
+- If neither `pair` nor `pair_short_circuited` is in the bundle, you're running a normal single-symbol session — nothing changes.
+- If `pair` is in the bundle during entry hunt (which means `surface_leader_decision` was missed at minute 14), prefer the symbol with the higher `pair.leader_evidence.primary_disp_score` vs `secondary_disp_score`, surface this in chat as "leader decision was missed at minute 14; treating <symbol> as leader for this turn", and proceed with that symbol.
 
 **For each new bar (1m close, and 5m close when `gates.engine.confirmation.last_bar.time % 300 == 0`):**
 

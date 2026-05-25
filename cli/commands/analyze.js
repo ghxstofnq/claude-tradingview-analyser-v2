@@ -5,6 +5,8 @@ import * as replay from '@tvmcp/core/replay';
 import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser.js';
 import { computeEngineGates } from '../lib/compute-engine-gates.js';
 import { lastBarFacts } from '../lib/last-bar.js';
+import { computeLeader } from '../lib/compute-leader.js';
+import { readPairDecision } from '../lib/pair-decision.js';
 
 /**
  * tv analyze — bundles chart state, quote, multi-TF bars, and the ICT Engine
@@ -202,6 +204,38 @@ const HTF_LTF_TIMEFRAMES = [
  * "stuck on previous TF" bugs where reads return data at the wrong resolution.
  */
 const TF_SETTLE_MS = 400;
+// setSymbol() already waits ~500ms internally + polls for chart-ready, but
+// indicator re-renders on the new symbol can lag a bit longer. 600ms slack
+// keeps the engine table populated before we read it.
+const SYMBOL_SETTLE_MS = 600;
+
+/**
+ * activeSessionFolder — derives today's ET date + active session folder
+ * (ny-am / ny-pm / london) from the current real-time ET clock.
+ *
+ * Mirrors app/main/sessions.js#currentSession so the two sides agree on
+ * which folder to read/write. Returns null when the clock is outside all
+ * three windows (e.g. inter-session, weekend) — short-circuit logic skips
+ * the lookup in that case.
+ */
+function activeSessionFolder() {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short',
+  }).formatToParts(new Date());
+  const get = (t) => fmt.find((p) => p.type === t)?.value;
+  const date = `${get('year')}-${get('month')}-${get('day')}`;
+  const weekday = get('weekday');
+  if (weekday === 'Sat' || weekday === 'Sun') return { date, session: null };
+  const m = Number(get('hour')) * 60 + Number(get('minute'));
+  let session = null;
+  if (m >= 9 * 60 + 30 && m < 12 * 60) session = 'ny-am';
+  else if (m >= 13 * 60 && m < 16 * 60) session = 'ny-pm';
+  else if (m >= 3 * 60 && m < 6 * 60) session = 'london';
+  return { date, session };
+}
+
 async function captureMultiTf(originalTf) {
   const bars_by_tf = {};
   const engine_by_tf = {};
@@ -230,6 +264,82 @@ async function captureMultiTf(originalTf) {
   return { bars_by_tf, engine_by_tf };
 }
 
+/**
+ * captureSymbolBundle — used only for the secondary symbol in a --pair
+ * capture. Switches the chart to `symbol`, FORCES the TF to match the
+ * primary's `originalTf` (TV remembers TF per symbol, so the secondary
+ * would otherwise land on whatever TF was last used there — apples-to-
+ * oranges comparison). Grabs the same shape of fields the primary capture
+ * produces. Leaves the chart on the secondary for the caller to switch
+ * back to the primary.
+ *
+ * Returns the same nested shape the bundle uses for `pair.symbols.<X>`.
+ *
+ * @param {string} symbol               e.g. "MES1!" (bare; no exchange prefix)
+ * @param {string} originalTf           primary's TF, used both to align the
+ *                                      secondary's current TF and as the
+ *                                      restore target inside captureMultiTf
+ * @param {object|null} baselineSecondary  if present, reuses bars_by_tf +
+ *                                         engine_by_tf instead of sweeping
+ * @param {object} replayStatus         echoed into the secondary's
+ *                                      session gate so it matches primary
+ */
+async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replayStatus) {
+  await chart.setSymbol({ symbol });
+  await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+  // Force secondary's TF to match primary's so the current-TF data is
+  // comparable. captureMultiTf below restores this TF after sweeping the
+  // others, so the chart is left on (secondary, originalTf).
+  await chart.setTimeframe({ timeframe: originalTf });
+  await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+
+  let bars_by_tf, engine_by_tf;
+  if (baselineSecondary) {
+    bars_by_tf = baselineSecondary.bars_by_tf;
+    engine_by_tf = baselineSecondary.engine_by_tf;
+  } else {
+    const captured = await captureMultiTf(originalTf);
+    bars_by_tf = captured.bars_by_tf;
+    engine_by_tf = captured.engine_by_tf;
+  }
+
+  const state = await chart.getState();
+  const [visibleRange, quote, bars, indicatorValues, tables] = await Promise.all([
+    chart.getVisibleRange(),
+    data.getQuote(),
+    data.getOhlcv({ summary: true }),
+    data.getStudyValues(),
+    data.getPineTables(),
+  ]);
+  const engine = parseIctEngineTable(findIctEngineRows(tables));
+  const cur = lastBarFacts(bars?.last_5_bars, quote?.time);
+  const m5 = lastBarFacts(bars_by_tf?.m5?.last_5_bars, quote?.time);
+  const m15 = lastBarFacts(bars_by_tf?.m15?.last_5_bars, quote?.time);
+  const gates = {
+    session: computeSessionGate({ quote, replayStatus }),
+    engine: computeEngineGates({
+      engine,
+      engineByTf: engine_by_tf,
+      last: quote?.last ?? null,
+      lastBar: cur.bar,
+      lastBarAgeSeconds: cur.age_seconds,
+      m5LastBar: m5.bar,
+      m15LastBar: m15.bar,
+    }),
+  };
+  return {
+    chart: state,
+    visible_range: visibleRange,
+    quote,
+    bars,
+    bars_by_tf,
+    indicators: indicatorValues,
+    engine,
+    engine_by_tf,
+    gates,
+  };
+}
+
 register('analyze', {
   description: 'Bundle current chart state, quote, multi-TF OHLCV summaries, the parsed ICT Engine evidence table (per TF), and deterministic gates (session + engine-derived 3 pillars) into one JSON object for ICT analysis by Claude.',
   options: {
@@ -238,6 +348,8 @@ register('analyze', {
     'scan-tf': { type: 'string', description: 'Briefly switch chart to this TF (1, 5, 15, 60, 240, D) for the scan, then restore. Pairs with --pillar3-only for the polling cadence. ~2–3s of chart flashing per call.' },
     baseline: { type: 'string', description: 'Path to a previously-captured full bundle. Reuses its bars_by_tf and engine_by_tf instead of re-running the multi-TF chart sweep. Pairs with --pillar3-only for fast candidate evaluation that still has full HTF context. Emits baseline_meta so the consumer can see how old the cached HTF data is.' },
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
+    pair: { type: 'string', description: 'Run dual-symbol scan. Format: "<primary>,<secondary>" (e.g. "MNQ1!,MES1!"). Captures both symbols; output bundle gains a top-level `pair` block. Behavior depends on pair-decision.json state for the active session.' },
+    'baseline-secondary': { type: 'string', description: 'Per-symbol baseline path for the secondary symbol when using --pair. The primary uses --baseline as today.' },
   },
   handler: async (opts) => {
     // 0. Load baseline if provided. The baseline supplies HTF context
@@ -274,6 +386,76 @@ register('analyze', {
       };
     }
 
+    // 0.4. Parse --pair "<primary>,<secondary>". Both symbols required. The
+    //      chart's current symbol MUST equal one of the two — we never
+    //      silently swap (the user's chart state is sacrosanct).
+    let pairConfig = null;
+    if (opts?.pair) {
+      const parts = String(opts.pair).split(',').map((s) => s.trim()).filter(Boolean);
+      if (parts.length !== 2) {
+        throw new Error(`--pair expects "<primary>,<secondary>"; got '${opts.pair}'`);
+      }
+      pairConfig = { primary: parts[0], secondary: parts[1] };
+    }
+
+    // 0.42. Pair-decision short-circuit. If --pair was passed AND a
+    //       pair-decision.json exists for today's active session AND its
+    //       leader is set, drop pairConfig + switch the chart to the leader,
+    //       then run a normal single-symbol capture. Saves the dual-capture
+    //       cost for the rest of the session after Claude has called
+    //       surface_leader_decision at minute 14.
+    let pairShortCircuited = false;
+    if (pairConfig) {
+      const { date: today, session: sessionFolder } = activeSessionFolder();
+      if (sessionFolder) {
+        const { resolve: resolvePath } = await import('node:path');
+        const sessionDir = resolvePath('state', 'session', today, sessionFolder);
+        const decision = await readPairDecision(sessionDir, today);
+        if (decision && decision.leader) {
+          // Switch the chart to the leader if it's not already there.
+          const state0 = await chart.getState();
+          const bare0 = state0.symbol.replace(/^[A-Z_]+:/, '');
+          if (bare0 !== decision.leader) {
+            await chart.setSymbol({ symbol: decision.leader });
+            await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+          }
+          process.stderr.write(
+            `[tv analyze] pair-decision.json found for ${sessionFolder} ${today}: leader=${decision.leader}. Running single-symbol.\n`,
+          );
+          pairConfig = null;
+          pairShortCircuited = true;
+        }
+      }
+    }
+
+    // 0.45. Per-symbol baseline for the secondary leg. Loaded the same way as
+    //       --baseline, used by captureSymbolBundle so the fast-poll path
+    //       (--pillar3-only --baseline ... --baseline-secondary ...) stays
+    //       quick for dual-symbol scans.
+    let baselineSecondary = null;
+    let baselineSecondaryMeta = null;
+    if (opts?.['baseline-secondary']) {
+      const { readFileSync } = await import('node:fs');
+      const { resolve: resolvePath } = await import('node:path');
+      const absPath = resolvePath(opts['baseline-secondary']);
+      let text;
+      try { text = readFileSync(absPath, 'utf8'); }
+      catch (e) { throw new Error(`baseline-secondary not readable at '${absPath}': ${e.message}`); }
+      try { baselineSecondary = JSON.parse(text); }
+      catch (e) { throw new Error(`baseline-secondary at '${absPath}' is not valid JSON: ${e.message}`); }
+      if (!baselineSecondary.bars_by_tf || !baselineSecondary.engine_by_tf) {
+        throw new Error(
+          `baseline-secondary at '${absPath}' is missing bars_by_tf or engine_by_tf — must be a full tv analyze capture.`,
+        );
+      }
+      const baseMs = baselineSecondary.timestamp ? Date.parse(baselineSecondary.timestamp) : NaN;
+      baselineSecondaryMeta = {
+        path: absPath,
+        captured_at: baselineSecondary.timestamp || null,
+        age_seconds: Number.isFinite(baseMs) ? Math.floor((Date.now() - baseMs) / 1000) : null,
+      };
+    }
+
     // 0.5. --scan-tf support. Switch the chart to the requested TF before
     //      capturing anything, so the bundle reflects scan-tf data. Restored
     //      below after the bundle is built.
@@ -293,6 +475,26 @@ register('analyze', {
     //    happens below and can disturb replay state.
     const state = await chart.getState();
     const originalTf = state.resolution;
+    const originalSymbol = state.symbol;        // e.g. "CME_MINI:MNQ1!"
+
+    // Validate --pair against the chart's current symbol. chart.getState()
+    // returns the fully-qualified symbol with exchange prefix; strip it for
+    // comparison against the user-supplied shorthand (e.g. "MNQ1!").
+    if (pairConfig) {
+      const bare = originalSymbol.replace(/^[A-Z_]+:/, '');
+      if (bare !== pairConfig.primary && bare !== pairConfig.secondary) {
+        throw new Error(
+          `--pair expects chart on one of [${pairConfig.primary}, ${pairConfig.secondary}]; got '${bare}'`,
+        );
+      }
+      // Normalize: the chart's current symbol is treated as primary
+      // throughout the capture. If the user supplied the order swapped,
+      // flip pairConfig so primary == originalSymbol.
+      if (bare === pairConfig.secondary) {
+        pairConfig = { primary: pairConfig.secondary, secondary: pairConfig.primary };
+      }
+    }
+
     let replayStatus = { active: false, autoplay: false, current_date: null };
     try {
       const r = await replay.status();
@@ -360,6 +562,96 @@ register('analyze', {
       }),
     };
 
+    // 4.4. --pair dual-capture. After the primary's bundle is fully built,
+    //      switch to the secondary, capture the same shape, switch back.
+    //      compute-leader runs the displacement comparison; the verdict
+    //      is recorded as evidence — pair.leader stays null here.
+    //      surface_leader_decision (in-app Claude) writes pair.leader to
+    //      pair-decision.json at minute 14 of the open reaction.
+    let pair = null;
+    if (pairConfig) {
+      const secondaryBundle = await captureSymbolBundle(
+        pairConfig.secondary,
+        originalTf,
+        baselineSecondary,
+        replayStatus,
+      );
+      // Restore chart to the primary so any later operations see original
+      // state. captureSymbolBundle leaves the chart on the secondary; we
+      // also restore the primary's TF since setSymbol may have landed on
+      // whatever TF was last used on the primary.
+      await chart.setSymbol({ symbol: pairConfig.primary });
+      await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+      await chart.setTimeframe({ timeframe: originalTf });
+      await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+
+      // Open-reaction window: gates.session.label is e.g. "open_reaction_ny_am".
+      // If we have a window_start_ms, use it; otherwise pass Infinity so
+      // compute-leader returns leader=null with reason="no_fvgs_created_in_window".
+      const sessionGate = gates.session;
+      const windowStartMs =
+        Number.isFinite(sessionGate?.open_window_start_ms)
+          ? sessionGate.open_window_start_ms
+          : null;
+      const windowEndMs =
+        windowStartMs != null ? windowStartMs + 15 * 60 * 1000 : null;
+
+      const leader = computeLeader({
+        primary: pairConfig.primary,
+        secondary: pairConfig.secondary,
+        primaryEngine: engine,
+        secondaryEngine: secondaryBundle.engine,
+        windowStartMs: windowStartMs ?? Number.POSITIVE_INFINITY,
+        windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
+      });
+
+      pair = {
+        primary: pairConfig.primary,
+        secondary: pairConfig.secondary,
+        window_start_ms: windowStartMs,
+        window_end_ms: windowEndMs,
+        symbols: {
+          [pairConfig.primary]: {
+            chart: state,
+            visible_range: visibleRange,
+            quote,
+            bars,
+            bars_by_tf,
+            indicators: indicatorValues,
+            engine,
+            engine_by_tf,
+            gates,
+          },
+          [pairConfig.secondary]: secondaryBundle,
+        },
+        leader_evidence: {
+          primary_disp_score: leader.primary_disp_score,
+          secondary_disp_score: leader.secondary_disp_score,
+          margin: leader.margin,
+          threshold: leader.threshold,
+          reason: leader.reason,
+          // cite-or-reject anchors. The exact FVG index isn't plumbed
+          // through compute-leader in v1 — paths point at the array.
+          primary_fvg_path: leader.primary_disp_score > 0
+            ? `pair.symbols.${pairConfig.primary}.engine.fvgs`
+            : null,
+          secondary_fvg_path: leader.secondary_disp_score > 0
+            ? `pair.symbols.${pairConfig.secondary}.engine.fvgs`
+            : null,
+        },
+        leader_decided: false,
+        leader: null,    // set by surface_leader_decision, not by tv analyze
+      };
+
+      // Loud warning when the secondary engine is missing so the user can
+      // load the ICT Engine indicator on the secondary chart and retry.
+      if (leader.reason === 'secondary_engine_missing') {
+        process.stderr.write(
+          `warning: ICT Engine missing on ${pairConfig.secondary}. Leader pick will be inconclusive until the engine is loaded on both charts.\n`,
+        );
+      }
+    }
+
     const bundle = {
       timestamp: new Date().toISOString(),
       chart: state,
@@ -372,6 +664,9 @@ register('analyze', {
       engine_by_tf,
       gates,
       ...(baselineMeta ? { baseline_meta: baselineMeta } : {}),
+      ...(baselineSecondaryMeta ? { baseline_secondary_meta: baselineSecondaryMeta } : {}),
+      ...(pair ? { pair } : {}),
+      ...(pairShortCircuited ? { pair_short_circuited: true } : {}),
     };
 
     // 4.5. Restore the pre-scan TF if we switched for --scan-tf. Best-effort;

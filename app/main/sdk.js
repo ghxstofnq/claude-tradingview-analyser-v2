@@ -24,6 +24,7 @@ import {
   surfaceOpenReaction,
   surfaceLtfBias,
   surfaceSessionSummary,
+  surfaceLeaderDecision,
 } from "./tools/surface.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -314,6 +315,30 @@ function buildMcpServer() {
       async (args) => {
         try {
           return ok(await surfaceSessionBrief(args));
+        } catch (e) {
+          return err(e?.message || String(e));
+        }
+      },
+    ),
+    tool(
+      "surface_leader_decision",
+      "Persist the chosen leader symbol for a dual-symbol session to state/session/<date>/<session>/pair-decision.json. Call ONCE at the end of the open-reaction phase (minutes_into_phase >= 14), alongside surface_ltf_bias. After this fires, subsequent tv analyze --pair runs short-circuit and run single-symbol on the leader.",
+      {
+        session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session this decision is for"),
+        primary: z.string().describe("Primary symbol from the pair (e.g. 'MNQ1!')"),
+        secondary: z.string().describe("Secondary symbol from the pair (e.g. 'MES1!')"),
+        leader: z.string().nullable().describe("The chosen leader symbol, or null if inconclusive (margin too small / no FVGs in window / etc.)"),
+        evidence: z.object({
+          primary_disp_score: z.number(),
+          secondary_disp_score: z.number(),
+          margin: z.number(),
+          threshold: z.number(),
+        }).describe("The numeric evidence from compute-leader. Always cite from pair.leader_evidence in the bundle."),
+        reason: z.string().describe("The reason from compute-leader: primary_higher_disp_score | secondary_higher_disp_score | inconclusive_margin_below_threshold | no_fvgs_created_in_window | secondary_engine_missing"),
+      },
+      async (args) => {
+        try {
+          return ok(await surfaceLeaderDecision(args));
         } catch (e) {
           return err(e?.message || String(e));
         }

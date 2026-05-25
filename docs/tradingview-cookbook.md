@@ -22,6 +22,7 @@ The PR description should include a line like `Updates: docs/tradingview-cookboo
 
 Most recent first. Entry format: `YYYY-MM-DD — short summary (#PR)`.
 
+- **2026-05-25** — Dual-symbol scan (`tv analyze --pair MNQ1!,MES1!`) with code-side leader pick (`cli/lib/compute-leader.js`) and per-session lock (`pair-decision.json`). Surfaces the leader/laggard read during pre-session + the 15-min NY open reaction, then short-circuits to single-symbol on the leader for entry hunt. New MCP tool `surface_leader_decision`. ([design spec](superpowers/specs/2026-05-24-leader-laggard-dual-scan-design.md))
 - **2026-05-24** — Per-alert delete shipped. Open the Alerts panel via **REAL CDP mouse click** (synthetic `.click()` opens the widget container but doesn't trigger the panel-populate logic). Retry up to 30s with sub-tab toggle nudges to give the panel time to render the row. Find the row by `alert.message` text, click its `[data-name="alert-delete-button"]`, click `[data-qa-id="yes-btn"]`. First call cold ~30s, subsequent calls warm <5s. Renderer's disarm flow now actually deletes the TV alert.
 - **2026-05-24** — Alerts gain custom messages + working `delete --all`. Dialog selectors switched to the modern `[data-qa-id="alerts-create-edit-dialog"]` root (the `textPrefix-` markers from PR #37 are gone). **Important: set message FIRST, type price LAST** — navigating to the message sub-dialog loses any typed price, and TV's price model only commits on Enter while the price input is focused. Renderer arm-failure UX: optimistic add → revert if `{ok:false}`, drift warnings surface as toasts.
 - **2026-05-24** — Alert create flow rewritten: opens the right dialog button (lowercase `Create alert`), uses CDP keystrokes to type the price (synthetic events don't update TV's framework state), presses Enter to commit. Wrapper now propagates failures + drift warnings. ([#37](https://github.com/ghxstofnq/claude-tradingview-analyser/pull/37))
@@ -472,6 +473,37 @@ Output is one JSON object with:
 - `gates.engine.*` — engine-derived facts (pillar 1 levels, pillar 2 quality, pillar 3 FVGs/swings/structures)
 
 See [`CLAUDE.md`](../CLAUDE.md) "Layout" + "The `analyze` recipe" sections for the full schema.
+
+### Dual-symbol scans (`--pair`)
+
+`tv analyze --pair <primary>,<secondary>` captures both symbols in one run. The chart's current symbol must equal one of the two — no silent chart swap.
+
+```bash
+# Full dual sweep (~30s — multi-TF on both symbols).
+./bin/tv analyze --pair MNQ1!,MES1! --out state/last-analyze.json
+
+# Fast dual poll with per-symbol baselines (~2-3s).
+./bin/tv analyze --pair MNQ1!,MES1! \
+  --pillar3-only \
+  --baseline state/baseline-MNQ1!.json \
+  --baseline-secondary state/baseline-MES1!.json \
+  --out state/last-scan.json
+```
+
+**What gets captured per symbol:** chart state, quote, bars, bars_by_tf, engine, engine_by_tf, gates. Nested under `pair.symbols.<symbol>`. The top-level fields (`chart`, `quote`, `bars`, etc.) mirror the primary for backward compatibility with single-symbol consumers.
+
+**Leader pick is code-side.** `cli/lib/compute-leader.js` is a pure function: takes both engine objects + the open-reaction window, returns the symbol with the higher max `disp_score` on FVGs created in the window. Threshold-gated (0.10 default) so close margins yield `leader: null, reason: "inconclusive_margin_below_threshold"`.
+
+**Lifecycle.** During pre-session + the 15-min NY open reaction, every `tv analyze --pair` run captures both symbols and computes evidence. At minute 14, Claude (via the in-app `surface_leader_decision` MCP tool) writes `state/session/<date>/<session>/pair-decision.json`. Subsequent `tv analyze --pair` runs detect this file, switch the chart to the leader, and run a normal single-symbol capture for the rest of the session.
+
+**Per-symbol baselines.** Use `--baseline state/baseline-MNQ1!.json --baseline-secondary state/baseline-MES1!.json` to keep the fast-poll path under ~3s. (The single `state/baseline.json` from before this change still works as a primary-only fallback.)
+
+**Edge cases:**
+- ICT Engine missing on the secondary → `pair.leader_evidence.reason: "secondary_engine_missing"`. Loud stderr warning. Entry hunt falls back to the primary.
+- Chart on neither named symbol → CLI errors loudly; no silent swap.
+- Pair-decision.json from a previous day → ignored as stale; treated as fresh session.
+
+**Design + rationale:** [`docs/superpowers/specs/2026-05-24-leader-laggard-dual-scan-design.md`](superpowers/specs/2026-05-24-leader-laggard-dual-scan-design.md).
 
 ### Health + discovery
 

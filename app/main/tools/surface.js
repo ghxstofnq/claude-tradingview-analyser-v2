@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { activeSessionDir, currentSession } from "../sessions.js";
+import { writePairDecision } from "../../../cli/lib/pair-decision.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
@@ -249,6 +250,30 @@ ${record.what_happened || "_no narrative provided_"}
 ## Watch next session
 ${watch || "- _no watchlist provided_"}
 `;
+}
+
+// Persist the leader decision for a dual-symbol session at minute 14 of the
+// open-reaction phase. Once this file exists, tv analyze --pair short-
+// circuits to single-symbol on the leader for the rest of the session.
+export async function surfaceLeaderDecision(payload) {
+  const { primary, secondary, leader, evidence, reason, session } = payload;
+  if (!primary || !secondary) throw new Error("surface_leader_decision requires primary and secondary");
+  if (!session) throw new Error("surface_leader_decision requires session ('london' | 'ny-am' | 'ny-pm')");
+  const { date } = currentSession();
+  const sessionDir = await briefDirFor(session);    // creates the folder on demand
+  const record = {
+    date,
+    session,
+    primary,
+    secondary,
+    leader: leader || null,
+    decided_at: new Date().toISOString(),
+    evidence: evidence || null,
+    reason: reason || null,
+  };
+  await writePairDecision(sessionDir, record);
+  _send?.("chat:tool_call", { name: "surface_leader_decision", payload: record });
+  return { ok: true, leader: record.leader };
 }
 
 // Read this session's memory files so a wrap turn (or any caller) can build a

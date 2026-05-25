@@ -62,8 +62,10 @@ while ((match = cite.exec(analysis)) !== null) {
   const path = match[2].trim();
 
   // Skip non-citation parentheticals (paths must look like a JSON accessor).
-  // Allowed: letters/underscore start, then word chars, dots, brackets, digits.
-  if (!/^[a-zA-Z_][\w.[\]]*$/.test(path)) continue;
+  // Allowed: letters/underscore start, then word chars, dots, brackets, digits,
+  // and `!` (futures symbols like MNQ1!, MES1! contain `!` — these appear as
+  // object keys in dual-symbol paired bundles, e.g. pair.symbols.MNQ1!.quote.last).
+  if (!/^[a-zA-Z_][\w.[\]!]*$/.test(path)) continue;
 
   const actual = getByPath(bundle, path);
   if (actual === undefined) {
