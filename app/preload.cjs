@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld("api", {
     switch(mode) {
       return ipcRenderer.invoke("mode:switch", { mode });
     },
+    onCurrent(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("mode:current", listener);
+      return () => ipcRenderer.removeListener("mode:current", listener);
+    },
   },
   trade: {
     accept(setup) {
@@ -120,6 +125,12 @@ contextBridge.exposeInMainWorld("api", {
   setups: {
     list(session, limit) {
       return ipcRenderer.invoke("live:setups_list", { session, limit });
+    },
+    current() {
+      return ipcRenderer.invoke("setup:current");
+    },
+    clear() {
+      return ipcRenderer.invoke("setup:clear");
     },
   },
   review: {

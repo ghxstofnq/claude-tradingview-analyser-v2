@@ -9,6 +9,7 @@ import { startAlertPolling, stopAlertPolling } from "./alerts.js";
 import { setMode } from "./mode.js";
 import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
+import { getCurrentSurfaceState, clearCurrentSurfaceState } from "./tools/surface.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
 import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
 import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal, getPriorBrief } from "./review.js";
@@ -46,6 +47,21 @@ export function registerIpc(win) {
     // Mutex releases; next queued turn starts as usual.
     const cancelled = cancelCurrentTurn();
     return { ok: true, cancelled };
+  });
+
+  ipcMain.handle("setup:current", async () => {
+    // #11 Re-hydration endpoint: EntryHunt mounts on every mode switch
+    // back to LIVE. Without this, activeSetup state would be empty
+    // until the next surface_setup call. Returns the most-recent
+    // surface state mirrored in main.
+    return { ok: true, ...getCurrentSurfaceState() };
+  });
+
+  ipcMain.handle("setup:clear", async () => {
+    // Called from the trader's Accept / Reject buttons. Clears main's
+    // mirror so subsequent mode flips don't re-show the stale setup.
+    clearCurrentSurfaceState();
+    return { ok: true };
   });
 
   ipcMain.handle("chat:reset", async () => {
@@ -93,6 +109,13 @@ export function registerIpc(win) {
   ipcMain.handle("trade:accept", async (_evt, { setup }) => {
     try {
       const trade = await acceptSetup({ setup, send });
+      // acceptSetup returns { error: "..." } when dedup/single-trade
+      // guard rejects — surface to UI so the trader sees a toast
+      // instead of silent no-op.
+      if (trade?.error) {
+        send("app:error", { source: "trade:accept", message: trade.error, level: "warn" });
+        return { ok: false, error: trade.error, openTradeId: trade.openTradeId };
+      }
       return { ok: true, trade };
     } catch (err) {
       send("app:error", { source: "trade:accept", message: String(err?.message || err) });

@@ -11,6 +11,8 @@ import { bootstrap as bootstrapSessionBrief, rearmScheduler as rearmBrief } from
 import { bootstrap as bootstrapSessionWrap, rearmScheduler as rearmWrap } from "./main/session-wrap.js";
 import { sweepOldSessions } from "./main/state-retention.js";
 import { startMetricsSummary, rotateMetricsFile } from "./main/metrics.js";
+import { loadPersistedMode, setMode, getMode } from "./main/mode.js";
+import { startDetector } from "./main/bar-close.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -66,9 +68,23 @@ app.whenReady().then(async () => {
   setSurfaceSink(ipc.send);
   startHealthMonitor(ipc.send);
   startAlertPolling({ send: ipc.send });
+  // #15 Restore last-saved mode BEFORE wiring the detector binding —
+  // otherwise the binding sees DEFAULT_MODE (prep) and doesn't start
+  // the detector even if we were in LIVE before the crash.
+  await loadPersistedMode().catch(() => {});
   // Detector lifecycle is now driven by mode changes — see app/main/mode.js.
   // ipc.mode:switch sets mode; bar-close subscribes and start/stops itself.
   bindDetectorToMode({ send: ipc.send });
+  // If we restored mode === "live", the binding above doesn't fire a
+  // change event (mode was already set). Kick the detector manually so
+  // it actually starts on a LIVE-restore boot.
+  if (getMode() === "live") {
+    startDetector({ send: ipc.send });
+    // eslint-disable-next-line no-console
+    console.log("[boot] mode=live restored — detector started");
+  }
+  // Send the renderer the current mode so its tab UI matches.
+  ipc.send("mode:current", { mode: getMode() });
   try {
     await initSdk();
   } catch (err) {

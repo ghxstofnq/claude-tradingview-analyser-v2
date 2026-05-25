@@ -30,31 +30,71 @@ async function syncSeq() {
   } catch {}
 }
 
+// In-flight accept guard. Two near-simultaneous IPC calls for the same
+// setup (double-click on the Accept button) would otherwise create two
+// trades for one setup. Resolves once the appendFile + IPC emit complete.
+const _acceptInFlight = new Set();
+
 export async function acceptSetup({ setup, send }) {
   await syncSeq();
   const dir = await activeSessionDir();
   const file = path.join(dir, "trades.jsonl");
-  const id = nextTradeId();
-  const size = sizeFor({ grade: setup.grade, dow: dayOfWeek() });
-  const event = {
-    type: "accept",
-    id,
-    setup_id: setup.id || null,
-    ts: new Date().toISOString(),
-    side: setup.direction,
-    model: setup.model,
-    grade: setup.grade,
-    entry: setup.entry,
-    stop: setup.stop,
-    tp1: setup.tp1,
-    tp2: setup.tp2,
-    invalidation: setup.invalidation,
-    rr: setup.rr ?? null,
-    size,
-  };
-  await fs.appendFile(file, JSON.stringify(event) + "\n", "utf8");
-  send?.("trade:accepted", event);
-  return event;
+
+  // #2 Dedup by setup.id. If a second call comes in for the same setup
+  // before the first finishes, reject as duplicate. setup.id can be
+  // missing — in that case we synthesize a dedupe key from price+side
+  // so accidental double-click still gets caught.
+  const dedupeKey = setup.id || `${setup.direction}-${setup.entry}-${setup.stop}`;
+  if (_acceptInFlight.has(dedupeKey)) {
+    return { error: "duplicate accept ignored", dedupeKey };
+  }
+  _acceptInFlight.add(dedupeKey);
+
+  // #4 Single-trade enforcement. Read the current open-trade set; if any
+  // exist, reject the accept. Trader has to close / wait for the open
+  // trade before accepting another. Eliminates the "two active trades,
+  // one invisible" class.
+  try {
+    const existing = await fs.readFile(file, "utf8").catch(() => "");
+    const events = existing.trim().split("\n").filter(Boolean).map((l) => {
+      try { return JSON.parse(l); } catch { return null; }
+    }).filter(Boolean);
+    const { foldOpenTrades } = await import("../../cli/lib/trade-outcomes.js");
+    const open = foldOpenTrades(events);
+    if (open.length > 0) {
+      _acceptInFlight.delete(dedupeKey);
+      return { error: `cannot accept — trade ${open[0].id} is still open`, openTradeId: open[0].id };
+    }
+  } catch (err) {
+    _acceptInFlight.delete(dedupeKey);
+    throw err;
+  }
+
+  try {
+    const id = nextTradeId();
+    const size = sizeFor({ grade: setup.grade, dow: dayOfWeek() });
+    const event = {
+      type: "accept",
+      id,
+      setup_id: setup.id || null,
+      ts: new Date().toISOString(),
+      side: setup.direction,
+      model: setup.model,
+      grade: setup.grade,
+      entry: setup.entry,
+      stop: setup.stop,
+      tp1: setup.tp1,
+      tp2: setup.tp2,
+      invalidation: setup.invalidation,
+      rr: setup.rr ?? null,
+      size,
+    };
+    await fs.appendFile(file, JSON.stringify(event) + "\n", "utf8");
+    send?.("trade:accepted", event);
+    return event;
+  } finally {
+    _acceptInFlight.delete(dedupeKey);
+  }
 }
 
 export async function rejectSetup({ setupId, reason, send }) {

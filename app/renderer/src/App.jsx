@@ -815,6 +815,17 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // #15 Sync UI mode from main on boot — main restores last-saved mode
+  // from disk before this renderer mounts. Without this subscription,
+  // a LIVE-restored boot would show PREP in the tab UI while the
+  // detector is actually running.
+  useEffect(() => {
+    const off = window.api?.mode?.onCurrent?.((ev) => {
+      if (ev?.mode) setTweak("mode", ev.mode);
+    });
+    return () => off?.();
+  }, []);
+
   return (
     <div className="app">
       <TopBar mode={mode}

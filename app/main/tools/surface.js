@@ -72,6 +72,24 @@ function emitToolCall(name, payload) {
   _send?.("chat:tool_call", { name, payload });
 }
 
+// #5 Multi-setup detector. If two surface_setup calls fire within
+// SETUP_WINDOW_MS, Claude is iterating mid-turn — earlier ones get
+// lost from activeSetup state (only the latest is shown). Log a warning
+// so we know it happened; the data is on disk via setups.jsonl.
+const SETUP_WINDOW_MS = 60_000;
+let _lastSetupTs = 0;
+let _setupsInWindow = 0;
+
+// #11 Current setup mirror — main owns the canonical "active setup"
+// state so the renderer can re-hydrate when EntryHunt remounts (e.g.
+// after a PREP↔LIVE flip). Was: activeSetup state lived only in the
+// EntryHunt useChat hook; mode switch destroyed it.
+let _currentSetup = null;
+let _currentNoTradeReason = null;
+export function getCurrentSurfaceState() {
+  return { setup: _currentSetup, noTradeReason: _currentNoTradeReason };
+}
+
 export async function surfaceSetup(payload) {
   const dir = await activeSessionDir();
   const file = path.join(dir, "setups.jsonl");
@@ -81,6 +99,25 @@ export async function surfaceSetup(payload) {
   // for jsonl logs; partial line at crash time, but never a torn record).
   await fs.appendFile(file, JSON.stringify(record) + "\n", "utf8");
   emitToolCall("surface_setup", record);
+  // Mirror to main-side state so the renderer can re-hydrate on remount.
+  _currentSetup = record;
+  _currentNoTradeReason = null;
+
+  const now = Date.now();
+  if (now - _lastSetupTs < SETUP_WINDOW_MS) {
+    _setupsInWindow += 1;
+    // eslint-disable-next-line no-console
+    console.warn(`[surface] multi-setup detected: ${_setupsInWindow + 1} setups within ${SETUP_WINDOW_MS / 1000}s — UI shows only the latest. All persisted to setups.jsonl.`);
+    _send?.("app:error", {
+      source: "surface_setup",
+      level: "warn",
+      message: `Multi-setup: ${_setupsInWindow + 1} setups in ${SETUP_WINDOW_MS / 1000}s — only latest shown`,
+    });
+  } else {
+    _setupsInWindow = 0;
+  }
+  _lastSetupTs = now;
+
   // Brief-usefulness telemetry: did this setup's prices overlap any of
   // the brief's key_levels? Fire-and-forget; failure doesn't affect
   // the surface. Aggregate via the metrics file to answer "is the brief
@@ -91,7 +128,16 @@ export async function surfaceSetup(payload) {
 
 export async function surfaceNoTrade({ reason }) {
   emitToolCall("surface_no_trade", { reason });
+  _currentSetup = null;
+  _currentNoTradeReason = reason;
   return { ok: true };
+}
+
+// Called when the trader accepts/rejects a setup — clears the mirror
+// so a remount doesn't re-show an already-acted-on setup.
+export function clearCurrentSurfaceState() {
+  _currentSetup = null;
+  _currentNoTradeReason = null;
 }
 
 // Resolve the per-brief folder explicitly from payload.session — NOT from the

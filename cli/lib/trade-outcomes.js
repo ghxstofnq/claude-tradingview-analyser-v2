@@ -48,8 +48,27 @@ export function tickTrades(trades, bar) {
     }
 
     if (t.state === "filled") {
+      const hitTP1 = t.side === "long" ? bar.high >= t.tp1 : bar.low <= t.tp1;
+      const hitStop = t.side === "long" ? bar.low <= t.stop : bar.high >= t.stop;
+      // Same-bar TP1+stop ambiguity: previously the code unconditionally
+      // favored TP1 (overstated P&L). Use bar.open as a heuristic — if
+      // open is closer to TP1 than to stop, price likely moved toward
+      // TP1 first; otherwise toward stop. Bar.open required (added to
+      // bar shape in bar-close.js). If missing, fall back to STOPPED
+      // (conservative — assume the bad outcome).
+      let tp1First = true;
+      if (hitTP1 && hitStop && !t.tp1_hit) {
+        if (typeof bar.open === "number" && Number.isFinite(bar.open)) {
+          const distToTP1 = Math.abs(bar.open - t.tp1);
+          const distToStop = Math.abs(bar.open - t.stop);
+          tp1First = distToTP1 < distToStop;
+        } else {
+          tp1First = false;     // conservative fallback
+        }
+      }
+
       if (t.side === "long") {
-        if (bar.high >= t.tp1 && !t.tp1_hit) {
+        if (hitTP1 && !t.tp1_hit && tp1First) {
           transitions.push({ id: t.id, ts: bar.ts, status: "TP1_HIT", r_realized: rMultiple(t, t.tp1) });
           // Runner: stop moves to break-even.
           const next = { ...t, tp1_hit: true, stop: t.entry };
@@ -61,14 +80,14 @@ export function tickTrades(trades, bar) {
           }
           continue;
         }
-        if (bar.low <= t.stop) {
+        if (hitStop) {
           transitions.push({ id: t.id, ts: bar.ts, status: "STOPPED", r_realized: rMultiple(t, t.stop) });
           updated.push({ ...t, state: "closed", outcome: "STOPPED" });
           continue;
         }
       } else {
         // short, symmetric
-        if (bar.low <= t.tp1 && !t.tp1_hit) {
+        if (hitTP1 && !t.tp1_hit && tp1First) {
           transitions.push({ id: t.id, ts: bar.ts, status: "TP1_HIT", r_realized: rMultiple(t, t.tp1) });
           const next = { ...t, tp1_hit: true, stop: t.entry };
           if (bar.low <= t.tp2) {
@@ -79,7 +98,7 @@ export function tickTrades(trades, bar) {
           }
           continue;
         }
-        if (bar.high >= t.stop) {
+        if (hitStop) {
           transitions.push({ id: t.id, ts: bar.ts, status: "STOPPED", r_realized: rMultiple(t, t.stop) });
           updated.push({ ...t, state: "closed", outcome: "STOPPED" });
           continue;
@@ -118,8 +137,15 @@ function inRange(bar, price) {
 }
 
 function rMultiple(t, exitPrice) {
-  const risk = Math.abs(t.entry - t.stop);
-  if (risk === 0) return 0;
-  const move = t.side === "long" ? (exitPrice - t.entry) : (t.entry - exitPrice);
+  const entry = Number(t.entry);
+  const stop = Number(t.stop);
+  const exit = Number(exitPrice);
+  // Guard against bad input — string prices, NaN, or entry === stop.
+  // Returning null surfaces the problem (UI shows "—" instead of "0R")
+  // instead of silently lying that the trade made zero profit.
+  if (!Number.isFinite(entry) || !Number.isFinite(stop) || !Number.isFinite(exit)) return null;
+  const risk = Math.abs(entry - stop);
+  if (risk === 0) return null;
+  const move = t.side === "long" ? (exit - entry) : (entry - exit);
   return Number((move / risk).toFixed(2));
 }

@@ -48,6 +48,37 @@ test("filled long → TP1+TP2 same bar both fire", () => {
   assert.equal(out.updated[0].state, "closed");
 });
 
+test("filled long → same-bar TP1+stop, open close to TP1 → favor TP1", () => {
+  // Open near TP1, so price likely went up first.
+  const trade = { ...baseLong, state: "filled" };
+  const out = tickTrades([trade], { open: 109, high: 112, low: 94, ts: "T" });
+  assert.equal(out.transitions[0].status, "TP1_HIT");
+  // After TP1, stop moves to BE (entry=100). Bar.low 94 IS below BE, so... well
+  // we don't fire stop in same bar after TP1 (current behavior). Just verify TP1.
+});
+
+test("filled long → same-bar TP1+stop, open close to stop → favor STOPPED", () => {
+  // Open near stop, so price likely went down first.
+  const trade = { ...baseLong, state: "filled" };
+  const out = tickTrades([trade], { open: 96, high: 112, low: 94, ts: "T" });
+  assert.equal(out.transitions[0].status, "STOPPED");
+  assert.equal(out.updated[0].outcome, "STOPPED");
+});
+
+test("filled long → same-bar TP1+stop, no bar.open → fall back to STOPPED", () => {
+  // Conservative fallback when open is absent (e.g. very old bar event).
+  const trade = { ...baseLong, state: "filled" };
+  const out = tickTrades([trade], { high: 112, low: 94, ts: "T" });
+  assert.equal(out.transitions[0].status, "STOPPED");
+});
+
+test("rMultiple returns null on entry===stop (no division by zero)", () => {
+  const trade = { ...baseLong, state: "filled", entry: 100, stop: 100 };
+  const out = tickTrades([trade], { high: 112, low: 100, ts: "T" });
+  // TP1 fires; r_realized should be null, not 0 (silent lie) or Infinity.
+  assert.equal(out.transitions[0].r_realized, null);
+});
+
 test("short symmetric — pending → FILLED when bar.low ≤ entry", () => {
   const short = { ...baseLong, side: "short", entry: 100, stop: 105, tp1: 90, tp2: 80, invalidation: 110 };
   const out = tickTrades([short], { high: 101, low: 99, ts: "T" });

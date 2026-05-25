@@ -188,16 +188,36 @@ function EntryHunt({ loopDown, noSetups, alerts, onArmPrice }) {
   const { activeTrade, accept: acceptApi, reject: rejectApi } = useTrades();
   const setup = adaptSurfacedSetup(activeSetup);
   const takenTrade = adaptTakenTrade(activeTrade);
+  // #2 In-flight guards prevent double-click → two trade events.
+  // #3 Loop-down guard: don't let the trader accept when the detector
+  // can't track outcomes. Trade would sit pending forever.
+  const [acceptPending, setAcceptPending] = useStateL(false);
+  const [rejectPending, setRejectPending] = useStateL(false);
 
   const accept = async () => {
-    if (!activeSetup) return;
-    const res = await acceptApi(activeSetup);
-    if (res?.ok) clearSetup();
+    if (!activeSetup || acceptPending) return;
+    if (loopDown) {
+      alert("Loop is DOWN — detector isn't tracking trades. Wait for it to recover before accepting.");
+      return;
+    }
+    setAcceptPending(true);
+    try {
+      const res = await acceptApi(activeSetup);
+      if (res?.ok) clearSetup();
+      else if (res?.error) alert(`Couldn't accept: ${res.error}`);
+    } finally {
+      setAcceptPending(false);
+    }
   };
   const reject = async () => {
-    if (!activeSetup) return;
-    await rejectApi(activeSetup.id, "");
-    clearSetup();
+    if (!activeSetup || rejectPending) return;
+    setRejectPending(true);
+    try {
+      await rejectApi(activeSetup.id, "");
+      clearSetup();
+    } finally {
+      setRejectPending(false);
+    }
   };
 
   return (

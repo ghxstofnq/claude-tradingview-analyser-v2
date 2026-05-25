@@ -50,6 +50,16 @@ export function useChat() {
     // eslint-disable-next-line no-console
     console.log("[useChat] subscribing to chat events");
 
+    // #11 Re-hydrate setup state from main. EntryHunt unmounts on mode
+    // switch, so activeSetup state would be empty when the trader comes
+    // back to LIVE. Main mirrors the latest surface_setup / surface_no_trade
+    // and we pull it on mount.
+    window.api?.setups?.current?.().then((res) => {
+      if (!res?.ok) return;
+      if (res.setup) setActiveSetup(res.setup);
+      if (res.noTradeReason) setNoTradeReason(res.noTradeReason);
+    }).catch(() => {});
+
     const offChunk = window.api.chat.onChunk((ev) => {
       // eslint-disable-next-line no-console
       console.log("[useChat] chunk", JSON.stringify(ev?.text || "").slice(0, 80));
@@ -81,6 +91,7 @@ export function useChat() {
       console.log("[useChat] turn_complete");
       streamingIdxRef.current = null;
       setTyping(false);
+      clearTypingWatchdog();
     });
 
     const offError = window.api.error?.onError?.((ev) => {
@@ -92,6 +103,7 @@ export function useChat() {
       ]));
       streamingIdxRef.current = null;
       setTyping(false);
+      clearTypingWatchdog();
     });
 
     return () => {
@@ -101,6 +113,25 @@ export function useChat() {
       offError?.();
     };
   }, []);
+
+  // Typing watchdog. If turn_complete is missed (IPC blip, app:error
+  // before chunks start, etc), `typing` would stay true forever and the
+  // dots animate indefinitely. Clear after 6 min — longer than the
+  // brief timeout (300s) so legitimate slow turns aren't cut off.
+  const TYPING_WATCHDOG_MS = 6 * 60 * 1000;
+  const typingTimerRef = useRef(null);
+  function armTypingWatchdog() {
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.warn("[useChat] typing watchdog fired — clearing stuck typing state");
+      setTyping(false);
+      streamingIdxRef.current = null;
+    }, TYPING_WATCHDOG_MS);
+  }
+  function clearTypingWatchdog() {
+    if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
+  }
 
   async function send(text) {
     // eslint-disable-next-line no-console
@@ -113,6 +144,7 @@ export function useChat() {
       return next;
     });
     setTyping(true);
+    armTypingWatchdog();
     try {
       const res = await window.api.chat.send(text);
       // eslint-disable-next-line no-console
@@ -122,12 +154,16 @@ export function useChat() {
       console.error("[useChat] send threw", err);
       setTyping(false);
       streamingIdxRef.current = null;
+      clearTypingWatchdog();
     }
   }
 
   function clearSetup() {
     setActiveSetup(null);
     setNoTradeReason(null);
+    // Tell main to clear its mirror too, so a mode-flip remount doesn't
+    // re-hydrate the just-accepted/rejected setup.
+    window.api?.setups?.clear?.().catch(() => {});
   }
 
   // Kill-switch: ask main to abort the currently in-flight Claude turn.

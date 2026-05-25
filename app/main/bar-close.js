@@ -14,6 +14,7 @@ import readline from "node:readline";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as replayCore from "@tvmcp/core/replay";
 import { userTurn } from "./sdk.js";
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull } from "./tools/tv-analyze.js";
@@ -23,6 +24,7 @@ import { markBarReceived, markTurnComplete } from "./health.js";
 import { activeSessionDir } from "./sessions.js";
 import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
+import { record as recordMetric } from "./metrics.js";
 import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 
 // How many recent JSONL entries to tail into the per-bar prompt.
@@ -42,6 +44,12 @@ let _send = null;
 let _restartTimer = null;
 let _backoffMs = 1000;
 let _refreshingBaseline = false;
+// Detector restart cap. Without a max, a fundamentally broken detector
+// (binary missing, perms wrong, port conflict) retries every 30s
+// forever — silent fail under "loop down" forever. Cap means we
+// eventually stop and surface to the user.
+let _restartCount = 0;
+const MAX_RESTARTS = 10;
 let _unsubscribeMode = null;
 
 // Per-tf coalescing queue. When a turn is in flight and another bar arrives,
@@ -54,7 +62,7 @@ let _running = false;
 
 export function startDetector({ send }) {
   _send = send;
-  _backoffMs = 1000;
+  resetDetectorRestarts();
   spawnOnce();
 }
 
@@ -70,11 +78,44 @@ export function stopDetector() {
 // pattern where ipc.mode:switch called startDetector/stopDetector directly
 // — that meant any future mode-aware caller had to wire its own dispatch.
 // Now it's one subscription owned next to the detector itself.
+//
+// #1 IMPORTANT: don't stop the detector if there's an open trade. The
+// trade-outcome ticker depends on bar events; killing it means TP/stop
+// events never fire. Trader who flips to PREP "just to check" would
+// silently lose tracking. Instead, the runClaudeTurnFor function gates
+// Claude turns on mode (only fires when mode === live), but the detector
+// keeps emitting and tickOpenTrades keeps running.
+async function hasOpenTrades() {
+  try {
+    const dir = await activeSessionDir();
+    const txt = await fs.readFile(path.join(dir, "trades.jsonl"), "utf8");
+    const events = txt.trim().split("\n").filter(Boolean).map((l) => {
+      try { return JSON.parse(l); } catch { return null; }
+    }).filter(Boolean);
+    return foldOpenTrades(events).length > 0;
+  } catch { return false; }
+}
+
 export function bindDetectorToMode({ send }) {
   if (_unsubscribeMode) _unsubscribeMode();
-  _unsubscribeMode = onModeChange(({ mode }) => {
-    if (mode === "live") startDetector({ send });
-    else stopDetector();
+  _unsubscribeMode = onModeChange(async ({ mode }) => {
+    if (mode === "live") {
+      startDetector({ send });
+    } else {
+      // Only stop if no open trades. Otherwise keep the detector alive
+      // so tickOpenTrades continues — Claude turns are gated separately.
+      if (await hasOpenTrades()) {
+        // eslint-disable-next-line no-console
+        console.log(`[bar-close] mode=${mode} but open trade(s) — detector stays running for outcome ticking`);
+        send?.("app:error", {
+          source: "bar-close",
+          level: "info",
+          message: `Detector stays running — open trade(s) need outcome tracking.`,
+        });
+      } else {
+        stopDetector();
+      }
+    }
   });
   // Honor whatever mode the app booted into.
   if (isLive()) startDetector({ send });
@@ -107,17 +148,34 @@ function spawnOnce() {
     console.warn("[bar-close] detector exited", code);
     _proc = null;
     _send?.("health:update", { detector: code === 0 ? "stopped" : "down" });
-    // Backoff restart unless we asked it to stop.
-    if (!_restartTimer) {
+    // Backoff restart unless we asked it to stop OR we've blown the cap.
+    if (!_restartTimer && _restartCount < MAX_RESTARTS) {
+      _restartCount += 1;
       _restartTimer = setTimeout(() => {
         _restartTimer = null;
         _backoffMs = Math.min(_backoffMs * 2, 30_000);
         spawnOnce();
       }, _backoffMs);
+    } else if (_restartCount >= MAX_RESTARTS) {
+      // eslint-disable-next-line no-console
+      console.error(`[bar-close] detector blew restart cap (${MAX_RESTARTS}); giving up. Restart the app.`);
+      _send?.("app:error", {
+        source: "bar-close",
+        message: `Detector failed ${MAX_RESTARTS} restart attempts. Restart the app.`,
+      });
+      _send?.("health:update", { detector: "failed" });
     }
   });
 
   _send?.("health:update", { detector: "running" });
+}
+
+// Reset restart counter when a session starts cleanly (or a manual reset
+// is wanted). Called from startDetector — gives the cap "amnesty" on a
+// fresh session, so a previous day's bad run doesn't poison today.
+export function resetDetectorRestarts() {
+  _restartCount = 0;
+  _backoffMs = 1000;
 }
 
 async function handleBar(ev) {
@@ -141,7 +199,19 @@ async function handleBar(ev) {
   // Phase-aware: decide if Claude should react.
   const { session } = currentSession();
   const phase = phaseFor(session, ev);
-  if (phase === "off") return;
+  if (phase === "off") {
+    // #6 Session close — if any trades are still open after the session
+    // ended, warn the user once per (date, session). Trader could've
+    // walked away with a position. We emit a single warning, not one
+    // per bar, by tracking the last warning's (date, session) key.
+    await maybeWarnSessionEndedWithOpenTrades(ev).catch(() => {});
+    return;
+  }
+  // #1 Mode gate: even with the detector running for trade ticking,
+  // only fire Claude turns when mode === live. PREP/REVIEW are non-
+  // trading; we don't want a NY-AM bar to surface a setup when the
+  // trader is reviewing yesterday or briefing tomorrow.
+  if (!isLive()) return;
 
   // Append the bar to <sdir>/bars.jsonl BEFORE queuing the Claude turn so the
   // next prompt enrichment can see it. Deterministic — body_ratio etc.
@@ -197,7 +267,35 @@ function maybeRunDrain() {
   })();
 }
 
+// Cache replay state so we don't hammer CDP on every bar. Re-check
+// at most once per ~30s. If replay is on, bar-close turns skip — grading
+// replay bars as live would surface fake setups.
+let _replayCheckedAt = 0;
+let _replayActive = false;
+async function isReplayActive() {
+  const now = Date.now();
+  if (now - _replayCheckedAt < 30_000) return _replayActive;
+  _replayCheckedAt = now;
+  try {
+    const s = await replayCore.status();
+    _replayActive = !!s?.is_replay_started;
+  } catch {
+    _replayActive = false; // no replay session = "not active"
+  }
+  return _replayActive;
+}
+
 async function runClaudeTurnFor(ev, session, phase) {
+  // Skip Claude turns when TradingView replay is on — bar OHLC is from
+  // the replay timeline, not live market. Grading these would surface
+  // fake setups. Trade-outcome ticking is still allowed (deterministic;
+  // user can manually close any positions before enabling replay).
+  if (await isReplayActive()) {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] skipping Claude turn — TradingView replay is active");
+    recordMetric({ kind: "bar-close", event: "skipped", session, reason: "replay_active" });
+    return;
+  }
   await maybeRefreshBaseline();
   // Catch-up: if we entered entry-hunt without a pair-decision (started the
   // system after 09:45 ET for NY AM / 13:15 for NY PM / 03:15 for London),
@@ -254,6 +352,13 @@ async function runClaudeTurnFor(ev, session, phase) {
   });
   const text = `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}\n${hint}`;
 
+  // Metrics: track bar-close turn lifecycle. Was: bar-close (the highest-
+  // frequency turn at ~60/hour) emitted ZERO metrics — couldn't answer
+  // "how many turns succeeded/failed/timed out today?" Now matches brief
+  // and wrap.
+  recordMetric({ kind: "bar-close", event: "started", session });
+  const startedAt = Date.now();
+  let errored = false;
   await userTurn({
     text,
     purpose: "bar-close",
@@ -268,8 +373,17 @@ async function runClaudeTurnFor(ev, session, phase) {
         _send?.("chat:turn_complete", e);
         markTurnComplete();
       }
-      else if (e.type === "error") _send?.("app:error", { source: "sdk", message: e.message });
+      else if (e.type === "error") {
+        errored = true;
+        _send?.("app:error", { source: "sdk", message: e.message });
+      }
     },
+  });
+  recordMetric({
+    kind: "bar-close",
+    event: errored ? "failed" : "succeeded",
+    session,
+    durationMs: Date.now() - startedAt,
   });
 }
 
@@ -319,6 +433,9 @@ Steps:
 4. End with mcp__tv__surface_no_trade reason="leader caught up post-hoc — resuming entry hunt next bar".
 
 Do NOT walk entry models or call surface_setup in this turn. It is leader-pick only.`;
+  recordMetric({ kind: "catch-up", event: "started", session });
+  const startedAtCatchup = Date.now();
+  let erroredCatchup = false;
   await userTurn({
     text,
     purpose: "catch-up",
@@ -329,8 +446,17 @@ Do NOT walk entry models or call surface_setup in this turn. It is leader-pick o
         _send?.("chat:turn_complete", e);
         markTurnComplete();
       }
-      else if (e.type === "error") _send?.("app:error", { source: "sdk", message: e.message });
+      else if (e.type === "error") {
+        erroredCatchup = true;
+        _send?.("app:error", { source: "sdk", message: e.message });
+      }
     },
+  });
+  recordMetric({
+    kind: "catch-up",
+    event: erroredCatchup ? "failed" : "succeeded",
+    session,
+    durationMs: Date.now() - startedAtCatchup,
   });
 }
 
@@ -354,7 +480,18 @@ async function preflightChartState(ev, phase) {
   }
   if (!decision?.leader) return;
   const timeframe = ev.tf === "5m" ? "5" : "1";
-  await ensureChartState({ symbol: decision.leader, timeframe });
+  // #12 ensureChartState reports whether it actually changed the chart.
+  // If the user (or anything else) had moved the chart off leader/TF,
+  // we now surface a one-shot notification so the trader knows their
+  // manual change was reverted — previously it was silent.
+  const result = await ensureChartState({ symbol: decision.leader, timeframe });
+  if (result?.changed) {
+    _send?.("app:error", {
+      source: "preflight",
+      level: "warn",
+      message: `Chart reverted to ${decision.leader} @ ${timeframe}m (entry-hunt requires it). Manual changes will keep snapping back.`,
+    });
+  }
 }
 
 // Append a per-bar log to the session folder. Main computes body_ratio and
@@ -428,6 +565,35 @@ function minutesIntoPhase(session, ev, phase) {
   return null;
 }
 
+// #6 One-shot warning when a session ends with open trades. Tracked by
+// the just-ended session's folder so we only warn once per session, not
+// every minute thereafter. Resets implicitly when the next session
+// starts (we'd be in a new dir).
+let _lastWarnedKey = null;
+async function maybeWarnSessionEndedWithOpenTrades(ev) {
+  const dir = await activeSessionDir();
+  const key = dir;
+  if (_lastWarnedKey === key) return;
+  try {
+    const txt = await fs.readFile(path.join(dir, "trades.jsonl"), "utf8");
+    const events = txt.trim().split("\n").filter(Boolean).map((l) => {
+      try { return JSON.parse(l); } catch { return null; }
+    }).filter(Boolean);
+    const open = foldOpenTrades(events);
+    if (open.length > 0) {
+      const ids = open.map((t) => t.id).join(", ");
+      // eslint-disable-next-line no-console
+      console.warn(`[bar-close] session ended with ${open.length} open trade(s): ${ids}`);
+      _send?.("app:error", {
+        source: "bar-close",
+        level: "warn",
+        message: `Session ended with ${open.length} open trade(s): ${ids}. Tracker continues but no Claude reasoning.`,
+      });
+    }
+  } catch { /* no trades file or all closed */ }
+  _lastWarnedKey = key;
+}
+
 async function tickOpenTrades(ev) {
   if (!ev?.ohlc) return;
   const dir = await activeSessionDir();
@@ -438,7 +604,9 @@ async function tickOpenTrades(ev) {
   const open = foldOpenTrades(events);
   if (!open.length) return;
 
-  const bar = { high: ev.ohlc.high, low: ev.ohlc.low, ts: ev.ts };
+  // bar.open used by tickTrades' same-bar TP1+stop heuristic — without
+  // it, the function falls back to STOPPED (conservative).
+  const bar = { open: ev.ohlc.open, high: ev.ohlc.high, low: ev.ohlc.low, ts: ev.ts };
   const { transitions } = tickTrades(open, bar);
   for (const tr of transitions) {
     await fs.appendFile(file, JSON.stringify({ type: "outcome", ...tr }) + "\n", "utf8");

@@ -139,8 +139,36 @@ const PROTOCOL_BY_PURPOSE = {
 // tiny disk read (~35 KB) per turn — invisible next to model latency.
 // Pre-cache made iteration painful: tweak a word in the prompt → restart
 // the whole app → run a brief → repeat. Now: edit, fire, see.
+//
+// SAFETY: keep a last-known-good copy of the base prompt. If a hot read
+// returns an empty / partial / oversized file (editor mid-save), use the
+// cached version instead of letting Claude operate on garbage instructions.
+let _lastGoodBase = null;
+const PROMPT_MIN_LENGTH = 1000;        // analyze.md is ~35 KB; <1KB = mid-save
+const PROMPT_MAX_LENGTH = 500_000;     // hard cap so a corrupt file doesn't OOM
+
 async function loadSystemPrompt(purpose) {
-  const base = await fs.readFile(PROMPT_PATH, "utf8");
+  let base;
+  try {
+    const text = await fs.readFile(PROMPT_PATH, "utf8");
+    if (text.length < PROMPT_MIN_LENGTH || text.length > PROMPT_MAX_LENGTH) {
+      // eslint-disable-next-line no-console
+      console.warn(`[sdk] system prompt looks wrong size (${text.length} bytes) — using last-known-good`);
+      base = _lastGoodBase;
+    } else {
+      base = text;
+      _lastGoodBase = text;
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[sdk] system prompt read failed (${err?.message}) — using last-known-good`);
+    base = _lastGoodBase;
+  }
+  if (!base) {
+    // First call AND read failed — no fallback. Throw rather than send
+    // an empty prompt (Claude would say things based on nothing).
+    throw new Error("system prompt read failed and no last-known-good available");
+  }
   const protocol = PROTOCOL_BY_PURPOSE[purpose] || PROTOCOL_BY_PURPOSE["bar-close"];
   return base + protocol;
 }
