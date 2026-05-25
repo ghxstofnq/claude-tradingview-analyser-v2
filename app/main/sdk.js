@@ -332,7 +332,11 @@ function buildMcpServer() {
         })).describe("Overnight context rows: Asia range, London range, what was swept, direction overnight, etc."),
         key_levels: z.array(z.object({
           name: z.string().describe("PWH, PDH, ONH, ONL, PDL, PWL, AS_H, AS_L, LO_H, LO_L"),
-          price: z.union([z.number(), z.string()]).describe("Numeric or pre-formatted price"),
+          // Numeric only. Previously z.union([number, string]) — Claude
+          // could submit price: "PDH" and the UI rendered the string in
+          // the price column. The number → format-on-render path keeps
+          // formatting (e.g. "21 528.50") under the renderer's control.
+          price: z.number().finite().describe("Numeric price — formatting is the renderer's job"),
           state: z.enum(["taken", "untaken"]),
         })).describe("Key levels for the session, sorted high → low"),
         pillar_grade: z.enum(["A+", "B", "no-trade"]).describe("Roll-up grade for Pillars 1+2 only (Pillar 3 is pending until LIVE)"),
@@ -345,8 +349,17 @@ function buildMcpServer() {
           })),
         })).describe("Three pillars: 'Draw & Bias', 'Price-Action Quality', 'Entry Model + Confirmation' (the third is pending until LIVE)"),
         plan: z.string().describe("Claude's written plan for the open — what scenario looks like A+, what flips it to retrace, the bias direction"),
-        anchored_target: z.string().describe("e.g. '21 528.50 (PDH)'"),
-        anchored_stop: z.string().describe("e.g. '21 462.75 (PDL)'"),
+        // anchored_target / anchored_stop are free strings (Claude wraps
+        // a price with a label like "(PDH)"), but they MUST cite an
+        // actual price — empty / "TBD" / whitespace-only is a degenerate
+        // state the UI renders as a blank target field. Refinement: the
+        // string must contain at least one digit.
+        anchored_target: z.string().refine((s) => /\d/.test(s), {
+          message: "anchored_target must contain a cited price (a digit) — e.g. '21528.50 (PDH)'",
+        }).describe("e.g. '21 528.50 (PDH)' — must include a numeric price"),
+        anchored_stop: z.string().refine((s) => /\d/.test(s), {
+          message: "anchored_stop must contain a cited price (a digit) — e.g. '21462.75 (PDL)'",
+        }).describe("e.g. '21 462.75 (PDL)' — must include a numeric price"),
         sizing_note: z.string().describe("e.g. '0.75 R · Mon-reduced' — references the strategy sizing table"),
       },
       async (args) => {

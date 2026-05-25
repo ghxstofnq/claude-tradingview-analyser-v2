@@ -80,8 +80,21 @@ export async function writeBrief(dir, payload) {
       await writeAtomic(path.join(dir, "brief-bundle.json"), sourceBundle);
     } catch { /* no source bundle — skip snapshot */ }
   }
-  await writeAtomic(path.join(dir, "pillar1.md"), renderPillar1Md(payload));
-  await writeAtomic(path.join(dir, "pillar2.md"), renderPillar2Md(payload));
+  // Pillar 1 + 2 as an atomic PAIR. Bar-close reads both pillars on every
+  // tick to enrich the per-bar prompt — writing them as two separate
+  // files used to mean bar-close could read the new pillar1 + the old
+  // pillar2 in the microseconds between renames. Now: write the combined
+  // pillars.md atomically (the canonical source readMemory consumes) and
+  // ALSO write the individual files (still useful for human inspection).
+  // Combined-first means readers never see a torn pair.
+  const pillar1Md = renderPillar1Md(payload);
+  const pillar2Md = renderPillar2Md(payload);
+  await writeAtomic(
+    path.join(dir, "pillars.md"),
+    `${pillar1Md}\n\n---\n\n${pillar2Md}\n`,
+  );
+  await writeAtomic(path.join(dir, "pillar1.md"), pillar1Md);
+  await writeAtomic(path.join(dir, "pillar2.md"), pillar2Md);
 }
 
 /**
@@ -95,7 +108,28 @@ export async function readMemory(dir, opts = {}) {
   const tailBars = opts.tailBars ?? DEFAULT_TAIL_BARS;
   const tailSetups = opts.tailSetups ?? DEFAULT_TAIL_SETUPS;
   const parts = [];
-  for (const name of ["pillar1.md", "pillar2.md", "ltf-bias.md", "open-reaction.md"]) {
+  // Prefer pillars.md (single atomic file containing both pillar 1 and 2)
+  // — it can never be torn the way pillar1.md + pillar2.md could be when
+  // they're written separately. Fall back to the individual files for
+  // briefs written before pillars.md existed (or if writeBrief failed
+  // partway).
+  let pillarsHandled = false;
+  try {
+    const txt = (await fs.readFile(path.join(dir, "pillars.md"), "utf8")).trim();
+    if (txt) {
+      parts.push(`--- pillars.md ---\n${txt}`);
+      pillarsHandled = true;
+    }
+  } catch { /* fall back */ }
+  if (!pillarsHandled) {
+    for (const name of ["pillar1.md", "pillar2.md"]) {
+      try {
+        const txt = (await fs.readFile(path.join(dir, name), "utf8")).trim();
+        if (txt) parts.push(`--- ${name} ---\n${txt}`);
+      } catch { /* missing → skip */ }
+    }
+  }
+  for (const name of ["ltf-bias.md", "open-reaction.md"]) {
     try {
       const txt = (await fs.readFile(path.join(dir, name), "utf8")).trim();
       if (txt) parts.push(`--- ${name} ---\n${txt}`);
