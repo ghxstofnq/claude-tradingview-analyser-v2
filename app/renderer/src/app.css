@@ -1510,3 +1510,97 @@ button { font: inherit; color: inherit; background: transparent; border: 0; padd
 }
 [data-theme="light"] .brain-narration { background: rgba(37, 99, 160, 0.05); }
 [data-theme="light"] .brain-narration .head { color: #2563a0; }
+
+/* ─────────── REVIEW redesign (2026-05-27) ─────────── */
+
+/* Candidate ledger row — chronological list inside the new CANDIDATE
+   LEDGER panel. One row per setup. */
+.ledger-row {
+  display: grid;
+  grid-template-columns: 56px 36px 44px 64px 88px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 14px;
+  font-size: 10.5px;
+  border-bottom: 1px dotted var(--border-dim, #1e2228);
+}
+.ledger-row:last-child { border-bottom: 0; }
+.ledger-row.expandable { cursor: pointer; }
+.ledger-row.expandable:hover { background: rgba(212, 166, 87, 0.04); }
+.ledger-row.accepted {
+  background: rgba(111, 156, 91, 0.04);
+  border-left: 2px solid var(--green);
+  padding-left: 12px;
+}
+
+.ledger-row .ts {
+  color: var(--label-dim, #6b7178);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ledger-row .grade {
+  text-align: center;
+  padding: 1px 0;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  border: 1px solid var(--border);
+  color: var(--label);
+  white-space: nowrap;
+}
+.ledger-row .grade.aplus {
+  color: var(--green);
+  border-color: var(--green);
+  background: rgba(111, 156, 91, 0.12);
+}
+.ledger-row .grade.b {
+  color: var(--amber);
+  border-color: var(--amber);
+  background: rgba(212, 166, 87, 0.12);
+}
+.ledger-row .grade.nt {
+  color: var(--label-dim, #6b7178);
+  border-color: var(--border);
+}
+.ledger-row .side {
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.ledger-row .side.long { color: var(--green); }
+.ledger-row .side.short { color: var(--red); }
+.ledger-row .model {
+  color: var(--value);
+  font-size: 10px;
+}
+.ledger-row .state {
+  text-align: center;
+  padding: 1px 0;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.ledger-row .state.green { color: var(--green); }
+.ledger-row .state.red { color: var(--red); }
+.ledger-row .state.amber { color: var(--amber); }
+.ledger-row .state.blue { color: var(--blue, #4f7eb3); }
+.ledger-row .state.dim { color: var(--label-dim, #6b7178); }
+.ledger-row .reason {
+  color: var(--label);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ledger-row .reason .caret {
+  color: var(--green);
+  margin-left: 4px;
+}
+
+/* Inline TradeCard expansion — appears under an expanded accepted row. */
+.ledger-trade-expand {
+  margin: 0 0 4px 32px;
+  border-left: 2px solid var(--green);
+  background: rgba(111, 156, 91, 0.04);
+  padding: 4px 8px;
+}

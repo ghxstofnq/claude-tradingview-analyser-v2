@@ -9,6 +9,12 @@ import React, { useState } from "react";
 import { Panel, Row, Grade, TradeCard, SectionHead } from "./Shared.jsx";
 import { useReview } from "./hooks/useReview.js";
 import { useAgentState } from "./hooks/useAgentState.js";
+import {
+  formatGradeShort,
+  deriveLedgerState,
+  deriveLedgerReason,
+  buildLedger,
+} from "./Review.helpers.js";
 
 const SESSION_LABEL = { "ny-am": "NY AM", "ny-pm": "NY PM", "london": "LONDON" };
 
@@ -129,6 +135,104 @@ function adaptTrade(t) {
     statusNote: t.tp1_hit && t.outcome !== "TP2_HIT" ? "runner: stop at BE" : "",
     taken: fmtTime(t.ts),
   };
+}
+
+// Single chronological row in the CANDIDATE LEDGER. Used in the new
+// REVIEW layout. State/reason are pre-computed by buildLedger so the
+// component is render-only.
+function LedgerRow({ row, expanded, onToggle }) {
+  const { setup, state, reason, expandable } = row;
+  const grade = setup.grade || "no-trade";
+  const gradeClass = grade === "A+" ? "aplus" : grade === "B" ? "b" : "nt";
+  const side = (setup.direction || setup.side || "").toLowerCase();
+  const sideLabel = side ? side.toUpperCase() : "—";
+  const ts = setup.ts
+    ? new Date(setup.ts).toLocaleTimeString("en-US", {
+        hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York",
+      }) + " ET"
+    : "—";
+  return (
+    <div
+      className={
+        "ledger-row" +
+        (expandable ? " expandable" : "") +
+        (setup._disposition === "accepted" ? " accepted" : "")
+      }
+      onClick={expandable ? () => onToggle(setup.id) : undefined}
+      title={reason}
+    >
+      <span className="ts">{ts}</span>
+      <span className={"grade " + gradeClass}>{formatGradeShort(grade)}</span>
+      <span className={"side " + (side === "long" ? "long" : side === "short" ? "short" : "")}>
+        {sideLabel}
+      </span>
+      <span className="model">{setup.model || "—"}</span>
+      <span className={"state " + state.tone}>{state.label}</span>
+      <span className="reason">
+        {reason}
+        {expandable && <span className="caret">{expanded ? " ▾" : " ▸"}</span>}
+      </span>
+    </div>
+  );
+}
+
+// Inline TradeCard wrapper rendered under an expanded ledger row.
+function LedgerTradeExpand({ trade }) {
+  if (!trade) return null;
+  return (
+    <div className="ledger-trade-expand">
+      <TradeCard trade={adaptTrade(trade)} showSnapshot={false} />
+    </div>
+  );
+}
+
+// CANDIDATE LEDGER — the new chronological panel. Replaces the
+// ACCEPTED TRADES and REJECTED / NO-TRADE blocks. Expand state is a
+// local Set<setupId>.
+function CandidateLedger({ setups, trades }) {
+  const rows = buildLedger(setups, trades);
+  const ignoredCount = (setups || []).filter((s) => s && s._disposition === "ignored").length;
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = (id) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  if (rows.length === 0) {
+    return (
+      <>
+        <SectionHead title="CANDIDATE LEDGER" count="0" />
+        <div className="empty-state" style={{ padding: 14 }}>
+          <div style={{ color: "var(--label)", fontSize: 11 }}>no candidates surfaced this session</div>
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <SectionHead
+        title="CANDIDATE LEDGER"
+        count={
+          ignoredCount > 0
+            ? `${rows.length} · ${ignoredCount} ignored`
+            : String(rows.length)
+        }
+      />
+      <div className="panel-body flush">
+        {rows.map((row) => {
+          const isOpen = expanded.has(row.setup.id);
+          return (
+            <React.Fragment key={row.setup.id || row.setup.ts}>
+              <LedgerRow row={row} expanded={isOpen} onToggle={toggle} />
+              {isOpen && row.expandable && <LedgerTradeExpand trade={row.trade} />}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </>
+  );
 }
 
 // AGENT STATE panel — three cards: USER.md viewer, MEMORY.md viewer,
@@ -298,8 +402,6 @@ function ReviewWorkstation() {
   }
 
   const { date, session, brief, summary, setups, trades, stats } = journal;
-  const accepted = trades;       // every accepted setup ended up here
-  const rejected = setups.filter((s) => s._disposition === "rejected" || s._disposition === "no-trade");
 
   return (
     <div className="work-scroll">
@@ -338,46 +440,7 @@ function ReviewWorkstation() {
         </div>
       </Panel>
 
-      <SectionHead title="ACCEPTED TRADES" count={accepted.length} />
-      <div style={{ paddingTop: 4, paddingBottom: 4 }}>
-        {accepted.length === 0 ? (
-          <div className="empty-state" style={{ padding: 14 }}>
-            <div style={{ color: "var(--label)", fontSize: 11 }}>no trades accepted this session</div>
-          </div>
-        ) : accepted.map((t) => <TradeCard key={t.id} trade={adaptTrade(t)} />)}
-      </div>
-
-      <SectionHead title="REJECTED / NO-TRADE" count={rejected.length} />
-      <div className="panel-body flush" style={{ paddingTop: 2, paddingBottom: 6 }}>
-        {rejected.length === 0 ? (
-          <div className="empty-state" style={{ padding: 14 }}>
-            <div style={{ color: "var(--label)", fontSize: 11 }}>no rejected setups</div>
-          </div>
-        ) : rejected.map((r) => (
-          <div key={r.id || r.ts} className="level-row"
-               style={{ gridTemplateColumns: "auto auto 1fr auto", padding: "6px 14px" }}>
-            <Grade value={r.grade || "no-trade"} />
-            <span style={{ color: "var(--label)", fontSize: 10.5, letterSpacing: ".08em" }}>
-              {r.id || "—"}
-            </span>
-            <span style={{ color: "var(--value)", fontSize: 11 }}>
-              <span style={{
-                color: r.direction === "long" || r.side === "long" ? "var(--green)" : "var(--red)",
-                letterSpacing: ".1em", marginRight: 8, fontSize: 10,
-              }}>
-                {String(r.direction || r.side || "").toUpperCase()}
-              </span>
-              <span style={{ color: "var(--label)", marginRight: 8 }}>{r.model || ""}</span>
-              <span style={{ color: "var(--prose)" }}>
-                {r._disposition === "no-trade" ? "no-trade discipline marker" : "rejected"}
-              </span>
-            </span>
-            <span style={{ color: "var(--label-dim)", fontSize: 9.5, letterSpacing: ".08em" }}>
-              {fmtTime(r.ts)}
-            </span>
-          </div>
-        ))}
-      </div>
+      <CandidateLedger setups={setups} trades={trades} />
 
       {summary?.watch_next_session?.length > 0 && (
         <>

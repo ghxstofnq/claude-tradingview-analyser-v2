@@ -131,13 +131,26 @@ export async function getJournalFor({ date, session }) {
   const rejectedSetupIds = new Set(
     tradeEvents.filter((e) => e.type === "reject").map((e) => e.setup_id).filter(Boolean)
   );
-  const setupsAnnotated = setups.map((s) => ({
-    ...s,
-    _disposition: acceptedSetupIds.has(s.id) ? "accepted"
-                : rejectedSetupIds.has(s.id) ? "rejected"
-                : s.grade === "no-trade"     ? "no-trade"
-                : "ignored",
-  }));
+  // Capture the trader-supplied rejection reason from the matching reject
+  // event so the ledger can render it instead of a bare "REJECTED" pill.
+  const rejectionReasonBySetupId = new Map(
+    tradeEvents
+      .filter((e) => e.type === "reject" && e.setup_id)
+      .map((e) => [e.setup_id, e.reason || ""])
+  );
+  const setupsAnnotated = setups.map((s) => {
+    const disposition = acceptedSetupIds.has(s.id) ? "accepted"
+                      : rejectedSetupIds.has(s.id) ? "rejected"
+                      : s.grade === "no-trade"     ? "no-trade"
+                      : "ignored";
+    return {
+      ...s,
+      _disposition: disposition,
+      _rejection_reason: disposition === "rejected"
+        ? (rejectionReasonBySetupId.get(s.id) || "")
+        : null,
+    };
+  });
   const stats = computeStats(setups, tradeEvents);
   return { date, session, brief, summary, setups: setupsAnnotated, trades, stats };
 }
