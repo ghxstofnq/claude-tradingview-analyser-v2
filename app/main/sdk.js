@@ -499,6 +499,21 @@ function buildMcpServer() {
         ltf_bias: z.enum(["bullish", "bearish", "mixed", "stand_aside"]).describe("Finalized LTF bias"),
         htf_ltf_alignment: z.enum(["aligned", "divergent", "unclear"]).describe("How LTF bias relates to HTF draw"),
         reasoning: z.string().describe("One paragraph, cited"),
+        // ---- Strategy chain handoff fields (Section 3.6 of spec) ----
+        // Optional for backwards-compat. Once the chain is live, the open_reaction
+        // prompt requires them; old callers can still surface a minimal payload.
+        leader: z.string().optional().describe("The chosen leader symbol (mirrors pair-decision.json) when in dual-symbol mode."),
+        is_retrace_day: z.boolean().optional().describe("True when divergent + HTF draw still untouched. Caps grade at B."),
+        entry_model_priority: z.enum(["MSS", "Trend", "Inversion", "undecided"]).optional().describe("Mechanically computed from htf_ltf_alignment × engine signals. See cli/lib/entry-model-priority.js."),
+        priority_reason: z.string().optional().describe("One-line cite for the priority decision (e.g. 'failure_swings[0]')."),
+        grade_cap: z.enum(["A+", "B"]).optional().describe("Max grade entry_hunt can surface this session. divergent → B."),
+        chain_status: z.string().optional().describe("clean | degraded:<reason> | divergent | backfilled:open_reaction"),
+        // Inputs for the entry_model_priority cross-check in surface.js.
+        // Optional — when omitted, surface.js skips the cross-check.
+        pillar2_verdict: z.enum(["good", "marginal", "poor"]).optional().describe("Latest Pillar 2 verdict — used to cross-check entry_model_priority."),
+        failure_swings_present: z.boolean().optional().describe("True if a recent failure_swing exists in the engine. Cross-check input."),
+        most_recent_structure: z.object({ event: z.string(), dir: z.string(), confirmed_ms: z.number().optional() }).optional().describe("Latest engine structure event. Cross-check input."),
+        inverted_fvg_present: z.boolean().optional().describe("True if an opposing FVG has flipped to state=inverted. Cross-check input."),
       },
       async (args) => {
         try {
@@ -612,6 +627,40 @@ function buildMcpServer() {
           (s) => /\((memory\.(USER|MEMORY)|strategy[^)]*)\)/.test(s),
           { message: "sizing_note must cite '(memory.USER)', '(memory.MEMORY)', or '(strategy.xyz)' — free-text rules are unauditable." },
         ).describe("e.g. '0.75 R · Tuesday standard (memory.USER)' — must cite (memory.USER), (memory.MEMORY), or (strategy)."),
+        // ---- Strategy chain handoff fields (Section 2.3 of spec) ----
+        // All optional for backwards-compat with PR #60. Once the chain is
+        // live, the brief prompt will require them; ad-hoc / legacy callers
+        // can still surface a minimal payload.
+        primary_draw: z.object({
+          tf: z.enum(["daily", "h4", "h1"]),
+          kind: z.enum(["fvg", "bpr", "ifvg"]),
+          dir: z.enum(["bull", "bear"]),
+          top: z.number().finite(),
+          bottom: z.number().finite(),
+          ce: z.number().finite(),
+          disp_score: z.number().finite(),
+          took_liq: z.boolean(),
+          state: z.enum(["fresh", "ce_tapped", "filled", "inverted", "invalidated"]),
+          cite: z.string().refine((s) => /engine_by_tf\.(daily|h4|h1)\.(fvgs|bprs)/.test(s), {
+            message: "primary_draw.cite must point at engine_by_tf.<tf>.fvgs[N] or .bprs[N]",
+          }),
+        }).optional().describe("The chosen primary HTF PD array — anchor for the day. From brief_digest.symbols.<sym>.htf.<tf>.top_fvgs/top_bprs."),
+        htf_destination: z.string().optional().describe('Free-string: "above 30000 buy-side" / "below 29400 sell-side" / "balanced".'),
+        overnight_block: z.object({
+          asia: z.object({ high: z.number(), low: z.number(), state: z.enum(["extended", "swept", "untaken"]), cite: z.string() }).optional(),
+          london: z.object({ high: z.number(), low: z.number(), state: z.enum(["extended", "swept", "untaken"]), cite: z.string() }).optional(),
+          untaken_above: z.array(z.object({ name: z.string(), price: z.number(), cite: z.string() })).optional(),
+          untaken_below: z.array(z.object({ name: z.string(), price: z.number(), cite: z.string() })).optional(),
+          overnight_verdict: z.enum(["extending_htf", "retracing_htf", "consolidating"]).optional(),
+          path_to_destination: z.string().optional(),
+        }).optional().describe("Structured overnight context handoff — populated by brief, consumed by open_reaction + entry_hunt."),
+        htf_quality: z.object({
+          h4: z.object({ range_quality: z.string(), displacement: z.string(), candle: z.string(), cite: z.string() }).optional(),
+          h1: z.object({ range_quality: z.string(), displacement: z.string(), candle: z.string(), cite: z.string() }).optional(),
+        }).optional().describe("HTF Pillar 2 quality verdict for h4 + h1. Strategy §3 step 3."),
+        pillar2_verdict: z.enum(["good", "marginal", "poor"]).optional().describe("Final P2 verdict for the session. Gates entry_hunt — 'poor' → stand aside."),
+        no_trade_reason: z.enum(["data_gap", "engine_stale", "pillar2_poor", "htf_unclear", "session_closed"]).optional().describe("Required iff pillar_grade==='no-trade'. Drives the hard-vs-soft short-circuit downstream."),
+        chain_status: z.string().optional().describe("clean | degraded:<reason> | divergent | backfilled:<phase> | stale:<minutes>"),
       },
       async (args) => {
         try {
@@ -773,12 +822,16 @@ const FALLBACK_MODEL = "sonnet";
 // "Start with the new xhigh effort level for coding and agentic use cases."
 // Our bar-close turns are both agentic (multiple tool calls) and intelligence-
 // sensitive (walk 3 entry models with per-component citation, emit a graded
-// tool call). The docs say xhigh is best for this shape; the cost is more
-// tokens per turn. Watch for budget drift after deploy; "high" is the safe
-// fallback if xhigh proves too expensive.
+// tool call). xhigh was the initial pick but pushed brief turns past 5 min
+// and bar-close turns to ~50% timeout rate even at 120s. Dropped back to
+// "high" — faster turns, lower spend, slightly less reasoning depth. The
+// new chain (digest at top, structured handoffs in pillar1/2.md frontmatter,
+// deterministic resolvers in cli/lib/) shifts intelligence load off the
+// model: it no longer has to fabricate primary_draw selection or
+// entry_model_priority — those are pre-computed.
 //
 // Levels: low | medium | high | xhigh | max.
-const EFFORT = "xhigh";
+const EFFORT = "high";
 
 /**
  * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close

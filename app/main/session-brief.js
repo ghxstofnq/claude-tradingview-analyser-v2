@@ -17,6 +17,8 @@ import * as replayCore from "@tvmcp/core/replay";
 import { makeScheduledTurn } from "./scheduled-turn.js";
 import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
+import { computeSize, dayOfWeek } from "../../cli/lib/sizing.js";
+import { getPersistentMemory } from "./persistent-memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -248,13 +250,36 @@ async function buildPrompt(session) {
     console.warn("[session-brief] recent-sessions read failed", err?.message || err);
   }
 
+  // Pre-compute today's sizing matrix from the helper. No LLM arithmetic —
+  // the model copies r_size verbatim into sizing_note based on the grade
+  // it produces. Avoids "1.0 R · Tuesday standard" being model-fabricated
+  // (it was right by training, but the helper is the source of truth).
+  // memory.USER overrides (e.g. "skip PCE Wednesdays") are checked too.
+  const today = dayOfWeek();
+  let memoryUserText = "";
+  try {
+    const mem = getPersistentMemory();
+    await mem.load();
+    memoryUserText = mem.formatForSystemPrompt("user") || "";
+  } catch { /* memory unavailable — pass empty string */ }
+  const sizingAplus = computeSize({ day_of_week: today, grade: "A+", memory_overrides: memoryUserText });
+  const sizingB = computeSize({ day_of_week: today, grade: "B", memory_overrides: memoryUserText });
+  const sizingBlock = `<sizing_pre_computed>
+day_of_week: ${today}
+A+: { r_size: ${sizingAplus.r_size}, cites: [${sizingAplus.cites.map((c) => `"${c}"`).join(", ")}]${sizingAplus.override_reason ? `, override: "${sizingAplus.override_reason}"` : ""} }
+B:  { r_size: ${sizingB.r_size}, cites: [${sizingB.cites.map((c) => `"${c}"`).join(", ")}]${sizingB.override_reason ? `, override: "${sizingB.override_reason}"` : ""} }
+no-trade: 0
+</sizing_pre_computed>
+
+`;
+
   // The brief workflow lives in the system prompt under <phase name="brief">
   // — that's the rigorous step-by-step. This user message is just the router:
   // it tells the model "you're a brief turn, here's the pair, go run that
   // phase." Keeping the heavy guidance in the system prompt means the brief
   // benefits from the same XML structuring, citation discipline, and grade
   // semantics as the per-bar /analyze phases.
-  return `${recentBlock}This is a SESSION BRIEF turn for the ${session.toUpperCase()} session.
+  return `${recentBlock}${sizingBlock}This is a SESSION BRIEF turn for the ${session.toUpperCase()} session.
 
 Pair: ${PAIR_DEFAULT}  (primary=${PAIR_PRIMARY}, secondary=${PAIR_SECONDARY})
 
@@ -263,6 +288,8 @@ Follow the <phase name="brief"> instructions in the system prompt end-to-end:
   2. For each symbol, walk Step 1 (HTF Bias per-TF with per-TF citations), Step 2 (Overnight Context), Step 3 (Pillar 2 Quality), Step 4 (Deterministic Pillar 1+2 grade), Step 5 (Scenarios), Step 6 (Sizing Note).
   3. Run the Step 7 self-check.
   4. End with mcp__tv__surface_session_brief — once per symbol (twice in dual-symbol mode). Skip surface_setup and surface_no_trade.
+
+For Step 6 (Sizing): use the <sizing_pre_computed> block above verbatim. Pick the row matching this symbol's grade. Format the sizing_note as: "<r_size> R · ${today} <grade> (strategy.sizing-table)" — copy r_size as a number, do not recompute. If override is set on the matching grade, surface the override_reason instead.
 
 The brief is what the trader sees during the open; sloppy citations or self-contradicting verdicts here directly hurt their decisions. The phase spec exists exactly to keep this turn disciplined.`;
 }

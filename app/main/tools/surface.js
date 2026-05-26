@@ -203,6 +203,31 @@ export async function surfaceSessionBrief(payload) {
       `[${[...VALID_BRIEF_SYMBOLS].join(", ")}]`,
     );
   }
+  // no_trade_reason cross-validation. The chain depends on this to route
+  // hard (data/engine/closed) vs soft (chop/htf_unclear) short-circuits.
+  if (payload.pillar_grade === "no-trade" && !payload.no_trade_reason) {
+    throw new Error(
+      `surface_session_brief: pillar_grade "no-trade" requires no_trade_reason ` +
+      `(one of: data_gap, engine_stale, pillar2_poor, htf_unclear, session_closed). ` +
+      `Without it, downstream phases can't route hard vs soft short-circuit.`,
+    );
+  }
+  if (payload.pillar_grade !== "no-trade" && payload.no_trade_reason) {
+    throw new Error(
+      `surface_session_brief: no_trade_reason set ("${payload.no_trade_reason}") ` +
+      `but pillar_grade is "${payload.pillar_grade}" — reason only valid with no-trade grade.`,
+    );
+  }
+  // chain_status auto-derive when model omits it. The brief observably
+  // forgets to set it (optional in Zod). Derive from pillar_grade +
+  // no_trade_reason so the audit field is never null:
+  //   no-trade + reason → "degraded:<reason>"
+  //   anything else     → "clean"
+  if (!payload.chain_status) {
+    payload.chain_status = payload.no_trade_reason
+      ? `degraded:${payload.no_trade_reason}`
+      : "clean";
+  }
   // Consistency check: A+ requires at least 2 pillars (P1 + P2; P3 is
   // pending pre-session). Schema-level Zod can't easily enforce this, but
   // a runtime check stops "A+ with empty pillars" from rendering an empty
@@ -298,9 +323,40 @@ export async function surfaceOpenReaction(payload) {
   return { ok: true };
 }
 
+// Resolve the actual phase from the ET clock + session window, not just
+// the session arg. Observed live 2026-05-26 NY PM 13:09 ET: model called
+// surface_open_reaction(session="ny-pm") 21 min BEFORE the actual open
+// at 13:30 ET, and the file got phase=open_reaction_ny_pm. Downstream
+// consumers (entry_hunt preamble, wrap) read this as "open-reaction
+// happened" when really it's pre-session observation.
+function actualPhaseForSession(session) {
+  const sess = (session || "ny-am").replace("-", "_");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
+  const m = get("hour") * 60 + get("minute");
+  // Session windows (ET):
+  //  ny-am:  pre 08:00-09:30 | open_reaction 09:30-09:45 | entry_hunt 09:45-12:00 | post 12:00+
+  //  ny-pm:  pre 12:00-13:30 | open_reaction 13:30-13:45 | entry_hunt 13:45-16:00 | post 16:00+
+  //  london: pre 01:00-03:00 | open_reaction 03:00-03:15 | entry_hunt 03:15-06:00 | post 06:00+
+  const windows = {
+    ny_am:  { open: 9 * 60 + 30,  rxnEnd: 9 * 60 + 45,  postStart: 12 * 60 },
+    ny_pm:  { open: 13 * 60 + 30, rxnEnd: 13 * 60 + 45, postStart: 16 * 60 },
+    london: { open: 3 * 60,        rxnEnd: 3 * 60 + 15,  postStart: 6 * 60 },
+  };
+  const w = windows[sess];
+  if (!w) return `open_reaction_${sess}`;          // unknown session — fallback to old behavior
+  if (m < w.open)         return `pre_session_${sess}`;
+  if (m < w.rxnEnd)       return `open_reaction_${sess}`;
+  if (m < w.postStart)    return `entry_hunt_${sess}`;
+  return `post_${sess}`;
+}
+
 function renderOpenReactionMd({ session, reads, ts }) {
   const [latest, ...prior] = reads;
-  const phase = `open_reaction_${(session || "ny-am").replace("-", "_")}`;
+  const phase = actualPhaseForSession(session);
   const head = `---
 phase: ${phase}
 updated_at: ${ts}
@@ -334,6 +390,35 @@ ${priorBlock}
 // Finalized LTF bias, written at +14m of the open-reaction window. JSON
 // sidecar is the source of truth for the renderer; markdown is the human view.
 export async function surfaceLtfBias(payload) {
+  // Cross-check entry_model_priority against the deterministic resolver.
+  // Catches model errors silently violating the decision tree. We don't
+  // throw — the model's "undecided" is always honored — but we log a
+  // warning when the picked priority doesn't match what the inputs imply.
+  if (payload.entry_model_priority !== undefined && payload.entry_model_priority !== "undecided") {
+    try {
+      const { computeEntryModelPriority } = await import("../../../cli/lib/entry-model-priority.js");
+      const expected = computeEntryModelPriority({
+        pillar2_verdict: payload.pillar2_verdict,
+        htf_ltf_alignment: payload.htf_ltf_alignment,
+        ltf_bias: payload.ltf_bias,
+        failure_swings: payload.failure_swings_present ? [{ event: "mss", validation: "sweep" }] : [],
+        most_recent_structure: payload.most_recent_structure || null,
+        inverted_fvg_present: !!payload.inverted_fvg_present,
+      });
+      if (expected.priority !== payload.entry_model_priority) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[surface.ltf_bias] entry_model_priority mismatch: got "${payload.entry_model_priority}", ` +
+          `expected "${expected.priority}" (reason: ${expected.reason}). ` +
+          `Honoring model's choice but flagging.`,
+        );
+      }
+    } catch (err) {
+      // Resolver import or call failed — don't block the surface.
+      // eslint-disable-next-line no-console
+      console.warn(`[surface.ltf_bias] entry_model_priority cross-check skipped: ${err?.message || err}`);
+    }
+  }
   const dir = await activeSessionDir();
   const record = { ...payload, ts: new Date().toISOString() };
   await persistRecord(dir, "ltf-bias", record, renderLtfBiasMd);

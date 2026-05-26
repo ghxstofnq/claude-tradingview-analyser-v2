@@ -109,9 +109,15 @@ export function useChat() {
     const offError = window.api.error?.onError?.((ev) => {
       // eslint-disable-next-line no-console
       console.error("[useChat] app:error", ev);
+      // Warnings (level=warn) get an amber tint + "notice:" prefix instead
+      // of red + "error:" — e.g. the preflight "Chart reverted" notice is
+      // informational, not a failure. Plain errors stay red.
+      const isWarn = ev?.level === "warn";
+      const color = isWarn ? "#d4a657" : "#f0796a";
+      const prefix = isWarn ? "notice" : "error";
       setMessages((prev) => trimHistory([
         ...prev,
-        { type: "reply", t: nowStamp(), body: `<span style="color:#f0796a">error: ${escapeHtml(ev.message || "unknown")}</span>` },
+        { type: "reply", t: nowStamp(), body: `<span style="color:${color}">${prefix}: ${escapeHtml(ev.message || "unknown")}</span>` },
       ]));
       streamingIdxRef.current = null;
       setTyping(false);

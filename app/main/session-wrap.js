@@ -74,10 +74,15 @@ async function buildPrompt(session) {
 
   return `Run the SESSION SUMMARY for the ${session.toUpperCase()} session.${memoryBlock}
 Required action:
-1. Synthesize Pillar 1 + Pillar 2 + LTF bias into a one-paragraph bias picture (cite prices via JSON paths where applicable).
-2. Write one paragraph describing what happened — did setups fire / confirm; the session's narrative.
-3. List 1–2 bullets for what to watch in the next session.
-4. End the turn by calling mcp__tv__surface_session_summary with session="${session}" and the structured payload. Skip surface_setup and surface_no_trade for wrap turns.`;
+1. Read the chain frontmatter (chain_audit inputs):
+   - <sdir>/pillar1.md frontmatter → brief.{pillar_grade, no_trade_reason, chain_status}; per-symbol primary_draw / htf_destination.
+   - <sdir>/ltf-bias.md frontmatter → leader, ltf_bias, htf_ltf_alignment, grade_cap, chain_status, backfilled (if present).
+   - <sdir>/setups.jsonl → count of confirmed setups, list of (model, side, outcome) for each.
+   - quote.last from a fresh tv_analyze_fast → did price reach the brief's primary_draw?
+2. Synthesize Pillar 1 + Pillar 2 + LTF bias into a one-paragraph bias picture. CITE THE CHAIN — name the primary_draw, the htf_destination, what NY did, what alignment was, what fired. Use JSON paths for prices.
+3. Write one paragraph describing what happened — what setups fired/confirmed, the session's narrative.
+4. List 1–2 bullets for what to watch in the next session, referencing any still-untaken HTF draws or unresolved divergence.
+5. End the turn by calling mcp__tv__surface_session_summary with session="${session}" and the structured payload. The summary's frontmatter should carry a chain_audit block summarizing what each phase produced (brief: primary_draw + chain_status, open_reaction: leader + alignment + chain_status, entry_hunt: setups_count + max_grade_reached, outcome: primary_draw_reached bool). Skip surface_setup and surface_no_trade for wrap turns.`;
 }
 
 // Post-wrap memory-review turn — fires after each successful wrap. The

@@ -20,6 +20,31 @@ function normalizeLevelName(name) {
   return name.replace(/\s*\([^)]*\)\s*$/, "").trim();
 }
 
+// Chain-status chip: shows non-clean states (degraded:X, backfilled:X,
+// divergent, stale:N) next to the SESSION BRIEF title so the trader knows
+// the brief had a caveat without opening the JSON. Hidden when status is
+// missing or "clean".
+function ChainStatusChip({ status }) {
+  if (!status || status === "clean") return null;
+  const color = status.startsWith("stale:")
+    ? "var(--red, #c0473e)"
+    : "var(--amber, #d4a657)";
+  return (
+    <span style={{
+      display: "inline-block",
+      marginLeft: 8,
+      padding: "1px 6px",
+      border: `1px solid ${color}`,
+      color,
+      fontSize: 9,
+      letterSpacing: ".1em",
+      textTransform: "uppercase",
+      borderRadius: 2,
+      fontFamily: "ui-monospace, Menlo, monospace",
+    }}>{status}</span>
+  );
+}
+
 // Compute a summary of what changed between two briefs. Compares:
 //   - bias direction (htf_bias[0].bias as the headline)
 //   - pillar_grade
@@ -308,7 +333,12 @@ function PrepWorkstation({ alerts, onToggleArm }) {
       <StaleBriefBanner ageMs={ageMs} onRefresh={refresh} />
       <ChangedPanel session={brief.session} brief={brief} />
       <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}${selectedSymbol ? ` · ${selectedSymbol}` : ""}`}
-             right={<RefreshButton status={status} onClick={refresh} age={ageMs} briefTs={brief.ts} />}>
+             right={
+               <span style={{ display: "flex", alignItems: "center" }}>
+                 <ChainStatusChip status={brief.chain_status} />
+                 <RefreshButton status={status} onClick={refresh} age={ageMs} briefTs={brief.ts} />
+               </span>
+             }>
         {availableSymbols.length > 1 && (
           <div style={{
             display: "flex", gap: 6, padding: "0 0 8px",
@@ -350,6 +380,31 @@ function PrepWorkstation({ alerts, onToggleArm }) {
           </div>
         ))}
       </Panel>
+
+      {brief.primary_draw && (
+        <Panel title="PRIMARY HTF DRAW">
+          <div className="row" style={{ alignItems: "flex-start" }}>
+            <span className="k" style={{ minWidth: 50 }}>{(brief.primary_draw.tf || "").toUpperCase()} {brief.primary_draw.kind} {brief.primary_draw.dir}</span>
+            <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14 }}>
+              <span title={brief.primary_draw.cite || undefined}
+                    style={{ color: "var(--prose)", borderBottom: brief.primary_draw.cite ? "1px dotted var(--label)" : undefined, cursor: brief.primary_draw.cite ? "help" : undefined }}>
+                {formatPx(brief.primary_draw.bottom)} – {formatPx(brief.primary_draw.top)}
+              </span>
+              <span style={{ marginLeft: 8, color: "var(--label)", fontSize: 11 }}>
+                disp_score {brief.primary_draw.disp_score} · {brief.primary_draw.state}
+              </span>
+            </span>
+          </div>
+          {brief.htf_destination && (
+            <div className="row" style={{ alignItems: "flex-start" }}>
+              <span className="k" style={{ minWidth: 50 }}>DEST</span>
+              <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14, color: "var(--prose)" }}>
+                {brief.htf_destination}
+              </span>
+            </div>
+          )}
+        </Panel>
+      )}
 
       <Panel title="OVERNIGHT CONTEXT">
         {(brief.overnight || []).map((r, i) => <Row key={i} k={r.k} v={r.v} tone={r.tone} />)}

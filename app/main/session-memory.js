@@ -19,7 +19,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PAIR_PRIMARY } from "./config.js";
+import { PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -83,18 +83,44 @@ export async function writeBrief(dir, payload) {
   // Pillar 1 + 2 as an atomic PAIR. Bar-close reads both pillars on every
   // tick to enrich the per-bar prompt — writing them as two separate
   // files used to mean bar-close could read the new pillar1 + the old
-  // pillar2 in the microseconds between renames. Now: write the combined
-  // pillars.md atomically (the canonical source readMemory consumes) and
-  // ALSO write the individual files (still useful for human inspection).
-  // Combined-first means readers never see a torn pair.
-  const pillar1Md = renderPillar1Md(payload);
-  const pillar2Md = renderPillar2Md(payload);
+  // pillar2 in the microseconds between renames. Combined-first means
+  // readers never see a torn pair.
+  //
+  // Comparative rendering: in dual-symbol mode this surface fires twice
+  // (once per symbol). We re-render pillar1/pillar2 from EVERY
+  // brief-<sym>.json on disk so after MNQ's call the file has just MNQ;
+  // after MES's call it has both. Single-symbol mode (no `symbol` on the
+  // payload) just renders from the payload directly.
+  const perSymbolPayloads = await loadAllPerSymbolBriefs(dir, payload);
+  const pillar1Md = renderPillar1Md(perSymbolPayloads);
+  const pillar2Md = renderPillar2Md(perSymbolPayloads);
   await writeAtomic(
     path.join(dir, "pillars.md"),
     `${pillar1Md}\n\n---\n\n${pillar2Md}\n`,
   );
   await writeAtomic(path.join(dir, "pillar1.md"), pillar1Md);
   await writeAtomic(path.join(dir, "pillar2.md"), pillar2Md);
+}
+
+/**
+ * Load every brief-<symbol>.json under `dir`. Returns the payloads in
+ * canonical order (primary first, secondary second). For single-symbol
+ * mode (payload has no `symbol` field) just returns [payload].
+ */
+async function loadAllPerSymbolBriefs(dir, currentPayload) {
+  if (!currentPayload?.symbol) return [currentPayload];
+  const out = [];
+  for (const sym of [PAIR_PRIMARY, PAIR_SECONDARY]) {
+    if (sym === currentPayload.symbol) {
+      out.push(currentPayload);
+      continue;
+    }
+    try {
+      const txt = await fs.readFile(path.join(dir, `brief-${sym}.json`), "utf8");
+      out.push(JSON.parse(txt));
+    } catch { /* missing — skip */ }
+  }
+  return out;
 }
 
 /**
@@ -148,71 +174,145 @@ export async function readMemory(dir, opts = {}) {
 // ---------- markdown rendering ----------
 // Kept in this module so format + write semantics live together.
 
-function renderPillar1Md(record) {
-  const phase = `pre_session_${(record.session || "ny-am").replace("-", "_")}`;
-  const bias = (record.htf_bias || [])
-    .map((b) => `- **${b.tf}** — ${b.bias}: ${b.note}`).join("\n");
-  const overnight = (record.overnight || [])
-    .map((o) => `- ${o.k}: ${o.v}`).join("\n");
-  const levels = (record.key_levels || [])
-    .map((l) => `- ${l.name}: ${l.price} (${l.state})`).join("\n");
-  const p1 = (record.pillars || []).find((p) => /draw|bias/i.test(p.name || ""));
-  const verdict = p1?.status || "pending";
-  const graded = record.ts || new Date().toISOString();
+// Per-symbol frontmatter key (lowercased, no `!` or `1`). MNQ1! → "mnq".
+function frontKey(sym) {
+  return (sym || "primary").toLowerCase().replace(/[!1]/g, "");
+}
 
+// Build the structured frontmatter block for one symbol (Pillar 1 fields).
+// Returns an indented block of YAML keys under the symbol's key, or empty
+// when the payload carries no chain handoff fields (legacy briefs).
+function renderPillar1FrontmatterForSymbol(payload) {
+  const k = frontKey(payload.symbol);
+  const pd = payload.primary_draw;
+  const primary_draw = pd
+    ? `\n  primary_draw:\n    tf: ${pd.tf}\n    kind: ${pd.kind}\n    dir: ${pd.dir}\n    top: ${pd.top}\n    bottom: ${pd.bottom}\n    ce: ${pd.ce}\n    state: ${pd.state}\n    cite: ${pd.cite}`
+    : "";
+  const htf_destination = payload.htf_destination ? `\n  htf_destination: "${payload.htf_destination}"` : "";
+  const overnight_verdict = payload.overnight_block?.overnight_verdict ? `\n  overnight_verdict: ${payload.overnight_block.overnight_verdict}` : "";
+  const path_to_destination = payload.overnight_block?.path_to_destination ? `\n  path_to_destination: "${payload.overnight_block.path_to_destination}"` : "";
+  const pillar_grade = payload.pillar_grade ? `\n  pillar_grade: ${payload.pillar_grade}` : "";
+  const no_trade_reason = payload.no_trade_reason ? `\n  no_trade_reason: ${payload.no_trade_reason}` : "";
+  const chain_status = payload.chain_status ? `\n  chain_status: ${payload.chain_status}` : "";
+  // Symbol key at column 0 (valid YAML); nested fields at 2-space indent.
+  return `${k}:${primary_draw}${htf_destination}${overnight_verdict}${path_to_destination}${pillar_grade}${no_trade_reason}${chain_status}`;
+}
+
+// Body section for one symbol — keeps existing prose format under a
+// `## <symbol>` heading. When only one payload is present the section
+// looks like a single-symbol brief.
+function renderPillar1BodyForSymbol(payload) {
+  const sym = payload.symbol || "primary";
+  const bias = (payload.htf_bias || [])
+    .map((b) => `- **${b.tf}** — ${b.bias}: ${b.note}`).join("\n");
+  const overnight = (payload.overnight || [])
+    .map((o) => `- ${o.k}: ${o.v}`).join("\n");
+  const levels = (payload.key_levels || [])
+    .map((l) => `- ${l.name}: ${l.price} (${l.state})`).join("\n");
+  const p1 = (payload.pillars || []).find((p) => /draw|bias/i.test(p.name || ""));
+  const verdict = p1?.status || "pending";
+  return `## ${sym}
+
+### HTF Bias
+${bias || "_no HTF bias provided_"}
+
+### Primary HTF Draw
+- target: ${payload.anchored_target || "_n/a_"}
+- structural stop ref: ${payload.anchored_stop || "_n/a_"}
+
+### Overnight Summary
+${overnight || "_no overnight context provided_"}
+
+### Key Levels
+${levels || "_no levels provided_"}
+
+### Plan
+${payload.plan || "_no plan provided_"}
+
+### Verdict
+- pillar1: ${verdict}
+- pillar_grade (P1+P2 roll-up): ${payload.pillar_grade || "pending"}`;
+}
+
+function renderPillar1Md(payloads) {
+  // Accept either a single payload (legacy) or an array (comparative mode).
+  const arr = Array.isArray(payloads) ? payloads : [payloads];
+  if (arr.length === 0) {
+    return "---\n---\n\n# Pillar 1 — Draw & Bias\n\n_no brief data_\n";
+  }
+  const first = arr[0];
+  const session = first.session || "";
+  const phase = `pre_session_${(session || "ny-am").replace("-", "_")}`;
+  const graded = first.ts || new Date().toISOString();
+  const symbols = arr.map((p) => p.symbol).filter(Boolean);
+  const symbolsField = symbols.length
+    ? `symbols: [${symbols.map((s) => `"${s}"`).join(", ")}]\n`
+    : "";
+  const symbolSections = arr.map(renderPillar1FrontmatterForSymbol).join("\n");
+  const bodySections = arr.map(renderPillar1BodyForSymbol).join("\n\n");
   return `---
-session: ${record.session || ""}
+session: ${session}
 phase: ${phase}
-graded_at: ${graded}
+${symbolsField}graded_at: ${graded}
+${symbolSections}
 ---
 
 # Pillar 1 — Draw & Bias
 
-## HTF Bias
-${bias || "_no HTF bias provided_"}
-
-## Primary HTF Draw
-- target: ${record.anchored_target || "_n/a_"}
-- structural stop ref: ${record.anchored_stop || "_n/a_"}
-
-## Overnight Summary
-${overnight || "_no overnight context provided_"}
-
-## Key Levels
-${levels || "_no levels provided_"}
-
-## Plan
-${record.plan || "_no plan provided_"}
-
-## Verdict
-- pillar1: ${verdict}
-- pillar_grade (P1+P2 roll-up): ${record.pillar_grade || "pending"}
+${bodySections}
 `;
 }
 
-function renderPillar2Md(record) {
-  const phase = `pre_session_${(record.session || "ny-am").replace("-", "_")}`;
-  const p2 = (record.pillars || []).find((p) => /quality/i.test(p.name || ""));
+function renderPillar2FrontmatterForSymbol(payload) {
+  const k = frontKey(payload.symbol);
+  const verdict = payload.pillar2_verdict ? `\n  pillar2_verdict: ${payload.pillar2_verdict}` : "";
+  const chain_status = payload.chain_status ? `\n  chain_status: ${payload.chain_status}` : "";
+  return `${k}:${verdict}${chain_status}`;
+}
+
+function renderPillar2BodyForSymbol(payload) {
+  const sym = payload.symbol || "primary";
+  const p2 = (payload.pillars || []).find((p) => /quality/i.test(p.name || ""));
   const elements = (p2?.elements || [])
     .map((e) => `- ${e.name}: ${e.status}`).join("\n");
   const verdict = p2?.status || "pending";
-  const graded = record.ts || new Date().toISOString();
+  return `## ${sym}
 
+### Elements
+${elements || "_no elements provided_"}
+
+### Sizing
+${payload.sizing_note || "_no sizing note provided_"}
+
+### Verdict
+- pillar2: ${verdict}
+- pillar2_verdict: ${payload.pillar2_verdict || "pending"}`;
+}
+
+function renderPillar2Md(payloads) {
+  const arr = Array.isArray(payloads) ? payloads : [payloads];
+  if (arr.length === 0) {
+    return "---\n---\n\n# Pillar 2 — Price-Action Quality\n\n_no brief data_\n";
+  }
+  const first = arr[0];
+  const session = first.session || "";
+  const phase = `pre_session_${(session || "ny-am").replace("-", "_")}`;
+  const graded = first.ts || new Date().toISOString();
+  const symbols = arr.map((p) => p.symbol).filter(Boolean);
+  const symbolsField = symbols.length
+    ? `symbols: [${symbols.map((s) => `"${s}"`).join(", ")}]\n`
+    : "";
+  const symbolSections = arr.map(renderPillar2FrontmatterForSymbol).join("\n");
+  const bodySections = arr.map(renderPillar2BodyForSymbol).join("\n\n");
   return `---
-session: ${record.session || ""}
+session: ${session}
 phase: ${phase}
-graded_at: ${graded}
+${symbolsField}graded_at: ${graded}
+${symbolSections}
 ---
 
 # Pillar 2 — Price-Action Quality
 
-## Elements
-${elements || "_no elements provided_"}
-
-## Sizing
-${record.sizing_note || "_no sizing note provided_"}
-
-## Verdict
-- pillar2: ${verdict}
+${bodySections}
 `;
 }

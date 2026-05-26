@@ -12,6 +12,7 @@
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as replayCore from "@tvmcp/core/replay";
@@ -63,6 +64,23 @@ let _unsubscribeMode = null;
 let _q5m = null;
 let _q1m = null;
 let _running = false;
+
+/**
+ * Should this bar-close turn route into <phase name="catch_up"> instead of
+ * the regular phase? True iff:
+ * - We're past the open-reaction window (entry_hunt phase or post_session)
+ * - pillar1.md exists (brief did fire)
+ * - ltf-bias.md does NOT exist (open-reaction never ran or didn't finalize)
+ *
+ * Spec: docs/superpowers/specs/2026-05-26-strategy-chain-design.md §5.1
+ */
+export function shouldRouteToCatchUp({ sessionPhase, pillar1Exists, ltfBiasExists }) {
+  if (ltfBiasExists) return false;
+  if (!pillar1Exists) return false;
+  if (sessionPhase === 'entry_hunt_ny_am' || sessionPhase === 'entry_hunt_ny_pm') return true;
+  if (sessionPhase === 'post_ny_am' || sessionPhase === 'post_ny_pm') return true;
+  return false;
+}
 
 export function startDetector({ send }) {
   _send = send;
@@ -305,6 +323,20 @@ async function runClaudeTurnFor(ev, session, phase) {
     return;
   }
   await maybeRefreshBaseline();
+  // Hard short-circuit: when brief surfaced no-trade for a data/engine/closed
+  // reason, the chain spec §5.5 says everything downstream skips. Don't
+  // burn tokens running catch-up or entry-hunt against a session the brief
+  // already flagged as unworkable. Soft reasons (pillar2_poor, htf_unclear)
+  // still fall through so the model can flag a recovery if conditions
+  // genuinely improve mid-session.
+  const briefNoTradeReason = await readBriefNoTradeReason(session).catch(() => null);
+  const HARD_NO_TRADE_REASONS = new Set(["data_gap", "engine_stale", "session_closed"]);
+  if (briefNoTradeReason && HARD_NO_TRADE_REASONS.has(briefNoTradeReason)) {
+    // eslint-disable-next-line no-console
+    console.warn(`[bar-close] hard short-circuit: brief no_trade_reason=${briefNoTradeReason}, skipping turn`);
+    recordMetric({ kind: "bar-close", event: "skipped", session, reason: `brief_no_trade_hard:${briefNoTradeReason}` });
+    return;
+  }
   // Catch-up: if we entered entry-hunt without a pair-decision (started the
   // system after 09:45 ET for NY AM / 13:15 for NY PM / 03:15 for London),
   // the open-reaction window has already passed and surface_leader_decision
@@ -357,6 +389,14 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
   }
   const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
   const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}. TF tick: ${ev.tf}${ev.is_5m_close ? " (also a 5m close)" : ""}.`;
+
+  // Untaken-targets block. Observed live 2026-05-26 NY PM 13:11: model
+  // cited AS.H 29990 as a target for "bull continuation" even though the
+  // brief had already marked AS.H state=taken. The model "looked at the
+  // chart" and grabbed the visually-closest level without re-checking
+  // swept state. Inject the leader's untaken levels explicitly so the
+  // model can't miss them — these are the ONLY valid targets per strategy.
+  const untakenBlock = await readUntakenTargetsBlock().catch(() => "");
   // ev.ts is UTC ISO (detector emits `new Date().toISOString()`). The previous
   // header labeled it "(ET)" — Claude read the UTC string literally and was
   // off by 4 hours, breaking session-phase reasoning in prose. Emit ET-
@@ -365,7 +405,30 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
     timeZone: "America/New_York",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   });
-  const text = `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}\n${hint}`;
+
+  // Catch-up routing — if we're past the open-reaction window but ltf-bias.md
+  // is missing, route the model into <phase name="catch_up"> to backfill
+  // pair-decision.json + ltf-bias.md before continuing to entry_hunt. The
+  // existing legacy catch-up path (line ~462) handles the missing
+  // pair-decision.json case specifically; this is the broader chain-aware
+  // routing per spec §5.1.
+  const sdir = await activeSessionDir();
+  const pillar1Exists = existsSync(path.join(sdir, "pillar1.md"));
+  const ltfBiasExists = existsSync(path.join(sdir, "ltf-bias.md"));
+  const sessionPhase = `${phase}_${session.replace("-", "_")}`;
+  const isCatchUp = shouldRouteToCatchUp({
+    sessionPhase,
+    pillar1Exists,
+    ltfBiasExists,
+  });
+  // When in catch-up mode, REPLACE the per-phase hint with a focused
+  // catch_up directive. Don't pile both on the model — the 90s bar-close
+  // timeout can't accommodate "do catch_up AND walk three entry models".
+  // After ltf-bias.md is written, the next bar falls through to the
+  // normal entry_hunt hint.
+  const text = isCatchUp
+    ? `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}\n**CATCH-UP TURN** — ltf-bias.md is missing past the open-reaction window. Follow <phase name="catch_up"> in the system prompt: read pillar1.md frontmatter (both symbols), read pair-decision.json (leader is already chosen), compute the LTF bias from gates.engine.confirmation.last_bar + gates.engine.most_recent_structure, write ltf-bias.md via surface_ltf_bias with backfilled:true, leader:"<leader>", grade_cap:"B", chain_status:"backfilled:open_reaction". DO NOT walk entry models this bar — entry_hunt fires normally on the next bar. End with surface_no_trade("backfilling ltf-bias").`
+    : `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}\n${hint}`;
 
   // Metrics: track bar-close turn lifecycle. Was: bar-close (the highest-
   // frequency turn at ~60/hour) emitted ZERO metrics — couldn't answer
@@ -378,10 +441,13 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
   await userTurn({
     text,
     purpose: "bar-close",
-    // Tight timeout: next bar fires in 60s. A turn stuck past 90s is just
-    // going to lose work to the next tick anyway — better to give up and
-    // let the next tick start fresh than block the coalescing queue.
-    timeoutMs: 90_000,
+    // Observed live 2026-05-26 NY AM: ~50% of bar-close turns at 90s
+    // timed out exactly at 90s, the rest succeeded in 62-81s — right at
+    // the edge. The chain-aware entry-hunt preamble (6 reads + model
+    // walk + grade + surface call) needs more headroom. Bumped to 120s.
+    // Coalescing queue handles the case where bars accumulate while a
+    // long turn runs: most-recent bar of each TF replaces older ones.
+    timeoutMs: 120_000,
     onEvent: (e) => {
       if (e.type === "chunk") _send?.("chat:chunk", e);
       else if (e.type === "tool_call") _send?.("chat:tool_call", e);
@@ -415,6 +481,42 @@ async function pairDecisionExists() {
   } catch { return false; }
 }
 
+// Read brief.<leader>.no_trade_reason from the brief.json (per-symbol
+// primary mirror). Returns the enum string or null when the brief
+// didn't fire / didn't grade no-trade. Used to hard-short-circuit
+// bar-close turns when the brief flagged a data/engine/closed reason.
+async function readBriefNoTradeReason() {
+  const dir = await activeSessionDir();
+  try {
+    const txt = await fs.readFile(path.join(dir, "brief.json"), "utf8");
+    const brief = JSON.parse(txt);
+    return brief?.no_trade_reason || null;
+  } catch { return null; }
+}
+
+// Read the leader's untaken_above + untaken_below from brief.json's
+// overnight_block. Returns a formatted block to inject into the per-bar
+// prompt so the model can't cite a swept level as a target.
+//
+// Observed 2026-05-26 NY PM 13:11: model cited AS.H 29990 as a "bull
+// continuation" target even though brief.key_levels had AS.H state=taken.
+// The model picked visually-closest level instead of next-untaken. This
+// block forces the untaken set into the prompt where it can't be missed.
+async function readUntakenTargetsBlock() {
+  const dir = await activeSessionDir();
+  try {
+    const txt = await fs.readFile(path.join(dir, "brief.json"), "utf8");
+    const brief = JSON.parse(txt);
+    const above = brief?.overnight_block?.untaken_above || [];
+    const below = brief?.overnight_block?.untaken_below || [];
+    if (above.length === 0 && below.length === 0) return "";
+    const fmtLevel = (l) => `${l.name} ${l.price} (${l.cite || "—"})`;
+    const aboveStr = above.length ? above.map(fmtLevel).join("; ") : "(none)";
+    const belowStr = below.length ? below.map(fmtLevel).join("; ") : "(none)";
+    return `\n\n<untaken_targets>\nOnly these levels are valid as TP/draw targets this session — swept levels are NOT valid targets:\n  above price: ${aboveStr}\n  below price: ${belowStr}\nWhen citing a target in surface_setup tp1/tp2 or surface_no_trade reasoning about R:R, use ONE of these. Citing a swept level (state=taken in brief.key_levels) as a target is a bug — pick the next untaken level beyond it instead.\n</untaken_targets>\n`;
+  } catch { return ""; }
+}
+
 // Read the chosen leader symbol from pair-decision.json. Returns null if
 // the file is missing, malformed, or leader is null (inconclusive). Used
 // by the entry-hunt prompt to point Claude at the leader's baseline.
@@ -442,15 +544,35 @@ async function runLeaderCatchupTurn(ev, session) {
     timeZone: "America/New_York",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   });
-  const text = `CATCH-UP TURN: it is ${etTime} ET — we are in entry-hunt for the ${session.toUpperCase()} session but pair-decision.json does NOT exist (the system started after the open-reaction window closed, or the open-reaction turns failed to fire surface_leader_decision). Pick the leader now so the rest of entry-hunt can run normally.
+  const text = `CATCH-UP TURN at ${etTime} ET — missed open-reaction window for the ${session.toUpperCase()} session. Pick leader + finalize LTF bias in ONE turn so entry-hunt can resume next bar.
 
 Steps:
-1. Call mcp__tv__tv_analyze_fast with pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}".
-2. Read state/last-scan.slim.json (the slim sibling — fits in one Read). Use the FVGs from the last 15 minutes (pair.symbols.${PAIR_PRIMARY}.engine.fvgs[] and pair.symbols.${PAIR_SECONDARY}.engine.fvgs[]) as the leader_evidence proxy — take max disp_score per symbol.
-3. Call mcp__tv__surface_leader_decision with session="${session}", primary="${PAIR_PRIMARY}", secondary="${PAIR_SECONDARY}", leader=<the symbol with the higher max disp_score>, evidence={primary_disp_score, secondary_disp_score, margin, threshold: 0.10}, reason="post_hoc_caught_up_after_open_reaction_window".
-4. End with mcp__tv__surface_no_trade reason="leader caught up post-hoc — resuming entry hunt next bar".
+1. Call mcp__tv__tv_analyze_fast with pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}". This produces a fresh paired bundle PLUS a sibling state/last-scan.digest.json (pretty-printed, ~17KB).
+2. Read **state/last-scan.digest.json** (NOT last-scan.json — the full bundle is one giant single line truncated by Read). The digest carries leader_evidence + per-symbol HTF + pillar1 + ltf_context. Pick leader per the reason table:
+   - primary_higher_disp_score (margin ≥ threshold) → primary, chain_status: "clean"
+   - secondary_higher_disp_score (margin ≥ threshold) → secondary, chain_status: "clean"
+   - inconclusive_margin_below_threshold → primary (DEFAULT), chain_status: "degraded:leader_inconclusive"
+   - no_fvgs_created_in_window → primary (DEFAULT), chain_status: "degraded:no_fvgs_in_window"
+   - secondary_engine_missing → primary, chain_status: "degraded:secondary_missing"
+3. Call mcp__tv__surface_leader_decision with session="${session}", primary="${PAIR_PRIMARY}", secondary="${PAIR_SECONDARY}", leader=<chosen>, evidence={primary_disp_score, secondary_disp_score, margin, threshold} (all from brief_digest.leader_evidence), reason=<verbatim from leader_evidence>.
+4. Read state/session/${currentSession().date}/${session}/pillar2.md frontmatter → grab the leader's pillar2_verdict (under \`<leader-key>:\` block, e.g. \`mnq:\` for MNQ1!). If missing or "pending", default to "poor" (catch-up assumption — we didn't grade Pillar 2 live).
+5. Read state/session/${currentSession().date}/${session}/pillar1.md frontmatter → grab the leader's \`htf_destination\` (the brief's anchor, e.g. "above 30119 buy-side").
+6. Compute ltf_bias from the last 5-6 entries of state/session/${currentSession().date}/${session}/bars.jsonl: count bullish vs bearish closes. ≥4 of 6 bullish → "bullish"; ≥4 of 6 bearish → "bearish"; mixed → "mixed"; if engine.meta.stale or no bar data → "stand_aside".
+7. Compute htf_ltf_alignment from htf_destination vs ltf_bias:
+   - htf_destination starts with "above" AND ltf_bias=="bullish" → "aligned"
+   - htf_destination starts with "below" AND ltf_bias=="bearish" → "aligned"
+   - htf_destination starts with "above" AND ltf_bias=="bearish" → "divergent"
+   - htf_destination starts with "below" AND ltf_bias=="bullish" → "divergent"
+   - htf_destination=="balanced", ltf_bias=="mixed"/"stand_aside", or htf_destination missing → "unclear"
+8. Compute entry_model_priority from the decision tree in <phase name="open_reaction"> §B (the same tree the surface.js resolver uses):
+   - pillar2_verdict=="poor" → "undecided"
+   - htf_ltf_alignment=="divergent" → "MSS"
+   - htf_ltf_alignment=="aligned" + recent failure_swing → "MSS"; + recent BoS in bias dir → "Trend"; + opposing inverted FVG → "Inversion"; else → "undecided"
+   - htf_ltf_alignment=="unclear" → "undecided"
+9. Call mcp__tv__surface_ltf_bias with session="${session}", leader=<chosen>, ltf_bias=<computed step 6>, htf_ltf_alignment=<computed step 7>, is_retrace_day=<true if step 7 was "divergent" else false>, entry_model_priority=<computed step 8>, priority_reason="<one line: which input drove the step 8 decision>", grade_cap:"B" (always B for backfilled sessions), chain_status:"backfilled:open_reaction", reasoning="<one short paragraph citing the bar.jsonl entries + pillar1/pillar2 frontmatter values you read>", failure_swings_present=<from step 8 check>, inverted_fvg_present=<from step 8 check>, pillar2_verdict=<from step 4>.
+10. End with mcp__tv__surface_no_trade reason="caught up post-hoc — entry-hunt resumes next bar".
 
-Do NOT walk entry models or call surface_setup in this turn. It is leader-pick only.`;
+Do NOT walk entry models or call surface_setup. Leader + LTF backfill ONLY.`;
   recordMetric({ kind: "catch-up", event: "started", session });
   const startedAtCatchup = Date.now();
   let erroredCatchup = false;
@@ -458,6 +580,11 @@ Do NOT walk entry models or call surface_setup in this turn. It is leader-pick o
   await userTurn({
     text,
     purpose: "catch-up",
+    // Catch-up now does TWO surface calls (leader_decision + ltf_bias)
+    // plus a fast capture + Read + bars.jsonl read. Bumped from default
+    // 300s to 240s — gives the model breathing room but caps risk of
+    // blocking the bar-close queue if something hangs.
+    timeoutMs: 240_000,
     onEvent: (e) => {
       if (e.type === "chunk") _send?.("chat:chunk", e);
       else if (e.type === "tool_call") _send?.("chat:tool_call", e);
@@ -527,16 +654,27 @@ async function preflightChartState(ev, phase) {
 // Gated on is_new_bar: at minute ticks where the chart's TF bar hasn't
 // rolled over yet (chart on a higher TF), we'd otherwise write the same
 // running bar repeatedly — skip those.
+// Per-TF dedup: the detector occasionally emits two events for the same
+// minute (timing edge cases between the 60s boundary sleep and the close
+// poll). Without dedup, bars.jsonl gets duplicate rows that mislead the
+// model's "last 6 bars" read.
+const _lastBarLogged = { "1m": null, "5m": null };
+
 async function appendBarLog(ev) {
   if (!ev?.is_new_bar) return;
   const o = ev?.ohlc?.open, h = ev?.ohlc?.high, l = ev?.ohlc?.low, c = ev?.ohlc?.close;
   if (o == null || h == null || l == null || c == null) return;
+  // Dedup: if we already logged this exact bar for this tf, skip.
+  const tfKey = ev.tf === "5m" ? "5m" : "1m";
+  if (_lastBarLogged[tfKey] === ev.ts) return;
+  _lastBarLogged[tfKey] = ev.ts;
+
   const range = Math.max(h - l, 1e-9);
   const body_ratio = Number((Math.abs(c - o) / range).toFixed(3));
   const close_position_in_range = Number(((c - l) / range).toFixed(3));
   const direction = c > o ? "bullish" : c < o ? "bearish" : "doji";
   // time_et added so Claude reads ET timestamps in session memory (bars.jsonl
-   // tail goes into the per-bar prompt). time_utc kept for machine parsing.
+  // tail goes into the per-bar prompt). time_utc kept for machine parsing.
   const time_et = new Date(ev.ts).toLocaleString("en-US", {
     timeZone: "America/New_York",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,

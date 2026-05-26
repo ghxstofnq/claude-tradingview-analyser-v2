@@ -7,6 +7,7 @@ import { computeEngineGates } from '../lib/compute-engine-gates.js';
 import { lastBarFacts } from '../lib/last-bar.js';
 import { computeLeader } from '../lib/compute-leader.js';
 import { readPairDecision } from '../lib/pair-decision.js';
+import { buildBriefDigest } from '../lib/brief-digest.js';
 
 /**
  * tv analyze — bundles chart state, quote, multi-TF bars, and the ICT Engine
@@ -766,7 +767,7 @@ register('analyze', {
       }
     }
 
-    const bundle = {
+    let bundle = {
       timestamp: new Date().toISOString(),
       chart: state,
       visible_range: visibleRange,
@@ -806,6 +807,23 @@ register('analyze', {
       }
     }
 
+    // 4b. Brief digest — slim per-symbol summary at the TOP of the bundle
+    //     (key insertion order = JSON serialization order). The whole point
+    //     is for the brief turn to find this field in Read's first chunk;
+    //     appending at the end leaves it past chars 440k after the 304KB
+    //     `pair` block, defeating the purpose. Rebuild the bundle with
+    //     brief_digest as the first key. Only emitted when --pair is set;
+    //     single-symbol bundles return null and skip the field.
+    //
+    //     Observed live 2026-05-26 NY AM brief: digest was appended at end
+    //     of object → unreachable → model fell back to citing
+    //     bars_by_tf.daily.change_pct (which it couldn't resolve either)
+    //     and graded no-trade with no_trade_reason=data_gap.
+    const briefDigest = buildBriefDigest(bundle);
+    if (briefDigest) {
+      bundle = { brief_digest: briefDigest, ...bundle };
+    }
+
     // 5. Optional file output: write bundle to disk and print only the path.
     //    Lets the slash command Read the file instead of relying on Bash
     //    captured stdout, which has 30K-100K truncation limits depending on env.
@@ -837,10 +855,33 @@ register('analyze', {
         slimBytes = slimText.length;
       }
 
+      // Sibling brief-digest file (~17KB pretty-printed) for the brief turn.
+      // The full bundle is one ~440KB line — Read truncates each line at
+      // ~2000 chars, so even with brief_digest at the top, only the first
+      // ~2% of it is visible to the model. Pretty-print the digest in its
+      // own file so each field lands on its own line; ~500 lines fits in
+      // Read's 2000-line cap with plenty of headroom. Mirrors the
+      // pillar3-only slim pattern above.
+      //
+      // Observed live 2026-05-26 NY AM (retry after digest-at-top fix):
+      // model still said "Read refuses files this size even at limit=1" —
+      // confirming per-line truncation, not whole-file cap, is the wall.
+      let digestPath = null;
+      let digestBytes = null;
+      if (briefDigest) {
+        digestPath = absPath.endsWith('.json')
+          ? absPath.replace(/\.json$/, '.digest.json')
+          : absPath + '.digest';
+        const digestText = JSON.stringify(briefDigest, null, 2);
+        writeFileSync(digestPath, digestText);
+        digestBytes = digestText.length;
+      }
+
       return {
         saved_to: absPath,
         bytes: bundleText.length,
         ...(slimPath ? { slim_saved_to: slimPath, slim_bytes: slimBytes } : {}),
+        ...(digestPath ? { digest_saved_to: digestPath, digest_bytes: digestBytes } : {}),
       };
     }
     return bundle;

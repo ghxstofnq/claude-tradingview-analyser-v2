@@ -166,3 +166,99 @@ describe("brief flow — surfaceSessionBrief grade semantics", () => {
   // surface-tool write path is already covered by the SANDBOX-based tests
   // earlier in this file.
 });
+
+// no_trade_reason cross-validation. Drives the hard-vs-soft short-circuit
+// downstream — without it the chain can't decide whether to skip phases.
+describe("brief flow — no_trade_reason cross-validation", () => {
+  const baseValid = {
+    session: "ny-am",
+    symbol: "MNQ1!",
+    brief: "headline",
+    htf_bias: [
+      { tf: "DAILY", bias: "NEUTRAL", note: "n (engine_by_tf.daily.structures[0])" },
+      { tf: "4H", bias: "MIXED", note: "n (engine_by_tf.h4.structures[0])" },
+      { tf: "1H", bias: "BULLISH", note: "n (engine_by_tf.h1.structures[0])" },
+    ],
+    overnight: [],
+    key_levels: [],
+    pillars: [
+      { name: "Draw & Bias", status: "weak", elements: [{ name: "HTF", status: "weak" }] },
+      { name: "Price-Action Quality", status: "weak", elements: [{ name: "range", status: "weak" }] },
+    ],
+    plan: "p",
+    scenarios: [{ condition: "c", action: "a" }],
+    anchored_target: "1 (path)",
+    anchored_stop: "1 (path)",
+    sizing_note: "0.5 R (memory.USER)",
+  };
+
+  it("rejects pillar_grade='no-trade' without no_trade_reason", async () => {
+    const { surfaceSessionBrief } = await import("../app/main/tools/surface.js");
+    await assert.rejects(
+      () => surfaceSessionBrief({ ...baseValid, pillar_grade: "no-trade" }),
+      /no_trade_reason/i,
+    );
+  });
+
+  it("rejects no_trade_reason set with non-no-trade grade", async () => {
+    const { surfaceSessionBrief } = await import("../app/main/tools/surface.js");
+    await assert.rejects(
+      () => surfaceSessionBrief({ ...baseValid, pillar_grade: "B", no_trade_reason: "pillar2_poor" }),
+      /reason only valid with no-trade/i,
+    );
+  });
+});
+
+// Dual-symbol comparative pillar1.md/pillar2.md rendering. After both
+// surface calls, the file should contain both ## MNQ1! and ## MES1!
+// sections with per-symbol frontmatter keys. After just the primary,
+// only MNQ. Closes the "last surface call wins" bug from PR #59 era.
+describe("brief flow — dual-symbol comparative pillar1.md", () => {
+  const SECONDARY_BRIEF = {
+    session: "ny-am",
+    symbol: "MES1!",
+    brief: "MES headline",
+    htf_bias: [
+      { tf: "DAILY", bias: "BULLISH", note: "n (engine_by_tf.daily.structures[0])" },
+      { tf: "4H", bias: "BULLISH", note: "n (engine_by_tf.h4.structures[0])" },
+      { tf: "1H", bias: "MIXED", note: "n (engine_by_tf.h1.structures[0])" },
+    ],
+    overnight: [{ k: "Asia range", v: "20 pts" }],
+    key_levels: [{ name: "PDH", price: 6500, state: "untaken" }],
+    pillar_grade: "B",
+    pillars: [
+      { name: "Draw & Bias", status: "pass", elements: [{ name: "HTF", status: "pass" }] },
+      { name: "Price-Action Quality", status: "weak", elements: [{ name: "range", status: "weak" }] },
+    ],
+    plan: "MES plan",
+    anchored_target: "6500 (PDH)",
+    anchored_stop: "6450 (Asia low)",
+    sizing_note: "0.5 R (memory.USER)",
+  };
+
+  it("after writing both per-symbol briefs, pillar1.md contains both sections", async () => {
+    const { writeBrief } = await import("../app/main/session-memory.js");
+    const dir = path.join(SANDBOX, "dual");
+    await fs.mkdir(dir, { recursive: true });
+    await writeBrief(dir, { ...VALID_PRIMARY_BRIEF, ts: "2026-05-26T13:00:00Z" });
+    await writeBrief(dir, { ...SECONDARY_BRIEF, ts: "2026-05-26T13:00:00Z" });
+
+    const pillar1 = await fs.readFile(path.join(dir, "pillar1.md"), "utf8");
+    assert.match(pillar1, /## MNQ1!/);
+    assert.match(pillar1, /## MES1!/);
+    // Per-symbol frontmatter keys at column 0 (valid YAML).
+    assert.match(pillar1, /\nmnq:/);
+    assert.match(pillar1, /\nmes:/);
+  });
+
+  it("after writing only the primary, pillar1.md has only the MNQ section", async () => {
+    const { writeBrief } = await import("../app/main/session-memory.js");
+    const dir = path.join(SANDBOX, "primary-only");
+    await fs.mkdir(dir, { recursive: true });
+    await writeBrief(dir, { ...VALID_PRIMARY_BRIEF, ts: "2026-05-26T13:00:00Z" });
+
+    const pillar1 = await fs.readFile(path.join(dir, "pillar1.md"), "utf8");
+    assert.match(pillar1, /## MNQ1!/);
+    assert.doesNotMatch(pillar1, /## MES1!/);
+  });
+});

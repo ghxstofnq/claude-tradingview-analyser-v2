@@ -8,16 +8,18 @@
 //   - dow   ∈ {"Mon", "Tue", "Wed", "Thu", "Fri"}
 //   - return: { contracts, dollar_risk, r_unit, label }
 
+// Contract count + R per strategy: Tue-Thu core days, Mon/Fri reduced.
+// Mon/Fri B is NOT no-trade; it's the same 0.5R as Mon/Fri A+ and Tue-Thu B.
+// Updated 2026-05-26 per user clarification on actual sizing rules.
 const TABLE = {
-  // Tue/Wed/Thu = "core" days; Mon/Fri reduced per strategy.
   "A+": { Mon: 1, Tue: 2, Wed: 2, Thu: 2, Fri: 1 },
-  "B":  { Mon: 0, Tue: 1, Wed: 1, Thu: 1, Fri: 0 },
+  "B":  { Mon: 1, Tue: 1, Wed: 1, Thu: 1, Fri: 1 },
 };
 
-// Risk-unit (R) fraction relative to a full A+/Tue allocation.
+// Risk-unit (R) fraction. Matches docs/strategy/sizing-table.md.
 const R_UNIT = {
-  "A+": { Mon: 0.5,  Tue: 1.0, Wed: 1.0, Thu: 1.0, Fri: 0.5  },
-  "B":  { Mon: 0,    Tue: 0.5, Wed: 0.5, Thu: 0.5, Fri: 0    },
+  "A+": { Mon: 0.5, Tue: 1.0, Wed: 1.0, Thu: 1.0, Fri: 0.5 },
+  "B":  { Mon: 0.5, Tue: 0.5, Wed: 0.5, Thu: 0.5, Fri: 0.5 },
 };
 
 export function sizeFor({ grade, dow }) {
@@ -45,4 +47,66 @@ export function dayOfWeek(date = new Date()) {
     weekday: "short",
   });
   return fmt.format(date);
+}
+
+// ---------- computeSize — R-based sizing for the strategy chain ----------
+//
+// Distinct from sizeFor above (contract-based, used by trade execution in
+// trades.js). computeSize returns an R value the brief embeds in
+// sizing_note and entry-hunt embeds in the setup payload. No LLM
+// arithmetic (CLAUDE.md #7); the model just copies r_size and the cites.
+//
+// Lookup (not multiplication — Mon/Fri B and Tue-Thu B both land at 0.5R,
+// which doesn't factor cleanly). Strategy authority:
+// docs/strategy/sizing-table.md
+//
+// Spec: docs/superpowers/specs/2026-05-26-strategy-chain-design.md §4.5
+
+const SIZING_TABLE = {
+  Mon: { "A+": 0.5, B: 0.5, "no-trade": 0 },
+  Tue: { "A+": 1.0, B: 0.5, "no-trade": 0 },
+  Wed: { "A+": 1.0, B: 0.5, "no-trade": 0 },
+  Thu: { "A+": 1.0, B: 0.5, "no-trade": 0 },
+  Fri: { "A+": 0.5, B: 0.5, "no-trade": 0 },
+};
+
+function findSkipRule(memoryText, day) {
+  if (typeof memoryText !== "string" || !memoryText) return null;
+  const dayLong = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" }[day];
+  // Match the day token as a word-start PREFIX (no trailing \b) so "Wed"
+  // matches "Wed", "Wednesday", AND "Wednesdays" (plural form is common
+  // in skip rules — "skips PCE Wednesdays").
+  for (const raw of memoryText.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (!/skip/i.test(line)) continue;
+    if (new RegExp(`\\b${day}`, "i").test(line)) return line;
+    if (dayLong && new RegExp(`\\b${dayLong}`, "i").test(line)) return line;
+  }
+  return null;
+}
+
+export function computeSize({ day_of_week, grade, memory_overrides } = {}) {
+  // Unknown day defaults to Tue-Thu (core day) row.
+  const row = SIZING_TABLE[day_of_week] || SIZING_TABLE.Tue;
+  const r_size_lookup = row[grade] ?? 0;
+  const cites = ["strategy.sizing-table"];
+  if (memory_overrides !== undefined) cites.push("memory.USER");
+  const override = findSkipRule(memory_overrides, day_of_week);
+  if (override) {
+    return {
+      r_size: 0,
+      day_of_week,
+      grade,
+      cites,
+      override_reason: override,
+    };
+  }
+  return {
+    r_size: r_size_lookup,
+    day_of_week,
+    grade,
+    cites,
+    override_reason: null,
+  };
 }
