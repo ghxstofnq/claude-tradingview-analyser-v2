@@ -813,8 +813,8 @@ export function resetSession(purpose) {
 // instruction-following turned out to be exactly what the dual-symbol
 // brief needed to reliably emit surface_session_brief twice. Keeping the
 // "opus" alias here so it tracks whatever current Opus the account has.
-const MODEL = "opus";
-const FALLBACK_MODEL = "sonnet";
+const MODEL = "sonnet";
+const FALLBACK_MODEL = "opus";
 
 // Effort level: how hard Claude thinks per turn.
 //
