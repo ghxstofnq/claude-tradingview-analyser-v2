@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-05-26T18:04:00.000Z",
+  "chart": { "success": true, "symbol": "CME_MINI:MNQ1!", "resolution": "5", "chartType": 1, "studies": [] },
+  "visible_range": { "from": 1779832800, "to": 1779836400 },
+  "quote": { "last": 30012, "time": 1779836400 },
+  "bars": { "bar_count": 12, "period": { "from": 1779832800, "to": 1779836400 }, "range": 32, "last_5_bars": [
+    { "time": 1779836160, "low": 29981.25, "high": 29988.75, "close": 29986.5 },
+    { "time": 1779836280, "low": 29982.25, "high": 29998.5, "close": 29998.5 },
+    { "time": 1779836340, "low": 29998, "high": 30009, "close": 30008 },
+    { "time": 1779836400, "low": 30008, "high": 30013, "close": 30012 }
+  ] },
+  "bars_by_tf": {
+    "m5": { "last_5_bars": [
+      { "time": 1779836160, "low": 29981.25, "high": 29988.75, "close": 29986.5 },
+      { "time": 1779836280, "low": 29982.25, "high": 29998.5, "close": 29998.5 },
+      { "time": 1779836400, "low": 29998, "high": 30013, "close": 30012 }
+    ] }
+  },
+  "indicators": [],
+  "engine": { "schema": 6, "schema_supported": true, "meta": { "tf": "m5", "stale": false } },
+  "engine_by_tf": {
+    "m5": {
+      "fvgs": [{ "kind": "fvg", "dir": "bull", "top": 29998.5, "bottom": 29992.5, "ce": 29995.5, "state": "fresh", "reacted": true, "size_quality": "medium", "created_ms": 1779836400000, "took_liq": true, "disp_score": 0.74 }],
+      "bprs": [],
+      "structures": [{ "event": "mss", "dir": "bull", "level": 30002.25, "displacement": true, "validation": "sweep" }],
+      "quality": { "displacement": "clean", "range_quality": "good" }
+    }
+  },
+  "brief_digest": {
+    "symbols": {
+      "MNQ1!": {
+        "htf": {},
+        "pillar1": {
+          "session_levels": {},
+          "sweeps": [],
+          "untaken_pools_above": [{ "price": 30119, "cite": "pillar1.mnq.overnight.untaken_above[0]" }],
+          "untaken_pools_below": [],
+          "htf_destination": { "dir": "above", "cite": "pillar1.mnq.htf_destination" }
+        },
+        "pillar2": { "current_tf": { "range_quality": "good", "displacement": "clean" } },
+        "ltf_context": {}
+      }
+    }
+  },
+  "gates": {
+    "session": { "label": "ny_pm", "phase": "entry_hunt" },
+    "engine": {
+      "meta": { "tf": "m5", "stale": false },
+      "price_context": { "last": 30012, "inside_fvgs": [], "inside_bprs": [] },
+      "pillar1": { "session_levels": {}, "sweeps": [{ "target": "AS_L", "price": 29982.25, "side": "sell", "rejected": true }] },
+      "pillar2": { "current_tf": { "range_quality": "good", "displacement": "clean" } },
+      "pillar3": {
+        "failure_swings": [{ "event": "mss", "dir": "bull", "level": 30002.25, "validation": "sweep" }],
+        "fvg_summary": { "size_quality": "medium" },
+        "structures_by_tier": { "swing": [], "internal": [{ "level": 29982.25, "tier": "internal", "is_high": false }] }
+      },
+      "confirmation": { "last_bar": { "body_ratio": 0.7, "direction": "bullish" } }
+    }
+  }
+}

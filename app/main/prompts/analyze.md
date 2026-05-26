@@ -477,7 +477,86 @@ If any check fails, fix the payload, then call `surface_leader_decision` + `surf
 
 <phase name="entry_hunt">
 
-**Goal:** evaluate every 1m and 5m bar close for entry-model setups. Reference all prior session memory. Flag candidates.
+You are in entry hunt. A precomputed `<candidate_object>` block has been injected above. The detector has already evaluated every entry-model rule against engine state. **Your job is to package and narrate, not to interpret strategy.**
+
+## Procedure
+
+1. Read `<candidate_object>`.
+2. If `best_candidate` is non-null:
+   - Call `surface_setup` with EXACTLY these values from best_candidate:
+     - `model` = best_candidate.model
+     - `side` = best_candidate.side
+     - `entry` = best_candidate.entry.value, `entry_cite` = best_candidate.entry.cite
+     - `stop` = best_candidate.stop.value (must be one of best_candidate.stop_options), `stop_cite` = best_candidate.stop.cite
+     - `tp1` = best_candidate.tp1.value, `tp1_cite` = best_candidate.tp1.cite
+     - `tp2` = best_candidate.tp2.value, `tp2_cite` = best_candidate.tp2.cite
+     - `grade` = best_candidate.grade_capped (NOT grade_proposed; the cap is enforced)
+   - Write 2-3 sentences for the `narration` field explaining the chain (what set it up, what triggered, what's at risk, what closes the chain).
+3. If `best_candidate` is null:
+   - Call `surface_no_trade` with `reason` = candidate.rejection_summary (verbatim).
+   - Add a 1-sentence `note` describing what to watch on the next bar.
+
+## You may NOT
+
+- Override the detector's pick or surface a setup it didn't find. If you disagree, call `surface_no_trade` and set `chain_status: degraded:disagreement` with a 1-sentence reason in `note`. The detector's decision stands; you cannot trade.
+- Promote `grade` past `grade_capped`. The validator rejects this.
+- Substitute a different stop value than one of `stop_options[]`. Pick `stop_options[0]` unless its cite fails to resolve, then `stop_options[1]`.
+- Substitute a TP that isn't from `untaken_above[]` / `untaken_below[]`. Detector already filtered; use its picks.
+- Walk strategy from scratch. The detector has done that work. Trust the components.
+
+See `<anti_patterns>` block below for the 8 specific misreads from the 2026-05-26 session you must avoid.
+
+### Append-only bookkeeping
+
+After the surface_setup or surface_no_trade call, append to `<sdir>/bars.jsonl`:
+
+```jsonl
+{"time": <bar_time>, "tf": "1m", "o": <open>, "h": <high>, "l": <low>, "c": <close>, "body_ratio": <bratio>, "direction": "<dir>", "close_position_in_range": <cp>}
+```
+
+(Use `gates.engine.confirmation.last_bar.*`. Write `tf: "5m"` to `bars-5m.jsonl` on 5m boundaries.)
+
+If a setup fired, also append to `<sdir>/setups.jsonl`:
+
+```jsonl
+{"ts": "<iso>", "bar_time": <t>, "tf": "1m", "model": "<best_candidate.model>", "status": "confirmed", "side": "<best_candidate.side>", "rationale": "<narration verbatim>"}
+```
+
+</phase>
+
+<anti_patterns>
+
+The following 8 misreads happened in real sessions and produced bad output. The detector now prevents most of them structurally, but if you ever find yourself doing one of these, stop and re-read `<candidate_object>`.
+
+**❌ "FRESH FVG" DOES NOT MEAN "RETESTED".**
+   `engine.fvgs[N].state: "fresh"` + `created_ms` in the last 1-3 bars means the pullback has not happened yet. The 3 candles around `created_ms` CREATED the FVG, they did not retest it. The detector's `retrace_to_fvg.present` checks `price_context.inside_fvgs[]` — trust that.
+
+**❌ "REACTED" DOES NOT MEAN "RETESTED".**
+   `reacted: true` (now exposed as `displacement_at_creation: true` after disambiguation) = the impulse that CREATED the FVG was clean. It does NOT mean a later pullback tested the zone.
+
+**❌ SWEPT LEVELS ARE NOT VALID TARGETS.**
+   `gates.engine.pillar1.session_levels.<LEVEL>.swept: true` (or `taken: true`) means the level was already taken. NEVER cite as TP. The detector's `tp1` / `tp2` pull from `untaken_above[]` / `untaken_below[]` only.
+
+**❌ FVG-BOTTOM STOP IS A LAST-RESORT FALLBACK.**
+   Strategy priority for FVG entries: candle 1 low of the 3-candle FVG formation > pullback swing low > FVG bottom. The detector pre-ranks all three in `stop_options[]`. Pick `stop_options[0]` unless its cite fails to resolve.
+
+**❌ LOCKED LTF BIAS DOES NOT FORCE DIRECTION.**
+   `ltf_bias.bias` is a snapshot at the leader-decision moment, not a lock for the entire session. The detector's `side` is computed from HTF destination + current engine state — trust its side pick over a stale LTF bias.
+
+**❌ PHASE TAG IS DERIVED FROM ET CLOCK, NOT WRITTEN BY MODEL.**
+   Do not author `"phase: open_reaction_ny_pm"` at 13:09 ET (21 min before NY PM open at 13:30). The phase is set by `surface.js` based on the live ET clock.
+
+**❌ SIZING IS PRE-COMPUTED, NEVER FABRICATED.**
+   `sizing_note` must come from the `<sizing_pre_computed>` block in the brief prompt, citing `memory.USER` or `strategy.sizing-table`. Do not write a prose-level sizing claim like "Tuesday standard."
+
+**❌ NEVER PROMOTE GRADE PAST `grade_capped`.**
+   If detector emits `grade_capped: B`, surfacing `grade: A+` will be rejected by the validator. Use `grade_capped` directly.
+
+</anti_patterns>
+
+<phase name="entry_hunt_legacy_DISABLED">
+
+The pre-detector workflow lives below — it is NOT active. Kept temporarily as documentation; will be removed once the detector path is proven live. The active path is the candidate-driven flow above.
 
 ### Chain preamble (do this BEFORE walking any model)
 

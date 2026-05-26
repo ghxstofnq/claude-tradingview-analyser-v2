@@ -164,6 +164,13 @@ tests/
                                                 single-bar facts (bar-derived, cli/lib/last-bar.js)
     }
   }
+  candidates: {                                          detector output (cli/lib/setup-detector.js)
+    best_candidate: { model, side, entry, stop, stop_options[], tp1, tp2,
+                      grade_proposed, grade_capped, components, rationale, tradable } | null,
+    rejections: [{ model, side, reason }],
+    rejection_summary: string | null,                    set when best_candidate is null
+    meta: { detector_version, leader, timestamp_ms, bar_close_ms }
+  }
 }
 ```
 

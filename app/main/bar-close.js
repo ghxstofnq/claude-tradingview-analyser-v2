@@ -397,6 +397,27 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
   // swept state. Inject the leader's untaken levels explicitly so the
   // model can't miss them — these are the ONLY valid targets per strategy.
   const untakenBlock = await readUntakenTargetsBlock().catch(() => "");
+
+  // Detector candidate — runs only during entry_hunt. Reads brief + ltf-bias
+  // from disk, calls detectSetups, injects pretty-printed candidate as a
+  // <candidate_object> block in the per-bar prompt, and stashes the candidate
+  // in surface.js module state so surface_setup can audit the model's payload.
+  // Spec: docs/superpowers/specs/2026-05-26-strategy-detector-design.md
+  let candidateBlock = "";
+  if (phase === "entry_hunt") {
+    try {
+      const inputs = await buildDetectorInputs();
+      if (inputs) {
+        const { detectSetups } = await import("../../cli/lib/setup-detector.js");
+        const { setCurrentCandidate } = await import("./tools/surface.js");
+        const candidate = detectSetups(inputs);
+        setCurrentCandidate(candidate, inputs.bundle);
+        candidateBlock = `\n\n<candidate_object>\n${JSON.stringify(candidate, null, 2)}\n</candidate_object>\n`;
+      }
+    } catch (err) {
+      console.warn("[bar-close] detector skipped:", err?.message);
+    }
+  }
   // ev.ts is UTC ISO (detector emits `new Date().toISOString()`). The previous
   // header labeled it "(ET)" — Claude read the UTC string literally and was
   // off by 4 hours, breaking session-phase reasoning in prose. Emit ET-
@@ -428,7 +449,7 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
   // normal entry_hunt hint.
   const text = isCatchUp
     ? `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}\n**CATCH-UP TURN** — ltf-bias.md is missing past the open-reaction window. Follow <phase name="catch_up"> in the system prompt: read pillar1.md frontmatter (both symbols), read pair-decision.json (leader is already chosen), compute the LTF bias from gates.engine.confirmation.last_bar + gates.engine.most_recent_structure, write ltf-bias.md via surface_ltf_bias with backfilled:true, leader:"<leader>", grade_cap:"B", chain_status:"backfilled:open_reaction". DO NOT walk entry models this bar — entry_hunt fires normally on the next bar. End with surface_no_trade("backfilling ltf-bias").`
-    : `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}\n${hint}`;
+    : `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}${candidateBlock}\n${hint}`;
 
   // Metrics: track bar-close turn lifecycle. Was: bar-close (the highest-
   // frequency turn at ~60/hour) emitted ZERO metrics — couldn't answer
@@ -454,6 +475,8 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
       else if (e.type === "turn_complete") {
         _send?.("chat:turn_complete", e);
         markTurnComplete();
+        // Clear detector candidate — next turn re-stages its own.
+        import("./tools/surface.js").then(({ clearCurrentCandidate }) => clearCurrentCandidate()).catch(() => {});
       }
       else if (e.type === "usage") { usage = e.usage; }
       else if (e.type === "error") {
@@ -515,6 +538,78 @@ async function readUntakenTargetsBlock() {
     const belowStr = below.length ? below.map(fmtLevel).join("; ") : "(none)";
     return `\n\n<untaken_targets>\nOnly these levels are valid as TP/draw targets this session — swept levels are NOT valid targets:\n  above price: ${aboveStr}\n  below price: ${belowStr}\nWhen citing a target in surface_setup tp1/tp2 or surface_no_trade reasoning about R:R, use ONE of these. Citing a swept level (state=taken in brief.key_levels) as a target is a bug — pick the next untaken level beyond it instead.\n</untaken_targets>\n`;
   } catch { return ""; }
+}
+
+// Read ltf-bias.md frontmatter — flat YAML between --- markers — to drive
+// the detector's grade_cap / htf_ltf_alignment / entry_model_priority logic.
+async function readLtfBiasFrontmatter() {
+  const dir = await activeSessionDir();
+  try {
+    const txt = await fs.readFile(path.join(dir, "ltf-bias.md"), "utf8");
+    const m = txt.match(/^---\n([\s\S]*?)\n---/);
+    if (!m) return {};
+    const fm = {};
+    for (const line of m[1].split("\n")) {
+      const kv = line.match(/^(\w+):\s*"?([^"]*?)"?$/);
+      if (kv) fm[kv[1]] = kv[2].trim();
+    }
+    return {
+      bias: fm.bias || fm.leader_bias || null,
+      leader: fm.leader || null,
+      htf_ltf_alignment: fm.htf_ltf_alignment || null,
+      is_retrace_day: fm.is_retrace_day === "true",
+      entry_model_priority: fm.entry_model_priority || null,
+      grade_cap: fm.grade_cap || null,
+    };
+  } catch { return {}; }
+}
+
+// Build the detector input bundle for the current bar-close turn.
+// Reads slim bundle + brief.json + ltf-bias.md + pair-decision.json from
+// disk, synthesizes brief_digest fields the detector expects (htf_destination
+// + primary_draw — these live in brief.json, not in the analyze-time digest),
+// and returns { bundle, leader, ltf_bias_context, untaken_targets }.
+async function buildDetectorInputs() {
+  const dir = await activeSessionDir();
+
+  // Load bundle: slim first, full as fallback.
+  let bundle = null;
+  for (const candidatePath of [
+    path.join(REPO_ROOT, "state", "last-scan.slim.json"),
+    path.join(REPO_ROOT, "state", "last-scan.json"),
+  ]) {
+    try { bundle = JSON.parse(await fs.readFile(candidatePath, "utf8")); break; } catch {}
+  }
+  if (!bundle) return null;
+
+  // Brief on disk has htf_destination + primary_draw + overnight_block.
+  let brief = null;
+  try { brief = JSON.parse(await fs.readFile(path.join(dir, "brief.json"), "utf8")); } catch {}
+
+  const leader = await readPairDecisionLeader();
+  const ltf_bias_context = await readLtfBiasFrontmatter();
+
+  // Synthesize brief_digest.symbols[<leader>].pillar1.{htf_destination, primary_draw}
+  // — the detector reads from this path. Digest doesn't have them at analyze time
+  // (brief hasn't run yet), so we splice them in here.
+  if (brief && leader && bundle.brief_digest?.symbols) {
+    const symKey = leader === "mnq" ? "MNQ1!" : leader === "mes" ? "MES1!" : Object.keys(bundle.brief_digest.symbols)[0];
+    if (bundle.brief_digest.symbols[symKey]) {
+      bundle.brief_digest.symbols[symKey].pillar1 = bundle.brief_digest.symbols[symKey].pillar1 || {};
+      if (brief.htf_destination) bundle.brief_digest.symbols[symKey].pillar1.htf_destination = brief.htf_destination;
+      if (brief.primary_draw) bundle.brief_digest.symbols[symKey].pillar1.primary_draw = brief.primary_draw;
+    }
+  }
+
+  return {
+    bundle,
+    leader,
+    ltf_bias_context,
+    untaken_targets: {
+      untaken_above: brief?.overnight_block?.untaken_above || [],
+      untaken_below: brief?.overnight_block?.untaken_below || [],
+    },
+  };
 }
 
 // Read the chosen leader symbol from pair-decision.json. Returns null if

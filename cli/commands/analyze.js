@@ -824,6 +824,35 @@ register('analyze', {
       bundle = { brief_digest: briefDigest, ...bundle };
     }
 
+    // 4c. Detector — pre-compute candidate setups for entry_hunt phase.
+    //     Spec: docs/superpowers/specs/2026-05-26-strategy-detector-design.md
+    //     At analyze time, brief context (htf_destination, leader, untaken
+    //     targets) isn't available yet — the brief turn hasn't run. The
+    //     detector handles wait states gracefully and returns a defined
+    //     shape ({best_candidate: null, rejection_summary: "Awaiting..."}).
+    //     bar-close.js re-runs the detector with brief data read from disk
+    //     before each entry_hunt bar.
+    try {
+      const { detectSetups } = await import('../lib/setup-detector.js');
+      const leader = bundle?.brief_digest?.leader ?? null;
+      const ltfBiasContext = bundle?.brief_digest?.ltf_bias_context ?? {};
+      const symKey = Object.keys(bundle?.brief_digest?.symbols ?? {})[0] ?? null;
+      const untakenAbove = symKey ? (bundle.brief_digest.symbols[symKey]?.pillar1?.untaken_pools_above ?? []) : [];
+      const untakenBelow = symKey ? (bundle.brief_digest.symbols[symKey]?.pillar1?.untaken_pools_below ?? []) : [];
+      const candidates = detectSetups({
+        bundle,
+        leader,
+        ltf_bias_context: ltfBiasContext,
+        untaken_targets: { untaken_above: untakenAbove, untaken_below: untakenBelow },
+      });
+      bundle = { ...bundle, candidates };
+    } catch (err) {
+      bundle = {
+        ...bundle,
+        candidates: { best_candidate: null, rejections: [], rejection_summary: `Detector error: ${err.message}`, meta: { detector_version: '1.0', error: true } },
+      };
+    }
+
     // 5. Optional file output: write bundle to disk and print only the path.
     //    Lets the slash command Read the file instead of relying on Bash
     //    captured stdout, which has 30K-100K truncation limits depending on env.

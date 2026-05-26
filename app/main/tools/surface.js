@@ -90,12 +90,97 @@ export function getCurrentSurfaceState() {
   return { setup: _currentSetup, noTradeReason: _currentNoTradeReason };
 }
 
+// ============================================================================
+// Setup-candidate validator. Audits surface_setup payload against the
+// detector's best_candidate. Throws on mismatch. Spec:
+// docs/superpowers/specs/2026-05-26-strategy-detector-design.md §Validator.
+// ============================================================================
+
+// Per-turn state: bar-close.js sets the active candidate + bundle before
+// invoking the turn so surfaceSetup can audit the model's payload.
+let _currentCandidate = null;
+let _currentBundle = null;
+export function setCurrentCandidate(candidate, bundle) {
+  _currentCandidate = candidate;
+  _currentBundle = bundle;
+}
+export function clearCurrentCandidate() {
+  _currentCandidate = null;
+  _currentBundle = null;
+}
+
+const GRADE_RANK_VAL = { 'no-trade': 0, B: 1, 'A+': 2 };
+const _gradeRank = (g) => GRADE_RANK_VAL[g] ?? 0;
+
+function resolveCite(cite, bundle) {
+  if (!cite || typeof cite !== 'string') return undefined;
+  try {
+    return cite.split(/\.|\[|\]/).filter(Boolean).reduce((acc, key) => acc?.[/^\d+$/.test(key) ? Number(key) : key], bundle);
+  } catch { return undefined; }
+}
+
+function isUntakenTarget(cite, bundle) {
+  // Untaken: cites that route through untaken_above[]/untaken_below[].
+  if (/untaken_(above|below)\[/.test(cite ?? '')) return true;
+  const resolved = resolveCite(cite, bundle);
+  if (!resolved) return true; // unresolved cite is caught by the cite-resolution check
+  if (resolved.valid_as_target === false) return false;
+  if (resolved.swept === true) return false;
+  if (resolved.taken === true) return false;
+  return true;
+}
+
+export function validateSetupAgainstCandidate(payload, candidate, bundle) {
+  const errors = [];
+  const cand = candidate?.best_candidate;
+
+  // 0. There must be a best_candidate.
+  if (!cand) {
+    throw new Error('Setup validation failed: detector emitted best_candidate=null (no tradable setup). Use surface_no_trade instead.');
+  }
+
+  // 1. Every cite resolves.
+  for (const [key, cite] of [['entry_cite', payload.entry_cite], ['stop_cite', payload.stop_cite], ['tp1_cite', payload.tp1_cite], ['tp2_cite', payload.tp2_cite]]) {
+    if (resolveCite(cite, bundle) === undefined) errors.push(`${key} ${cite} does not resolve in bundle`);
+  }
+
+  // 2. TP cites are untaken.
+  if (!isUntakenTarget(payload.tp1_cite, bundle)) errors.push(`tp1_cite ${payload.tp1_cite} points at a swept/taken level (valid_as_target=false)`);
+  if (!isUntakenTarget(payload.tp2_cite, bundle)) errors.push(`tp2_cite ${payload.tp2_cite} points at a swept/taken level (valid_as_target=false)`);
+
+  // 3. Stop matches one of the detector's stop_options.
+  const matchedStop = (cand.stop_options ?? []).find((opt) => Math.abs(opt.value - payload.stop) < 0.01);
+  if (!matchedStop) {
+    errors.push(`stop value ${payload.stop} not in detector's stop_options: ${(cand.stop_options ?? []).map((o) => `${o.kind}=${o.value}`).join(', ')}`);
+  }
+
+  // 4. Grade <= grade_capped.
+  if (_gradeRank(payload.grade) > _gradeRank(cand.grade_capped)) {
+    errors.push(`grade ${payload.grade} exceeds grade_capped ${cand.grade_capped}`);
+  }
+
+  // 5. Model/side matches detector's pick.
+  if (payload.model !== cand.model || payload.side !== cand.side) {
+    errors.push(`payload model/side ${payload.model}/${payload.side} does not match detector's pick ${cand.model}/${cand.side}`);
+  }
+
+  if (errors.length) {
+    throw new Error(`Setup validation failed: ${errors.join('; ')}`);
+  }
+}
+
 export async function surfaceSetup(payload) {
   // #32 A+ requires pillar_breakdown — these setups carry the most risk
   // and the trader needs the alignment view. Reject A+ without it
   // so Claude retries with the missing field.
   if (payload.grade === "A+" && (!Array.isArray(payload.pillar_breakdown) || payload.pillar_breakdown.length < 2)) {
     throw new Error("surface_setup: grade A+ requires pillar_breakdown with at least 2 pillars");
+  }
+  // Detector audit: when bar-close set a candidate for this turn,
+  // validate the payload against it. Strict (reject) mode from day one
+  // per spec — tests-only trust path.
+  if (_currentCandidate?.best_candidate && _currentBundle) {
+    validateSetupAgainstCandidate(payload, _currentCandidate, _currentBundle);
   }
   const dir = await activeSessionDir();
   const file = path.join(dir, "setups.jsonl");
