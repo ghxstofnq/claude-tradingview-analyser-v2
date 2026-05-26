@@ -14,6 +14,12 @@ let _send = null;
 let _snapshot = null;      // Map<id, status>; null until initial snapshot
 let _timer = null;
 let _unsubscribeMode = null;
+// Overlap guard. A live poll fires every 5s but each `tv alert list` can
+// take ~20s with a large alert list. Without this, mode changes (which call
+// scheduleNext) could race with an in-flight tick and spawn a second tick
+// before the first finishes. Also any external trigger (manual ipc poke,
+// etc.) that calls tick() directly would compound. Cheap insurance.
+let _inFlight = false;
 
 // Normalize a single alert from `tv alert list`. TV's REST shape:
 //   { alert_id, message, active: true|false, last_fired: null|<iso>,
@@ -70,6 +76,15 @@ function scheduleNext() {
 }
 
 async function tick() {
+  if (_inFlight) {
+    // Previous tick still running — let it finish; its `finally` will
+    // schedule the next one. Skipping silently is fine: alerts polling is
+    // a heartbeat, missing one cycle doesn't lose data (the next tick
+    // catches up). What we MUST avoid is overlapping tv-process queue
+    // entries, which would amplify the 20s problem indefinitely.
+    return;
+  }
+  _inFlight = true;
   try {
     const list = await tvAlertList({});
     const raw = Array.isArray(list) ? list : (list?.alerts || list?.items || []);
@@ -104,6 +119,7 @@ async function tick() {
     console.warn("[alerts] poll failed", err?.message || err);
     _send?.("health:update", { alerts: "down" });
   } finally {
+    _inFlight = false;
     scheduleNext();
   }
 }

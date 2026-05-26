@@ -9,9 +9,14 @@
 
 import { runTvCapture } from "./tv-process.js";
 
-// Alert ops are fast (~200ms typical); 15s timeout protects against TV
-// being unresponsive without blocking the alert poll loop too long.
-const ALERT_TIMEOUT_MS = 15_000;
+// Alert ops are fast (~200ms typical) when the alert list is small. With
+// large lists (36+ alerts observed live 2026-05-26), `alert list` takes
+// ~20s deterministically — the in-page fetch to pricealerts.tradingview.com
+// scales linearly with row count and the CDP evaluateAsync round-trip
+// amplifies it. 30s timeout absorbs that worst-case while still being
+// short enough to surface a genuinely hung TV. Should probably profile +
+// reduce the underlying 20s separately, but that's a follow-up.
+const ALERT_TIMEOUT_MS = 30_000;
 
 // Create a TradingView price alert. Parses the CLI's JSON output so caller
 // (renderer) sees real failures + drift warnings — the old wrapper always
