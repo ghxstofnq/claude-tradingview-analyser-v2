@@ -82,25 +82,25 @@ Reason in prose first; surface last.`;
 
 const ANALYSIS_PROTOCOL = `
 
-**Every analysis turn MUST end with exactly one tool call**, in this order of priority:
+End every analysis turn with exactly one tool call, in this order of priority:
 
-1. If a valid setup is in play and you would call it \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, tf, pillar_breakdown). Do this AFTER your prose reasoning. \`tf\` is "1m" or "5m" — stamp it to match the TF of the bar that triggered this turn. \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements. Skipping pillar_breakdown hides the alignment panel.
+1. If a valid setup is in play graded \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, tf, pillar_breakdown). Do this after your prose reasoning. \`tf\` is "1m" or "5m" — stamp it to match the TF of the bar that triggered this turn. \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements. Skipping pillar_breakdown hides the alignment panel.
 
 2. Otherwise (any reason you would have written "no-trade" in prose) — call \`mcp__tv__surface_no_trade\` with a short \`reason\` string. Examples: "outside active session", "no entry model in play", "price quality weak — premium/discount unclear", "HTF/LTF opposed — retrace day".
 
-Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` is a bug — the UI will stay stuck on the previous state.
+Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` leaves the UI stuck on the previous state.
 
 To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`mcp__tv__tv_analyze_fast\` (1-bar poll with a baseline path).
 
-**EXCEPTION — open-reaction phase turns.** When the per-bar message says "Phase: open_reaction": call \`mcp__tv__surface_open_reaction\` with the latest read. When \`minutes_into_phase\` >= 14, ALSO call \`mcp__tv__surface_ltf_bias\` to finalize the bias. Either way, still end with \`mcp__tv__surface_no_trade\` — no setup card during open-reaction.`;
+Open-reaction phase: when the per-bar message says "Phase: open_reaction", call \`mcp__tv__surface_open_reaction\` with the latest read. When \`minutes_into_phase\` >= 14, also call \`mcp__tv__surface_ltf_bias\` to finalize the bias. Either way, still end with \`mcp__tv__surface_no_trade\` — no setup card during open-reaction.`;
 
 const BRIEF_PROTOCOL = `
 
-This is a SESSION BRIEF turn. Call \`mcp__tv__surface_session_brief\` **once per symbol** at the end of the turn — for dual-symbol pair scans (e.g. MNQ + MES) call it TWICE (once with symbol="MNQ1!" and once with symbol="MES1!"), each carrying that symbol's structured payload. The user message tells you which symbols. Do NOT call surface_setup or surface_no_trade.`;
+This is a session brief turn. Call \`mcp__tv__surface_session_brief\` once per symbol at the end of the turn — for dual-symbol pair scans (e.g. MNQ + MES) call it twice (once with symbol="MNQ1!" and once with symbol="MES1!"), each carrying that symbol's structured payload. The user message tells you which symbols. Skip surface_setup and surface_no_trade for brief turns.`;
 
 const WRAP_PROTOCOL = `
 
-This is a SESSION SUMMARY turn. Call \`mcp__tv__surface_session_summary\` exactly once at the end with \`bias_picture\`, \`what_happened\`, \`watch_next_session\`. Do NOT call surface_setup or surface_no_trade.`;
+This is a session summary turn. Call \`mcp__tv__surface_session_summary\` exactly once at the end with \`bias_picture\`, \`what_happened\`, \`watch_next_session\`. Skip surface_setup and surface_no_trade for wrap turns.`;
 
 const ALERTS_PROTOCOL = `
 
@@ -113,9 +113,9 @@ You manage TradingView price alerts via three tools:
 - \`mcp__tv__tv_alert_list\` — read all current alerts. Use before deleting (to get \`alert_id\`s) or to avoid duplicating.
 - \`mcp__tv__tv_alert_delete\` — remove one alert by \`alert_id\`.
 
-**Proactively propose alerts (in prose during analysis turns):** after a pre-session grade (HTF draw, untaken liquidity, bias-flip level); when a candidate setup forms (confirmation + invalidation); after a confirmed setup (TP1, TP2, invalidation). Name the levels with cited prices — don't arm during analysis turns, wait for the trader's reply.
+Propose alerts in prose during analysis turns after a pre-session grade (HTF draw, untaken liquidity, bias-flip level), when a candidate setup forms (confirmation + invalidation), or after a confirmed setup (TP1, TP2, invalidation). Name the levels with cited prices; wait for the trader's reply before arming during analysis turns.
 
-**Reactive — when the trader brings up alerts:** three things matter: price (exact level — echo back the cited number if they named PDH/AS_H/etc), condition (crossing default; greater_than / less_than for one-sided), label (short string they'll see when it fires). Fill in what they specified, default the rest, ask only about ambiguous pieces in one short message — not a survey. Alert-management chat turns end with the alert tool call, NOT with surface_setup / surface_no_trade.`;
+When the trader brings up alerts in chat: three things matter — price (exact level — echo back the cited number if they named PDH/AS_H/etc), condition (crossing default; greater_than / less_than for one-sided), label (short string they'll see when it fires). Fill in what they specified, default the rest, ask only about ambiguous pieces in one short message — not a survey. Alert-management chat turns end with the alert tool call, not with surface_setup / surface_no_trade.`;
 
 // Per-purpose system-prompt composition. Each turn assembles only the
 // rules it can act on, cutting OUTPUT_PROTOCOL token cost where possible.
@@ -508,18 +508,16 @@ const FALLBACK_MODEL = "sonnet";
 
 // Effort level: how hard Claude thinks per turn.
 //
-// Started at "medium" (one notch below xhigh default) but observed Claude
-// skipping the trailing surface_session_brief tool call — at medium effort,
-// the docs note "fewer and more-consolidated tool calls". For our prompts
-// that end with a mandatory surface_* call, that consolidation drops the
-// final tool and we get streamed prose with no UI update.
-//
-// "high" is the docs' explicit minimum for intelligence-sensitive work and
-// reliably honors multi-step prompts. Trade-off: more tokens per turn vs
-// xhigh's max, but the brief / setup / pillar files actually get written.
+// 2026-05-26 — raised from "high" to "xhigh" per Anthropic's current guidance:
+// "Start with the new xhigh effort level for coding and agentic use cases."
+// Our bar-close turns are both agentic (multiple tool calls) and intelligence-
+// sensitive (walk 3 entry models with per-component citation, emit a graded
+// tool call). The docs say xhigh is best for this shape; the cost is more
+// tokens per turn. Watch for budget drift after deploy; "high" is the safe
+// fallback if xhigh proves too expensive.
 //
 // Levels: low | medium | high | xhigh | max.
-const EFFORT = "high";
+const EFFORT = "xhigh";
 
 /**
  * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close

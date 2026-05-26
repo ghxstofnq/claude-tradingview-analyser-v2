@@ -70,11 +70,11 @@ async function buildPrompt(session) {
     : "\n\nSESSION MEMORY: _no memory files for this session — wrap with whatever you can infer; explicitly note the gap._\n";
 
   return `Run the SESSION SUMMARY for the ${session.toUpperCase()} session.${memoryBlock}
-Steps:
+Required action:
 1. Synthesize Pillar 1 + Pillar 2 + LTF bias into a one-paragraph bias picture (cite prices via JSON paths where applicable).
 2. Write one paragraph describing what happened — did setups fire / confirm; the session's narrative.
 3. List 1–2 bullets for what to watch in the next session.
-4. End the turn by calling mcp__tv__surface_session_summary with session="${session}" and the structured payload. Do NOT call surface_setup or surface_no_trade.`;
+4. End the turn by calling mcp__tv__surface_session_summary with session="${session}" and the structured payload. Skip surface_setup and surface_no_trade for wrap turns.`;
 }
 
 const _driver = makeScheduledTurn({

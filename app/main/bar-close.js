@@ -329,8 +329,8 @@ async function runClaudeTurnFor(ev, session, phase) {
   if (phase === "open_reaction") {
     const finalize = mip != null && mip >= 14;
     const pairLine =
-      `PAIR CONFIG: pass pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}" to tv_analyze_fast — the dual-symbol bundle is required to compute leader_evidence and to call surface_leader_decision at minute 14.`;
-    hint = `Open-reaction window (+${mip ?? "?"}m of 15). ${pairLine} Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? `minutes_into_phase >= 14 — ALSO call surface_leader_decision with the values from pair.leader_evidence AND surface_ltf_bias to finalize bias. ` : ""}End the turn with surface_no_trade. Do NOT call surface_setup during open-reaction.`;
+      `Pair config: pass pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}" to tv_analyze_fast — the dual-symbol bundle is required to compute leader_evidence and to call surface_leader_decision at minute 14.`;
+    hint = `Open-reaction window (+${mip ?? "?"}m of 15). Required action: ${pairLine} Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? `minutes_into_phase >= 14 — also call surface_leader_decision with the values from pair.leader_evidence and surface_ltf_bias to finalize bias. ` : ""}End the turn with surface_no_trade — no setup card during open-reaction.`;
   } else {
     // Entry hunt: leader decision is in place. The bundle is single-symbol
     // on the leader because tv analyze short-circuits on pair-decision.json.
@@ -344,9 +344,16 @@ async function runClaudeTurnFor(ev, session, phase) {
     // available in engine_by_tf.m1 from the cached baseline. Strategy §3:
     // 5m drives displacement / FVG / structure read; 1m confirms the close.
     const tfLine = ev.tf === "5m"
-      ? `This is a 5m close turn — the bundle's top-level engine/bars reflect 5m (chart is pinned to 5m for this tick). Use engine.fvgs / engine.structures / engine.sweeps for 5m displacement read. Use engine_by_tf.m1 (from cached baseline) for the 1m confirmation bar. After this turn the next 1m tick will flip the chart back.`
-      : `This is a 1m close turn — bundle is 1m. Use engine.* for the 1m entry-model walk; pair with engine_by_tf.m5 for 5m structure context if needed.`;
-    hint = `Step 1: call mcp__tv__tv_analyze_fast with baseline="${baselinePathFor(leader)}". Step 2: Read state/last-scan.slim.json (the slim sibling — ~5-10 KB, fits in one Read; the full state/last-scan.json is for fallback only). The slim contains quote.last, engine.{fvgs,bprs,sweeps,structures,swings} (last 10 each), engine.quality + levels, engine_by_tf.{m1,m5}, gates.session, gates.engine.{pillar1,pillar2,confirmation,price_context}. Step 3: ${tfLine} Walk all three entry models by NAME — MSS / Trend / Inversion. Give one verdict per model (don't stop at the first miss). Step 4: If a candidate or confirmed setup is in play, call mcp__tv__surface_setup with tf="${ev.tf}"; otherwise call mcp__tv__surface_no_trade with a real reason ("no entry model in play" / "price quality weak" / etc — never a meta excuse like "couldn't read bundle").`;
+      ? `5m close turn — the bundle's top-level engine/bars reflect 5m (chart is pinned to 5m for this tick). Use engine.fvgs / engine.structures / engine.sweeps for 5m displacement read. Use engine_by_tf.m1 (from cached baseline) for the 1m confirmation bar. After this turn the next 1m tick will flip the chart back.`
+      : `1m close turn — bundle is 1m. Use engine.* for the 1m entry-model walk; pair with engine_by_tf.m5 for 5m structure context if needed.`;
+    hint = `Required action: walk the entry-hunt phase per the system prompt.
+Step 1: call mcp__tv__tv_analyze_fast with baseline="${baselinePathFor(leader)}".
+Step 2: Read state/last-scan.slim.json (~5-10 KB; full state/last-scan.json is fallback only). The slim contains quote.last, engine.{fvgs,bprs,sweeps,structures,swings} (last 10 each), engine.quality + levels, engine_by_tf.{m1,m5}, gates.session, gates.engine.{pillar1,pillar2,confirmation,price_context}.
+Step 3: ${tfLine}
+Step 4: check gates.engine.meta.stale — if true, skip to surface_no_trade with reason "engine output stale".
+Step 5: walk MSS / Trend / Inversion by name. For each model list its components (6 for MSS, 5 for Trend, 5 for Inversion) with a cited price OR "missing".
+Step 6: apply the six-element grade rule (A+ if all six aligned; B if exactly one weaker; no-trade if two or more weak/missing).
+Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If grade is no-trade, call mcp__tv__surface_no_trade with a concrete reason from the walk ("no entry model in play", "price quality weak", etc — not a meta excuse like "couldn't read bundle").`;
   }
   const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
   const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}. TF tick: ${ev.tf}${ev.is_5m_close ? " (also a 5m close)" : ""}.`;
