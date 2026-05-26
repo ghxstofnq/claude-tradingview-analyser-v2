@@ -87,6 +87,11 @@ function nextTrigger(triggers) {
  *   optional post-turn validator; non-null return is an error message
  *   that gets surfaced via app:error + status:error. toolCalls is the
  *   array of tool-call names emitted during the turn.
+ * @param {function?} config.onSuccessFn  (session) => Promise<void>
+ *   optional fire-and-forget hook called after a successful turn (no
+ *   error, postValidate clean). Used by session-wrap to spawn the
+ *   post-wrap memory-review turn. Errors are caught + logged; they
+ *   never bubble back to fail the parent turn.
  */
 export function makeScheduledTurn(config) {
   let _send = null;
@@ -161,6 +166,15 @@ export function makeScheduledTurn(config) {
       if (!errored) {
         _send?.(config.statusChannel, { state: "idle", session });
         recordMetric({ kind: config.purpose, event: "succeeded", session, durationMs: Date.now() - startedAt });
+        // Optional onSuccess hook — fire-and-forget. Used by session-wrap
+        // to spawn the post-wrap memory-review turn. Errors here must
+        // never bubble back into the parent turn's status.
+        if (config.onSuccessFn) {
+          Promise.resolve(config.onSuccessFn(session)).catch((err) => {
+            // eslint-disable-next-line no-console
+            console.warn(`[${config.name}] onSuccessFn threw`, err?.message || err);
+          });
+        }
       }
     } catch (err) {
       errored = true;

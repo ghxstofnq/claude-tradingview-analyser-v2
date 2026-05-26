@@ -26,6 +26,7 @@ import {
   surfaceSessionSummary,
   surfaceLeaderDecision,
 } from "./tools/surface.js";
+import { getPersistentMemory } from "./persistent-memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
@@ -40,6 +41,7 @@ const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
 const _sessionIds = new Map(); // purpose -> sessionId
 let _mcpServer = null;
 let _allowedToolNames = [];
+let _memoryToolName = "";  // populated in buildMcpServer; whitelisted per-purpose
 
 // Global mutex serializing all userTurn calls. There are four callers
 // (chat:send_message, session-brief, session-wrap, bar-close) and three
@@ -117,22 +119,80 @@ Propose alerts in prose during analysis turns after a pre-session grade (HTF dra
 
 When the trader brings up alerts in chat: three things matter — price (exact level — echo back the cited number if they named PDH/AS_H/etc), condition (crossing default; greater_than / less_than for one-sided), label (short string they'll see when it fires). Fill in what they specified, default the rest, ask only about ambiguous pieces in one short message — not a survey. Alert-management chat turns end with the alert tool call, not with surface_setup / surface_no_trade.`;
 
+// Memory-tool guidance. Composed into chat / wrap / review protocols so the
+// trader-facing surfaces (chat) and reflective phases (wrap, review) know
+// how to use the memory tool. Bar-close + catch-up + brief never see this
+// — they have no memory tool exposed.
+const MEMORY_GUIDANCE = `
+
+---
+
+## PERSISTENT MEMORY GUIDANCE
+
+You have persistent memory across trading days (the \`<persistent_memory>\` block at the top of this prompt). Save durable facts using the \`mcp__tv__memory\` tool: trader preferences, recurring market patterns, instrument quirks, stable rules.
+
+Memory is part of the system prompt on every future session — keep it compact and focused on facts that will still matter in a week.
+
+Prioritize what reduces future correction — the most valuable memory is one that prevents the trader from having to remind you again. Trader corrections and preferences matter more than market trivia.
+
+Do NOT save today's setups, today's PnL, "fixed bug X", "session X wrapped" — those live in \`state/session/<date>/<session>/summary.md\`. If a fact will be stale in a week, it does not belong in memory.
+
+Write memories as declarative facts, not instructions to yourself. "Trader uses structural stops" ✓ — "Always use structural stops" ✗. Imperative phrasing gets re-read as a standing order in later sessions and can override the trader's current request.`;
+
+// Review-purpose protocol. The post-wrap review turn fires once per session
+// wrap and exists solely to extract durable lessons into persistent memory.
+const REVIEW_PROTOCOL = `
+
+---
+
+## REVIEW TURN PROTOCOL
+
+This is a session-review turn. The session just wrapped — its summary.md and setups.jsonl are on disk. Your job is to extract anything worth remembering across days.
+
+Be ACTIVE. Most sessions produce at least one update. A pass that does nothing is a missed learning opportunity, not a neutral outcome.
+
+Read first:
+1. \`<sdir>/summary.md\` (just written)
+2. \`<sdir>/setups.jsonl\`
+3. Existing persistent memory (already in your system prompt as \`<persistent_memory>\`)
+
+Signals that warrant a memory update (any one is enough):
+- Trader revealed a preference, schedule, or rule that isn't in memory yet
+- Trader corrected your grading, sizing, or reading of a setup
+- A market pattern recurred across days (not just today — at least 2-3 occurrences in recent memory or your own observation)
+- A setup type repeatedly failed or succeeded in a way that should bias future grading
+- You discovered a chart-reading nuance specific to this trader's setup
+
+Do NOT save:
+- "Today's NY AM wrapped" / "Setup X fired" — that's what summary.md is for
+- Today's specific prices, today's session IDs
+- Single-occurrence events that resolved
+- Negative claims about indicators or tools
+
+Write memory as declarative facts, not directives. "Trader skips PCE days" ✓ — "Don't trade on PCE days" ✗.
+
+"Nothing to save" is a real option but should NOT be the default. If genuinely nothing stands out, say "Nothing to save." and stop. Otherwise, use the memory tool to write what you found.
+
+Do NOT call any surface_* tool in this turn — review is memory-only.`;
+
 // Per-purpose system-prompt composition. Each turn assembles only the
 // rules it can act on, cutting OUTPUT_PROTOCOL token cost where possible.
 const PROTOCOL_BY_PURPOSE = {
   // Per-bar analysis: full surface_setup / surface_no_trade rules plus
-  // alert proposal during analysis.
+  // alert proposal during analysis. NO memory guidance — read-only.
   "bar-close": CORE_PROTOCOL + ANALYSIS_PROTOCOL + ALERTS_PROTOCOL,
   // Same rules as bar-close — catch-up turns walk the same protocol.
   "catch-up": CORE_PROTOCOL + ANALYSIS_PROTOCOL,
   // Brief turns surface session-brief; they may also propose alerts
-  // after the pre-session grade.
+  // after the pre-session grade. Read-only for memory.
   "brief": CORE_PROTOCOL + BRIEF_PROTOCOL + ALERTS_PROTOCOL,
-  // Wrap turns only need session-summary; no setup, no alerts.
-  "wrap": CORE_PROTOCOL + WRAP_PROTOCOL,
-  // Chat turns need just core + alerts (the trader's natural way to
-  // arm/disarm alerts). No surface tool obligations.
-  "chat": CORE_PROTOCOL + ALERTS_PROTOCOL,
+  // Wrap turns surface session-summary; can also write memory directly.
+  "wrap": CORE_PROTOCOL + WRAP_PROTOCOL + MEMORY_GUIDANCE,
+  // Chat turns need core + alerts (the trader's natural way to arm/disarm
+  // alerts) + memory guidance (chat is where corrections land).
+  "chat": CORE_PROTOCOL + ALERTS_PROTOCOL + MEMORY_GUIDANCE,
+  // Review turns: memory-only. Fired automatically after each session wrap.
+  "review": CORE_PROTOCOL + REVIEW_PROTOCOL + MEMORY_GUIDANCE,
 };
 
 // Hot-reload prompts: re-read analyze.md ONLY when its mtime changes.
@@ -173,8 +233,31 @@ async function loadSystemPrompt(purpose) {
     // an empty prompt (Claude would say things based on nothing).
     throw new Error("system prompt read failed and no last-known-good available");
   }
+
+  // Persistent-memory block — prepended (most cache-stable position). Loaded
+  // by runOneTurn() at the start of each turn so the snapshot is fresh-per-
+  // turn but byte-stable across the turn's many messages. See
+  // app/main/persistent-memory.js for the snapshot-freeze contract.
+  const memBlock = getPersistentMemory().formatBlockForSystemPrompt();
+  const memPrefix = memBlock ? memBlock + "\n\n" : "";
+
   const protocol = PROTOCOL_BY_PURPOSE[purpose] || PROTOCOL_BY_PURPOSE["bar-close"];
-  return base + protocol;
+  return memPrefix + base + protocol;
+}
+
+// Purposes that can WRITE to persistent memory via the memory tool.
+// Bar-close fires ~420×/day — keeping it read-only prevents an over-eager
+// model from spamming memory writes on every minute close. Chat is the
+// natural surface for trader-driven corrections; wrap and review are the
+// two reflective phases.
+const PURPOSES_WITH_MEMORY_WRITE = new Set(["chat", "wrap", "review"]);
+
+function buildAllowedToolNames(purpose) {
+  const base = ["Read", "Glob", ..._allowedToolNames];
+  if (_memoryToolName && PURPOSES_WITH_MEMORY_WRITE.has(purpose)) {
+    base.push(_memoryToolName);
+  }
+  return base;
 }
 
 // CallToolResult envelope expected by the SDK's MCP tool API.
@@ -462,13 +545,83 @@ function buildMcpServer() {
         }
       },
     ),
+    tool(
+      "memory",
+      `Save durable facts to persistent memory that survives across trading days. Memory injects into every future session as part of the system prompt — keep it compact, declarative, and focused on facts that will still matter in a week.
+
+WHEN TO SAVE (proactively, don't wait to be asked):
+- Trader corrects you ("stop calling tiny FVGs A+", "I don't trade Mondays")
+- Trader expresses a preference (sizing rule, sessions traded, instruments to skip)
+- A cross-day market pattern surfaces (PCE-day chop, NY AM fades after fast Asia)
+- You learn a chart-reading nuance specific to this trader's setup
+
+PRIORITY: trader corrections + preferences > cross-day market patterns > facts about the trader's environment. The most valuable memory is one that prevents the trader from having to remind you again.
+
+DO NOT save:
+- Today's setups / today's PnL / today's session outcomes — those live in state/session/<date>/<session>/summary.md
+- Specific PR numbers, commit SHAs, file counts, anything stale in a week
+- Single-occurrence chart events that resolved
+- Negative claims about indicators or tools ("the engine is broken")
+- One-off task narratives ("the trader asked about MES today")
+
+DECLARATIVE PHRASING (important): write memories as facts, not directives.
+- "Trader uses structural stops below the FVG low" ✓
+- "Always set stops below the FVG low" ✗
+- "Trader skips Wednesdays during FOMC weeks" ✓
+- "Don't trade Wednesdays" ✗
+Imperative phrasing gets re-read as a standing order every turn — it can override the trader's current request. Facts are applied contextually.
+
+TWO TARGETS:
+- target="user" → who the trader is (preferences, schedule, instruments, style)
+- target="memory" → cross-day lessons (recurring patterns, durable observations)
+
+ACTIONS:
+- add: append a new entry
+- replace: find existing entry by old_text (unique substring), replace it
+- remove: find by old_text, delete
+
+If a write would exceed the char limit, the tool refuses and tells you which entries to remove first.`,
+      {
+        action: z.enum(["add", "replace", "remove"]).describe("The action to perform."),
+        target: z.enum(["memory", "user"]).describe("Which store: 'memory' for cross-day lessons, 'user' for trader profile."),
+        content: z.string().optional().describe("Entry content. Required for 'add' and 'replace'."),
+        old_text: z.string().optional().describe("Short unique substring identifying the entry to replace or remove."),
+      },
+      async (args) => {
+        try {
+          const mem = getPersistentMemory();
+          const action = args?.action;
+          const target = args?.target;
+          let result;
+          if (action === "add") {
+            result = await mem.add(target, args?.content || "");
+          } else if (action === "replace") {
+            result = await mem.replace(target, args?.old_text || "", args?.content || "");
+          } else if (action === "remove") {
+            result = await mem.remove(target, args?.old_text || "");
+          } else {
+            result = { success: false, error: `unknown action '${action}' — use add/replace/remove` };
+          }
+          return result.success ? ok(result) : err(result.error || "memory tool failed");
+        } catch (e) {
+          return err(e?.message || String(e));
+        }
+      },
+    ),
   ];
 
   // The SDK prefixes MCP tool names as mcp__<server>__<tool>; we whitelist
   // these names in allowedTools so Claude can call them without permission
   // prompts.
+  //
+  // memory is EXCLUDED from the default whitelist — it's added per-purpose
+  // (chat / wrap / review only) by buildAllowedToolNames(purpose) so the
+  // 420×/day bar-close turn surface stays read-only.
   const serverName = "tv";
-  _allowedToolNames = tools.map((t) => `mcp__${serverName}__${t.name}`);
+  _allowedToolNames = tools
+    .filter((t) => t.name !== "memory")
+    .map((t) => `mcp__${serverName}__${t.name}`);
+  _memoryToolName = `mcp__${serverName}__memory`;
   // alwaysLoad: true forces the SDK MCP server to be available in turn 1
   // (per 0.3.142 release notes — by default MCP servers connect in the
   // background and may be "pending" during the first turn). Without this,
@@ -539,7 +692,7 @@ const EFFORT = "xhigh";
  */
 export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS }) {
   if (!purpose) {
-    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | catch-up)";
+    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | catch-up | review)";
     onEvent?.({ type: "error", message: msg });
     onEvent?.({ type: "turn_complete" });
     throw new Error(msg);
@@ -571,6 +724,17 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
 }
 
 async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
+  // Refresh persistent memory from disk at the start of each turn. The store
+  // freezes a snapshot at this point; loadSystemPrompt reads that snapshot
+  // when composing the prompt. Mid-turn writes (memory tool calls inside
+  // this same turn) hit disk + live state but DO NOT change the snapshot
+  // that's already been injected — that's the prefix-cache invariant.
+  try {
+    await getPersistentMemory().load();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[sdk] persistent memory load failed (continuing without)", err?.message || err);
+  }
   const systemPrompt = await loadSystemPrompt(purpose);
   const resumeId = _sessionIds.get(purpose);
   const opts = {
@@ -587,7 +751,10 @@ async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
     // for "find the latest bundle" cases.
     tools: ["Read", "Glob"],
     mcpServers: _mcpServer ? { tv: _mcpServer } : undefined,
-    allowedTools: ["Read", "Glob", ..._allowedToolNames],
+    // Per-purpose whitelist: chat / wrap / review can call the memory tool;
+    // brief / bar-close / catch-up are read-only for memory. Keeps the
+    // 420×/day bar-close turn from being a write surface.
+    allowedTools: buildAllowedToolNames(purpose),
     // MCP_CONNECTION_NONBLOCKING=0 — per 0.3.142 release notes, MCP servers
     // connect in the background by default and may report "pending" in
     // turn 1. Setting this to 0 forces the SDK to wait up to 5s for MCP

@@ -165,14 +165,96 @@ export function postValidate(toolCalls) {
   return null;
 }
 
-function buildPrompt(session) {
-  return Promise.resolve(`Run the SESSION BRIEF for the ${session.toUpperCase()} session.
+// Read up to maxDays of recent per-session summary.md files for context
+// injection into the brief turn. Cheap approximation of FTS5 session
+// search: gives Claude a view of "what happened on the last 5 trading
+// days" before grading today. Cap total content at ~4000 chars to keep
+// the brief turn's prompt bounded.
+//
+// Layout: state/session/<YYYY-MM-DD>/{ny-am,ny-pm,london}/summary.md.
+// Skip days with no folder. Skip sessions without a summary.md (e.g. a
+// session that didn't wrap because of an app restart).
+async function readRecentSessionSummaries({ maxDays = 5, maxChars = 4000 } = {}) {
+  const sessionRoot = path.join(REPO_ROOT, "state", "session");
+  let dates;
+  try {
+    dates = (await fs.readdir(sessionRoot, { withFileTypes: true }))
+      .filter((d) => d.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d.name))
+      .map((d) => d.name)
+      .sort()
+      .reverse(); // newest first
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    throw err;
+  }
+  const today = nyParts().date;
+  // Skip today's folder — those summaries are about-to-be-created by THIS
+  // session's wrap; injecting them would echo back to the model.
+  dates = dates.filter((d) => d !== today).slice(0, maxDays);
+
+  const entries = [];
+  let totalChars = 0;
+  for (const date of dates) {
+    const dayDir = path.join(sessionRoot, date);
+    let sessions;
+    try {
+      sessions = (await fs.readdir(dayDir, { withFileTypes: true }))
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name);
+    } catch {
+      continue;
+    }
+    // Preferred order: ny-am, ny-pm, london (chronological inside a day)
+    const ordered = ["ny-am", "ny-pm", "london"].filter((s) => sessions.includes(s));
+    for (const session of ordered) {
+      const summaryPath = path.join(dayDir, session, "summary.md");
+      let raw;
+      try {
+        raw = await fs.readFile(summaryPath, "utf8");
+      } catch {
+        continue;
+      }
+      // Strip YAML frontmatter to keep injected text tight.
+      const body = raw.replace(/^---[\s\S]*?---\s*/m, "").trim();
+      if (!body) continue;
+      const entry = `### ${date} ${session}\n${body}`;
+      if (totalChars + entry.length > maxChars && entries.length > 0) break;
+      entries.push(entry);
+      totalChars += entry.length;
+    }
+    if (totalChars >= maxChars) break;
+  }
+  return entries;
+}
+
+async function buildPrompt(session) {
+  // Read last 5 days' session summaries — cross-session context that helps
+  // the model spot recurring patterns and avoid contradicting recent
+  // verdicts without good cause. See
+  // docs/research/hermes-memory-architecture.md (Layer 5 cheap approximation).
+  let recentBlock = "";
+  try {
+    const entries = await readRecentSessionSummaries();
+    if (entries.length) {
+      recentBlock =
+        `<recent_sessions>\n` +
+        `For cross-session context — what you graded over the last few trading days. ` +
+        `Use this to spot recurring patterns and to avoid contradicting recent verdicts without good cause.\n\n` +
+        entries.join("\n\n") +
+        `\n</recent_sessions>\n\n`;
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[session-brief] recent-sessions read failed", err?.message || err);
+  }
+
+  return `${recentBlock}Run the SESSION BRIEF for the ${session.toUpperCase()} session.
 
 Required action:
 1. Call mcp__tv__tv_analyze_full with pair="${PAIR_DEFAULT}" to load dual-symbol HTF context (Daily / 4H / 1H, overnight ranges, both symbols).
 2. Reason in prose for each symbol independently. Grade Pillars 1 (Draw & Bias) and 2 (Price-Action Quality). Identify HTF bias per timeframe, overnight context (Asia / London ranges, what was swept), key levels (PWH / PDH / ONH / ONL / PDL / PWL with taken/untaken state), a one-paragraph headline plan, and 2–4 structured IF/THEN scenarios for the session open. Cite from pair.symbols.${PAIR_PRIMARY}.* and pair.symbols.${PAIR_SECONDARY}.* — the top-level fields mirror the primary only.
 3. Scenarios should be concrete and actionable. Each scenario has a condition ("NY opens above 21487.25 (PDH) and holds") and an action ("long continuation, target Asia high"). The trader reads these live during the open — terse and decisive beats long prose.
-4. End the turn with mcp__tv__surface_session_brief called twice — once with symbol="${PAIR_PRIMARY}" and once with symbol="${PAIR_SECONDARY}". Each call carries the per-symbol structured payload (including the scenarios array). This is the only tool call that surfaces briefs to the PREP panels — skip surface_setup and surface_no_trade for brief turns.`);
+4. End the turn with mcp__tv__surface_session_brief called twice — once with symbol="${PAIR_PRIMARY}" and once with symbol="${PAIR_SECONDARY}". Each call carries the per-symbol structured payload (including the scenarios array). This is the only tool call that surfaces briefs to the PREP panels — skip surface_setup and surface_no_trade for brief turns.`;
 }
 
 const _driver = makeScheduledTurn({

@@ -12,7 +12,7 @@
 // succeeding 100% or 60% — now it's countable.
 //
 // Event shape:
-//   { ts: <ISO>, kind: "brief" | "wrap" | "bar-close" | "chat" | "catch-up",
+//   { ts: <ISO>, kind: "brief" | "wrap" | "bar-close" | "chat" | "catch-up" | "review",
 //     event: "started" | "succeeded" | "failed" | "skipped" |
 //            "post_validate_failed" | "timeout",
 //     session?, reason?, durationMs? }
@@ -46,6 +46,7 @@ function freshTally() {
     "bar-close": { started: 0, succeeded: 0, failed: 0, timeout: 0 },
     chat: { started: 0, succeeded: 0, failed: 0 },
     "catch-up": { started: 0, succeeded: 0, failed: 0 },
+    review: { started: 0, succeeded: 0, failed: 0, skipped: 0, timeout: 0 },
   };
 }
 
