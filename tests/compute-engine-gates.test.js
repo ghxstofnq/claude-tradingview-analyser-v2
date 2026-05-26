@@ -107,6 +107,37 @@ test('computeEngineGates splits structure events by tier', () => {
   assert.equal(g.pillar3.structures_by_tier.swing[0].event, 'bos');
 });
 
+test('computeEngineGates flags is_reclaimed on structure_events by dir vs price', () => {
+  // last=29320: bull MSS at 29225.5 → last > level → not reclaimed.
+  //             bear MSS at 29350.25 → last < level → not reclaimed.
+  //             bull BOS at 29800 → last < level → RECLAIMED (bull break failed back).
+  const g = computeEngineGates({ engine: sampleEngine(), engineByTf: sampleByTf, last: 29320 });
+  const bullMss = g.pillar3.structure_events.find((s) => s.event === 'mss' && s.dir === 'bull');
+  const bearMss = g.pillar3.structure_events.find((s) => s.event === 'mss' && s.dir === 'bear');
+  const bullBos = g.pillar3.structure_events.find((s) => s.event === 'bos');
+  assert.equal(bullMss.is_reclaimed, false);
+  assert.equal(bearMss.is_reclaimed, false);
+  assert.equal(bullBos.is_reclaimed, true);
+  // most_recent_structure (the bull BOS) is also flagged.
+  assert.equal(g.pillar3.most_recent_structure.is_reclaimed, true);
+});
+
+test('computeEngineGates is_reclaimed flips with last price', () => {
+  // last=29900: bull BOS at 29800 → last > level → not reclaimed.
+  const g = computeEngineGates({ engine: sampleEngine(), engineByTf: sampleByTf, last: 29900 });
+  const bullBos = g.pillar3.structure_events.find((s) => s.event === 'bos');
+  assert.equal(bullBos.is_reclaimed, false);
+  assert.equal(g.pillar3.most_recent_structure.is_reclaimed, false);
+});
+
+test('computeEngineGates is_reclaimed is null when last is missing', () => {
+  // last=null: no comparison possible → is_reclaimed: null.
+  const g = computeEngineGates({ engine: sampleEngine(), engineByTf: sampleByTf, last: null });
+  for (const ev of g.pillar3.structure_events) {
+    assert.equal(ev.is_reclaimed, null);
+  }
+});
+
 test('computeEngineGates surfaces failure-swing MSS events only', () => {
   const g = computeEngineGates({ engine: sampleEngine(), engineByTf: sampleByTf, last: 29320 });
   // bear MSS has validation=sweep -> failure swing. bull MSS validation=break, BOS=break -> excluded.

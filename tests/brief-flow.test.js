@@ -116,3 +116,53 @@ describe("brief flow — postValidate", () => {
     assert.equal(result, null);
   });
 });
+
+// Grade-semantics guards in surface.js. Catches the 2026-05-26 failure mode
+// where pillar_grade="B" was surfaced with two WEAK pillars — internally
+// inconsistent per CLAUDE.md constraint #9 (two weak/missing → no-trade).
+describe("brief flow — surfaceSessionBrief grade semantics", () => {
+  const baseWithTwoWeak = {
+    session: "ny-am",
+    symbol: "MNQ1!",
+    brief: "headline",
+    htf_bias: [
+      { tf: "DAILY", bias: "NEUTRAL", note: "n (engine_by_tf.daily.structures[0])" },
+      { tf: "4H", bias: "MIXED", note: "n (engine_by_tf.h4.structures[0])" },
+      { tf: "1H", bias: "BULLISH", note: "n (engine_by_tf.h1.structures[0])" },
+    ],
+    overnight: [],
+    key_levels: [],
+    pillars: [
+      { name: "Draw & Bias", status: "weak", elements: [{ name: "HTF", status: "weak" }] },
+      { name: "Price-Action Quality", status: "weak", elements: [{ name: "range", status: "weak" }] },
+    ],
+    plan: "p",
+    scenarios: [{ condition: "c", action: "a" }],
+    anchored_target: "1 (path)",
+    anchored_stop: "1 (path)",
+    sizing_note: "0.5 R (memory.USER)",
+  };
+
+  it("rejects pillar_grade='B' with two weak pillars (constraint #9)", async () => {
+    const { surfaceSessionBrief } = await import("../app/main/tools/surface.js");
+    await assert.rejects(
+      () => surfaceSessionBrief({ ...baseWithTwoWeak, pillar_grade: "B" }),
+      /two weak\/missing → no-trade|2 weak\/fail pillars/i,
+    );
+  });
+
+  it("rejects pillar_grade='A+' when any pillar is weak", async () => {
+    const { surfaceSessionBrief } = await import("../app/main/tools/surface.js");
+    await assert.rejects(
+      () => surfaceSessionBrief({ ...baseWithTwoWeak, pillar_grade: "A+" }),
+      /A\+ requires every pillar to be 'pass'/,
+    );
+  });
+
+  // Note: the "happy path" (pillar_grade='no-trade' accepted) is intentionally
+  // not exercised here — calling surfaceSessionBrief with a valid payload
+  // writes to state/session/<today>/<session>/ and pollutes the active day's
+  // PREP state. The two rejection tests above cover the guard logic; the
+  // surface-tool write path is already covered by the SANDBOX-based tests
+  // earlier in this file.
+});

@@ -213,6 +213,32 @@ export async function surfaceSessionBrief(payload) {
       `got ${payload.pillars?.length ?? 0}`,
     );
   }
+  // Grade semantics: B means EXACTLY ONE weaker element across Pillars 1+2.
+  // Two pillars marked weak/fail → the grade should be no-trade. Observed
+  // 2026-05-26: London brief surfaced pillar_grade=B with Pillar 1=weak +
+  // Pillar 2=weak, contradicting CLAUDE.md constraint #9. Reject here so
+  // the next turn re-grades correctly.
+  if (payload.pillar_grade === "B" && Array.isArray(payload.pillars)) {
+    const weakOrFail = payload.pillars.filter((p) => p.status === "weak" || p.status === "fail").length;
+    if (weakOrFail >= 2) {
+      throw new Error(
+        `surface_session_brief: pillar_grade "B" with ${weakOrFail} weak/fail pillars — ` +
+        `B requires exactly one weaker element. Per CLAUDE.md #9, two or more weak/missing → no-trade. ` +
+        `Either re-grade as no-trade, or strengthen the cited evidence to lift a pillar from weak to pass.`,
+      );
+    }
+  }
+  // Grade semantics: A+ rejects ANY weak/fail pillar. A+ means all elements
+  // aligned. Mixed pillar statuses + A+ grade is internally inconsistent.
+  if (payload.pillar_grade === "A+" && Array.isArray(payload.pillars)) {
+    const weakOrFail = payload.pillars.filter((p) => p.status === "weak" || p.status === "fail").length;
+    if (weakOrFail >= 1) {
+      throw new Error(
+        `surface_session_brief: pillar_grade "A+" with ${weakOrFail} weak/fail pillar(s) — ` +
+        `A+ requires every pillar to be 'pass'. Downgrade to B (one weak) or no-trade (two+ weak).`,
+      );
+    }
+  }
   const dir = await briefDirFor(payload.session);
   const ts = new Date().toISOString();
   const record = { ...payload, ts };

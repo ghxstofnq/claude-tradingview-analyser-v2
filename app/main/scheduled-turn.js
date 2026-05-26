@@ -15,7 +15,7 @@
 //     fails, give up and wait for the next scheduled trigger or a manual.
 //   - "skipped" status now reports a reason, surfaced in onStatus events.
 
-import { userTurn } from "./sdk.js";
+import { userTurn, resetSession } from "./sdk.js";
 import { record as recordMetric } from "./metrics.js";
 
 const TRIGGER_LOOKAHEAD_MIN = 72 * 60; // walk up to 72 hours for next trigger
@@ -92,6 +92,10 @@ function nextTrigger(triggers) {
  *   error, postValidate clean). Used by session-wrap to spawn the
  *   post-wrap memory-review turn. Errors are caught + logged; they
  *   never bubble back to fail the parent turn.
+ * @param {number?} config.timeoutMs  per-turn wall-clock budget. Omit to
+ *   inherit userTurn's default (5 min). Briefs override to 10 min because
+ *   tv_analyze_full + dual-symbol Opus 4.7 xhigh reasoning + two surface
+ *   calls regularly run 3–7 min.
  */
 export function makeScheduledTurn(config) {
   let _send = null;
@@ -133,12 +137,15 @@ export function makeScheduledTurn(config) {
     const startedAt = Date.now();
     const toolCalls = [];
     let errored = false;
+    let lastErrorMsg = null;   // captured from any "error" event so we can record it
+    let metricRecorded = false; // guard against double-recording succeed/fail
     let usage = null;     // populated by the "usage" event when the turn succeeds
     try {
       const text = await config.buildPromptFn(session);
       await userTurn({
         text,
         purpose: config.purpose,
+        timeoutMs: config.timeoutMs,   // undefined → userTurn default (5 min)
         onEvent: (e) => {
           if (e.type === "chunk") _send?.("chat:chunk", e);
           else if (e.type === "tool_call") {
@@ -149,6 +156,7 @@ export function makeScheduledTurn(config) {
           else if (e.type === "usage") { usage = e.usage; }
           else if (e.type === "error") {
             errored = true;
+            lastErrorMsg = e.message || lastErrorMsg;
             _send?.("app:error", { source: config.name, message: e.message });
           }
         },
@@ -160,9 +168,11 @@ export function makeScheduledTurn(config) {
         const problem = config.postValidateFn(toolCalls, session);
         if (problem) {
           errored = true;
+          lastErrorMsg = problem;
           _send?.("app:error", { source: config.name, message: problem });
           _send?.(config.statusChannel, { state: "error", session, message: problem });
           recordMetric({ kind: config.purpose, event: "post_validate_failed", session, reason: problem, durationMs: Date.now() - startedAt });
+          metricRecorded = true;
         }
       }
       if (!errored) {
@@ -174,6 +184,7 @@ export function makeScheduledTurn(config) {
           durationMs: Date.now() - startedAt,
           usage,
         });
+        metricRecorded = true;
         // Optional onSuccess hook — fire-and-forget. Used by session-wrap
         // to spawn the post-wrap memory-review turn. Errors here must
         // never bubble back into the parent turn's status.
@@ -183,6 +194,16 @@ export function makeScheduledTurn(config) {
             console.warn(`[${config.name}] onSuccessFn threw`, err?.message || err);
           });
         }
+      } else if (!metricRecorded) {
+        // Errored without a thrown exception (e.g. userTurn timeout emits
+        // "error" + "turn_complete" and returns normally). Previously this
+        // produced a started→nothing pair in metrics.jsonl with no failure
+        // record. Now we explicitly record it so the dashboard / spend
+        // roll-up sees the run.
+        const msg = lastErrorMsg || "errored without thrown exception";
+        _send?.(config.statusChannel, { state: "error", session, message: msg });
+        recordMetric({ kind: config.purpose, event: "failed", session, reason: msg, durationMs: Date.now() - startedAt });
+        metricRecorded = true;
       }
     } catch (err) {
       errored = true;
@@ -190,20 +211,30 @@ export function makeScheduledTurn(config) {
       console.error(`[${config.name}] run failed`, err);
       const msg = String(err?.message || err);
       _send?.(config.statusChannel, { state: "error", session, message: msg });
-      recordMetric({ kind: config.purpose, event: "failed", session, reason: msg, durationMs: Date.now() - startedAt });
+      if (!metricRecorded) {
+        recordMetric({ kind: config.purpose, event: "failed", session, reason: msg, durationMs: Date.now() - startedAt });
+        metricRecorded = true;
+      }
     } finally {
       _running = false;
     }
 
     // One retry on error. Guarded by isRetry so a failed retry doesn't loop.
     if (errored && !isRetry) {
+      // Drop the cached session_id for this purpose so the retry starts a
+      // fresh conversation. If the first attempt died mid-tool-call (e.g.
+      // userTurn timeout), the SDK still has a confused partial state on
+      // that session_id — resuming makes the model see its own truncated
+      // output and try to "continue", often timing out again. A clean
+      // session forces it to re-read the user prompt from scratch.
+      resetSession(config.purpose);
       if (_retryTimer) clearTimeout(_retryTimer);
       _retryTimer = setTimeout(() => {
         _retryTimer = null;
         run(session, { isRetry: true }).catch(() => {});
       }, RETRY_AFTER_MS);
       // eslint-disable-next-line no-console
-      console.log(`[${config.name}] scheduling one retry in ${RETRY_AFTER_MS / 1000}s`);
+      console.log(`[${config.name}] scheduling one retry in ${RETRY_AFTER_MS / 1000}s (session cleared)`);
     }
   }
 

@@ -57,7 +57,7 @@ The ICT Engine indicator is the single data source. It emits one schema-versione
 - `gates.engine.pillar2.{current_tf, m5, m15}` — engine quality verdict per TF: `{range_3h, range_quality (good|tight|na), displacement (clean|acceptable|weak|na), candle (engulfing|doji_wick|normal), atr_14, atr_17, session}`. `acceptable` displacement is workable but weaker than `clean`. ATRs are Wilder values shipped by Pine.
 - `gates.engine.pillar3.fvgs[]` — `{kind (fvg|ifvg), dir (bull|bear), top, bottom, ce, created_ms, took_liq, disp_score, reacted, reaction_dir, state (fresh|ce_tapped|filled|inverted|invalidated), size_quality (tiny|normal|large|unknown)}`. Use the engine's `size_quality` field for FVG size decisions: skip `tiny` zones as setup FVGs; `normal` and `large` are tradable. `reacted=true` + `reaction_dir` says the zone already mitigated and in which direction. Pine keeps the most-recent 24 per TF (FIFO).
 - `gates.engine.pillar3.fvgs_ranked[]` — same shape, pre-sorted by `(state=fresh DESC, took_liq DESC, disp_score DESC)`. Prefer this when picking a setup FVG; `fvgs_ranked[0]` is the highest-priority candidate. `fvgs[]` stays Pine order for raw inspection.
-- `gates.engine.pillar3.{bprs[], swings:{internal[], swing[]}, structure_events[], structures_by_tier:{swing[], internal[]}, failure_swings[], most_recent_structure, fvg_summary}` — each swing `{kind, price, bar_ms, tier, swept, is_high}`; each `structure_events` entry `{event (bos|mss), dir, level, displacement, tier, validation (break|sweep), confirmed_ms}`. Prefer `structures_by_tier.swing[]` for Trend/MSS reads on external pivots. `failure_swings[]` is the pre-filtered pool of `event=mss + validation=sweep` — stop-run reversals, the strongest reversal cue in the engine. `most_recent_structure` is the latest by `confirmed_ms`.
+- `gates.engine.pillar3.{bprs[], swings:{internal[], swing[]}, structure_events[], structures_by_tier:{swing[], internal[]}, failure_swings[], most_recent_structure, fvg_summary}` — each swing `{kind, price, bar_ms, tier, swept, is_high}`; each `structure_events` entry `{event (bos|mss), dir, level, displacement, tier, validation (break|sweep), confirmed_ms, is_reclaimed}`. Prefer `structures_by_tier.swing[]` for Trend/MSS reads on external pivots. `failure_swings[]` is the pre-filtered pool of `event=mss + validation=sweep` — stop-run reversals, the strongest reversal cue in the engine. `most_recent_structure` is the latest by `confirmed_ms`. **`is_reclaimed`** is computed from `quote.last` vs `level` by `dir`: a bullish BoS at 29804.75 is `is_reclaimed: true` when `quote.last < 29804.75` (the breakout failed back into the prior range). Same logic for MSS. Treat a reclaimed bos/mss as invalidating the continuation read — don't cite it as a bullish/bearish continuation cue when reclaimed.
 - `gates.engine.confirmation.{last_bar, last_bar_age_seconds, m5_last_bar, m15_last_bar}` — single-bar confirmation facts `{time, open, high, low, close, body_ratio, direction, range, close_position_in_range}`.
 
 </bundle_fields>
@@ -90,6 +90,8 @@ Read `gates.session.phase`. Branch:
 | `post_ny_am`, `post_ny_pm` | Session wrap. |
 | `london_open` | (Optional) one-shot grade — same as pre-session NY but for London context. |
 | `inter_session`, `closed` | Idle; emit a one-line status, no state writes. |
+
+**Brief turns** (fired from `session-brief.js` by the scheduler, 30-60 min before a session opens) follow the `<phase name="brief">` workflow regardless of the current `gates.session.phase`. The user message will say "This is a SESSION BRIEF turn for the <SESSION> session." — when you see that, do the brief phase end-to-end.
 
 Files live in a per-session folder, `state/session/<date>/<session>/`:
 
@@ -208,6 +210,85 @@ Pillar 1 + 2 are the session's foundation. Once they exist, start the per-bar lo
 - The per-bar loop is armed (heartbeat fresh OR Monitor launched).
 
 If any check fails, fix the file or arm the loop, then emit chat output.
+
+</phase>
+
+<phase name="brief">
+
+**Goal:** publish the PREP-panel SESSION BRIEF for one or both symbols. Fires once per session, 30-60 min before the session opens. The trader reads this live during the open; it must be tight, cited, and consistent.
+
+**What this phase produces:** one (or two, for `--pair`) call to `surface_session_brief`. No `pillar1.md` / `pillar2.md` writes — those belong to the per-bar pre-session phase, which runs later when the actual session window opens.
+
+**Required action:**
+
+1. **Capture.** Call `mcp__tv__tv_analyze_full` with the pair param from the user message (`pair="MNQ1!,MES1!"` in dual-symbol mode). Wait for it to land, then `Read state/last-analyze.json`. The full sweep includes `bars_by_tf.{daily, h4, h1, m15, m5, m1}` and `engine_by_tf.*` for each symbol under `pair.symbols.<symbol>.*`. **If those keys are absent after a full capture, that is a tool error — report it; do not invent the data.**
+
+2. **For each symbol** (loop over `pair.symbols`, or top-level if single-symbol), do the steps below. Cite from `pair.symbols.<symbol>.*` for dual-symbol mode; top-level fields mirror primary only.
+
+### Step 1 — HTF Bias (Daily / 4H / 1H)
+
+Walk each TF by name. Pull the two engine-backed signals **at that TF**:
+
+- `pair.symbols.<sym>.bars_by_tf.<tf>.change_pct` — momentum sign for that TF.
+- `pair.symbols.<sym>.engine_by_tf.<tf>.structures[*]` — most recent `event` (`bos` / `mss`) with its `dir` is the last confirmed shift on that TF.
+
+For each TF emit:
+- `bias`: one of `BULLISH | BEARISH | MIXED | NEUTRAL`. `MIXED` = signs disagree across `change_pct` and structure. `NEUTRAL` = both signals are flat / absent.
+- `note`: one short sentence that **cites at least one path under `engine_by_tf.<tf>` or `bars_by_tf.<tf>`** for that exact TF. Citing `engine.structures[*]` (current chart TF) in a 4H bias note is a wrong-TF citation and a self-check failure.
+
+If `engine_by_tf.<tf>` is missing for a TF, say `bias: NEUTRAL` and the note cites the absence: `"engine_by_tf.h1 not present in bundle"`. Never invent a directional bias without a per-TF citation.
+
+### Step 2 — Overnight Context
+
+Read `pair.symbols.<sym>.gates.engine.pillar1.session_levels.*` and `pair.symbols.<sym>.gates.engine.pillar1.sweeps[]`. Walk the engine-emitted levels: PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L. For each: state `swept` or untaken, cite the path.
+
+Sweeps with `rejected: true` are failure-swing reversals. Surface them — they're the strongest reversal cue.
+
+### Step 3 — Pillar 2 Quality
+
+Read `pair.symbols.<sym>.gates.engine.pillar2.{current_tf, m5, m15}`. Cite `range_3h`, `range_quality`, `displacement`, `candle`. Mention `atr_14` / `atr_17` when relevant for stop sizing.
+
+### Step 4 — Deterministic Grade (Pillars 1 + 2, brief scope)
+
+Brief grade uses Pillars 1 and 2 only (Pillar 3 entry-model + confirmation is pending until LIVE). Map cited evidence to grade:
+
+| Grade | Rule |
+|---|---|
+| `A+` | HTF bias agrees across at least two of Daily/4H/1H **with cited evidence** AND at least one untaken HTF draw remains AND Pillar 2 `range_quality=good` + `displacement∈{clean,acceptable}` + `candle≠doji_wick`. |
+| `B` | Pillars 1+2 align with **exactly one weaker element** (e.g. one HTF TF MIXED, or Pillar 2 displacement `acceptable` not `clean`). |
+| `no-trade` | **Two or more weak/missing elements**, OR any HTF TF is `NEUTRAL` because the data wasn't read, OR `gates.engine.meta.stale` is true. |
+
+If you cannot cite a TF, that TF counts as missing — escalate toward `no-trade`. Do not paper-over a data gap with a `B`.
+
+### Step 5 — Scenarios
+
+Build 2 to 4 IF/THEN scenarios. Each must be price-conditioned and cite the trigger level:
+
+- `condition`: "NY opens above 21487.25 (PDH) and holds for 1 closed bar"
+- `action`: "long continuation toward 21528.50 (PWH); stop below 21450.50 (AS_L)"
+
+Stop and target levels in actions must cite. Never invent a level not in the bundle.
+
+### Step 6 — Sizing Note
+
+Pull the sizing rule from persistent memory (`USER.md`) or the strategy spec. The `sizing_note` field must cite the source: `(memory.USER)` or `(strategy.sizing_table)`.
+
+### Step 7 — Self-check before surface_session_brief
+
+- For each `htf_bias` row, the `note` cites at least one path **at that TF**: `bars_by_tf.<tf>` or `engine_by_tf.<tf>`. Wrong-TF citations are bugs.
+- Every numeric price in `brief`, `overnight`, `plan`, scenario `condition`, scenario `action`, `anchored_target`, `anchored_stop` is followed by `(json.path)`.
+- No arithmetic appears in the prose. Ranges and deltas come from the bundle (`bars_by_tf.*.range`, `bars_by_tf.*.change_pct`) or you write `n/a`.
+- `pillar_grade` matches the rule in Step 4 (count weak/missing elements; ≥2 → no-trade).
+- `key_levels[].name` uses canonical engine names from `session_levels` (PWH, PDH, AS_L, LO_H, etc.) **without parenthetical state suffixes** — the `state` field already carries `taken|untaken`. A name like `"AS.L (swept-rejected)"` breaks the day-over-day diff.
+- `key_levels[].cite` is populated when the price comes from a bundle path.
+- `sizing_note` cites its source: `(memory.USER)` or `(strategy)`.
+- The brief doesn't contradict itself — if `htf_bias[*].note` says HTF wasn't captured, no scenario can be labeled "counter-HTF".
+
+If any check fails, fix the payload, then call `surface_session_brief`.
+
+### Tool call
+
+End the turn with one `surface_session_brief` call per symbol — twice for `--pair` (once per symbol in the pair). Skip `surface_setup` and `surface_no_trade` in brief turns.
 
 </phase>
 

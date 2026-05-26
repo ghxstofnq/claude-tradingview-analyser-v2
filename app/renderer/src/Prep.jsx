@@ -11,10 +11,20 @@ const SESSION_LABEL = {
   "ny-pm":  "NY PM",
 };
 
+// Normalize a key_level name for day-over-day diffing. Strips a trailing
+// parenthetical state suffix and surrounding whitespace, so "AS.L" and
+// "AS.L (swept-rejected)" compare equal. The state field already carries
+// taken/untaken — the suffix is just decoration that breaks the diff.
+function normalizeLevelName(name) {
+  if (typeof name !== "string") return "";
+  return name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
 // Compute a summary of what changed between two briefs. Compares:
 //   - bias direction (htf_bias[0].bias as the headline)
 //   - pillar_grade
-//   - key_levels added / removed (by name)
+//   - key_levels added / removed (by normalized name, so decorated/undecorated
+//     forms of the same level don't show up in both sides of the diff)
 // Returns an array of human-readable change rows.
 function diffBriefs(current, prior) {
   if (!current || !prior) return [];
@@ -27,10 +37,15 @@ function diffBriefs(current, prior) {
   if (current.pillar_grade && prior.pillar_grade && current.pillar_grade !== prior.pillar_grade) {
     rows.push({ k: "Pillar grade", from: prior.pillar_grade, to: current.pillar_grade });
   }
-  const curLevels = new Set((current.key_levels || []).map((l) => l.name));
-  const priLevels = new Set((prior.key_levels || []).map((l) => l.name));
-  const added = [...curLevels].filter((n) => !priLevels.has(n));
-  const removed = [...priLevels].filter((n) => !curLevels.has(n));
+  // Map normalized → original display name so the diff can show the
+  // current brief's form (today's "AS.L (swept-rejected)" rather than
+  // yesterday's bare "AS.L") for added rows, and the prior form for dropped.
+  const curMap = new Map();
+  for (const l of current.key_levels || []) curMap.set(normalizeLevelName(l.name), l.name);
+  const priMap = new Map();
+  for (const l of prior.key_levels || []) priMap.set(normalizeLevelName(l.name), l.name);
+  const added = [...curMap.keys()].filter((n) => !priMap.has(n)).map((n) => curMap.get(n));
+  const removed = [...priMap.keys()].filter((n) => !curMap.has(n)).map((n) => priMap.get(n));
   if (added.length) rows.push({ k: "New levels", v: added.join(", ") });
   if (removed.length) rows.push({ k: "Dropped levels", v: removed.join(", ") });
   return rows;
@@ -279,6 +294,10 @@ function PrepWorkstation({ alerts, onToggleArm }) {
       px: formatPx(lv.price),
       state: lv.state || "untaken",
       marker: lv.state === "untaken" ? "─" : "·",
+      // Optional JSON path the price was cited from. Shown as a `title`
+      // tooltip on the price cell so the trader can verify "this is the
+      // AS_H from engine.levels[…]" without opening the bundle.
+      cite: typeof lv.cite === "string" ? lv.cite : null,
     }));
 
   return (
@@ -348,8 +367,11 @@ function PrepWorkstation({ alerts, onToggleArm }) {
             return (
               <div className="level-row" key={lv.name}>
                 <span className="marker">{lv.marker}</span>
-                <span className="name">{lv.name}</span>
-                <span className="price">{lv.px}</span>
+                <span className="name" title={lv.cite || undefined}
+                      style={lv.cite ? { borderBottom: "1px dotted var(--label)", cursor: "help" } : undefined}>
+                  {lv.name}
+                </span>
+                <span className="price" title={lv.cite || undefined}>{lv.px}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span className={"state " + lv.state}>{lv.state.toUpperCase()}</span>
                   <span className={"bell" + (isFired ? " fired" : isArmed ? " armed" : "")}

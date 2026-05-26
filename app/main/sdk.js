@@ -531,27 +531,48 @@ function buildMcpServer() {
       {
         session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session this brief is for"),
         symbol: z.string().optional().describe("Which symbol this brief is for (e.g. 'MNQ1!' or 'MES1!'). Required in dual-symbol mode — call surface_session_brief once per symbol. Omit for legacy single-symbol mode."),
-        brief: z.string().describe("Headline paragraph for the Morning Brief panel"),
+        brief: z.string().describe("Headline paragraph for the Morning Brief panel. Every numeric price must be followed by (json.path); see analyze.md <rules>."),
         htf_bias: z.array(z.object({
           tf: z.enum(["DAILY", "4H", "1H"]),
           bias: z.enum(["BULLISH", "BEARISH", "MIXED", "NEUTRAL"]),
-          note: z.string(),
-        })).describe("HTF bias per timeframe — exactly DAILY / 4H / 1H"),
+          // The note must cite a path AT THIS TF. Citing engine.* (current
+          // chart TF = 1m) in a 4H or 1H row is a wrong-TF citation — the
+          // most-common failure observed 2026-05-26.
+          note: z.string().refine(
+            (s) => /\((engine_by_tf|bars_by_tf|gates|engine)[^)]+\)/.test(s),
+            { message: "note must cite a JSON path (e.g. '(engine_by_tf.h4.structures[0])'). Wrong-TF cites are bugs — cite engine_by_tf.<tf> / bars_by_tf.<tf> for the row's tf." },
+          ),
+        })).describe("HTF bias per timeframe — exactly DAILY / 4H / 1H. Each note must cite a path at its own TF."),
         overnight: z.array(z.object({
           k: z.string(),
           v: z.string(),
           tone: z.enum(["green", "red", "amber"]).optional(),
-        })).describe("Overnight context rows: Asia range, London range, what was swept, direction overnight, etc."),
+        })).describe("Overnight context rows: Asia range, London range, what was swept, direction overnight, etc. Prices in v must be cited."),
         key_levels: z.array(z.object({
-          name: z.string().describe("PWH, PDH, ONH, ONL, PDL, PWL, AS_H, AS_L, LO_H, LO_L"),
+          // Canonical engine name — PWH/PDH/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L/PDL/PWL/ONH/ONL.
+          // Do NOT decorate with state suffixes like "AS.L (swept-rejected)" —
+          // the state field below already carries that. Decorated names break
+          // the day-over-day CHANGED-SINCE diff (Prep.jsx normalizes via
+          // parenthetical strip, but the canonical name is still the right
+          // input).
+          name: z.string().describe("Canonical name only — PWH/PDH/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L/PDL/PWL/ONH/ONL. For non-session-level rows (FVG bounds, structure points), use a stable short label without parenthetical suffixes."),
           // Numeric only. Previously z.union([number, string]) — Claude
           // could submit price: "PDH" and the UI rendered the string in
           // the price column. The number → format-on-render path keeps
           // formatting (e.g. "21 528.50") under the renderer's control.
           price: z.number().finite().describe("Numeric price — formatting is the renderer's job"),
           state: z.enum(["taken", "untaken"]),
-        })).describe("Key levels for the session, sorted high → low"),
-        pillar_grade: z.enum(["A+", "B", "no-trade"]).describe("Roll-up grade for Pillars 1+2 only (Pillar 3 is pending until LIVE)"),
+          // Optional JSON path the price was sourced from. UI renders as a
+          // tooltip / subtle badge. Empty allowed for legacy briefs.
+          cite: z.string().optional().describe("JSON path the price came from — e.g. 'pair.symbols.MNQ1!.gates.engine.pillar1.session_levels.PDH.price'. Populates a tooltip in the KEY LEVELS panel."),
+        })).describe("Key levels for the session, sorted high → low. Use canonical names; state is the source of truth for taken/untaken."),
+        pillar_grade: z.enum(["A+", "B", "no-trade"]).describe(
+          "Roll-up grade for Pillars 1+2 (Pillar 3 is pending until LIVE). " +
+          "A+: HTF agrees across ≥2 of D/4H/1H with cited evidence AND ≥1 untaken HTF draw AND Pillar 2 range_quality=good + displacement∈{clean,acceptable} + candle≠doji_wick. " +
+          "B: Pillars 1+2 align with EXACTLY ONE weaker element. " +
+          "no-trade: ≥2 weak/missing elements, OR any HTF TF NEUTRAL because data wasn't read, OR engine stale. " +
+          "surface.js postValidate rejects 'B' when 2+ pillars are weak/fail.",
+        ),
         pillars: z.array(z.object({
           name: z.string(),
           status: z.enum(["pass", "weak", "fail", "pending"]),
@@ -584,7 +605,13 @@ function buildMcpServer() {
         anchored_stop: z.string().refine((s) => /\d/.test(s), {
           message: "anchored_stop must contain a cited price (a digit) — e.g. '21462.75 (PDL)'",
         }).describe("e.g. '21 462.75 (PDL)' — must include a numeric price"),
-        sizing_note: z.string().describe("e.g. '0.75 R · Mon-reduced' — references the strategy sizing table"),
+        // Sizing must cite its source — memory or strategy spec — so the
+        // trader can verify why 0.75 R / 0.5 R was chosen. Free-string with
+        // no citation was the 2026-05-26 failure mode.
+        sizing_note: z.string().refine(
+          (s) => /\((memory\.(USER|MEMORY)|strategy[^)]*)\)/.test(s),
+          { message: "sizing_note must cite '(memory.USER)', '(memory.MEMORY)', or '(strategy.xyz)' — free-text rules are unauditable." },
+        ).describe("e.g. '0.75 R · Tuesday standard (memory.USER)' — must cite (memory.USER), (memory.MEMORY), or (strategy)."),
       },
       async (args) => {
         try {

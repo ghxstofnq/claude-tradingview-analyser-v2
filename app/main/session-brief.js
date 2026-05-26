@@ -248,13 +248,23 @@ async function buildPrompt(session) {
     console.warn("[session-brief] recent-sessions read failed", err?.message || err);
   }
 
-  return `${recentBlock}Run the SESSION BRIEF for the ${session.toUpperCase()} session.
+  // The brief workflow lives in the system prompt under <phase name="brief">
+  // — that's the rigorous step-by-step. This user message is just the router:
+  // it tells the model "you're a brief turn, here's the pair, go run that
+  // phase." Keeping the heavy guidance in the system prompt means the brief
+  // benefits from the same XML structuring, citation discipline, and grade
+  // semantics as the per-bar /analyze phases.
+  return `${recentBlock}This is a SESSION BRIEF turn for the ${session.toUpperCase()} session.
 
-Required action:
-1. Call mcp__tv__tv_analyze_full with pair="${PAIR_DEFAULT}" to load dual-symbol HTF context (Daily / 4H / 1H, overnight ranges, both symbols).
-2. Reason in prose for each symbol independently. Grade Pillars 1 (Draw & Bias) and 2 (Price-Action Quality). Identify HTF bias per timeframe, overnight context (Asia / London ranges, what was swept), key levels (PWH / PDH / ONH / ONL / PDL / PWL with taken/untaken state), a one-paragraph headline plan, and 2–4 structured IF/THEN scenarios for the session open. Cite from pair.symbols.${PAIR_PRIMARY}.* and pair.symbols.${PAIR_SECONDARY}.* — the top-level fields mirror the primary only.
-3. Scenarios should be concrete and actionable. Each scenario has a condition ("NY opens above 21487.25 (PDH) and holds") and an action ("long continuation, target Asia high"). The trader reads these live during the open — terse and decisive beats long prose.
-4. End the turn with mcp__tv__surface_session_brief called twice — once with symbol="${PAIR_PRIMARY}" and once with symbol="${PAIR_SECONDARY}". Each call carries the per-symbol structured payload (including the scenarios array). This is the only tool call that surfaces briefs to the PREP panels — skip surface_setup and surface_no_trade for brief turns.`;
+Pair: ${PAIR_DEFAULT}  (primary=${PAIR_PRIMARY}, secondary=${PAIR_SECONDARY})
+
+Follow the <phase name="brief"> instructions in the system prompt end-to-end:
+  1. Full capture with --pair.
+  2. For each symbol, walk Step 1 (HTF Bias per-TF with per-TF citations), Step 2 (Overnight Context), Step 3 (Pillar 2 Quality), Step 4 (Deterministic Pillar 1+2 grade), Step 5 (Scenarios), Step 6 (Sizing Note).
+  3. Run the Step 7 self-check.
+  4. End with mcp__tv__surface_session_brief — once per symbol (twice in dual-symbol mode). Skip surface_setup and surface_no_trade.
+
+The brief is what the trader sees during the open; sloppy citations or self-contradicting verdicts here directly hurt their decisions. The phase spec exists exactly to keep this turn disciplined.`;
 }
 
 const _driver = makeScheduledTurn({
@@ -267,6 +277,13 @@ const _driver = makeScheduledTurn({
   buildPromptFn: buildPrompt,
   preflightFn: preflight,
   postValidateFn: postValidate,
+  // Briefs do the heaviest single turn in the system: tv_analyze_full
+  // (dual-symbol multi-TF sweep, ~15-30s) + Opus 4.7 xhigh reasoning over
+  // both symbols + two surface_session_brief calls + scenarios. Observed
+  // 2026-05-26 (London brief): both the original attempt AND its 60s retry
+  // hit the 5-min default after EFFORT moved to xhigh in PR #56. 10 min
+  // covers the worst case with headroom.
+  timeoutMs: 600_000,
 });
 
 export const bootstrap = _driver.bootstrap;

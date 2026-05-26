@@ -150,7 +150,26 @@ export function computeEngineGates({
   // -- Pillar 3: FVGs, BPRs, swings, structure events --
   const fvgs = engine.fvgs || [];
   const bprs = engine.bprs || [];
-  const structures = engine.structures || [];
+  // Augment each structure event with `is_reclaimed`: has price moved back
+  // through the BoS/MSS level? A bullish BoS at 29804.75 is "reclaimed" when
+  // price drops below 29804.75 — the breakout failed back into the prior
+  // range. Same logic for MSS. is_reclaimed: null when either level or
+  // quote.last is unavailable.
+  //
+  // Observed 2026-05-26: London brief surfaced a bullish bos at 29804.75 as
+  // a continuation cue with last price 29801.25 — the bos was already
+  // reclaimed. With this flag in the bundle, the brief / entry phase can
+  // gate continuation calls on `is_reclaimed: false`.
+  const augmentReclaim = (s) => {
+    if (s == null) return s;
+    let is_reclaimed = null;
+    if (px != null && typeof s.level === 'number') {
+      if (s.dir === 'bull') is_reclaimed = px < s.level;
+      else if (s.dir === 'bear') is_reclaimed = px > s.level;
+    }
+    return { ...s, is_reclaimed };
+  };
+  const structures = (engine.structures || []).map(augmentReclaim);
   const most_recent_structure = structures.length
     ? structures.slice().sort((a, b) => (b.confirmed_ms || 0) - (a.confirmed_ms || 0))[0]
     : null;
