@@ -121,6 +121,7 @@ async function fireReviewTurn(session) {
   recordMetric({ kind: "review", event: "started", session });
   const startedAt = Date.now();
   let errored = false;
+  let usage = null;
   try {
     await userTurn({
       text,
@@ -128,7 +129,8 @@ async function fireReviewTurn(session) {
       // Tight timeout — review is bounded; failure shouldn't block next session.
       timeoutMs: 60_000,
       onEvent: (e) => {
-        if (e.type === "error") {
+        if (e.type === "usage") { usage = e.usage; }
+        else if (e.type === "error") {
           errored = true;
           // eslint-disable-next-line no-console
           console.warn(`[session-wrap] review turn error`, e.message);
@@ -140,6 +142,7 @@ async function fireReviewTurn(session) {
       event: errored ? "failed" : "succeeded",
       session,
       durationMs: Date.now() - startedAt,
+      usage,
     });
   } catch (err) {
     // eslint-disable-next-line no-console

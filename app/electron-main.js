@@ -11,6 +11,7 @@ import { bootstrap as bootstrapSessionBrief, rearmScheduler as rearmBrief } from
 import { bootstrap as bootstrapSessionWrap, rearmScheduler as rearmWrap } from "./main/session-wrap.js";
 import { sweepOldSessions } from "./main/state-retention.js";
 import { startMetricsSummary, rotateMetricsFile } from "./main/metrics.js";
+import { flushPendingReview, fireFinalReview } from "./main/shutdown-flush.js";
 import { loadPersistedMode, setMode, getMode } from "./main/mode.js";
 import { startDetector } from "./main/bar-close.js";
 import { startTradeTickerWatchdog } from "./main/trade-ticker-watchdog.js";
@@ -152,4 +153,24 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+// Graceful shutdown — give the agent one chance to extract durable
+// lessons from the last active session before the app dies. Bounded
+// at 60s by fireFinalReview's internal timeout; app.quit() blocks
+// only until this resolves.
+app.on("before-quit", async (event) => {
+  if (flushPendingReview.completed) return;
+  event.preventDefault();
+  // eslint-disable-next-line no-console
+  console.log("[shutdown] firing final memory-review pass before exit");
+  try {
+    await fireFinalReview();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[shutdown] final review threw", err?.message || err);
+  } finally {
+    flushPendingReview.completed = true;
+    app.quit();
+  }
 });

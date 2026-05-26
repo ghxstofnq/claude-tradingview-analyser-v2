@@ -2,6 +2,8 @@
 
 import { ipcMain } from "electron";
 import { userTurn, cancelCurrentTurn, resetSession } from "./sdk.js";
+import { record as recordMetric, readRows as loadMetricRows } from "./metrics.js";
+import { summarizeUsage, todayET } from "./usage.js";
 import { acceptSetup, rejectSetup } from "./trades.js";
 import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
@@ -24,6 +26,10 @@ export function registerIpc(win) {
   };
 
   ipcMain.handle("chat:send_message", async (_evt, { text }) => {
+    recordMetric({ kind: "chat", event: "started" });
+    const startedAt = Date.now();
+    let errored = false;
+    let usage = null;
     try {
       await userTurn({
         text,
@@ -35,13 +41,40 @@ export function registerIpc(win) {
           // #44 Surface queue events to the chat panel.
           else if (ev.type === "queued") send("chat:queued", ev);
           else if (ev.type === "queue_ready") send("chat:queue_ready", ev);
-          else if (ev.type === "error") send("app:error", { source: "sdk", message: ev.message });
+          else if (ev.type === "usage") { usage = ev.usage; }
+          else if (ev.type === "error") {
+            errored = true;
+            send("app:error", { source: "sdk", message: ev.message });
+          }
         },
+      });
+      recordMetric({
+        kind: "chat",
+        event: errored ? "failed" : "succeeded",
+        durationMs: Date.now() - startedAt,
+        usage,
       });
       return { ok: true };
     } catch (err) {
+      recordMetric({
+        kind: "chat",
+        event: "failed",
+        durationMs: Date.now() - startedAt,
+        reason: String(err?.message || err),
+      });
       send("app:error", { source: "ipc:chat", message: String(err?.message || err) });
       return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  // Daily usage insight — sums today's spend across all turns. Backs the
+  // dashboard's "today's spend" panel.
+  ipcMain.handle("usage:today", async () => {
+    try {
+      const rows = await loadMetricRows();
+      return summarizeUsage(rows, { day: todayET() });
+    } catch (err) {
+      return { error: String(err?.message || err) };
     }
   });
 

@@ -374,6 +374,7 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
   recordMetric({ kind: "bar-close", event: "started", session });
   const startedAt = Date.now();
   let errored = false;
+  let usage = null;
   await userTurn({
     text,
     purpose: "bar-close",
@@ -388,6 +389,7 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
         _send?.("chat:turn_complete", e);
         markTurnComplete();
       }
+      else if (e.type === "usage") { usage = e.usage; }
       else if (e.type === "error") {
         errored = true;
         _send?.("app:error", { source: "sdk", message: e.message });
@@ -399,6 +401,7 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
     event: errored ? "failed" : "succeeded",
     session,
     durationMs: Date.now() - startedAt,
+    usage,
   });
 }
 
@@ -451,6 +454,7 @@ Do NOT walk entry models or call surface_setup in this turn. It is leader-pick o
   recordMetric({ kind: "catch-up", event: "started", session });
   const startedAtCatchup = Date.now();
   let erroredCatchup = false;
+  let usageCatchup = null;
   await userTurn({
     text,
     purpose: "catch-up",
@@ -461,6 +465,7 @@ Do NOT walk entry models or call surface_setup in this turn. It is leader-pick o
         _send?.("chat:turn_complete", e);
         markTurnComplete();
       }
+      else if (e.type === "usage") { usageCatchup = e.usage; }
       else if (e.type === "error") {
         erroredCatchup = true;
         _send?.("app:error", { source: "sdk", message: e.message });
@@ -472,6 +477,7 @@ Do NOT walk entry models or call surface_setup in this turn. It is leader-pick o
     event: erroredCatchup ? "failed" : "succeeded",
     session,
     durationMs: Date.now() - startedAtCatchup,
+    usage: usageCatchup,
   });
 }
 

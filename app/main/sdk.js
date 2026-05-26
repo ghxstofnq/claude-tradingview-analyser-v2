@@ -27,6 +27,8 @@ import {
   surfaceLeaderDecision,
 } from "./tools/surface.js";
 import { getPersistentMemory } from "./persistent-memory.js";
+import { extractUsageFromResult } from "./usage.js";
+import { classifyError } from "./error-classifier.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
@@ -259,6 +261,77 @@ function buildAllowedToolNames(purpose) {
   }
   return base;
 }
+
+// ---------------------------------------------------------------------
+// Memory-tool guardrails
+//
+// The memory tool is char-capped + drift-detected at the store level,
+// but those defenses sit BELOW the LLM — once a write succeeds the cap
+// is silently consumed. Two additional caps live HERE so a misbehaving
+// model can't burn the budget all in one turn:
+//
+//  1. Per-turn cap   — at most MAX_WRITES_PER_TURN successful writes
+//     per userTurn. Reset by runOneTurn().
+//  2. Per-target throttle — same target can't be written more than
+//     once every THROTTLE_MS. Stops "add → immediately replace" loops.
+//
+// Counters live module-scope. resetMemoryGuardrails() runs at the start
+// of each userTurn (see runOneTurn).
+// ---------------------------------------------------------------------
+const MAX_WRITES_PER_TURN = 3;
+const THROTTLE_MS = 30_000;
+let _memoryWritesThisTurn = 0;
+const _lastWriteByTarget = new Map(); // target -> epoch ms
+
+function resetMemoryGuardrails() {
+  _memoryWritesThisTurn = 0;
+  // Don't clear _lastWriteByTarget — the throttle spans across turns
+  // (per-turn cap handles within-turn floods; throttle handles
+  // back-to-back-turn floods).
+}
+
+function checkMemoryGuardrails(action, target) {
+  // remove is cheap and recoverable; don't count it toward the per-turn cap.
+  if (action === "remove") return { ok: true };
+  if (_memoryWritesThisTurn >= MAX_WRITES_PER_TURN) {
+    return {
+      ok: false,
+      reason:
+        `memory write rate limit: at most ${MAX_WRITES_PER_TURN} writes per turn. ` +
+        "consolidate your saves into fewer, denser entries — declarative facts, " +
+        "not paragraphs.",
+    };
+  }
+  const last = _lastWriteByTarget.get(target);
+  if (last && Date.now() - last < THROTTLE_MS) {
+    const wait = Math.ceil((THROTTLE_MS - (Date.now() - last)) / 1000);
+    return {
+      ok: false,
+      reason:
+        `memory throttle: ${target} was written ${Math.floor((Date.now() - last) / 1000)}s ago; ` +
+        `wait ${wait}s before another ${target} write, or use action='replace' to update an existing entry.`,
+    };
+  }
+  return { ok: true };
+}
+
+function recordMemoryWrite(target) {
+  _memoryWritesThisTurn += 1;
+  _lastWriteByTarget.set(target, Date.now());
+}
+
+// Exported for tests only.
+export const _guardrailsForTests = {
+  checkMemoryGuardrails,
+  recordMemoryWrite,
+  resetMemoryGuardrails,
+  getState: () => ({
+    writesThisTurn: _memoryWritesThisTurn,
+    lastByTarget: new Map(_lastWriteByTarget),
+    MAX_WRITES_PER_TURN,
+    THROTTLE_MS,
+  }),
+};
 
 // CallToolResult envelope expected by the SDK's MCP tool API.
 function ok(data) {
@@ -589,9 +662,16 @@ If a write would exceed the char limit, the tool refuses and tells you which ent
       },
       async (args) => {
         try {
-          const mem = getPersistentMemory();
           const action = args?.action;
           const target = args?.target;
+          // Guardrails: rate-limit per-turn writes + per-target throttle.
+          // Prevents an over-eager model from dumping 10 entries in one
+          // turn (memory is char-capped so the damage is bounded anyway,
+          // but a flood of low-signal entries pushes out the valuable
+          // ones and burns tokens on every future system prompt).
+          const guard = checkMemoryGuardrails(action, target);
+          if (!guard.ok) return err(guard.reason);
+          const mem = getPersistentMemory();
           let result;
           if (action === "add") {
             result = await mem.add(target, args?.content || "");
@@ -602,6 +682,7 @@ If a write would exceed the char limit, the tool refuses and tells you which ent
           } else {
             result = { success: false, error: `unknown action '${action}' — use add/replace/remove` };
           }
+          if (result.success) recordMemoryWrite(target);
           return result.success ? ok(result) : err(result.error || "memory tool failed");
         } catch (e) {
           return err(e?.message || String(e));
@@ -723,7 +804,24 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
   }
 }
 
-async function runOneTurn({ text, purpose, onEvent, timeoutMs }) {
+async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
+  // Wrap onEvent so every "error" event picks up a classified `kind` +
+  // `retryable` hint. Consumers (bar-close retry logic, UI error chip)
+  // can react differently per kind without each reimplementing the
+  // pattern matching. See app/main/error-classifier.js for the taxonomy.
+  const onEvent = rawOnEvent
+    ? (ev) => {
+        if (ev && ev.type === "error" && !ev.kind) {
+          const classified = classifyError(ev.message);
+          rawOnEvent({ ...ev, kind: classified.kind, retryable: classified.retryable });
+        } else {
+          rawOnEvent(ev);
+        }
+      }
+    : undefined;
+  // Reset the per-turn memory-write counter. The throttle counter is NOT
+  // reset — it spans across turns by design.
+  resetMemoryGuardrails();
   // Refresh persistent memory from disk at the start of each turn. The store
   // freezes a snapshot at this point; loadSystemPrompt reads that snapshot
   // when composing the prompt. Mid-turn writes (memory tool calls inside
@@ -908,6 +1006,13 @@ function handleSdkMessage(msg, onEvent) {
   if (msg.type === "result") {
     if (msg.is_error) {
       onEvent({ type: "error", message: (msg.errors || []).join(" · ") || "result error" });
+      return;
+    }
+    // SDKResultSuccess carries usage + cost; surface them to the caller so
+    // metrics.record() can persist per-turn cost. (see app/main/usage.js)
+    const usage = extractUsageFromResult(msg);
+    if (usage) {
+      onEvent({ type: "usage", usage });
     }
     return;
   }

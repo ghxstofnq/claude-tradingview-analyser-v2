@@ -79,6 +79,29 @@ export async function record(event) {
 }
 
 /**
+ * readRows — parse metrics.jsonl into an array of row objects. Skips
+ * malformed lines (don't fail the dashboard for one bad row). Returns
+ * [] when the file doesn't exist yet.
+ */
+export async function readRows() {
+  try {
+    const raw = await fs.readFile(METRICS_FILE, "utf8");
+    return raw
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => {
+        try { return JSON.parse(l); } catch { return null; }
+      })
+      .filter(Boolean);
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    // eslint-disable-next-line no-console
+    console.warn("[metrics] readRows failed", err?.message || err);
+    return [];
+  }
+}
+
+/**
  * startMetricsSummary — log a one-line hourly digest to the console.
  * Called once from electron-main on boot.
  */

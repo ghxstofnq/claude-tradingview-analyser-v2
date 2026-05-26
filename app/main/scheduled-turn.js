@@ -133,6 +133,7 @@ export function makeScheduledTurn(config) {
     const startedAt = Date.now();
     const toolCalls = [];
     let errored = false;
+    let usage = null;     // populated by the "usage" event when the turn succeeds
     try {
       const text = await config.buildPromptFn(session);
       await userTurn({
@@ -145,6 +146,7 @@ export function makeScheduledTurn(config) {
             _send?.("chat:tool_call", e);
           }
           else if (e.type === "turn_complete") _send?.("chat:turn_complete", e);
+          else if (e.type === "usage") { usage = e.usage; }
           else if (e.type === "error") {
             errored = true;
             _send?.("app:error", { source: config.name, message: e.message });
@@ -165,7 +167,13 @@ export function makeScheduledTurn(config) {
       }
       if (!errored) {
         _send?.(config.statusChannel, { state: "idle", session });
-        recordMetric({ kind: config.purpose, event: "succeeded", session, durationMs: Date.now() - startedAt });
+        recordMetric({
+          kind: config.purpose,
+          event: "succeeded",
+          session,
+          durationMs: Date.now() - startedAt,
+          usage,
+        });
         // Optional onSuccess hook — fire-and-forget. Used by session-wrap
         // to spawn the post-wrap memory-review turn. Errors here must
         // never bubble back into the parent turn's status.
