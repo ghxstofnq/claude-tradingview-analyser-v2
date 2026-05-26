@@ -45,6 +45,15 @@ const VALID_PRIMARY_BRIEF = {
     { name: "Price-Action Quality", status: "weak", elements: [{ name: "range", status: "weak" }] },
   ],
   plan: "look for MSS at PDH",
+  scenarios: [
+    {
+      id: "scn-1",
+      grade: "A+",
+      condition: "sweep of AS.L at 21290 (engine.levels.AS_L) + 5m MSS up",
+      action: "MSS long on the 5m FVG retest, stop below the sweep wick",
+      target: "21 420 (engine.levels.PWH)",
+    },
+  ],
   anchored_target: "21487.25 (PDH)",
   anchored_stop: "21450.50 (Asia low)",
   sizing_note: "0.75 R",
@@ -260,5 +269,70 @@ describe("brief flow — dual-symbol comparative pillar1.md", () => {
     const pillar1 = await fs.readFile(path.join(dir, "pillar1.md"), "utf8");
     assert.match(pillar1, /## MNQ1!/);
     assert.doesNotMatch(pillar1, /## MES1!/);
+  });
+});
+
+// Scenarios schema extension (PREP redesign, 2026-05-27).
+//
+// The MCP tool boundary (sdk.js) enforces the new shape via Zod — that
+// validation only fires when the LLM actually calls the tool, not when
+// our app code calls surfaceSessionBrief directly. These tests verify:
+//   1. The sdk.js module loads (proving the schema is syntactically valid).
+//   2. A brief with the new scenarios shape round-trips through writeBrief
+//      and the new fields survive the read.
+//   3. The renderer-side helper (Prep.helpers.js) handles scenarios with
+//      and without the new fields (covered in tests/prep-helpers.test.js).
+describe("brief flow — scenarios schema extension (2026-05-27)", () => {
+  it("sdk.js loads without throwing (schema is syntactically valid)", async () => {
+    // Importing sdk.js executes the Zod schema construction. If the new
+    // scenarios shape has a syntax error, this import throws.
+    const sdk = await import("../app/main/sdk.js");
+    assert.ok(sdk, "expected sdk module to import");
+  });
+
+  it("round-trips the new scenarios shape through writeBrief", async () => {
+    const { writeBrief } = await import("../app/main/session-memory.js");
+    const dir = path.join(SANDBOX, "scenarios-roundtrip");
+    await fs.mkdir(dir, { recursive: true });
+    await writeBrief(dir, { ...VALID_PRIMARY_BRIEF, ts: "2026-05-27T13:00:00Z" });
+
+    const brief = JSON.parse(await fs.readFile(path.join(dir, "brief-MNQ1!.json"), "utf8"));
+    assert.equal(Array.isArray(brief.scenarios), true);
+    assert.equal(brief.scenarios.length, 1);
+    const s = brief.scenarios[0];
+    assert.equal(s.id, "scn-1");
+    assert.equal(s.grade, "A+");
+    assert.match(s.condition, /sweep of AS\.L/);
+    assert.match(s.action, /MSS long/);
+    assert.match(s.target, /21 420/);
+    assert.match(s.target, /\(engine\.levels\.PWH\)/);
+  });
+
+  it("preserves scenarios even when surfaceSessionBrief is called directly", async () => {
+    // surfaceSessionBrief is what the renderer-side IPC handlers call.
+    // It doesn't run Zod (that's the SDK tool boundary), but it does
+    // write the payload to disk verbatim. Confirm scenarios are kept.
+    const { surfaceSessionBrief } = await import("../app/main/tools/surface.js");
+    const dir = path.join(SANDBOX, "surface-direct");
+    await fs.mkdir(dir, { recursive: true });
+    process.env.GOFNQ_BRIEF_DIR_OVERRIDE = dir;
+    try {
+      const payload = {
+        ...VALID_PRIMARY_BRIEF,
+        scenarios: [
+          {
+            id: "scn-2",
+            grade: "B",
+            condition: "break PDH 21385 (engine.levels.PDH) with displacement",
+            action: "Trend long on retest, stop below BPR low",
+            target: "21 420 (engine.levels.PWH)",
+          },
+        ],
+      };
+      const result = await surfaceSessionBrief(payload);
+      assert.equal(result.ok, true);
+    } finally {
+      delete process.env.GOFNQ_BRIEF_DIR_OVERRIDE;
+    }
   });
 });

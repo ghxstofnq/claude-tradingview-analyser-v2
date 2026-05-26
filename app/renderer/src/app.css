@@ -1156,3 +1156,157 @@ button { font: inherit; color: inherit; background: transparent; border: 0; padd
   font-size: 9.5px;
   letter-spacing: 0.06em;
 }
+
+/* ─────────── PREP redesign (2026-05-27) ─────────── */
+
+/* Status strip — merges the old stale-banner, ChangedPanel link, chain
+   chip, and refresh button into one thin row above the SESSION BRIEF. */
+.status-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  font-size: 10.5px;
+  color: var(--label);
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.status-strip.stale {
+  border-left: 3px solid var(--amber);
+}
+.status-strip .age {
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+.status-strip .et {
+  color: var(--label-dim);
+}
+.status-strip .chip {
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  padding: 1px 7px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+}
+.status-strip .chip.stale {
+  color: var(--red);
+  border-color: var(--red);
+}
+.status-strip .diff-link {
+  color: var(--blue, #4f7eb3);
+  cursor: pointer;
+  letter-spacing: 0.1em;
+}
+.status-strip .diff-link:hover {
+  color: var(--amber);
+}
+[data-theme="light"] .status-strip .et { color: #6b7178; }
+[data-theme="light"] .status-strip .diff-link { color: #2563a0; }
+
+/* Untaken-block sub-sections inside STEP 2. Each block has a small
+   header ("UNTAKEN ABOVE" / "UNTAKEN BELOW") followed by .level-row
+   instances (re-using existing styles). */
+.untaken-block {
+  margin-top: 8px;
+}
+.untaken-block > .head {
+  color: var(--label);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  padding: 6px 0 4px;
+  border-bottom: 1px dotted var(--border);
+  margin-bottom: 4px;
+}
+
+/* Step panel meta — small subtitle pinned to the right of step titles,
+   e.g. "D / 4H / 1H + primary draw" next to "STEP 1 · HTF BIAS". */
+.step-meta {
+  color: var(--label-dim);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* One-line PRE-SESSION GRADE headline — replaces the full pillar
+   drilldown. Pill on the left, "why" on the right. */
+.pillar-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  gap: 12px;
+}
+.pillar-headline .why {
+  color: var(--label);
+  font-size: 11px;
+  text-align: right;
+}
+.pillar-headline .why .pass { color: var(--green); }
+.pillar-headline .why .weak { color: var(--amber); }
+.pillar-headline .why .fail { color: var(--red); }
+
+/* Full-shape scenario card — used by the SCENARIOS panel. Has a header
+   row with id + grade pill, then TRIGGER / ACTION / TARGET rows. */
+.scn-card-full {
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  padding: 8px 12px;
+  margin: 6px 0;
+}
+.scn-card-full:first-child { margin-top: 0; }
+.scn-card-full .h {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 5px;
+  border-bottom: 1px dotted var(--border);
+  margin-bottom: 6px;
+  color: var(--label);
+  font-size: 9.5px;
+  letter-spacing: 0.15em;
+}
+.scn-card-full .h .id {
+  color: var(--value);
+}
+.scn-card-full .pill {
+  padding: 1px 7px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  border: 1px solid var(--border);
+}
+.scn-card-full .pill.aplus {
+  background: rgba(111, 156, 91, 0.12);
+  color: var(--green);
+  border-color: var(--green);
+}
+.scn-card-full .pill.b {
+  background: rgba(212, 166, 87, 0.12);
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.scn-card-full .pill.no-trade {
+  background: rgba(192, 71, 62, 0.12);
+  color: var(--red);
+  border-color: var(--red);
+}
+.scn-card-full .r {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.scn-card-full .r .k {
+  color: var(--label);
+  min-width: 64px;
+  flex-shrink: 0;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+}
+.scn-card-full .r .v {
+  color: var(--value);
+  flex: 1;
+}

@@ -1,9 +1,16 @@
 // PREP mode workstation — Session Brief.
+// Layout mirrors the strategy doc's 7-step checklist.
 
 import React, { useEffect, useState } from "react";
-import { Panel, Row, Grade, PillarsPanel } from "./Shared.jsx";
+import { Panel, Row, Grade, ScenarioCard } from "./Shared.jsx";
 import { useSessionBrief, formatAge } from "./hooks/useSessionBrief.js";
 import { useSessionRecap } from "./hooks/useSessionRecap.js";
+import {
+  groupLevelsByPrice,
+  selectPillar,
+  pillar2ToRows,
+  formatChainChip,
+} from "./Prep.helpers.js";
 
 const SESSION_LABEL = {
   "london": "LONDON",
@@ -20,37 +27,7 @@ function normalizeLevelName(name) {
   return name.replace(/\s*\([^)]*\)\s*$/, "").trim();
 }
 
-// Chain-status chip: shows non-clean states (degraded:X, backfilled:X,
-// divergent, stale:N) next to the SESSION BRIEF title so the trader knows
-// the brief had a caveat without opening the JSON. Hidden when status is
-// missing or "clean".
-function ChainStatusChip({ status }) {
-  if (!status || status === "clean") return null;
-  const color = status.startsWith("stale:")
-    ? "var(--red, #c0473e)"
-    : "var(--amber, #d4a657)";
-  return (
-    <span style={{
-      display: "inline-block",
-      marginLeft: 8,
-      padding: "1px 6px",
-      border: `1px solid ${color}`,
-      color,
-      fontSize: 9,
-      letterSpacing: ".1em",
-      textTransform: "uppercase",
-      borderRadius: 2,
-      fontFamily: "ui-monospace, Menlo, monospace",
-    }}>{status}</span>
-  );
-}
-
-// Compute a summary of what changed between two briefs. Compares:
-//   - bias direction (htf_bias[0].bias as the headline)
-//   - pillar_grade
-//   - key_levels added / removed (by normalized name, so decorated/undecorated
-//     forms of the same level don't show up in both sides of the diff)
-// Returns an array of human-readable change rows.
+// Compute a summary of what changed between two briefs.
 function diffBriefs(current, prior) {
   if (!current || !prior) return [];
   const rows = [];
@@ -62,9 +39,6 @@ function diffBriefs(current, prior) {
   if (current.pillar_grade && prior.pillar_grade && current.pillar_grade !== prior.pillar_grade) {
     rows.push({ k: "Pillar grade", from: prior.pillar_grade, to: current.pillar_grade });
   }
-  // Map normalized → original display name so the diff can show the
-  // current brief's form (today's "AS.L (swept-rejected)" rather than
-  // yesterday's bare "AS.L") for added rows, and the prior form for dropped.
   const curMap = new Map();
   for (const l of current.key_levels || []) curMap.set(normalizeLevelName(l.name), l.name);
   const priMap = new Map();
@@ -76,55 +50,79 @@ function diffBriefs(current, prior) {
   return rows;
 }
 
-// Visible banner when the brief is from a prior trading window — e.g.
-// London brief still showing during NY AM, or NY AM brief showing
-// during NY PM. Threshold is intentionally generous (4h) to avoid
-// crying wolf during the same session.
+function formatPx(p) {
+  if (typeof p === "string") return p;
+  if (typeof p !== "number") return String(p ?? "");
+  const [whole, dec = ""] = String(p).split(".");
+  const withSpaces = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return dec ? `${withSpaces}.${dec.padEnd(2, "0").slice(0, 2)}` : withSpaces;
+}
+
+function formatEtTime(isoStr) {
+  if (!isoStr) return "";
+  try {
+    return new Date(isoStr).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+  } catch { return ""; }
+}
+
+// STATUS STRIP — replaces the old StaleBriefBanner + ChangedPanel +
+// inline ChainStatusChip + RefreshButton. One thin row at the top of
+// PREP that consolidates all four signals.
 const STALE_BRIEF_THRESHOLD_MS = 4 * 60 * 60 * 1000;
-function StaleBriefBanner({ ageMs, onRefresh }) {
-  if (ageMs == null || ageMs < STALE_BRIEF_THRESHOLD_MS) return null;
-  const ageLabel = formatAge(ageMs);
+
+function StatusStrip({ ageMs, briefTs, chainStatus, refreshStatus, onRefresh, onToggleDiff, diffOpen }) {
+  const stale = ageMs != null && ageMs >= STALE_BRIEF_THRESHOLD_MS;
+  const ageLabel = ageMs != null ? formatAge(ageMs) : null;
+  const etTime = briefTs ? formatEtTime(briefTs) : "";
+  const chip = formatChainChip(chainStatus);
+  const running = refreshStatus === "running";
   return (
-    <div style={{
-      background: "var(--surface-1)",
-      border: "1px solid var(--amber, #d4a657)",
-      borderLeft: "3px solid var(--amber, #d4a657)",
-      padding: "10px 14px",
-      marginBottom: 10,
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: 12,
-    }}>
-      <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.4 }}>
-        <span style={{ color: "var(--amber)", letterSpacing: ".1em", fontSize: 10 }}>STALE · </span>
-        This brief is {ageLabel} — likely from a prior session window. Refresh to grade the current session.
-      </div>
-      <button onClick={onRefresh}
-              style={{
-                background: "transparent",
-                border: "1px solid var(--amber)",
-                color: "var(--amber)",
-                padding: "3px 12px",
-                fontFamily: "ui-monospace, Menlo, monospace",
-                fontSize: 9.5,
-                letterSpacing: ".16em",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}>
-        [ REFRESH ]
+    <div className={"status-strip" + (stale ? " stale" : "")}>
+      <span>
+        {ageLabel && <span className="age">claude · {ageLabel}</span>}
+        {etTime && <span className="et"> @ {etTime} ET</span>}
+        {!ageLabel && !etTime && <span className="et">no brief yet</span>}
+      </span>
+      <span>
+        {chip.visible && (
+          <span className={"chip " + (chip.tone === "stale" ? "stale" : "")}>
+            {chip.label}
+          </span>
+        )}
+      </span>
+      <span className="diff-link" onClick={onToggleDiff}>
+        CHANGED SINCE LAST {diffOpen ? "▾" : "▸"}
+      </span>
+      <button
+        onClick={onRefresh}
+        disabled={running}
+        style={{
+          color: running ? "var(--label)" : "var(--amber)",
+          background: "transparent",
+          border: "1px solid var(--border)",
+          padding: "2px 9px",
+          fontFamily: "ui-monospace, Menlo, monospace",
+          fontSize: 9.5,
+          letterSpacing: ".16em",
+          cursor: running ? "default" : "pointer",
+        }}>
+        {running ? "[ ··· ]" : "[ REFRESH ]"}
       </button>
     </div>
   );
 }
 
-function ChangedPanel({ session, brief }) {
+// Inline expansion of the day-over-day diff, opened by clicking
+// "CHANGED SINCE LAST ▸" in the StatusStrip. Renders nothing when
+// closed; renders a placeholder when no prior brief exists.
+function InlineChanges({ open, session, brief }) {
   const [prior, setPrior] = useState(null);
   const [priorDate, setPriorDate] = useState(null);
   useEffect(() => {
-    if (!session || !brief) return;
-    // The brief's `ts` is the day it was written. Extract YYYY-MM-DD
-    // so we don't compare today vs today.
+    if (!open || !session || !brief) return;
     const today = (brief.ts || "").slice(0, 10);
     window.api?.prep?.priorBrief?.(session, today).then((res) => {
       if (res?.ok && res.prior) {
@@ -135,12 +133,25 @@ function ChangedPanel({ session, brief }) {
         setPriorDate(null);
       }
     }).catch(() => {});
-  }, [session, brief?.ts]);
+  }, [open, session, brief?.ts]);
 
-  if (!prior) return null;
+  if (!open) return null;
+  if (!prior) {
+    return (
+      <Panel title={`CHANGED SINCE LAST ${SESSION_LABEL[session] || ""} BRIEF`}>
+        <Row k="—" v="no prior brief on file" tone="dim" />
+      </Panel>
+    );
+  }
   const changes = diffBriefs(brief, prior);
-  if (!changes.length) return null;
-
+  if (!changes.length) {
+    return (
+      <Panel title={`CHANGED SINCE LAST ${SESSION_LABEL[session] || ""} BRIEF`}
+             right={<span style={{ color: "var(--label)", fontSize: 10 }}>vs {priorDate}</span>}>
+        <Row k="—" v="no changes since prior brief" tone="dim" />
+      </Panel>
+    );
+  }
   return (
     <Panel title={`CHANGED SINCE LAST ${SESSION_LABEL[session] || ""} BRIEF`}
            right={<span style={{ color: "var(--label)", fontSize: 10 }}>vs {priorDate}</span>}>
@@ -190,76 +201,15 @@ function RecapPanel({ session, recap }) {
   );
 }
 
-function formatPx(p) {
-  if (typeof p === "string") return p;
-  if (typeof p !== "number") return String(p ?? "");
-  const [whole, dec = ""] = String(p).split(".");
-  const withSpaces = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return dec ? `${withSpaces}.${dec.padEnd(2, "0").slice(0, 2)}` : withSpaces;
-}
-
-function formatEtTime(isoStr) {
-  if (!isoStr) return "";
-  try {
-    return new Date(isoStr).toLocaleString("en-US", {
-      timeZone: "America/New_York",
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    });
-  } catch { return ""; }
-}
-
-function RefreshButton({ status, onClick, age, briefTs }) {
-  const running = status === "running";
-  // Show both relative ("5m old") and absolute ET wall-clock
-  // ("09:03 ET"). Trader can pick whichever is more useful in the moment.
-  const etTime = briefTs ? formatEtTime(briefTs) : "";
-  const ageLabel = age != null ? formatAge(age) : "";
-  const captionParts = [];
-  if (ageLabel) captionParts.push(`claude · ${ageLabel}`);
-  if (etTime) captionParts.push(`@ ${etTime} ET`);
-  const caption = running ? "claude is preparing…" : captionParts.join(" ");
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-      <span style={{ color: "var(--label)", fontSize: 10 }}>
-        {caption}
-      </span>
-      <button
-        onClick={onClick}
-        disabled={running}
-        style={{
-          color: running ? "var(--label)" : "var(--amber)",
-          background: "transparent",
-          border: "1px solid var(--border, #2a3038)",
-          padding: "3px 9px",
-          fontFamily: "ui-monospace, Menlo, monospace",
-          fontSize: 9.5,
-          letterSpacing: ".16em",
-          cursor: running ? "default" : "pointer",
-        }}>
-        {running ? "[ ··· ]" : "[ REFRESH ]"}
-      </button>
-    </span>
-  );
-}
-
-function EmptyBrief({ status, statusReason, progress, session, onRefresh }) {
+function EmptyBrief({ status, statusReason, progress, session }) {
   const running = status === "running";
   let message;
   if (running) {
-    // Show tool-call progress so the trader sees something is happening
-    // instead of staring at static text for 5 minutes. First call is
-    // tv_analyze_full (chart capture), subsequent calls are the surface
-    // tools (session brief × 2 in dual mode).
     const progressNote = progress > 0 ? ` (${progress} tool ${progress === 1 ? "call" : "calls"} so far)` : "";
     message = `Claude is preparing the session brief${progressNote} — HTF context, overnight ranges, key levels, and Pillar 1+2 grade. This takes 2-5 minutes.`;
   } else if (status === "error") {
     message = `The session brief failed${statusReason ? `: ${statusReason}` : ""}. Hit refresh to try again.`;
   } else if (status === "skipped") {
-    // Skipped events now carry a reason from session-brief preflights:
-    // "market closed", "TradingView replay is active", "another turn
-    // already in flight", "chart preflight failed", etc. Surfacing the
-    // reason replaces the prior silent ignore — user knows why nothing
-    // happened when they clicked refresh.
     message = `Brief skipped${statusReason ? `: ${statusReason}` : ""}.`;
   } else if (session) {
     message = "No brief yet for this session. Hit refresh to run one now — or wait for the next scheduled trigger (02:00 / 09:00 / 13:00 ET).";
@@ -267,8 +217,7 @@ function EmptyBrief({ status, statusReason, progress, session, onRefresh }) {
     message = "Outside trading windows — next session opens Monday 02:00 ET (London).";
   }
   return (
-    <Panel title={`SESSION BRIEF · ${SESSION_LABEL[session] || "—"}`}
-           right={<RefreshButton status={status} onClick={onRefresh} />}>
+    <Panel title={`SESSION BRIEF · ${SESSION_LABEL[session] || "—"}`}>
       <div style={{ color: "var(--label)", fontSize: 11.5, lineHeight: 1.6 }}>
         {message}
       </div>
@@ -276,7 +225,148 @@ function EmptyBrief({ status, statusReason, progress, session, onRefresh }) {
   );
 }
 
-function PrepWorkstation({ alerts, onToggleArm }) {
+// STEP 1 · HTF BIAS — D/4H/1H rows + primary draw sub-section.
+function Step1Panel({ htfBias = [], primaryDraw, htfDestination }) {
+  return (
+    <Panel title="STEP 1 · HTF BIAS"
+           right={<span className="step-meta">D / 4H / 1H + primary draw</span>}>
+      {htfBias.map((r) => (
+        <div className="row" key={r.tf} style={{ alignItems: "flex-start" }}>
+          <span className="k" style={{ minWidth: 50 }}>{r.tf}</span>
+          <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14 }}>
+            <span className={"v " + (r.bias === "BEARISH" ? "red" : r.bias === "MIXED" || r.bias === "NEUTRAL" ? "amber" : "green")}
+                  style={{ letterSpacing: ".1em", marginRight: 10 }}>
+              {r.bias}
+            </span>
+            <span style={{ color: "var(--label)", fontSize: 11 }}>{r.note}</span>
+          </span>
+        </div>
+      ))}
+      {primaryDraw && (
+        <>
+          <div style={{
+            color: "var(--label)", fontSize: 9, letterSpacing: ".18em",
+            padding: "8px 0 4px", borderTop: "1px dotted var(--border)",
+            marginTop: 6,
+          }}>
+            PRIMARY HTF DRAW
+          </div>
+          <div className="row" style={{ alignItems: "flex-start" }}>
+            <span className="k" style={{ minWidth: 50 }}>
+              {(primaryDraw.tf || "").toUpperCase()} {primaryDraw.kind} {primaryDraw.dir}
+            </span>
+            <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14 }}>
+              <span title={primaryDraw.cite || undefined}
+                    style={{ color: "var(--prose)", borderBottom: primaryDraw.cite ? "1px dotted var(--label)" : undefined, cursor: primaryDraw.cite ? "help" : undefined }}>
+                {formatPx(primaryDraw.bottom)} – {formatPx(primaryDraw.top)}
+              </span>
+              <span style={{ marginLeft: 8, color: "var(--label)", fontSize: 11 }}>
+                disp_score {primaryDraw.disp_score} · {primaryDraw.state}
+              </span>
+            </span>
+          </div>
+          {htfDestination && (
+            <div className="row" style={{ alignItems: "flex-start" }}>
+              <span className="k" style={{ minWidth: 50 }}>DEST</span>
+              <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14, color: "var(--prose)" }}>
+                {htfDestination}
+              </span>
+            </div>
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
+
+// STEP 2 · OVERNIGHT + LEVELS — Asia/London rows + untaken above/below
+// sub-sections (alert bells preserved).
+function Step2Panel({ overnight = [], levels = [], currentPrice, armed, fired, onToggleArm }) {
+  const grouped = groupLevelsByPrice(levels, currentPrice);
+  const renderLevel = (lv) => {
+    const px = formatPx(lv.price);
+    const isArmed = !!armed[lv.name];
+    const isFired = fired.some((f) => f.name === lv.name);
+    return (
+      <div className="level-row" key={lv.name}>
+        <span className="marker">{lv.state === "untaken" ? "─" : "·"}</span>
+        <span className="name" title={lv.cite || undefined}
+              style={lv.cite ? { borderBottom: "1px dotted var(--label)", cursor: "help" } : undefined}>
+          {lv.name}
+        </span>
+        <span className="price" title={lv.cite || undefined}>{px}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className={"state " + (lv.state || "untaken")}>
+            {(lv.state || "untaken").toUpperCase()}
+          </span>
+          <span className={"bell" + (isFired ? " fired" : isArmed ? " armed" : "")}
+                title={isFired ? "alert fired" : isArmed ? "alert armed — click to disarm" : "set alert"}
+                onClick={() => onToggleArm && onToggleArm(lv.name, px)}>
+            {isFired ? "◉" : isArmed ? "●" : "○"}
+          </span>
+        </span>
+      </div>
+    );
+  };
+  return (
+    <Panel title="STEP 2 · OVERNIGHT + LEVELS"
+           right={<span className="step-meta">Asia + London + untaken liquidity</span>}>
+      {overnight.map((r, i) => <Row key={i} k={r.k} v={r.v} tone={r.tone} />)}
+
+      {grouped.above && grouped.above.length > 0 && (
+        <div className="untaken-block">
+          <div className="head">UNTAKEN ABOVE</div>
+          {grouped.above.map(renderLevel)}
+        </div>
+      )}
+      {grouped.below && grouped.below.length > 0 && (
+        <div className="untaken-block">
+          <div className="head">UNTAKEN BELOW</div>
+          {grouped.below.map(renderLevel)}
+        </div>
+      )}
+      {grouped.all && grouped.all.length > 0 && (
+        <div className="untaken-block">
+          <div className="head">LEVELS</div>
+          {grouped.all.map(renderLevel)}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+// STEP 3 · PRICE QUALITY — Pillar 2 broken out into 3 rows.
+function Step3Panel({ pillars }) {
+  const pillar2 = selectPillar(pillars, /price.*action|quality/i);
+  const rows = pillar2ToRows(pillar2);
+  return (
+    <Panel title="STEP 3 · PRICE QUALITY"
+           right={<span className="step-meta">Pillar 2 · the &quot;tradeable today?&quot; filter</span>}>
+      {rows.map((r) => <Row key={r.k} k={r.k} v={r.v} tone={r.tone} />)}
+    </Panel>
+  );
+}
+
+// One-line PRE-SESSION GRADE headline — replaces the full pillar drilldown.
+function GradeHeadline({ pillarGrade, pillars }) {
+  const p1 = selectPillar(pillars, /draw.*bias/i);
+  const p2 = selectPillar(pillars, /price.*action|quality/i);
+  return (
+    <Panel title="PRE-SESSION GRADE" right={<span className="step-meta">aggregate of pillars 1 + 2</span>}>
+      <div className="pillar-headline">
+        <Grade value={pillarGrade || "no-trade"} />
+        <span className="why">
+          {p1 && <>Pillar 1 <span className={p1.status}>{(p1.status || "").toUpperCase()}</span></>}
+          {p1 && p2 && " · "}
+          {p2 && <>Pillar 2 <span className={p2.status}>{(p2.status || "").toUpperCase()}</span></>}
+          {!p1 && !p2 && "—"}
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
+function PrepWorkstation({ alerts, onToggleArm, currentPrice }) {
   const armed = alerts?.armed || {};
   const fired = alerts?.fired || [];
 
@@ -294,19 +384,34 @@ function PrepWorkstation({ alerts, onToggleArm }) {
   } = useSessionBrief();
   const { session: recapSession, recap } = useSessionRecap();
 
+  const [diffOpen, setDiffOpen] = useState(false);
+
+  // Empty state: recap + status strip + empty brief.
   if (!brief) {
     return (
       <div className="work-scroll">
         {recap && <RecapPanel session={recapSession} recap={recap} />}
-        <EmptyBrief status={status} statusReason={statusReason} progress={progress} session={session} onRefresh={refresh} />
+        <StatusStrip
+          ageMs={ageMs}
+          briefTs={null}
+          chainStatus={null}
+          refreshStatus={status}
+          onRefresh={refresh}
+          onToggleDiff={() => setDiffOpen((o) => !o)}
+          diffOpen={diffOpen}
+        />
+        <InlineChanges open={diffOpen} session={session} brief={null} />
+        <EmptyBrief
+          status={status}
+          statusReason={statusReason}
+          progress={progress}
+          session={session}
+        />
       </div>
     );
   }
 
-  // Sort high → low defensively. The schema description asks Claude for
-  // this ordering, but Zod doesn't enforce it — and an unsorted level
-  // panel is hard to scan ("where's PDH?"). Sort by numeric price desc;
-  // any string prices fall to the bottom in submitted order.
+  // Levels — defensive sort by price desc, then handed to groupLevelsByPrice.
   const levels = (brief.key_levels || [])
     .slice()
     .sort((a, b) => {
@@ -316,12 +421,8 @@ function PrepWorkstation({ alerts, onToggleArm }) {
     })
     .map((lv) => ({
       name: lv.name,
-      px: formatPx(lv.price),
+      price: lv.price,
       state: lv.state || "untaken",
-      marker: lv.state === "untaken" ? "─" : "·",
-      // Optional JSON path the price was cited from. Shown as a `title`
-      // tooltip on the price cell so the trader can verify "this is the
-      // AS_H from engine.levels[…]" without opening the bundle.
       cite: typeof lv.cite === "string" ? lv.cite : null,
     }));
 
@@ -330,19 +431,21 @@ function PrepWorkstation({ alerts, onToggleArm }) {
       {recap && recapSession !== brief.session && (
         <RecapPanel session={recapSession} recap={recap} />
       )}
-      <StaleBriefBanner ageMs={ageMs} onRefresh={refresh} />
-      <ChangedPanel session={brief.session} brief={brief} />
-      <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}${selectedSymbol ? ` · ${selectedSymbol}` : ""}`}
-             right={
-               <span style={{ display: "flex", alignItems: "center" }}>
-                 <ChainStatusChip status={brief.chain_status} />
-                 <RefreshButton status={status} onClick={refresh} age={ageMs} briefTs={brief.ts} />
-               </span>
-             }>
+
+      <StatusStrip
+        ageMs={ageMs}
+        briefTs={brief.ts}
+        chainStatus={brief.chain_status}
+        refreshStatus={status}
+        onRefresh={refresh}
+        onToggleDiff={() => setDiffOpen((o) => !o)}
+        diffOpen={diffOpen}
+      />
+      <InlineChanges open={diffOpen} session={brief.session} brief={brief} />
+
+      <Panel title={`SESSION BRIEF · ${SESSION_LABEL[brief.session] || ""}${selectedSymbol ? ` · ${selectedSymbol}` : ""}`}>
         {availableSymbols.length > 1 && (
-          <div style={{
-            display: "flex", gap: 6, padding: "0 0 8px",
-          }}>
+          <div style={{ display: "flex", gap: 6, padding: "0 0 8px" }}>
             {availableSymbols.map((sym) => {
               const active = sym === selectedSymbol;
               return (
@@ -366,119 +469,37 @@ function PrepWorkstation({ alerts, onToggleArm }) {
         </div>
       </Panel>
 
-      <Panel title="HTF BIAS">
-        {(brief.htf_bias || []).map((r) => (
-          <div className="row" key={r.tf} style={{ alignItems: "flex-start" }}>
-            <span className="k" style={{ minWidth: 50 }}>{r.tf}</span>
-            <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14 }}>
-              <span className={"v " + (r.bias === "BEARISH" ? "red" : r.bias === "MIXED" || r.bias === "NEUTRAL" ? "amber" : "green")}
-                    style={{ letterSpacing: ".1em", marginRight: 10 }}>
-                {r.bias}
-              </span>
-              <span style={{ color: "var(--label)", fontSize: 11 }}>{r.note}</span>
-            </span>
-          </div>
-        ))}
-      </Panel>
+      <Step1Panel
+        htfBias={brief.htf_bias || []}
+        primaryDraw={brief.primary_draw}
+        htfDestination={brief.htf_destination}
+      />
 
-      {brief.primary_draw && (
-        <Panel title="PRIMARY HTF DRAW">
-          <div className="row" style={{ alignItems: "flex-start" }}>
-            <span className="k" style={{ minWidth: 50 }}>{(brief.primary_draw.tf || "").toUpperCase()} {brief.primary_draw.kind} {brief.primary_draw.dir}</span>
-            <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14 }}>
-              <span title={brief.primary_draw.cite || undefined}
-                    style={{ color: "var(--prose)", borderBottom: brief.primary_draw.cite ? "1px dotted var(--label)" : undefined, cursor: brief.primary_draw.cite ? "help" : undefined }}>
-                {formatPx(brief.primary_draw.bottom)} – {formatPx(brief.primary_draw.top)}
-              </span>
-              <span style={{ marginLeft: 8, color: "var(--label)", fontSize: 11 }}>
-                disp_score {brief.primary_draw.disp_score} · {brief.primary_draw.state}
-              </span>
-            </span>
-          </div>
-          {brief.htf_destination && (
-            <div className="row" style={{ alignItems: "flex-start" }}>
-              <span className="k" style={{ minWidth: 50 }}>DEST</span>
-              <span className="v" style={{ flex: 1, textAlign: "left", paddingLeft: 14, color: "var(--prose)" }}>
-                {brief.htf_destination}
-              </span>
-            </div>
-          )}
+      <Step2Panel
+        overnight={brief.overnight || []}
+        levels={levels}
+        currentPrice={currentPrice}
+        armed={armed}
+        fired={fired}
+        onToggleArm={onToggleArm}
+      />
+
+      <Step3Panel pillars={brief.pillars || []} />
+
+      <GradeHeadline pillarGrade={brief.pillar_grade} pillars={brief.pillars || []} />
+
+      {Array.isArray(brief.scenarios) && brief.scenarios.length > 0 && (
+        <Panel title="SCENARIOS · IF / THEN" right={<span className="step-meta">claude proposed</span>}>
+          {brief.scenarios.map((s, i) => (
+            <ScenarioCard key={s.id || i} scenario={s} />
+          ))}
         </Panel>
       )}
-
-      <Panel title="OVERNIGHT CONTEXT">
-        {(brief.overnight || []).map((r, i) => <Row key={i} k={r.k} v={r.v} tone={r.tone} />)}
-      </Panel>
-
-      <section className="panel">
-        <header className="panel-head">
-          <span className="title">KEY LEVELS</span>
-          <span className="meta">PWH / PDH / ONH / ONL / PDL / PWL</span>
-        </header>
-        <div className="panel-body flush">
-          {levels.map((lv) => {
-            const isArmed = !!armed[lv.name];
-            const isFired = fired.some((f) => f.name === lv.name);
-            return (
-              <div className="level-row" key={lv.name}>
-                <span className="marker">{lv.marker}</span>
-                <span className="name" title={lv.cite || undefined}
-                      style={lv.cite ? { borderBottom: "1px dotted var(--label)", cursor: "help" } : undefined}>
-                  {lv.name}
-                </span>
-                <span className="price" title={lv.cite || undefined}>{lv.px}</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className={"state " + lv.state}>{lv.state.toUpperCase()}</span>
-                  <span className={"bell" + (isFired ? " fired" : isArmed ? " armed" : "")}
-                        title={isFired ? "alert fired" : isArmed ? "alert armed — click to disarm" : "set alert"}
-                        onClick={() => onToggleArm && onToggleArm(lv.name, lv.px)}>
-                    {isFired ? "◉" : isArmed ? "●" : "○"}
-                  </span>
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="panel">
-        <header className="panel-head">
-          <span className="title">PRE-SESSION GRADE</span>
-          <span className="meta">
-            PILLARS 1 + 2 · <Grade value={brief.pillar_grade || "no-trade"} />
-          </span>
-        </header>
-        <div className="panel-body flush">
-          <PillarsPanel pillars={brief.pillars || []} />
-        </div>
-      </section>
 
       <Panel title="CLAUDE · PLAN FOR THE OPEN">
         <div style={{ color: "var(--value)", fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
           {brief.plan}
         </div>
-        {Array.isArray(brief.scenarios) && brief.scenarios.length > 0 && (
-          <>
-            <div className="hr" />
-            <div style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".14em", marginBottom: 6 }}>
-              SCENARIOS
-            </div>
-            {brief.scenarios.map((s, i) => (
-              <div key={i} style={{
-                display: "flex", flexDirection: "column", gap: 2,
-                padding: "6px 0",
-                borderTop: i > 0 ? "1px dashed var(--border-dim, #2a3038)" : "none",
-              }}>
-                <div style={{ color: "var(--amber)", fontSize: 11 }}>
-                  <span style={{ color: "var(--label)" }}>IF&nbsp;</span>{s.condition}
-                </div>
-                <div style={{ color: "var(--prose)", fontSize: 11, paddingLeft: 28 }}>
-                  <span style={{ color: "var(--label)" }}>THEN&nbsp;</span>{s.action}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
         <div className="hr" />
         <Row k="Anchored target" v={brief.anchored_target} tone="num green" />
         <Row k="Anchored stop"   v={brief.anchored_stop}   tone="num red" />
@@ -498,7 +519,7 @@ function PrepWorkstation({ alerts, onToggleArm }) {
           {fired.length === 0 && Object.keys(armed).length === 0 && (
             <div className="empty-state" style={{ padding: "14px" }}>
               <div style={{ color: "var(--label)", fontSize: 11 }}>no alerts armed</div>
-              <div className="sub">click the ○ on any key level above to arm one</div>
+              <div className="sub">click the ○ on any untaken level above to arm one</div>
             </div>
           )}
           {fired.length > 0 && (

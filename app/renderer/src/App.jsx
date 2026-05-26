@@ -556,14 +556,14 @@ function TvNotLoggedIn() {
   );
 }
 
-function Workstation({ mode, tweaks, alerts, onToggleArm, onArmPrice }) {
+function Workstation({ mode, tweaks, alerts, onToggleArm, onArmPrice, currentPrice }) {
   // Each workstation gets its own error boundary so a render crash in
   // one (bad data shape, null deref) doesn't blank-screen the entire
   // app. Trader can [TRY AGAIN] to recover the panel.
   if (mode === "prep") {
     return (
       <ErrorBoundary label="PREP">
-        <PrepWorkstation alerts={alerts} onToggleArm={onToggleArm} />
+        <PrepWorkstation alerts={alerts} onToggleArm={onToggleArm} currentPrice={currentPrice} />
       </ErrorBoundary>
     );
   }
@@ -615,6 +615,12 @@ function App() {
   const setTweak = (k, v) => setT((prev) => ({ ...prev, [k]: v }));
   const [symbol, setSymbol] = useState("MNQ1!");
   const symbolMeta = SYMBOLS.find((s) => s.sym === symbol) || SYMBOLS[0];
+
+  // Live price cache for STEP 2 level grouping (above/below currentPrice).
+  // The PREP panel needs this — Live/Review don't. Subscribe always; the
+  // cost is one IPC tick per refresh.
+  const symbolCache = useSymbolCache(true);
+  const currentPrice = symbolCache?.[symbol]?.px ?? null;
 
   // ---- Theme ----
   // Hydrate from localStorage on first render so refresh keeps the choice.
@@ -871,7 +877,8 @@ function App() {
           <Workstation mode={mode} tweaks={t}
                        alerts={alerts}
                        onToggleArm={toggleArm}
-                       onArmPrice={armFromPrice} />
+                       onArmPrice={armFromPrice}
+                       currentPrice={currentPrice} />
         </div>
       </div>
 

@@ -636,7 +636,29 @@ function StatusLine({ phase, killzone, loop, mode, subState, lastBar, sessionsRu
   );
 }
 
+// ---------- Scenario card (PREP redesign, 2026-05-27) ----------
+// Renders one row from brief.scenarios[]. The brief schema now has the
+// full shape — id, grade, condition, action, target — but old briefs on
+// disk may be missing some fields. Render "—" gracefully when absent.
+function ScenarioCard({ scenario }) {
+  if (!scenario) return null;
+  const grade = scenario.grade || "—";
+  const gradeClass = grade === "A+" ? "aplus" : grade === "B" ? "b" : grade === "no-trade" ? "no-trade" : "";
+  return (
+    <div className="scn-card-full">
+      <div className="h">
+        <span className="id">{scenario.id ? scenario.id.toUpperCase() : "SCENARIO"}</span>
+        <span className={"pill " + gradeClass}>{grade}</span>
+      </div>
+      <div className="r"><span className="k">TRIGGER</span><span className="v">{scenario.condition || "—"}</span></div>
+      <div className="r"><span className="k">ACTION</span><span className="v">{scenario.action || "—"}</span></div>
+      <div className="r"><span className="k">TARGET</span><span className="v">{scenario.target || "—"}</span></div>
+    </div>
+  );
+}
+
 export {
   Panel, SectionHead, Row, Grade, PillarsPanel,
   SetupCard, TradeCard, ClaudeFeed, Btn, StatusLine, Snapshot,
+  ScenarioCard,
 };

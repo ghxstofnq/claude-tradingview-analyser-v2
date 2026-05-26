@@ -335,12 +335,26 @@ If you cannot cite a TF, that TF counts as missing — escalate toward `no-trade
 
 ### Step 6 — Scenarios
 
-Build 2 to 4 IF/THEN scenarios. Each must be price-conditioned and cite the trigger + targets:
+Build 2 to 4 scenarios. Each is the if/then plan for a specific entry trigger. Five required fields per scenario:
 
-- `condition`: "NY opens above 21487.25 (PDH) and holds for 1 closed bar"
-- `action`: "long continuation toward 21528.50 (PWH); stop below 21450.50 (AS_L)"
+- `id`: stable short id — `"scn-1"`, `"scn-2"`.
+- `grade`: per-scenario grade (`"A+"`, `"B"`, or `"no-trade"`). A+ when all six elements would align if the trigger fires; B if exactly one is weaker; no-trade for defensive scenarios where you'd stand aside. **This is independent of `pillar_grade`** — the overall pre-session grade above. A `pillar_grade=B` brief can still carry an A+ scenario (the A+ requires the trigger to fire AND Pillar 3 to confirm).
+- `condition`: trigger condition with cited prices — `"NY opens above 21487.25 (PDH) and holds for 1 closed bar"`. UI labels this row "TRIGGER".
+- `action`: reaction / bias — `"long continuation toward 21528.50 (PWH); stop below 21450.50 (AS_L)"`.
+- `target`: anchored target with citation — `"21 528.50 (PWH)"` or `"21 420 (engine_by_tf.h4.fvgs[0].top)"`. Must contain a digit; Zod refines on this.
 
 Cite from `brief_digest.symbols.<sym>.ltf_context.*` or `pillar1.session_levels.*`. Never invent a level not in the bundle.
+
+**A+ example:**
+```json
+{
+  "id": "scn-1",
+  "grade": "A+",
+  "condition": "sweep of AS.L at 21 290 (pillar1.session_levels.AS_L) + 5m MSS up + tap of 4H FVG 21 300-21 320 (engine_by_tf.h4.fvgs[0])",
+  "action": "MSS long on the 5m FVG retest, stop below the sweep wick",
+  "target": "21 420 (pillar1.session_levels.PWH)"
+}
+```
 
 ### Step 7 — Sizing Note
 

@@ -606,9 +606,22 @@ function buildMcpServer() {
         // prose; trader had to parse it on every read.
         plan: z.string().describe("One-paragraph headline plan — bias direction, what looks A+, what would flip it"),
         scenarios: z.array(z.object({
-          condition: z.string().describe("Trigger condition — 'NY opens above 21487.25 (PDH)', 'sweep of Asia low without close back'"),
-          action: z.string().describe("Reaction / bias — 'long continuation toward 21528', 'short reversal targeting AS_L'"),
-        })).min(1).max(4).describe("Structured IF/THEN scenarios for the open. Min 1, max 4 — keep it tight, the trader reads these live."),
+          // Stable id for React keys + cross-references. e.g. "scn-1", "scn-2".
+          id: z.string().describe("Stable id — 'scn-1', 'scn-2'. Used as a React key and as an anchor for future cross-references."),
+          // Per-scenario grade (NOT the overall pre-session grade — that's
+          // pillar_grade above). Tells the trader at a glance whether this
+          // scenario is the prime candidate or a fallback.
+          grade: z.enum(["A+", "B", "no-trade"]).describe("Grade for THIS scenario if it fires — independent of pillar_grade. A+ when all six elements would align if the trigger fires; B if one weaker; no-trade if a defensive scenario."),
+          // condition stays — UI labels this row "TRIGGER" but the field name
+          // is preserved for backward compatibility with briefs already on disk.
+          condition: z.string().describe("Trigger condition — 'NY opens above 21487.25 (PDH)', 'sweep of Asia low without close back'. UI labels this row 'TRIGGER'."),
+          action: z.string().describe("Reaction / bias — 'long continuation toward 21528.50 (PWH); stop below 21450.50 (AS_L)'"),
+          // Anchored target with a citation. Must contain a digit so the
+          // verifier and humans both know there's a real number behind it.
+          target: z.string().refine((s) => /\d/.test(s), {
+            message: "target must contain a cited price (a digit) — e.g. '21 528.50 (PWH)' or '21420 (engine.levels.PWH)'",
+          }).describe("Anchored target with citation — e.g. '21 528.50 (PWH)' or '21 420 (engine_by_tf.h4.fvgs[0].top)'"),
+        })).min(1).max(4).describe("Structured scenarios for the open. Min 1, max 4 — keep it tight, the trader reads these live. Each scenario carries its own grade so the trader sees the prime candidate at a glance."),
         // anchored_target / anchored_stop are free strings (Claude wraps
         // a price with a label like "(PDH)"), but they MUST cite an
         // actual price — empty / "TBD" / whitespace-only is a degenerate
