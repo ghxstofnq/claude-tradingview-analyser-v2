@@ -1310,3 +1310,203 @@ button { font: inherit; color: inherit; background: transparent; border: 0; padd
   color: var(--value);
   flex: 1;
 }
+
+/* ─────────── LIVE redesign (2026-05-27) ─────────── */
+
+/* Session liquidity panel — used in OpenReaction sub-state. Compact list
+   of brief key_levels with state pills. */
+.session-liquidity .lvl {
+  display: grid;
+  grid-template-columns: 14px 64px 1fr 78px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 14px;
+  font-size: 11px;
+  border-bottom: 1px dotted var(--border-dim, #1e2228);
+}
+.session-liquidity .lvl:last-child { border-bottom: 0; }
+.session-liquidity .lvl .marker { color: var(--blue, #4f7eb3); }
+.session-liquidity .lvl .name { color: var(--value); letter-spacing: 0.04em; }
+.session-liquidity .lvl .price { color: var(--value); font-variant-numeric: tabular-nums; text-align: right; }
+.session-liquidity .lvl .state {
+  text-align: center; font-size: 8.5px; letter-spacing: 0.12em;
+  color: var(--green); border: 1px solid var(--green); padding: 1px 5px;
+}
+.session-liquidity .lvl .state.taken,
+.session-liquidity .lvl .state.swept {
+  color: var(--label); border-color: var(--border);
+}
+
+/* STEP 5+6 confirmation panel — used in EntryHunt sub-state. */
+.step5n6-panel .confirmation-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 14px;
+  font-size: 11px;
+  border-bottom: 1px dotted var(--border-dim, #1e2228);
+}
+.step5n6-panel .confirmation-row:last-child { border-bottom: 0; }
+.step5n6-panel .confirmation-row .label {
+  color: var(--label);
+  display: flex; align-items: center; gap: 6px;
+}
+.step5n6-panel .confirmation-row .check {
+  display: inline-block; width: 12px;
+  font-size: 12px; color: var(--green);
+}
+.step5n6-panel .confirmation-row .check.pending,
+.step5n6-panel .confirmation-row .check.missing { color: var(--label-dim, #4a5560); }
+.step5n6-panel .confirmation-row .check.weak { color: var(--amber); }
+.step5n6-panel .confirmation-row .check.fail { color: var(--red); }
+.step5n6-panel .confirmation-row .detail {
+  color: var(--value); font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+}
+.step5n6-panel .confirmation-row .detail.green { color: var(--green); }
+.step5n6-panel .confirmation-row .detail.amber { color: var(--amber); }
+.step5n6-panel .confirmation-row .detail.red { color: var(--red); }
+.step5n6-panel .confirmation-row .detail.dim { color: var(--label-dim, #4a5560); }
+.step5n6-panel .sect-hd {
+  color: var(--label); font-size: 9px; letter-spacing: 0.18em;
+  padding: 6px 14px 3px;
+  border-bottom: 1px dotted var(--border);
+  background: var(--surface-1);
+}
+
+/* IN-TRADE dedicated panel — used in InTrade sub-state. */
+.intrade-panel {
+  border: 1px solid var(--green);
+  background: rgba(111, 156, 91, 0.04);
+}
+.intrade-panel .panel-head .title { color: var(--green); }
+.intrade-panel .trade-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 10.5px;
+  color: var(--value);
+  border-bottom: 1px solid var(--border-dim, #1e2228);
+}
+.intrade-panel .trade-head .id { color: var(--amber); font-variant-numeric: tabular-nums; }
+.intrade-panel .trade-head .side {
+  padding: 1px 6px;
+  border: 1px solid var(--green);
+  color: var(--green);
+  background: rgba(111, 156, 91, 0.12);
+  font-size: 9px; letter-spacing: 0.12em;
+}
+.intrade-panel .trade-head .side.short {
+  border-color: var(--red);
+  color: var(--red);
+  background: rgba(192, 71, 62, 0.12);
+}
+.intrade-panel .trade-head .status {
+  margin-left: auto;
+  color: var(--label);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+}
+
+/* LIVE GRID 4-cell (2×2). Big readable numbers for at-a-glance scanning. */
+.live-grid-2x2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px 14px;
+}
+.live-cell {
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.live-cell .k {
+  color: var(--label);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+.live-cell .v {
+  color: var(--value);
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.live-cell .v.green { color: var(--green); }
+.live-cell .v.red { color: var(--red); }
+.live-cell .v.amber { color: var(--amber); }
+.live-cell .sub {
+  color: var(--label);
+  font-size: 9.5px;
+}
+
+/* TV hand-off button row. Three buttons that focus the TradingView pane
+   and fire a toast. No order execution. */
+.tv-handoff {
+  display: flex;
+  gap: 6px;
+  padding: 6px 14px 10px;
+}
+.tv-handoff button {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--blue, #4f7eb3);
+  color: var(--blue, #4f7eb3);
+  padding: 4px 8px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+.tv-handoff button:hover {
+  background: rgba(79, 126, 179, 0.08);
+}
+[data-theme="light"] .tv-handoff button { color: #2563a0; border-color: #2563a0; }
+
+/* TV hand-off toast — transient banner pinned at the top of the LIVE
+   pane when a TV button is clicked. Self-dismisses after 3s. */
+.tv-toast {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-1);
+  border: 1px solid var(--blue, #4f7eb3);
+  padding: 6px 14px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--value);
+  letter-spacing: 0.06em;
+  z-index: 40;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.tv-toast b { color: var(--blue, #4f7eb3); font-weight: 600; }
+
+/* BRAIN narration block — quoted message from the latest bar-read. */
+.brain-narration {
+  border-left: 3px solid var(--blue, #4f7eb3);
+  padding: 6px 14px;
+  margin: 6px 0;
+  background: rgba(79, 126, 179, 0.04);
+  color: var(--value);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.brain-narration .head {
+  color: var(--blue, #4f7eb3);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  margin-bottom: 3px;
+}
+.brain-narration .body em {
+  /* override the click-to-arm cursor on prices INSIDE BRAIN — bar-reads
+     are read-only context, not interactive. */
+  cursor: default;
+  font-style: normal;
+  color: var(--amber);
+}
+[data-theme="light"] .brain-narration { background: rgba(37, 99, 160, 0.05); }
+[data-theme="light"] .brain-narration .head { color: #2563a0; }

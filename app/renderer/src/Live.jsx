@@ -1,13 +1,21 @@
 // LIVE mode workstation — Claude conversation + setups/trades rail.
+// Three sub-states routed by data: OpenReaction / EntryHunt / InTrade.
 
 import React, { useState as useStateL, useEffect as useEffectL, useRef as useRefL } from "react";
-import { Panel, Row, Grade, PillarsPanel, SetupCard, TradeCard, ClaudeFeed, SectionHead } from "./Shared.jsx";
+import { Panel, Row, Grade, PillarsPanel, SetupCard, ClaudeFeed, SectionHead, LiveCell } from "./Shared.jsx";
 import { useChat } from "./hooks/useChat.js";
 import { useActiveSetup } from "./hooks/useActiveSetup.js";
 import { useTrades } from "./hooks/useTrades.js";
 import { useOpenReaction } from "./hooks/useOpenReaction.js";
 import { useSetupsHistory } from "./hooks/useSetupsHistory.js";
 import { useLastBar } from "./hooks/useLastBar.js";
+import { useSessionBrief } from "./hooks/useSessionBrief.js";
+import {
+  selectPillar3,
+  pillar3ToConfirmationRows,
+  liveGridFromTrade,
+  latestBarReadMessage,
+} from "./Live.helpers.js";
 
 const BIAS_TONE = { bullish: "green", bearish: "red", mixed: "amber", unclear: "amber" };
 
@@ -35,7 +43,7 @@ function OpenReactionTracker() {
 
   if (!latest) {
     return (
-      <Panel title="OPEN REACTION · waiting for first read">
+      <Panel title="STEP 4 · NY OPEN LTF BIAS · waiting for first read">
         <div style={{ color: "var(--label)", fontSize: 11.5, lineHeight: 1.55 }}>
           Claude will post the first open-reaction read after the next bar close.
           Each read covers: what NY just did, the bias direction forming, and what
@@ -47,7 +55,7 @@ function OpenReactionTracker() {
 
   return (
     <>
-      <Panel title="OPEN REACTION · LATEST READ"
+      <Panel title="STEP 4 · NY OPEN LTF BIAS"
              right={`+${minutesIn}m · ${left}m left`}>
         <div style={{ color: "var(--prose)", fontSize: 11.5, lineHeight: 1.55, marginBottom: 8 }}>
           {latest.latest_read}
@@ -132,6 +140,66 @@ function PreviousReadsPanel({ reads }) {
         })}
       </div>
     </section>
+  );
+}
+
+// SESSION LIQUIDITY — used inside OpenReactionView. Reads brief key_levels
+// and renders untaken / swept liquidity in a compact list.
+function SessionLiquidityPanel() {
+  const { brief } = useSessionBrief();
+  const levels = brief?.key_levels || [];
+  if (levels.length === 0) return null;
+  // Sort high → low for at-a-glance scanning.
+  const sorted = [...levels].sort((a, b) => {
+    const an = typeof a.price === "number" ? a.price : -Infinity;
+    const bn = typeof b.price === "number" ? b.price : -Infinity;
+    return bn - an;
+  });
+  const fmtPx = (p) => {
+    if (typeof p !== "number") return String(p ?? "");
+    const [whole, dec = ""] = String(p).split(".");
+    const withSpaces = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    return dec ? `${withSpaces}.${dec.padEnd(2, "0").slice(0, 2)}` : withSpaces;
+  };
+  return (
+    <section className="panel session-liquidity">
+      <header className="panel-head">
+        <span className="title">SESSION LIQUIDITY</span>
+        <span className="meta">{levels.length} level{levels.length === 1 ? "" : "s"}</span>
+      </header>
+      <div className="panel-body flush">
+        {sorted.map((lv) => {
+          const state = lv.state || "untaken";
+          return (
+            <div className="lvl" key={lv.name}>
+              <span className="marker">{state === "untaken" ? "─" : "·"}</span>
+              <span className="name">{lv.name}</span>
+              <span className="price">{fmtPx(lv.price)}</span>
+              <span className={"state " + state}>{state.toUpperCase()}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// OpenReactionView — the OpenReaction sub-state. Wraps the existing
+// OpenReactionTracker, inserts SESSION LIQUIDITY between latest + previous
+// reads, preserves loop-down banner.
+function OpenReactionView({ loopDown }) {
+  return (
+    <div className="work-scroll">
+      {loopDown && (
+        <div className="banner">
+          <span className="glyph">● LOOP DOWN</span>
+          <span className="txt">bar-close detector not reporting</span>
+          <span className="sub">RESTART</span>
+        </div>
+      )}
+      <OpenReactionTracker />
+      <SessionLiquidityPanel />
+    </div>
   );
 }
 
@@ -238,6 +306,59 @@ function SetupHistoryList() {
   );
 }
 
+// STEP 5+6 — explicit MODEL + CONFIRMATION checks for the active setup.
+// Hides when no active setup. Source: activeSetup.pillar_breakdown[].
+function Step5n6Panel({ activeSetup }) {
+  if (!activeSetup) return null;
+  const pillar3 = selectPillar3(activeSetup.pillar_breakdown);
+  const rows = pillar3ToConfirmationRows(pillar3);
+  const modelStatus = pillar3?.status === "pass" ? "valid"
+                    : pillar3?.status === "pending" ? "pending"
+                    : pillar3?.status === "weak" ? "weak"
+                    : "—";
+  const modelTone = pillar3?.status === "pass" ? "green"
+                  : pillar3?.status === "pending" ? "amber"
+                  : pillar3?.status === "weak" ? "amber"
+                  : "dim";
+  const check = (status) => {
+    if (status === "pass") return "✓";
+    if (status === "weak") return "~";
+    if (status === "fail") return "✗";
+    return "·";
+  };
+  return (
+    <section className="panel step5n6-panel">
+      <header className="panel-head">
+        <span className="title">STEP 5+6 · ENTRY MODEL + CONFIRMATION</span>
+        <span className="meta">claude-graded</span>
+      </header>
+      <div className="panel-body flush">
+        <div className="sect-hd">MODEL</div>
+        <div className="confirmation-row">
+          <span className="label">Active</span>
+          <span className={"detail " + modelTone}>
+            {activeSetup.model || "—"} · {modelStatus}
+          </span>
+        </div>
+        <div className="sect-hd">CONFIRMATION</div>
+        {rows.map((r) => (
+          <div className="confirmation-row" key={r.label}>
+            <span className="label">
+              <span className={"check " + r.status}>{check(r.status)}</span>
+              {r.label}
+            </span>
+            <span className={"detail " + (
+              r.status === "pass" ? "green"
+              : r.status === "weak" || r.status === "fail" ? "amber"
+              : "dim"
+            )}>{r.detail}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function formatPx(n) {
   if (typeof n !== "number") return String(n ?? "");
   const [whole, dec = ""] = String(n).split(".");
@@ -278,116 +399,173 @@ function adaptSurfacedSetup(s) {
   };
 }
 
-// #51 Outcome derivation as a tiny lookup table — simpler than 5 nested
-// conditionals. closed-with-outcome takes priority; otherwise we look
-// at state + tp1_hit.
-const OUTCOME_MAP = {
-  TP1_HIT: { key: "tp1", label: "● TP1 HIT" },
-  TP2_HIT: { key: "tp2", label: "● TP2 HIT" },
-  STOPPED: { key: "stopped", label: "● STOPPED" },
-  INVALIDATED: { key: "invalidated", label: "● INVALIDATED" },
+// TV hand-off — three buttons that focus the TradingView pane and fire a
+// toast. No broker integration; no order execution. The trader uses
+// TradingView's own UI to act.
+const TV_HANDOFF_TOASTS = {
+  stop:  "Modify your stop in TradingView's right-side panel.",
+  scale: "Scale your position in TradingView's order ticket.",
+  close: "Close your position in TradingView's order ticket.",
 };
-function deriveOutcome(t) {
-  if (t.outcome && OUTCOME_MAP[t.outcome]) return OUTCOME_MAP[t.outcome];
-  if (t.state === "pending_entry") return { key: "open", label: "● PENDING ENTRY" };
-  if (t.state === "filled" && t.tp1_hit) return { key: "tp1", label: "● TP1 HIT (runner)" };
-  return { key: "open", label: "● OPEN" };
+
+function TvHandoffActions({ onAction }) {
+  return (
+    <div className="tv-handoff">
+      <button onClick={() => onAction("stop")}>▸ TV STOP</button>
+      <button onClick={() => onAction("scale")}>▸ TV SCALE</button>
+      <button onClick={() => onAction("close")}>▸ TV CLOSE</button>
+    </div>
+  );
 }
 
-// #38 Show both $ and R when both are available, instead of forcing
-// one-or-the-other.
-function riskLabel(size) {
-  if (!size) return "—";
-  const dollars = size.dollar_risk != null ? `$${size.dollar_risk}` : null;
-  const r = size.r_unit != null ? `${size.r_unit} R` : null;
-  if (dollars && r) return `${dollars} · ${r}`;
-  return dollars || r || "—";
+// Self-dismissing toast for TV hand-off feedback. Lives inside the LIVE
+// pane; auto-hides after 3s.
+function TvToast({ message, onClose }) {
+  useEffectL(() => {
+    const id = setTimeout(onClose, 3000);
+    return () => clearTimeout(id);
+  }, [onClose]);
+  if (!message) return null;
+  return (
+    <div className="tv-toast">
+      <b>TV HAND-OFF · </b>{message}
+    </div>
+  );
 }
 
-// #23 Stale-fill indicator — if a filled trade hasn't progressed in
-// STALE_FILL_MIN minutes, surface a hint. "Progressed" means filled_ts
-// or accepted_ts is older than the threshold and no tp1_hit yet.
-const STALE_FILL_MIN = 60;
-function staleFillNote(t) {
-  if (t.state !== "filled" || t.tp1_hit) return "";
-  const stampStr = t.filled_ts || t.ts;
-  if (!stampStr) return "";
-  const ageMin = Math.floor((Date.now() - new Date(stampStr).getTime()) / 60000);
-  if (ageMin < STALE_FILL_MIN) return "";
-  return `stale fill: ${ageMin}m without TP1`;
+// Latest bar-read message rendered as a quoted brain narration. Source:
+// useChat().messages filtered to type === "bar-read". Hides when no
+// bar-read has been emitted yet.
+function BrainNarrationBlock({ messages }) {
+  const m = latestBarReadMessage(messages);
+  if (!m) return null;
+  return (
+    <div className="brain-narration">
+      <div className="head">BRAIN · LAST BAR · {m.t}</div>
+      <div className="body" dangerouslySetInnerHTML={{ __html: m.body }} />
+    </div>
+  );
 }
 
-// #55 Live price relative to targets. Computes distance + closeness to
-// each level so the TradeCard can render "live: 21503 · TP1 12 away".
-function liveRelative(t, lastClose) {
-  if (typeof lastClose !== "number" || !Number.isFinite(lastClose) || !t) return null;
-  const fmt = (n) => Number(n.toFixed(2));
-  const distTo = (target) => {
-    const x = Number(target);
-    if (!Number.isFinite(x)) return null;
-    return fmt(t.side === "long" ? x - lastClose : lastClose - x);
-  };
+// Adapt the in-trade summary header — derives status pill from trade
+// state/outcome. Mirrors the existing adaptTakenTrade for consistency
+// but pares down to what InTrade displays in the header.
+function tradeHeaderInfo(trade) {
+  if (!trade) return null;
+  const ageMin = trade.ts ? Math.floor((Date.now() - new Date(trade.ts).getTime()) / 60000) : null;
+  let status;
+  if (trade.outcome === "TP1_HIT" || (trade.state === "filled" && trade.tp1_hit)) status = "TP1 HIT · runner";
+  else if (trade.outcome === "TP2_HIT") status = "TP2 HIT";
+  else if (trade.outcome === "STOPPED") status = "STOPPED";
+  else if (trade.outcome === "INVALIDATED") status = "INVALIDATED";
+  else if (trade.state === "pending_entry") status = "PENDING ENTRY" + (ageMin ? ` · ${ageMin}m` : "");
+  else if (trade.tp1_hit) status = "FILLED · BE stop";
+  else if (trade.state === "filled") status = "FILLED";
+  else status = "OPEN";
   return {
-    lastClose: fmt(lastClose),
-    toTP1: distTo(t.tp1),
-    toTP2: distTo(t.tp2),
-    toStop: distTo(t.stop),
+    id: trade.id || "—",
+    model: trade.model || "—",
+    side: trade.side || "long",
+    grade: trade.grade || "—",
+    status,
+    ageMin,
   };
 }
 
-// #60 Pending-entry timer — minutes since accept ts.
-// #61 BE flash — adaptTakenTrade now sets stopMovedToBE when tp1_hit
-// flipped recently; TradeCard renders a brief flash class.
-function adaptTakenTrade(t, lastClose) {
-  if (!t) return null;
-  const sizeLabel = t.size?.label || (t.size?.contracts != null ? `${t.size.contracts}c` : "—");
-  const outcome = deriveOutcome(t);
-  const stale = staleFillNote(t);
-  // #60 Pending-entry timer.
-  let pendingMin = null;
-  if (t.state === "pending_entry" && t.ts) {
-    pendingMin = Math.floor((Date.now() - new Date(t.ts).getTime()) / 60000);
-  }
-  // #55 Live price relative to targets.
-  const live = liveRelative(t, lastClose);
-  // #61 BE flash — true when tp1_hit was just set (within last 60s).
-  // We approximate by looking at ts of the most-recent TP1_HIT event;
-  // without that, fall back to "show flash if tp1_hit and trade is
-  // still open (filled state)".
-  const beFlash = !!t.tp1_hit && t.state === "filled";
-  return {
-    id: t.id,
-    grade: t.grade,
-    side: t.side,
-    model: t.model,
-    entry: formatPx(t.entry),
-    stop: formatPx(t.stop),
-    tp1: formatPx(t.tp1),
-    tp2: formatPx(t.tp2),
-    rr: t.rr != null ? String(t.rr) : "—",
-    size: sizeLabel,
-    risk: riskLabel(t.size),
-    pnl: t.r_realized != null ? `${t.r_realized > 0 ? "+" : ""}${t.r_realized} R` : "—",
-    pnlPositive: t.r_realized > 0,
-    pnlNegative: t.r_realized < 0,
-    outcome: outcome.key,
-    outcomeLabel: outcome.label,
-    statusNote: stale ||
-      (t.tp1_hit ? "runner: stop at BE" : "") ||
-      (pendingMin != null && pendingMin >= 1 ? `pending entry · ${pendingMin}m waiting` : ""),
-    setupId: t.setup_id || null,
-    live,
-    beFlash,
-    taken: t.ts ? new Date(t.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "America/New_York" }) + " ET" : "",
-  };
+// IN-TRADE sub-state — hybrid layout: dedicated panel at top, chat + history
+// continue below. Replaces the previous TradeCard embed for active trades.
+function InTrade({ trade, chatMessages, loopDown, loopStale, alerts, onArmPrice, onTvHandoff }) {
+  const { close: lastClose } = useLastBar();
+  const grid = liveGridFromTrade(trade, lastClose);
+  const head = tradeHeaderInfo(trade);
+  return (
+    <>
+      {loopDown && (
+        <div className="banner">
+          <span className="glyph">● LOOP DOWN</span>
+          <span className="txt">bar-close detector not reporting</span>
+          <span className="sub">RESTART</span>
+        </div>
+      )}
+      {!loopDown && loopStale && (
+        <div className="banner" style={{ borderColor: "var(--amber, #d4a657)", color: "var(--amber)" }}>
+          <span className="glyph">● LOOP STALE</span>
+          <span className="txt">detector heartbeat slow · trade ticking may lag</span>
+        </div>
+      )}
+
+      <section className="panel intrade-panel">
+        <header className="panel-head">
+          <span className="title">IN-TRADE</span>
+          <span className="meta">
+            #{head?.id} · {head?.ageMin != null ? `${head.ageMin}m old` : ""}
+          </span>
+        </header>
+        <div className="trade-head">
+          <span className="id">{head?.model}</span>
+          <span className={"side " + (head?.side === "short" ? "short" : "long")}>
+            {String(head?.side || "").toUpperCase()}
+          </span>
+          <Grade value={head?.grade} />
+          <span className="status">{head?.status}</span>
+        </div>
+
+        <div className="live-grid-2x2">
+          <LiveCell k="PRICE"    v={grid.price.v}  sub={grid.price.sub}  tone={grid.price.tone} />
+          <LiveCell k="P&L"      v={grid.pnl.v}    sub={grid.pnl.sub}    tone={grid.pnl.tone} />
+          <LiveCell k="TO TP1"   v={grid.toTp1.v}  sub={grid.toTp1.sub}  tone={grid.toTp1.tone} />
+          <LiveCell k="TO STOP"  v={grid.toStop.v} sub={grid.toStop.sub} tone={grid.toStop.tone} />
+        </div>
+
+        <div style={{ padding: "0 14px 6px" }}>
+          <Row k="Entry / Stop" v={`${formatPx(trade.entry)} / ${formatPx(trade.stop)}${trade.tp1_hit ? " · BE" : ""}`} tone="num" />
+          <Row k="TP1 / TP2"    v={`${formatPx(trade.tp1)} / ${formatPx(trade.tp2)}`} tone="num green" />
+        </div>
+
+        <TvHandoffActions onAction={onTvHandoff} />
+      </section>
+
+      <BrainNarrationBlock messages={chatMessages} />
+    </>
+  );
 }
 
-function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
+// Chat-only view used INSIDE the InTrade branch — the full EntryHuntView
+// would render setup-card + history which are noisy when you're in trade.
+// This keeps just the chat feed accessible.
+function EntryHuntChat({ alerts, onArmPrice }) {
+  const { messages, typing, send: submit, cancel, reset, queuedBehind } = useChat();
+  return (
+    <>
+      {queuedBehind && (
+        <div style={{
+          padding: "6px 14px",
+          background: "var(--surface-1)",
+          color: "var(--amber)",
+          fontSize: 10,
+          fontFamily: "ui-monospace, Menlo, monospace",
+          letterSpacing: ".08em",
+          borderBottom: "1px solid var(--border-dim, #1e2228)",
+        }}>
+          QUEUED · waiting on {queuedBehind} turn to finish
+        </div>
+      )}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <ClaudeFeed messages={messages} typing={typing} onSubmit={submit}
+                    onCancel={cancel} onReset={reset}
+                    onArmPrice={onArmPrice}
+                    armedPrices={alerts ? new Set(Object.values(alerts.armed || {})) : null}
+                    firedPrices={alerts ? new Set((alerts.fired || []).map((f) => f.px)) : null} />
+      </div>
+    </>
+  );
+}
+
+function EntryHuntView({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
   // Real chat state + surfaced setup via the Agent SDK.
   const { messages, typing, send: submit, cancel, reset, queuedBehind } = useChat();
   const { activeSetup, noTradeReason, noTradeReasonTs, clearSetup } = useActiveSetup();
-  const { activeTrade, accept: acceptApi, reject: rejectApi, rejected, pnl } = useTrades();
-  const { close: lastClose } = useLastBar();
+  const { accept: acceptApi, reject: rejectApi, rejected, pnl } = useTrades();
   // #59 / #60 Tick every 30s so the setup-age / pending-entry labels
   // refresh even when no chat / bar activity drives a re-render.
   const [, setTick] = useStateL(0);
@@ -396,7 +574,6 @@ function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
     return () => clearInterval(id);
   }, []);
   const setup = adaptSurfacedSetup(activeSetup);
-  const takenTrade = adaptTakenTrade(activeTrade, lastClose);
   // #2 In-flight guards prevent double-click → two trade events.
   // #3 Loop-down guard: don't let the trader accept when the detector
   // can't track outcomes. Trade would sit pending forever.
@@ -506,15 +683,12 @@ function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
       )}
 
       <SectionHead title="SETUPS & TRADES"
-                   count={takenTrade ? "1 active"
-                          : setup ? "1 candidate"
+                   count={setup ? "1 candidate"
                           : noTradeReason ? "no-trade"
                           : "0 candidate"} />
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        {takenTrade && (
-          <TradeCard trade={takenTrade} showSnapshot={false} />
-        )}
-        {!takenTrade && setup && (
+        <Step5n6Panel activeSetup={activeSetup} />
+        {setup && (
           <SetupCard setup={setup}
                      onAccept={accept}
                      onReject={reject}
@@ -525,7 +699,7 @@ function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
             reason is current intent of the latest turn — older than 5
             min it's stale enough to hide entirely. */}
         {(() => {
-          if (takenTrade || setup || !noTradeReason) return null;
+          if (setup || !noTradeReason) return null;
           const ageMs = noTradeReasonTs ? Date.now() - noTradeReasonTs : 0;
           if (ageMs > 5 * 60_000) return null;
           const faded = ageMs > 90_000;
@@ -542,7 +716,7 @@ function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
           );
         })()}
         {(() => {
-          if (takenTrade || setup) return null;
+          if (setup) return null;
           // Show WATCHING when there's no no-trade reason OR the reason
           // is expired (matches the rule in #57 above).
           const ageMs = noTradeReasonTs ? Date.now() - noTradeReasonTs : Infinity;
@@ -576,25 +750,56 @@ function EntryHunt({ loopDown, loopStale, noSetups, alerts, onArmPrice }) {
 }
 
 function LiveWorkstation({ subState, loopDown, loopStale, noSetups, alerts, onArmPrice }) {
-  if (subState === "open-reaction") {
+  // Hoist data sources that the router needs to choose a sub-state.
+  const { activeTrade } = useTrades();
+  const { messages: chatMessages } = useChat();
+
+  // TV hand-off toast — local state, self-dismisses after 3s.
+  const [tvToast, setTvToast] = useStateL(null);
+  const handleTvHandoff = (action) => {
+    setTvToast(TV_HANDOFF_TOASTS[action] || "");
+    // Focus the TradingView chart pane so the trader's eyes go there.
+    const chartHost = document.querySelector(".chart-pane");
+    if (chartHost) chartHost.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+
+  // InTrade takes priority over the open-reaction / entry-hunt subState.
+  if (activeTrade) {
     return (
-      <div className="work-scroll">
-        {loopDown && (
-          <div className="banner">
-            <span className="glyph">● LOOP DOWN</span>
-            <span className="txt">bar-close detector not reporting</span>
-            <span className="sub">RESTART</span>
-          </div>
-        )}
-        <OpenReactionTracker />
+      <div style={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%", position: "relative" }}>
+        {tvToast && <TvToast message={tvToast} onClose={() => setTvToast(null)} />}
+        <InTrade
+          trade={activeTrade}
+          chatMessages={chatMessages}
+          loopDown={loopDown}
+          loopStale={loopStale}
+          alerts={alerts}
+          onArmPrice={onArmPrice}
+          onTvHandoff={handleTvHandoff}
+        />
+        {/* Chat + setup history still live below the IN-TRADE panel so
+            the trader can ask questions mid-trade. */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <SectionHead title="CLAUDE · CONVERSATION" count={sessionLabel()} />
+          <EntryHuntChat alerts={alerts} onArmPrice={onArmPrice} />
+        </div>
       </div>
     );
   }
+
+  if (subState === "open-reaction") {
+    return <OpenReactionView loopDown={loopDown} />;
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
-      <EntryHunt loopDown={loopDown} loopStale={loopStale} noSetups={noSetups}
-                 alerts={alerts}
-                 onArmPrice={onArmPrice} />
+      <EntryHuntView
+        loopDown={loopDown}
+        loopStale={loopStale}
+        noSetups={noSetups}
+        alerts={alerts}
+        onArmPrice={onArmPrice}
+      />
     </div>
   );
 }

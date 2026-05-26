@@ -636,6 +636,19 @@ function StatusLine({ phase, killzone, loop, mode, subState, lastBar, sessionsRu
   );
 }
 
+// ---------- LiveCell (LIVE redesign, 2026-05-27) ----------
+// Single cell in the LIVE GRID 2×2 grid used by the InTrade panel.
+// Props: { k, v, sub, tone } where tone is "green" | "red" | "amber" | "".
+function LiveCell({ k, v, sub, tone }) {
+  return (
+    <div className="live-cell">
+      <span className="k">{k}</span>
+      <span className={"v " + (tone || "")}>{v}</span>
+      {sub && <span className="sub">{sub}</span>}
+    </div>
+  );
+}
+
 // ---------- Scenario card (PREP redesign, 2026-05-27) ----------
 // Renders one row from brief.scenarios[]. The brief schema now has the
 // full shape — id, grade, condition, action, target — but old briefs on
@@ -660,5 +673,5 @@ function ScenarioCard({ scenario }) {
 export {
   Panel, SectionHead, Row, Grade, PillarsPanel,
   SetupCard, TradeCard, ClaudeFeed, Btn, StatusLine, Snapshot,
-  ScenarioCard,
+  ScenarioCard, LiveCell,
 };
