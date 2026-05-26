@@ -160,6 +160,21 @@ contextBridge.exposeInMainWorld("api", {
       return ipcRenderer.invoke("review:export_session", { date, session });
     },
   },
+  memory: {
+    // Read-only view of state/memory/{USER,MEMORY}.md for the REVIEW
+    // page's agent-state panel. Mutations always go through the model
+    // via the memory MCP tool.
+    read() {
+      return ipcRenderer.invoke("memory:read");
+    },
+  },
+  usage: {
+    // Today's spend roll-up — by-purpose, by-model breakdown of cost +
+    // tokens. Read from metrics.jsonl filtered to today's ET date.
+    today() {
+      return ipcRenderer.invoke("usage:today");
+    },
+  },
   status: {
     lastBar() {
       return ipcRenderer.invoke("status:last_bar_get");

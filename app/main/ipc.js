@@ -4,6 +4,7 @@ import { ipcMain } from "electron";
 import { userTurn, cancelCurrentTurn, resetSession } from "./sdk.js";
 import { record as recordMetric, readRows as loadMetricRows } from "./metrics.js";
 import { summarizeUsage, todayET } from "./usage.js";
+import { getPersistentMemory } from "./persistent-memory.js";
 import { acceptSetup, rejectSetup } from "./trades.js";
 import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
@@ -75,6 +76,37 @@ export function registerIpc(win) {
       return summarizeUsage(rows, { day: todayET() });
     } catch (err) {
       return { error: String(err?.message || err) };
+    }
+  });
+
+  // Persistent memory read — current contents of state/memory/{USER,MEMORY}.md
+  // for the REVIEW panel's agent-state cards. Read-only view; mutations go
+  // through the model via the memory MCP tool.
+  ipcMain.handle("memory:read", async () => {
+    try {
+      const mem = getPersistentMemory();
+      await mem.load();
+      const userEntries = [...mem.userEntries];
+      const memoryEntries = [...mem.memoryEntries];
+      const userTotal = userEntries.join("").length + Math.max(0, userEntries.length - 1) * 3; // approx §\n delimiter
+      const memTotal = memoryEntries.join("").length + Math.max(0, memoryEntries.length - 1) * 3;
+      return {
+        ok: true,
+        user: {
+          entries: userEntries,
+          char_count: userTotal,
+          char_limit: 1500,
+          pct: Math.min(100, Math.floor((userTotal / 1500) * 100)),
+        },
+        memory: {
+          entries: memoryEntries,
+          char_count: memTotal,
+          char_limit: 2000,
+          pct: Math.min(100, Math.floor((memTotal / 2000) * 100)),
+        },
+      };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
     }
   });
 

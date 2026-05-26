@@ -8,6 +8,7 @@
 import React, { useState } from "react";
 import { Panel, Row, Grade, TradeCard, SectionHead } from "./Shared.jsx";
 import { useReview } from "./hooks/useReview.js";
+import { useAgentState } from "./hooks/useAgentState.js";
 
 const SESSION_LABEL = { "ny-am": "NY AM", "ny-pm": "NY PM", "london": "LONDON" };
 
@@ -130,6 +131,126 @@ function adaptTrade(t) {
   };
 }
 
+// AGENT STATE panel — three cards: USER.md viewer, MEMORY.md viewer,
+// today's spend. Reads via useAgentState which refreshes on every
+// turn_complete. The agent writes to memory only during chat/wrap/review
+// turns; this panel is read-only.
+function AgentState() {
+  const { memory, usage, loading } = useAgentState();
+
+  if (loading) {
+    return (
+      <Panel title="AGENT STATE">
+        <div style={{ color: "var(--label)", fontSize: 11, padding: 4 }}>loading…</div>
+      </Panel>
+    );
+  }
+
+  const formatCost = (n) => {
+    if (typeof n !== "number" || !Number.isFinite(n)) return "$0.00";
+    if (n < 0.01) return `$${n.toFixed(4)}`;
+    return `$${n.toFixed(2)}`;
+  };
+
+  return (
+    <>
+      <SectionHead title="AGENT STATE" count="memory · spend" />
+      <MemoryCard label="USER PROFILE" hint="who the trader is" data={memory?.user} />
+      <MemoryCard label="MEMORY" hint="cross-day lessons" data={memory?.memory} />
+      <Panel title="TODAY'S SPEND">
+        {!usage ? (
+          <div style={{ color: "var(--label)", fontSize: 11, padding: 4 }}>no usage yet</div>
+        ) : (
+          <>
+            <div className="rows-2">
+              <Row k="Total cost" v={formatCost(usage.total_cost_usd)}
+                   tone={usage.total_cost_usd > 5 ? "amber" : ""} />
+              <Row k="Turns" v={String(usage.total_turns || 0)} />
+              <Row k="Input tokens" v={fmtNum(usage.total_input)} />
+              <Row k="Output tokens" v={fmtNum(usage.total_output)} />
+              <Row k="Cache reads" v={fmtNum(usage.total_cache_read)} tone="dim" />
+              <Row k="Cache writes" v={fmtNum(usage.total_cache_creation)} tone="dim" />
+            </div>
+            {Object.keys(usage.by_purpose || {}).length > 0 && (
+              <>
+                <div className="hr" />
+                <div style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".14em", marginBottom: 4 }}>
+                  BY PURPOSE
+                </div>
+                {Object.entries(usage.by_purpose).map(([purpose, slot]) => (
+                  <div key={purpose} className="level-row"
+                       style={{ gridTemplateColumns: "1fr auto auto", padding: "4px 0", borderBottom: "none" }}>
+                    <span style={{ color: "var(--value)", fontSize: 11 }}>{purpose}</span>
+                    <span style={{ color: "var(--label)", fontSize: 10.5, marginRight: 10 }}>
+                      {slot.turns} turn{slot.turns === 1 ? "" : "s"}
+                    </span>
+                    <span style={{ color: "var(--value)", fontSize: 11 }}>{formatCost(slot.cost_usd)}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </Panel>
+    </>
+  );
+}
+
+function MemoryCard({ label, hint, data }) {
+  if (!data) {
+    return (
+      <Panel title={label} right={<span style={{ color: "var(--label-dim)", fontSize: 10 }}>{hint}</span>}>
+        <div style={{ color: "var(--label)", fontSize: 11, padding: 4 }}>nothing yet</div>
+      </Panel>
+    );
+  }
+  const { entries, char_count, char_limit, pct } = data;
+  const barColor = pct >= 90 ? "var(--red)" : pct >= 70 ? "var(--amber)" : "var(--label)";
+  return (
+    <Panel
+      title={label}
+      right={
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: "var(--label-dim)", fontSize: 10 }}>{hint}</span>
+          <span style={{ color: "var(--label)", fontSize: 10, fontFamily: "ui-monospace, Menlo, monospace" }}>
+            {pct}% — {char_count.toLocaleString()}/{char_limit.toLocaleString()} chars
+          </span>
+        </span>
+      }
+    >
+      <div style={{ position: "relative", height: 3, background: "var(--border-dim)", marginBottom: 10, borderRadius: 1 }}>
+        <div style={{ position: "absolute", top: 0, left: 0, height: "100%", width: `${Math.min(100, pct)}%`, background: barColor, transition: "width 200ms ease" }} />
+      </div>
+      {entries.length === 0 ? (
+        <div style={{ color: "var(--label)", fontSize: 11, padding: 4 }}>
+          no entries yet — the agent will write here when it learns something durable
+        </div>
+      ) : (
+        <div>
+          {entries.map((e, i) => (
+            <div key={i} style={{
+              padding: "6px 0",
+              borderTop: i === 0 ? "none" : "1px solid var(--border-dim)",
+              color: "var(--value)",
+              fontSize: 11.5,
+              lineHeight: 1.5,
+              whiteSpace: "pre-wrap",
+            }}>
+              <span style={{ color: "var(--label-dim)", marginRight: 8, fontSize: 9.5 }}>{i + 1}</span>
+              {e}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function fmtNum(n) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "0";
+  return n.toLocaleString();
+}
+
 function EmptyJournal({ session, sessions, onPick }) {
   return (
     <div className="work-scroll">
@@ -153,6 +274,9 @@ function EmptyJournal({ session, sessions, onPick }) {
           </div>
         )}
       </Panel>
+      {/* Agent state is useful even on an empty journal day — memory and
+          spend reflect cross-day activity that the journal doesn't cover. */}
+      <AgentState />
     </div>
   );
 }
@@ -268,6 +392,8 @@ function ReviewWorkstation() {
           </div>
         </>
       )}
+
+      <AgentState />
 
       <SectionHead title="SESSION LIBRARY" count={`${library.length} entries`} />
       <div className="panel-body flush">
