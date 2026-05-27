@@ -134,6 +134,42 @@ test('Trend bos_in_direction: absent when structure is MSS not BoS', () => {
   assert.equal(r.bos_in_direction.present, false);
 });
 
+test('Trend bos_in_direction: clean reason when most_recent_structure is null (no "undefined" in text)', () => {
+  const b = trendBaseBundle();
+  b.gates.engine.pillar3.most_recent_structure = null;
+  const r = evaluateTrendComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.bos_in_direction.present, false);
+  assert.match(r.bos_in_direction.missing_reason, /no structure event/);
+  assert.doesNotMatch(r.bos_in_direction.missing_reason, /undefined/);
+});
+
+test('Trend confirmation: clean reason when last_bar empty (no "undefined" in text)', () => {
+  const b = trendBaseBundle();
+  b.gates.engine.confirmation.last_bar = {};
+  const r = evaluateTrendComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.confirmation.present, false);
+  assert.match(r.confirmation.missing_reason, /no last_bar emitted yet/);
+  assert.doesNotMatch(r.confirmation.missing_reason, /undefined/);
+});
+
+test('Trend displacement_quality: clean reason when size_quality missing (no "undefined" in text)', () => {
+  const b = trendBaseBundle();
+  delete b.gates.engine.pillar3.fvg_summary;
+  const r = evaluateTrendComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.displacement_quality.present, false);
+  assert.match(r.displacement_quality.missing_reason, /size_quality missing/);
+  assert.doesNotMatch(r.displacement_quality.missing_reason, /undefined/);
+});
+
+test('Trend displacement_quality: clean reason when displacement missing (no "undefined" in text)', () => {
+  const b = trendBaseBundle();
+  delete b.gates.engine.pillar2.current_tf.displacement;
+  const r = evaluateTrendComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.displacement_quality.present, false);
+  assert.match(r.displacement_quality.missing_reason, /displacement missing/);
+  assert.doesNotMatch(r.displacement_quality.missing_reason, /undefined/);
+});
+
 test('Trend pullback_to_pd_array: present when inside_fvgs contains a fresh FVG of correct dir', () => {
   const r = evaluateTrendComponents(trendBaseBundle(), BULL_LONG_CTX, 'm5');
   assert.equal(r.pullback_to_pd_array.present, true);

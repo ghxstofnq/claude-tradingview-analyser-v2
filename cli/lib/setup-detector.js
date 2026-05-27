@@ -61,6 +61,7 @@ export function evaluateMssComponents(bundle, ctx, tf) {
 
   // 5. confirmation — last_bar body_ratio + direction.
   const lb = eng.confirmation?.last_bar ?? {};
+  const lbEmpty = lb.direction == null && lb.body_ratio == null;
   const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
   const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
   const confirmation = {
@@ -68,16 +69,18 @@ export function evaluateMssComponents(bundle, ctx, tf) {
     cite: 'gates.engine.confirmation.last_bar',
     value: lb,
     ...(confirmedDir && bodyOk ? {} : {
-      missing_reason: !bodyOk
-        ? `last_bar.body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
-        : `last_bar.direction ${lb.direction} not matching side ${side}`,
+      missing_reason: lbEmpty
+        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
+        : !bodyOk
+          ? `last_bar.body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
+          : `last_bar.direction ${lb.direction} not matching side ${side}`,
     }),
   };
 
   // 6. displacement_quality — pillar3 size_quality AND pillar2 displacement.
   const sizeQ = eng.pillar3?.fvg_summary?.size_quality;
   const dispQ = eng.pillar2?.current_tf?.displacement;
-  const sizeOk = sizeQ && sizeQ !== 'weak';
+  const sizeOk = !!sizeQ && sizeQ !== 'weak';
   const dispOk = dispQ === 'clean' || dispQ === 'acceptable';
   const displacement_quality = {
     present: sizeOk && dispOk,
@@ -85,8 +88,8 @@ export function evaluateMssComponents(bundle, ctx, tf) {
     value: { size_quality: sizeQ, displacement: dispQ },
     ...(sizeOk && dispOk ? {} : {
       missing_reason: !sizeOk
-        ? `size_quality=${sizeQ} is weak`
-        : `pillar2 displacement=${dispQ} not in {clean, acceptable}`,
+        ? (sizeQ == null ? 'size_quality missing in pillar3.fvg_summary' : `size_quality=${sizeQ} is weak`)
+        : (dispQ == null ? 'pillar2 displacement missing in current_tf' : `pillar2 displacement=${dispQ} not in {clean, acceptable}`),
     }),
   };
 
@@ -119,7 +122,11 @@ export function evaluateTrendComponents(bundle, ctx, tf) {
     present: bosOk,
     cite: 'gates.engine.pillar3.most_recent_structure',
     value: mrs ?? null,
-    ...(bosOk ? {} : { missing_reason: `most_recent_structure event=${mrs?.event} dir=${mrs?.dir} not BoS in side ${side}` }),
+    ...(bosOk ? {} : {
+      missing_reason: mrs
+        ? `most_recent_structure event=${mrs.event} dir=${mrs.dir} not BoS in side ${side}`
+        : `no structure event in pillar3.most_recent_structure (side ${side} needs BoS)`,
+    }),
   };
 
   // 3. pullback_to_pd_array — inside any FVG or BPR of correct dir.
@@ -142,25 +149,36 @@ export function evaluateTrendComponents(bundle, ctx, tf) {
 
   // 4. confirmation — same as MSS.
   const lb = eng.confirmation?.last_bar ?? {};
+  const lbEmpty = lb.direction == null && lb.body_ratio == null;
   const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
   const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
   const confirmation = {
     present: confirmedDir && bodyOk,
     cite: 'gates.engine.confirmation.last_bar',
     value: lb,
-    ...(confirmedDir && bodyOk ? {} : { missing_reason: !bodyOk ? `body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}` : `direction ${lb.direction} not matching side ${side}` }),
+    ...(confirmedDir && bodyOk ? {} : {
+      missing_reason: lbEmpty
+        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
+        : !bodyOk
+          ? `body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
+          : `direction ${lb.direction} not matching side ${side}`,
+    }),
   };
 
   // 5. displacement_quality — same as MSS.
   const sizeQ = eng.pillar3?.fvg_summary?.size_quality;
   const dispQ = eng.pillar2?.current_tf?.displacement;
-  const sizeOk = sizeQ && sizeQ !== 'weak';
+  const sizeOk = !!sizeQ && sizeQ !== 'weak';
   const dispOk = dispQ === 'clean' || dispQ === 'acceptable';
   const displacement_quality = {
     present: sizeOk && dispOk,
     cite: 'gates.engine.pillar3.fvg_summary.size_quality + gates.engine.pillar2.current_tf.displacement',
     value: { size_quality: sizeQ, displacement: dispQ },
-    ...(sizeOk && dispOk ? {} : { missing_reason: !sizeOk ? `size_quality=${sizeQ} is weak` : `displacement=${dispQ} not in {clean, acceptable}` }),
+    ...(sizeOk && dispOk ? {} : {
+      missing_reason: !sizeOk
+        ? (sizeQ == null ? 'size_quality missing in pillar3.fvg_summary' : `size_quality=${sizeQ} is weak`)
+        : (dispQ == null ? 'displacement missing in pillar2.current_tf' : `displacement=${dispQ} not in {clean, acceptable}`),
+    }),
   };
 
   return { context_draw, bos_in_direction, pullback_to_pd_array, confirmation, displacement_quality };
@@ -208,25 +226,36 @@ export function evaluateInversionComponents(bundle, ctx, tf) {
 
   // 4. confirmation — same as MSS/Trend.
   const lb = eng.confirmation?.last_bar ?? {};
+  const lbEmpty = lb.direction == null && lb.body_ratio == null;
   const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
   const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
   const confirmation = {
     present: confirmedDir && bodyOk,
     cite: 'gates.engine.confirmation.last_bar',
     value: lb,
-    ...(confirmedDir && bodyOk ? {} : { missing_reason: !bodyOk ? `body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}` : `direction ${lb.direction} not matching side ${side}` }),
+    ...(confirmedDir && bodyOk ? {} : {
+      missing_reason: lbEmpty
+        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
+        : !bodyOk
+          ? `body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
+          : `direction ${lb.direction} not matching side ${side}`,
+    }),
   };
 
   // 5. displacement_quality — same as MSS/Trend.
   const sizeQ = eng.pillar3?.fvg_summary?.size_quality;
   const dispQ = eng.pillar2?.current_tf?.displacement;
-  const sizeOk = sizeQ && sizeQ !== 'weak';
+  const sizeOk = !!sizeQ && sizeQ !== 'weak';
   const dispOk = dispQ === 'clean' || dispQ === 'acceptable';
   const displacement_quality = {
     present: sizeOk && dispOk,
     cite: 'gates.engine.pillar3.fvg_summary.size_quality + gates.engine.pillar2.current_tf.displacement',
     value: { size_quality: sizeQ, displacement: dispQ },
-    ...(sizeOk && dispOk ? {} : { missing_reason: !sizeOk ? `size_quality=${sizeQ} is weak` : `displacement=${dispQ} not in {clean, acceptable}` }),
+    ...(sizeOk && dispOk ? {} : {
+      missing_reason: !sizeOk
+        ? (sizeQ == null ? 'size_quality missing in pillar3.fvg_summary' : `size_quality=${sizeQ} is weak`)
+        : (dispQ == null ? 'displacement missing in pillar2.current_tf' : `displacement=${dispQ} not in {clean, acceptable}`),
+    }),
   };
 
   return { context_draw, inverted_pd_array, tap_into_ifvg, confirmation, displacement_quality };
