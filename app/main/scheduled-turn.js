@@ -103,14 +103,17 @@ export function makeScheduledTurn(config) {
   let _retryTimer = null;
   let _running = false;
 
-  async function run(session, { isRetry = false } = {}) {
+  async function run(session, { isRetry = false, force = false } = {}) {
     if (!session) return;
     if (_running) {
       _send?.(config.statusChannel, { state: "skipped", session, reason: "another turn already in flight" });
       recordMetric({ kind: config.purpose, event: "skipped", session, reason: "concurrent" });
       return;
     }
-    if (await config.isAlreadyDoneFn(session)) {
+    // `force` lets a manual REFRESH bypass the on-disk dedup. Auto-fires
+    // (boot rearm, scheduler tick) keep the guard — they shouldn't
+    // overwrite a brief that already ran today.
+    if (!force && await config.isAlreadyDoneFn(session)) {
       _send?.(config.statusChannel, { state: "skipped", session, reason: "already complete" });
       recordMetric({ kind: config.purpose, event: "skipped", session, reason: "already complete" });
       return;
@@ -238,13 +241,17 @@ export function makeScheduledTurn(config) {
     }
   }
 
-  async function runManual() {
+  // Manual refresh — fired by the renderer's REFRESH button. Defaults to
+  // force=true so the brief regenerates even when today's brief.json is
+  // already on disk. Without this, clicking REFRESH after the morning
+  // brief ran was a silent no-op.
+  async function runManual({ force = true } = {}) {
     const session = config.activeSessionFn();
     if (!session) {
       _send?.(config.statusChannel, { state: "skipped", reason: "no eligible session right now" });
       return;
     }
-    await run(session);
+    await run(session, { force });
   }
 
   function scheduleNext() {

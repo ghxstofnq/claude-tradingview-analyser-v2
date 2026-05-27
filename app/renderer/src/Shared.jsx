@@ -1,15 +1,19 @@
-// Shared terminal components: Panel, Row, Grade, Pillars, SetupCard,
-// TradeCard, ClaudeFeed, etc.
+// Shared terminal components — reference 1:1 port (2026-05-27).
+// Panel / Row / Grade / EvidenceLink / EvidenceSidePanel / EvidenceContext
+// match ai-trading-agent/apps/trading-terminal/workstation/shared.jsx.
+// Older complex components (PillarsPanel, SetupCard, TradeCard, ClaudeFeed,
+// Snapshot, ScenarioCard, LiveCell) kept below for back-compat — not used
+// by the new Prep/Live/Review.
 
 import React, { useState, useEffect, useRef } from "react";
 
-// ---------- Panel ----------
+// ---------- Panel (reference shape) ----------
 function Panel({ title, meta, right, children, flush }) {
   return (
     <section className="panel">
       <header className="panel-head">
         <span className="title">{title}</span>
-        <span className="meta">{right || meta}</span>
+        {(meta || right) && <span className="meta">{right || meta}</span>}
       </header>
       <div className={"panel-body" + (flush ? " flush" : "")}>{children}</div>
     </section>
@@ -25,24 +29,68 @@ function SectionHead({ title, count }) {
   );
 }
 
-// ---------- Row ----------
-function Row({ k, v, tone, mono = true }) {
-  const cls = "v" + (tone ? " " + tone : "") + (mono ? "" : "");
+// ---------- Row (reference shape) ----------
+function Row({ k, v, tone }) {
   return (
     <div className="row">
       <span className="k">{k}</span>
-      <span className={cls}>{v}</span>
+      <span className={"v " + (tone || "")}>{v}</span>
     </div>
   );
 }
 
-// ---------- Grade badge ----------
-function Grade({ value, large }) {
-  const map = {
-    "A+": "a-plus", "B": "b", "no-trade": "no-trade",
-  };
-  const cls = "grade " + (map[value] || "pending") + (large ? " large" : "");
-  return <span className={cls}>{value}</span>;
+// ---------- Grade (reference shape — small pill, A+ / B / no-trade) ----------
+function Grade({ value }) {
+  const tone = value === "A+" ? "green" : value === "B" ? "amber" : "dim";
+  return <span className={"grade-pill " + tone}>{value || "—"}</span>;
+}
+
+// ---------- EvidenceLink + EvidenceContext (reference) ----------
+// Any panel can render an <EvidenceLink refData={...} /> that opens the
+// EvidenceSidePanel from the right with the raw refData payload. App.jsx
+// provides the openEvidence handler via EvidenceContext.
+const EvidenceContext = React.createContext(null);
+
+function EvidenceLink({ refData, label }) {
+  const openEvidence = React.useContext(EvidenceContext);
+  const text = label || (refData?.label || refData?.rule || refData?.kind || "ref");
+  return (
+    <span className="evidence-link"
+          onClick={() => {
+            if (openEvidence) openEvidence(refData, text);
+            else console.log("[evidence-link]", text, refData);
+          }}>
+      → {text}
+    </span>
+  );
+}
+
+function EvidenceSidePanel({ open, refData, label, onClose }) {
+  if (!open) return null;
+  const lines = refData == null ? [] : Object.entries(refData);
+  return (
+    <div className="evidence-side">
+      <div className="head">
+        <span className="t">EVIDENCE · {label}</span>
+        <span className="x" onClick={onClose}>×</span>
+      </div>
+      <div className="body">
+        <div className="sect-hd">RAW</div>
+        <pre className="evidence-pre">{JSON.stringify(refData, null, 2)}</pre>
+        {lines.length > 0 && (
+          <>
+            <div className="sect-hd">FIELDS</div>
+            {lines.map(([k, v]) => (
+              <div className="row" key={k}>
+                <span className="k">{k}</span>
+                <span className="v">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ---------- Pillar panel ----------
@@ -499,54 +547,41 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
     onSubmit && onSubmit(input.trim());
     setInput("");
   };
+  // Compose a single "WHO · time" line matching the mockup.
+  const headLabel = (m) => {
+    const who = m.type === "bar-read" ? "BAR-CLOSE · CLAUDE"
+              : m.type === "reply" ? "CLAUDE" : "YOU";
+    return m.t ? `${who} · ${m.t}` : who;
+  };
   return (
     <div className="claude">
       <div className="claude-feed" ref={feedRef}>
         {messages.map((m, i) => (
           <div key={i} className={"claude-msg " + m.type}>
-            <div className="head">
-              <span className="who">
-                {m.type === "bar-read" ? "BAR-CLOSE · CLAUDE" :
-                 m.type === "reply" ? "CLAUDE" : "YOU"}
-              </span>
-              <span>{m.t}</span>
-            </div>
+            <div className="head"><span className="who">{headLabel(m)}</span></div>
             <div className="body" dangerouslySetInnerHTML={{ __html: m.body }} />
           </div>
         ))}
         {typing && (
           <div className="claude-msg reply">
-            <div className="head">
-              <span className="who">CLAUDE</span>
-              <span>now</span>
-            </div>
+            <div className="head"><span className="who">CLAUDE · now</span></div>
             <div className="body">
               <span className="typing"><i></i><i></i><i></i></span>
             </div>
           </div>
         )}
       </div>
-      {/* #34 JUMP TO LATEST — visible only when the user has scrolled up.
-          Clicking re-pins to the bottom so subsequent chunks auto-scroll. */}
       {!pinnedToBottom && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "4px 0" }}>
-          <button onClick={() => {
-                    setPinnedToBottom(true);
-                    const el = feedRef.current;
-                    if (el) el.scrollTop = el.scrollHeight;
-                  }}
-                  style={{
-                    background: "var(--surface-1)",
-                    border: "1px solid var(--amber)",
-                    color: "var(--amber)",
-                    padding: "2px 12px",
-                    fontFamily: "ui-monospace, Menlo, monospace",
-                    fontSize: 9.5,
-                    letterSpacing: ".16em",
-                    cursor: "pointer",
-                  }}>
+        <div className="claude-jump">
+          <span className="ctl"
+                style={{ color: "var(--amber)", fontSize: 9, letterSpacing: ".12em", cursor: "pointer" }}
+                onClick={() => {
+                  setPinnedToBottom(true);
+                  const el = feedRef.current;
+                  if (el) el.scrollTop = el.scrollHeight;
+                }}>
             [ JUMP TO LATEST ↓ ]
-          </button>
+          </span>
         </div>
       )}
       <form className="claude-compose"
@@ -554,50 +589,19 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
         <span className="prompt">&gt;</span>
         <input value={input} onChange={(e) => setInput(e.target.value)}
                placeholder={onArmPrice ? "ask claude… (click any price to arm an alert)" : "ask claude…"} />
-        <span className="caret"></span>
+        {(onCancel || onReset) && (
+          <span className="claude-controls">
+            {typing && onCancel && (
+              <span className="ctl red" onClick={(e) => { e.preventDefault(); onCancel?.(); }}
+                    title="abort Claude's current turn">[ STOP ]</span>
+            )}
+            {onReset && (
+              <span className="ctl" onClick={(e) => { e.preventDefault(); onReset?.(); }}
+                    title="clear chat history">[ RESET ]</span>
+            )}
+          </span>
+        )}
       </form>
-      {/* Compact controls: STOP appears only while Claude is mid-turn
-          (kill switch). RESET is always available and starts the chat
-          conversation fresh. Both call IPC handlers in main. */}
-      {(onCancel || onReset) && (
-        <div style={{
-          display: "flex", justifyContent: "flex-end", gap: 8,
-          padding: "4px 12px 8px",
-        }}>
-          {typing && onCancel && (
-            <button onClick={onCancel}
-                    title="abort Claude's current turn"
-                    style={{
-                      background: "transparent",
-                      border: "1px solid var(--red, #f0796a)",
-                      color: "var(--red, #f0796a)",
-                      padding: "2px 10px",
-                      fontFamily: "ui-monospace, Menlo, monospace",
-                      fontSize: 9.5,
-                      letterSpacing: ".16em",
-                      cursor: "pointer",
-                    }}>
-              [ STOP ]
-            </button>
-          )}
-          {onReset && (
-            <button onClick={onReset}
-                    title="clear chat history and start a fresh conversation with Claude"
-                    style={{
-                      background: "transparent",
-                      border: "1px solid var(--border, #2a3038)",
-                      color: "var(--label)",
-                      padding: "2px 10px",
-                      fontFamily: "ui-monospace, Menlo, monospace",
-                      fontSize: 9.5,
-                      letterSpacing: ".16em",
-                      cursor: "pointer",
-                    }}>
-              [ RESET ]
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -650,17 +654,16 @@ function LiveCell({ k, v, sub, tone }) {
 }
 
 // ---------- Scenario card (PREP redesign, 2026-05-27) ----------
-// Renders one row from brief.scenarios[]. The brief schema now has the
-// full shape — id, grade, condition, action, target — but old briefs on
-// disk may be missing some fields. Render "—" gracefully when absent.
+// Renders one row from brief.scenarios[]. Matches mockup
+// 05-essentialist.html — small bordered card with 60px-label rows.
 function ScenarioCard({ scenario }) {
   if (!scenario) return null;
   const grade = scenario.grade || "—";
-  const gradeClass = grade === "A+" ? "aplus" : grade === "B" ? "b" : grade === "no-trade" ? "no-trade" : "";
+  const gradeClass = grade === "A+" ? "green" : grade === "B" ? "amber" : "dim";
   return (
-    <div className="scn-card-full">
+    <div className="scn">
       <div className="h">
-        <span className="id">{scenario.id ? scenario.id.toUpperCase() : "SCENARIO"}</span>
+        <span>{scenario.id ? scenario.id.toUpperCase() : "SCENARIO"}</span>
         <span className={"pill " + gradeClass}>{grade}</span>
       </div>
       <div className="r"><span className="k">TRIGGER</span><span className="v">{scenario.condition || "—"}</span></div>
@@ -674,4 +677,5 @@ export {
   Panel, SectionHead, Row, Grade, PillarsPanel,
   SetupCard, TradeCard, ClaudeFeed, Btn, StatusLine, Snapshot,
   ScenarioCard, LiveCell,
+  EvidenceLink, EvidenceSidePanel, EvidenceContext,
 };

@@ -132,6 +132,41 @@ export function computeSessionGate({ quote, replayStatus }) {
     nextKillzoneLabel = 'London Open (next day)';
   }
   const minutesIntoPhase = Math.max(0, etMinutesTotal - phaseStartMin);
+
+  // Open-reaction window bounds (ET-anchored, ms-precision). These drive
+  // compute-leader's "max disp_score on FVG created in the open window"
+  // computation. Without them set, compute-leader gets windowStartMs =
+  // Infinity and filters out every FVG → always returns reason:
+  // "no_fvgs_created_in_window". See [bug discovered 2026-05-27].
+  //
+  // Anchoring logic: subtract today's ET-day offset (in ms) from the
+  // quote's UTC ms to get the ms representing ET midnight today, then
+  // add the open-window start (09:30 ET = 570 min, 13:30 ET = 810 min).
+  // Picking which session's window applies:
+  //   - pre_session_ny_am / open_reaction_ny_am / entry_hunt_ny_am /
+  //     post_ny_am → NY-AM window (09:30 → 09:45 ET)
+  //   - pre_session_ny_pm / open_reaction_ny_pm / entry_hunt_ny_pm /
+  //     post_ny_pm → NY-PM window (13:30 → 13:45 ET)
+  //   - everything else (london_open, inter_session, closed) → null
+  //
+  // Outside NY phases, leaving the fields null means analyze.js skips
+  // compute-leader. That matches the strategy chain's intent: leader
+  // picks only happen relative to the most recent NY open-reaction.
+  const OPEN_REACTION_MIN = 15; // window length matches compute-leader's 15-min slice
+  const etMidnightMs = ts - (etMinutesTotal * 60_000 + Number(parts.second || 0) * 1000);
+  let openWindowStartMin = null;
+  if (/_ny_am$/.test(sessionPhase) || sessionPhase === 'pre_session_ny_am') {
+    openWindowStartMin = 9 * 60 + 30; // 09:30 ET
+  } else if (/_ny_pm$/.test(sessionPhase) || sessionPhase === 'pre_session_ny_pm') {
+    openWindowStartMin = 13 * 60 + 30; // 13:30 ET
+  }
+  const openWindowStartMs = openWindowStartMin != null
+    ? etMidnightMs + openWindowStartMin * 60_000
+    : null;
+  const openWindowEndMs = openWindowStartMs != null
+    ? openWindowStartMs + OPEN_REACTION_MIN * 60_000
+    : null;
+
   // The phase machine names the killzone its phase leads toward; that start can
   // already be past (pre_session_ny_am spans the NY AM killzone's first hour).
   // When it has passed, advance to the next start today before wrapping +24h.
@@ -173,6 +208,10 @@ export function computeSessionGate({ quote, replayStatus }) {
     minutes_into_phase: minutesIntoPhase,
     next_killzone_label: nextKillzoneLabel,
     seconds_to_next_killzone: secondsToNextKillzone,
+    // ms-precision bounds for the open-reaction window — drives compute-leader.
+    // null outside NY phases (london_open, inter_session, closed).
+    open_window_start_ms: openWindowStartMs,
+    open_window_end_ms: openWindowEndMs,
     replay: replayStatus,
   };
 }
@@ -700,16 +739,13 @@ register('analyze', {
       await chart.setTimeframe({ timeframe: originalTf });
       await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
 
-      // Open-reaction window: gates.session.label is e.g. "open_reaction_ny_am".
-      // If we have a window_start_ms, use it; otherwise pass Infinity so
-      // compute-leader returns leader=null with reason="no_fvgs_created_in_window".
+      // Open-reaction window bounds come from computeSessionGate
+      // (open_window_start_ms / open_window_end_ms). Null outside NY
+      // phases — when null, compute-leader gets Infinity bounds and
+      // returns reason="no_fvgs_created_in_window".
       const sessionGate = gates.session;
-      const windowStartMs =
-        Number.isFinite(sessionGate?.open_window_start_ms)
-          ? sessionGate.open_window_start_ms
-          : null;
-      const windowEndMs =
-        windowStartMs != null ? windowStartMs + 15 * 60 * 1000 : null;
+      const windowStartMs = sessionGate?.open_window_start_ms;
+      const windowEndMs = sessionGate?.open_window_end_ms;
 
       const leader = computeLeader({
         primary: pairConfig.primary,

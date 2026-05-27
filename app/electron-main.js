@@ -9,6 +9,7 @@ import { startAlertPolling } from "./main/alerts.js";
 import { bindDetectorToMode } from "./main/bar-close.js";
 import { bootstrap as bootstrapSessionBrief, rearmScheduler as rearmBrief } from "./main/session-brief.js";
 import { bootstrap as bootstrapSessionWrap, rearmScheduler as rearmWrap } from "./main/session-wrap.js";
+import { bootstrap as bootstrapCalendar } from "./main/calendar.js";
 import { sweepOldSessions } from "./main/state-retention.js";
 import { startMetricsSummary, rotateMetricsFile } from "./main/metrics.js";
 import { flushPendingReview, fireFinalReview } from "./main/shutdown-flush.js";
@@ -107,6 +108,12 @@ app.whenReady().then(async () => {
   bootstrapSessionWrap({ send: ipc.send }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[session-wrap] bootstrap failed", err);
+  });
+  // ForexFactory weekly calendar: refresh on boot if cache is missing or
+  // older than 24h, then every Monday 06:00 ET.
+  bootstrapCalendar({ send: ipc.send }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[calendar] bootstrap failed", err);
   });
 
   // Retention sweep: delete state/session/<date>/ folders older than 30

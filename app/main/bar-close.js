@@ -24,6 +24,7 @@ import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./c
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
 import { activeSessionDir } from "./sessions.js";
+import { attachDetectorBriefDigest } from "../../cli/lib/detector-brief-digest.js";
 import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
@@ -85,6 +86,16 @@ export function shouldRouteToCatchUp({ sessionPhase, pillar1Exists, ltfBiasExist
 export function startDetector({ send }) {
   _send = send;
   setTickerSink(send);
+  // Idempotent — if a detector subprocess is already running (e.g.
+  // electron-main.js calls both bindDetectorToMode + an explicit kick on
+  // LIVE-restore boot, or a mode flip fires while one is alive), don't
+  // spawn a second. Without this guard, every boot leaks an extra
+  // detector and the bar-close-events.jsonl gets N-way duplicate emits.
+  if (_proc && !_proc.killed) {
+    // eslint-disable-next-line no-console
+    console.log(`[bar-close] startDetector: detector already running (pid ${_proc.pid}) — no-op`);
+    return;
+  }
   resetDetectorRestarts();
   spawnOnce();
 }
@@ -364,28 +375,30 @@ async function runClaudeTurnFor(ev, session, phase) {
       `Pair config: pass pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}" to tv_analyze_fast — the dual-symbol bundle is required to compute leader_evidence and to call surface_leader_decision at minute 14.`;
     hint = `Open-reaction window (+${mip ?? "?"}m of 15). Required action: ${pairLine} Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? `minutes_into_phase >= 14 — also call surface_leader_decision with the values from pair.leader_evidence and surface_ltf_bias to finalize bias. ` : ""}End the turn with surface_no_trade — no setup card during open-reaction.`;
   } else {
-    // Entry hunt: leader decision is in place. The bundle is single-symbol
-    // on the leader because tv analyze short-circuits on pair-decision.json.
-    // Pass the LEADER's baseline path — feeding MNQ baseline data into a
-    // MES capture would inject the wrong HTF bars_by_tf / engine_by_tf
-    // (real bug when leader=MES). Falls back to PAIR_PRIMARY if for some
-    // reason the catch-up hasn't run yet.
-    const leader = (await readPairDecisionLeader()) || PAIR_PRIMARY;
-    // 5m turns: preflight already pinned the chart to leader+5m, so the
-    // bundle's top-level `engine` and `bars` reflect 5m. The 1m view is
-    // available in engine_by_tf.m1 from the cached baseline. Strategy §3:
-    // 5m drives displacement / FVG / structure read; 1m confirms the close.
-    const tfLine = ev.tf === "5m"
-      ? `5m close turn — the bundle's top-level engine/bars reflect 5m (chart is pinned to 5m for this tick). Use engine.fvgs / engine.structures / engine.sweeps for 5m displacement read. Use engine_by_tf.m1 (from cached baseline) for the 1m confirmation bar. After this turn the next 1m tick will flip the chart back.`
-      : `1m close turn — bundle is 1m. Use engine.* for the 1m entry-model walk; pair with engine_by_tf.m5 for 5m structure context if needed.`;
-    hint = `Required action: walk the entry-hunt phase per the system prompt.
-Step 1: call mcp__tv__tv_analyze_fast with baseline="${baselinePathFor(leader)}".
-Step 2: Read state/last-scan.slim.json (~5-10 KB; full state/last-scan.json is fallback only). The slim contains quote.last, engine.{fvgs,bprs,sweeps,structures,swings} (last 10 each), engine.quality + levels, engine_by_tf.{m1,m5}, gates.session, gates.engine.{pillar1,pillar2,confirmation,price_context}.
-Step 3: ${tfLine}
-Step 4: check gates.engine.meta.stale — if true, skip to surface_no_trade with reason "engine output stale".
-Step 5: walk MSS / Trend / Inversion by name. For each model list its components (6 for MSS, 5 for Trend, 5 for Inversion) with a cited price OR "missing".
-Step 6: apply the six-element grade rule (A+ if all six aligned; B if exactly one weaker; no-trade if two or more weak/missing).
-Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If grade is no-trade, call mcp__tv__surface_no_trade with a concrete reason from the walk ("no entry model in play", "price quality weak", etc — not a meta excuse like "couldn't read bundle").`;
+    // Entry hunt — detector-driven flow (PR #62 / strategy detector).
+    // The detector has already evaluated MSS / Trend / Inversion against
+    // engine state and emitted <candidate_object> inline (see line 425).
+    // The model packages + narrates the verdict; it does NOT re-walk the
+    // models. See <phase name="entry_hunt"> in app/main/prompts/analyze.md
+    // for the contract.
+    //
+    // Bug observed 2026-05-27: the prior hint asked the model to call
+    // tv_analyze_fast + Read state/last-scan.slim.json + walk all three
+    // models with 6/5/5 components each + apply the six-element grade
+    // rule. That contradicted the system prompt's "package and narrate"
+    // contract → the model executed BOTH paths → 4,500+ output tokens →
+    // every turn hit the 180s SDK timeout. Rewriting the hint to align
+    // with the detector flow cuts output to ~200-500 tokens and turn
+    // time from 180s to ~20-40s.
+    hint = `Required action: package the detector's verdict per the system prompt's <phase name="entry_hunt"> contract.
+
+The <candidate_object> block above is the detector's pre-computed verdict — it has already evaluated every entry-model rule against engine state. DO NOT call tv_analyze_fast or Read state/last-scan.*.json; the candidate already has what's needed.
+
+Step 1: Read <candidate_object>.
+Step 2a: if best_candidate is non-null → call mcp__tv__surface_setup with EXACTLY these values from best_candidate: model, side, entry+entry_cite, stop (one of stop_options[]) +stop_cite, tp1+tp1_cite, tp2+tp2_cite, grade=grade_capped, tf="${ev.tf}". Provide a 2-3 sentence narration explaining the chain (what set it up, what triggered, what closes it).
+Step 2b: if best_candidate is null → call mcp__tv__surface_no_trade with reason = candidate.rejection_summary (verbatim) + a 1-sentence note describing what to watch next bar.
+
+Do not walk MSS / Trend / Inversion from scratch. Do not paraphrase the rejection_summary. Do not promote grade past grade_capped. Trust the detector.`;
   }
   const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
   const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}. TF tick: ${ev.tf}${ev.is_5m_close ? " (also a 5m close)" : ""}.`;
@@ -459,19 +472,37 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
   const startedAt = Date.now();
   let errored = false;
   let usage = null;
+  // Per-turn tool-call timeline. Captured so we can post-mortem which tool
+  // ate the time on slow turns. Each entry: { ts, elapsed_ms, name }.
+  const toolCalls = [];
   await userTurn({
     text,
     purpose: "bar-close",
-    // Observed live 2026-05-26 NY AM: ~50% of bar-close turns at 90s
-    // timed out exactly at 90s, the rest succeeded in 62-81s — right at
-    // the edge. The chain-aware entry-hunt preamble (6 reads + model
-    // walk + grade + surface call) needs more headroom. Bumped to 120s.
-    // Coalescing queue handles the case where bars accumulate while a
-    // long turn runs: most-recent bar of each TF replaces older ones.
-    timeoutMs: 120_000,
+    // Bumped from 120s → 180s on 2026-05-27 after observing every
+    // bar-close turn from 09:43 ET onwards timing out at exactly 120s.
+    // Catch-up turns regularly hit 196s, so the model genuinely needs
+    // more headroom on the chain-aware entry-hunt walk. Coalescing
+    // queue handles the case where bars accumulate while a long turn
+    // runs: most-recent bar of each TF replaces older ones.
+    timeoutMs: 180_000,
     onEvent: (e) => {
       if (e.type === "chunk") _send?.("chat:chunk", e);
-      else if (e.type === "tool_call") _send?.("chat:tool_call", e);
+      else if (e.type === "tool_call") {
+        _send?.("chat:tool_call", e);
+        // For diagnostics — capture the file_path for Read/Edit calls so
+        // we can see which state file the model is loading mid-turn.
+        // Other tool args are deliberately not captured (some are large
+        // / contain secrets like brief contents).
+        const args = e.args || {};
+        const argHint = (e.name === "Read" || e.name === "Edit" || e.name === "Write")
+          ? (args.file_path ? String(args.file_path).slice(-60) : null)
+          : null;
+        toolCalls.push({
+          elapsed_ms: Date.now() - startedAt,
+          name: e.name,
+          ...(argHint ? { path: argHint } : {}),
+        });
+      }
       else if (e.type === "turn_complete") {
         _send?.("chat:turn_complete", e);
         markTurnComplete();
@@ -491,6 +522,18 @@ Step 7: if grade is A+/B, call mcp__tv__surface_setup with tf="${ev.tf}". If gra
     session,
     durationMs: Date.now() - startedAt,
     usage,
+    // Slow turns observed 2026-05-27 — every turn hitting the 120s
+    // timeout had no tool-level visibility. Persisting the tool-call
+    // timeline so the next round of failures can be diagnosed without
+    // re-running the day. Trimmed to avoid metrics bloat: max 15
+    // entries + each ≤80 chars of name. Read/Edit/Write also carry
+    // the last 60 chars of the file path so we can identify WHICH
+    // state file the model is loading mid-turn.
+    tool_calls: toolCalls.slice(0, 15).map((t) => ({
+      elapsed_ms: t.elapsed_ms,
+      name: String(t.name || "").slice(0, 80),
+      ...(t.path ? { path: t.path } : {}),
+    })),
   });
 }
 
@@ -589,17 +632,10 @@ async function buildDetectorInputs() {
   const leader = await readPairDecisionLeader();
   const ltf_bias_context = await readLtfBiasFrontmatter();
 
-  // Synthesize brief_digest.symbols[<leader>].pillar1.{htf_destination, primary_draw}
-  // — the detector reads from this path. Digest doesn't have them at analyze time
-  // (brief hasn't run yet), so we splice them in here.
-  if (brief && leader && bundle.brief_digest?.symbols) {
-    const symKey = leader === "mnq" ? "MNQ1!" : leader === "mes" ? "MES1!" : Object.keys(bundle.brief_digest.symbols)[0];
-    if (bundle.brief_digest.symbols[symKey]) {
-      bundle.brief_digest.symbols[symKey].pillar1 = bundle.brief_digest.symbols[symKey].pillar1 || {};
-      if (brief.htf_destination) bundle.brief_digest.symbols[symKey].pillar1.htf_destination = brief.htf_destination;
-      if (brief.primary_draw) bundle.brief_digest.symbols[symKey].pillar1.primary_draw = brief.primary_draw;
-    }
-  }
+  // Synthesize brief_digest fields the detector reads — see
+  // cli/lib/detector-brief-digest.js for the why (single-symbol bundles
+  // post-pair-decision, slim projections, analyze-time-before-brief).
+  attachDetectorBriefDigest(bundle, brief, leader);
 
   return {
     bundle,

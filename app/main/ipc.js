@@ -18,6 +18,7 @@ import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views
 import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal, getPriorBrief } from "./review.js";
 import { getLastBar } from "./last-bar.js";
 import { getCache as getSymbolCache } from "./symbol-cache.js";
+import { readCache as readCalendarCache } from "./calendar.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -368,6 +369,15 @@ export function registerIpc(win) {
   ipcMain.handle("quote:cache_get", async () => {
     try {
       return { ok: true, cache: await getSymbolCache() };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("calendar:this-week", async () => {
+    try {
+      const payload = await readCalendarCache();
+      return { ok: true, ...payload };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }

@@ -206,4 +206,14 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("app:error", listener);
     },
   },
+  calendar: {
+    thisWeek() {
+      return ipcRenderer.invoke("calendar:this-week");
+    },
+    onUpdate(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("calendar:update", listener);
+      return () => ipcRenderer.removeListener("calendar:update", listener);
+    },
+  },
 });

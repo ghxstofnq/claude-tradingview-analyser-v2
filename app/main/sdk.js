@@ -31,7 +31,16 @@ import { extractUsageFromResult } from "./usage.js";
 import { classifyError } from "./error-classifier.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROMPT_PATH = path.join(__dirname, "prompts", "analyze.md");
+const PROMPTS_DIR = path.join(__dirname, "prompts");
+const KERNEL_PATH = path.join(PROMPTS_DIR, "kernel.md");
+const PHASE_PATHS = {
+  "bar-close": path.join(PROMPTS_DIR, "phase-bar-close.md"),
+  "brief":     path.join(PROMPTS_DIR, "phase-brief.md"),
+  "catch-up":  path.join(PROMPTS_DIR, "phase-catch-up.md"),
+  "wrap":      path.join(PROMPTS_DIR, "phase-wrap.md"),
+  "chat":      path.join(PROMPTS_DIR, "phase-chat.md"),
+  "review":    path.join(PROMPTS_DIR, "phase-review.md"),
+};
 
 // (Was `let _systemPrompt = null` for caching — removed when hot-reload
 // landed. loadSystemPrompt(purpose) re-reads + composes per call now.)
@@ -69,172 +78,50 @@ let _currentCancel = null; // { cancelToken, q, purpose }
 // (90s) so a stalled per-bar turn doesn't block the next minute's tick.
 const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 
-// PROTOCOL FRAGMENTS — composed per-purpose to keep each turn's system
-// prompt scoped to what THAT turn actually needs. Previously a single
-// 3KB OUTPUT_PROTOCOL was appended to every turn — chat turns saw the
-// brief / wrap / open-reaction exception text they could never act on.
-
-const CORE_PROTOCOL = `
-
----
-
-## OUTPUT PROTOCOL — TOOL SURFACES
-
-You are running inside the desktop Trading Workstation, not the CLI. The workstation panel renders cards from your tool calls — prose alone does not surface a card.
-
-Reason in prose first; surface last.`;
-
-const ANALYSIS_PROTOCOL = `
-
-End every analysis turn with exactly one tool call, in this order of priority:
-
-1. If a valid setup is in play graded \`A+\` or \`B\` — call \`mcp__tv__surface_setup\` with the full setup payload (grade, model, direction, entry, stop, tp1, tp2, invalidation, rr, confirmation_status, tf, pillar_breakdown). Do this after your prose reasoning. \`tf\` is "1m" or "5m" — stamp it to match the TF of the bar that triggered this turn. \`pillar_breakdown\` is an array of three pillars ('Draw & Bias' / 'Price-Action Quality' / 'Entry + Confirmation'), each with a status and 2–3 named elements. Skipping pillar_breakdown hides the alignment panel.
-
-2. Otherwise (any reason you would have written "no-trade" in prose) — call \`mcp__tv__surface_no_trade\` with a short \`reason\` string. Examples: "outside active session", "no entry model in play", "price quality weak — premium/discount unclear", "HTF/LTF opposed — retrace day".
-
-Writing "no trade" or "no setup" in prose without calling \`surface_no_trade\` leaves the UI stuck on the previous state.
-
-To read the chart, use \`mcp__tv__tv_analyze_full\` (full multi-TF sweep) or \`mcp__tv__tv_analyze_fast\` (1-bar poll with a baseline path).
-
-Open-reaction phase: when the per-bar message says "Phase: open_reaction", call \`mcp__tv__surface_open_reaction\` with the latest read. When \`minutes_into_phase\` >= 14, also call \`mcp__tv__surface_ltf_bias\` to finalize the bias. Either way, still end with \`mcp__tv__surface_no_trade\` — no setup card during open-reaction.`;
-
-const BRIEF_PROTOCOL = `
-
-This is a session brief turn. Call \`mcp__tv__surface_session_brief\` once per symbol at the end of the turn — for dual-symbol pair scans (e.g. MNQ + MES) call it twice (once with symbol="MNQ1!" and once with symbol="MES1!"), each carrying that symbol's structured payload. The user message tells you which symbols. Skip surface_setup and surface_no_trade for brief turns.`;
-
-const WRAP_PROTOCOL = `
-
-This is a session summary turn. Call \`mcp__tv__surface_session_summary\` exactly once at the end with \`bias_picture\`, \`what_happened\`, \`watch_next_session\`. Skip surface_setup and surface_no_trade for wrap turns.`;
-
-const ALERTS_PROTOCOL = `
-
----
-
-## ALERT GUIDANCE — managing TradingView price alerts on the trader's behalf
-
-You manage TradingView price alerts via three tools:
-- \`mcp__tv__tv_alert_create\` — \`{ price, label, condition? }\`. \`condition\` defaults to "crossing"; use "greater_than" / "less_than" for one-sided triggers.
-- \`mcp__tv__tv_alert_list\` — read all current alerts. Use before deleting (to get \`alert_id\`s) or to avoid duplicating.
-- \`mcp__tv__tv_alert_delete\` — remove one alert by \`alert_id\`.
-
-Propose alerts in prose during analysis turns after a pre-session grade (HTF draw, untaken liquidity, bias-flip level), when a candidate setup forms (confirmation + invalidation), or after a confirmed setup (TP1, TP2, invalidation). Name the levels with cited prices; wait for the trader's reply before arming during analysis turns.
-
-When the trader brings up alerts in chat: three things matter — price (exact level — echo back the cited number if they named PDH/AS_H/etc), condition (crossing default; greater_than / less_than for one-sided), label (short string they'll see when it fires). Fill in what they specified, default the rest, ask only about ambiguous pieces in one short message — not a survey. Alert-management chat turns end with the alert tool call, not with surface_setup / surface_no_trade.`;
-
-// Memory-tool guidance. Composed into chat / wrap / review protocols so the
-// trader-facing surfaces (chat) and reflective phases (wrap, review) know
-// how to use the memory tool. Bar-close + catch-up + brief never see this
-// — they have no memory tool exposed.
-const MEMORY_GUIDANCE = `
-
----
-
-## PERSISTENT MEMORY GUIDANCE
-
-You have persistent memory across trading days (the \`<persistent_memory>\` block at the top of this prompt). Save durable facts using the \`mcp__tv__memory\` tool: trader preferences, recurring market patterns, instrument quirks, stable rules.
-
-Memory is part of the system prompt on every future session — keep it compact and focused on facts that will still matter in a week.
-
-Prioritize what reduces future correction — the most valuable memory is one that prevents the trader from having to remind you again. Trader corrections and preferences matter more than market trivia.
-
-Do NOT save today's setups, today's PnL, "fixed bug X", "session X wrapped" — those live in \`state/session/<date>/<session>/summary.md\`. If a fact will be stale in a week, it does not belong in memory.
-
-Write memories as declarative facts, not instructions to yourself. "Trader uses structural stops" ✓ — "Always use structural stops" ✗. Imperative phrasing gets re-read as a standing order in later sessions and can override the trader's current request.`;
-
-// Review-purpose protocol. The post-wrap review turn fires once per session
-// wrap and exists solely to extract durable lessons into persistent memory.
-const REVIEW_PROTOCOL = `
-
----
-
-## REVIEW TURN PROTOCOL
-
-This is a session-review turn. The session just wrapped — its summary.md and setups.jsonl are on disk. Your job is to extract anything worth remembering across days.
-
-Be ACTIVE. Most sessions produce at least one update. A pass that does nothing is a missed learning opportunity, not a neutral outcome.
-
-Read first:
-1. \`<sdir>/summary.md\` (just written)
-2. \`<sdir>/setups.jsonl\`
-3. Existing persistent memory (already in your system prompt as \`<persistent_memory>\`)
-
-Signals that warrant a memory update (any one is enough):
-- Trader revealed a preference, schedule, or rule that isn't in memory yet
-- Trader corrected your grading, sizing, or reading of a setup
-- A market pattern recurred across days (not just today — at least 2-3 occurrences in recent memory or your own observation)
-- A setup type repeatedly failed or succeeded in a way that should bias future grading
-- You discovered a chart-reading nuance specific to this trader's setup
-
-Do NOT save:
-- "Today's NY AM wrapped" / "Setup X fired" — that's what summary.md is for
-- Today's specific prices, today's session IDs
-- Single-occurrence events that resolved
-- Negative claims about indicators or tools
-
-Write memory as declarative facts, not directives. "Trader skips PCE days" ✓ — "Don't trade on PCE days" ✗.
-
-"Nothing to save" is a real option but should NOT be the default. If genuinely nothing stands out, say "Nothing to save." and stop. Otherwise, use the memory tool to write what you found.
-
-Do NOT call any surface_* tool in this turn — review is memory-only.`;
-
-// Per-purpose system-prompt composition. Each turn assembles only the
-// rules it can act on, cutting OUTPUT_PROTOCOL token cost where possible.
-const PROTOCOL_BY_PURPOSE = {
-  // Per-bar analysis: full surface_setup / surface_no_trade rules plus
-  // alert proposal during analysis. NO memory guidance — read-only.
-  "bar-close": CORE_PROTOCOL + ANALYSIS_PROTOCOL + ALERTS_PROTOCOL,
-  // Same rules as bar-close — catch-up turns walk the same protocol.
-  "catch-up": CORE_PROTOCOL + ANALYSIS_PROTOCOL,
-  // Brief turns surface session-brief; they may also propose alerts
-  // after the pre-session grade. Read-only for memory.
-  "brief": CORE_PROTOCOL + BRIEF_PROTOCOL + ALERTS_PROTOCOL,
-  // Wrap turns surface session-summary; can also write memory directly.
-  "wrap": CORE_PROTOCOL + WRAP_PROTOCOL + MEMORY_GUIDANCE,
-  // Chat turns need core + alerts (the trader's natural way to arm/disarm
-  // alerts) + memory guidance (chat is where corrections land).
-  "chat": CORE_PROTOCOL + ALERTS_PROTOCOL + MEMORY_GUIDANCE,
-  // Review turns: memory-only. Fired automatically after each session wrap.
-  "review": CORE_PROTOCOL + REVIEW_PROTOCOL + MEMORY_GUIDANCE,
-};
-
-// Hot-reload prompts: re-read analyze.md ONLY when its mtime changes.
-// Was: every turn re-read the full 35KB. With bar-close at 60/hour +
-// chat + brief + wrap, that's MBs/hour of disk I/O re-reading the same
-// file. Now: stat() on every turn (cheap), readFile only if changed.
+// Hot-reload prompts: re-read each prompt file ONLY when its mtime changes.
+// Each purpose loads two files (kernel.md + phase-<purpose>.md); both are
+// cached independently. With bar-close at ~60/hour plus brief/wrap/chat,
+// stat-on-every-turn is cheap, readFile-only-if-changed avoids MBs/hour
+// of disk I/O re-reading unchanged files.
 //
-// SAFETY: keep a last-known-good copy of the base prompt. If a hot read
-// returns an empty / partial / oversized file (editor mid-save), use the
-// cached version instead of letting Claude operate on garbage.
-let _lastGoodBase = null;
-let _lastGoodMtime = 0;
-const PROMPT_MIN_LENGTH = 1000;        // analyze.md is ~35 KB; <1KB = mid-save
-const PROMPT_MAX_LENGTH = 500_000;     // hard cap so a corrupt file doesn't OOM
+// SAFETY: keep a last-known-good copy per file. If a hot read returns an
+// empty / partial / oversized file (editor mid-save), use the cached
+// version instead of letting Claude operate on garbage.
+const _promptCache = new Map(); // absPath -> { text, mtime }
+const PROMPT_MIN_LENGTH = 500;          // phase-chat.md is ~2.5 KB; <500 = mid-save
+const PROMPT_MAX_LENGTH = 500_000;      // hard cap so a corrupt file doesn't OOM
 
-async function loadSystemPrompt(purpose) {
-  let base = _lastGoodBase;
+async function loadPromptFile(absPath, label) {
+  const cached = _promptCache.get(absPath);
+  let text = cached?.text;
   try {
-    const stat = await fs.stat(PROMPT_PATH);
-    if (stat.mtimeMs !== _lastGoodMtime) {
-      // File changed (or first call) — re-read.
-      const text = await fs.readFile(PROMPT_PATH, "utf8");
-      if (text.length < PROMPT_MIN_LENGTH || text.length > PROMPT_MAX_LENGTH) {
+    const stat = await fs.stat(absPath);
+    if (!cached || stat.mtimeMs !== cached.mtime) {
+      const fresh = await fs.readFile(absPath, "utf8");
+      if (fresh.length < PROMPT_MIN_LENGTH || fresh.length > PROMPT_MAX_LENGTH) {
         // eslint-disable-next-line no-console
-        console.warn(`[sdk] system prompt looks wrong size (${text.length} bytes) — using last-known-good`);
+        console.warn(`[sdk] ${label} looks wrong size (${fresh.length} bytes) — using last-known-good`);
       } else {
-        base = text;
-        _lastGoodBase = text;
-        _lastGoodMtime = stat.mtimeMs;
+        text = fresh;
+        _promptCache.set(absPath, { text: fresh, mtime: stat.mtimeMs });
       }
     }
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn(`[sdk] system prompt stat/read failed (${err?.message}) — using last-known-good`);
+    console.warn(`[sdk] ${label} stat/read failed (${err?.message}) — using last-known-good`);
   }
-  if (!base) {
-    // First call AND read failed — no fallback. Throw rather than send
-    // an empty prompt (Claude would say things based on nothing).
-    throw new Error("system prompt read failed and no last-known-good available");
+  if (!text) {
+    throw new Error(`${label} read failed and no last-known-good available`);
   }
+  return text;
+}
+
+async function loadSystemPrompt(purpose) {
+  const phasePath = PHASE_PATHS[purpose] || PHASE_PATHS["bar-close"];
+  const [kernel, phase] = await Promise.all([
+    loadPromptFile(KERNEL_PATH, "kernel.md"),
+    loadPromptFile(phasePath, `phase-${purpose}.md`),
+  ]);
 
   // Persistent-memory block — prepended (most cache-stable position). Loaded
   // by runOneTurn() at the start of each turn so the snapshot is fresh-per-
@@ -243,8 +130,7 @@ async function loadSystemPrompt(purpose) {
   const memBlock = getPersistentMemory().formatBlockForSystemPrompt();
   const memPrefix = memBlock ? memBlock + "\n\n" : "";
 
-  const protocol = PROTOCOL_BY_PURPOSE[purpose] || PROTOCOL_BY_PURPOSE["bar-close"];
-  return memPrefix + base + protocol;
+  return memPrefix + kernel + "\n\n" + phase;
 }
 
 // Purposes that can WRITE to persistent memory via the memory tool.
@@ -829,6 +715,28 @@ export function resetSession(purpose) {
 const MODEL = "sonnet";
 const FALLBACK_MODEL = "opus";
 
+// Per-purpose model override. Brief and wrap turns emit ~30K output tokens
+// (full prose + citations across HTF / overnight / pillars / scenarios)
+// — Sonnet at ~25-30 tok/s can't fit that inside the 10-min userTurn
+// timeout, while Opus 4.7 at ~67 tok/s comfortably finishes in 7-8 min.
+//
+// Observed live 2026-05-27: every Sonnet-primary brief attempt today
+// (London 02:00, NY-AM 09:00, manual 11:01) hit the 600s timeout with
+// 781+ content_block_delta messages mid-stream. Yesterday's NY-PM
+// brief on Opus (via fallback after Sonnet errored) completed in 444s.
+//
+// Pinning brief/wrap to Opus removes the timeout cliff. The fallback
+// for these purposes is Sonnet (if Opus is rate-limited or down, we
+// at least try). Other purposes (bar-close, chat, catch-up, review)
+// keep the Sonnet→Opus default.
+const HEAVY_OUTPUT_PURPOSES = new Set(["brief", "wrap"]);
+function modelForPurpose(purpose) {
+  if (HEAVY_OUTPUT_PURPOSES.has(purpose)) {
+    return { model: "opus", fallbackModel: "sonnet" };
+  }
+  return { model: MODEL, fallbackModel: FALLBACK_MODEL };
+}
+
 // Effort level: how hard Claude thinks per turn.
 //
 // 2026-05-26 — raised from "high" to "xhigh" per Anthropic's current guidance:
@@ -928,10 +836,11 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
   }
   const systemPrompt = await loadSystemPrompt(purpose);
   const resumeId = _sessionIds.get(purpose);
+  const { model, fallbackModel } = modelForPurpose(purpose);
   const opts = {
     systemPrompt,
-    model: MODEL,
-    fallbackModel: FALLBACK_MODEL,
+    model,
+    fallbackModel,
     effort: EFFORT,
     // tools: ["Read", "Glob"] — explicitly load ONLY these built-in tools
     // (no Edit / Write / Bash / Task / etc). Read is critical because
@@ -1127,3 +1036,7 @@ function handleSdkMessage(msg, onEvent) {
     return;
   }
 }
+
+// Exported for tests only — same internal function the SDK uses to compose
+// the system prompt per turn. Tests can call this without firing a userTurn.
+export { loadSystemPrompt as _loadSystemPromptForTests };

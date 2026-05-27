@@ -2,6 +2,18 @@
 // `node --test` (the project's only test runner; the renderer doesn't
 // have Vitest). Importing this file has no side effects.
 
+// Strip "(json.path)" citation parentheticals from a prose blob — those
+// belong in tooltips, not in the readable text. Brief prose is loaded
+// with these per CLAUDE.md constraint #6 (cite-or-reject); the renderer
+// strips them for display while the raw value remains in brief.brief.
+export function stripCitations(s) {
+  if (!s) return "";
+  return String(s)
+    .replace(/\s*\([a-z_]+(?:[._a-zA-Z0-9!\[\]]+)?(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\s*[^)]*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 // Partition key_levels[] into { above, below } relative to currentPrice.
 // Each partition is sorted by absolute distance to currentPrice (closest
 // first), so the closest opposing levels lead in each direction.
@@ -40,20 +52,44 @@ export function selectPillar(pillars, pattern) {
 }
 
 // Map a Pillar 2 (Price-Action Quality) object to the three rows displayed
-// in STEP 3 · PRICE QUALITY. Pillar 2 elements are matched by substring:
-//   - "range" → 3h range
-//   - "displacement" → 4H/1H displacement
-//   - "candle" → 15m/5m candles
+// in STEP 3 · PRICE QUALITY. The brief schema has shifted over time:
 //
-// Returns [{ k, v, tone }] — one entry per matched element, in the order
-// above. Missing elements render as { k, v: "—", tone: "dim" }.
+//   Legacy stub: element names like "range", "displacement", "candle".
+//   Chain spec : TF-prefixed names like "h4 quality (good / ...)",
+//                "h1 quality (...)", "m5 anatomy (clean displacement / ...)",
+//                "m15 anatomy (...)".
+//
+// Matching strategy (in priority order):
+//   1. 3h range          — element whose name starts with "range" or
+//                          contains "3h range" or "range" but NOT
+//                          "anatomy" (anatomy refers to candle shape).
+//   2. 4H/1H displacement — element whose name starts with "h4" or "h1"
+//                          (quality / displacement on the HTF candles).
+//   3. 15m/5m candles    — element whose name starts with "m5" or "m15"
+//                          (anatomy / candle shape on the LTF candles).
+//
+// Falls back to legacy substring matches if the new shape isn't present.
+//
+// Returns [{ k, v, tone }] — one entry per slot. Missing elements render
+// as { k, v: "—", tone: "dim" }.
 export function pillar2ToRows(pillar2) {
   const elements = pillar2?.elements || [];
-  const find = (rx) => elements.find((e) => e && typeof e.name === "string" && rx.test(e.name));
+  const findExact = (predicate) => elements.find((e) => e && typeof e.name === "string" && predicate(e.name));
   const statusTone = (s) => ({ pass: "green", weak: "amber", fail: "red", pending: "dim" }[s] || "dim");
-  const rowFor = (label, rx, fallback) => {
-    const el = find(rx);
-    if (!el) return { k: label, v: fallback, tone: "dim" };
+
+  // Three slot matchers — each tries the chain-spec name first, then
+  // falls back to the legacy substring.
+  const rangeEl = findExact((n) => /^range\b/i.test(n) || /3.?h.*range/i.test(n))
+               || findExact((n) => /\brange\b/i.test(n) && !/anatomy/i.test(n));
+  const htfEl   = findExact((n) => /^h4\b/i.test(n))
+               || findExact((n) => /^h1\b/i.test(n))
+               || findExact((n) => /displacement/i.test(n) && !/anatomy/i.test(n));
+  const ltfEl   = findExact((n) => /^m5\b/i.test(n))
+               || findExact((n) => /^m15\b/i.test(n))
+               || findExact((n) => /candle/i.test(n) && !/h4|h1/i.test(n));
+
+  const rowFor = (label, el) => {
+    if (!el) return { k: label, v: "—", tone: "dim" };
     const detail = el.detail || el.note || "";
     return {
       k: label,
@@ -62,9 +98,9 @@ export function pillar2ToRows(pillar2) {
     };
   };
   return [
-    rowFor("3h range", /range/i, "—"),
-    rowFor("4H/1H displacement", /displacement/i, "—"),
-    rowFor("15m/5m candles", /candle/i, "—"),
+    rowFor("3h range", rangeEl),
+    rowFor("4H/1H displacement", htfEl),
+    rowFor("15m/5m candles", ltfEl),
   ];
 }
 
@@ -79,4 +115,131 @@ export function formatChainChip(status) {
   if (!status || status === "clean") return { visible: false, label: null, tone: null };
   const tone = status.startsWith("stale:") ? "stale" : "warn";
   return { visible: true, label: status, tone };
+}
+
+// Map a brief.htf_bias array to the four concise rows shown in STEP 1.
+// brief.htf_bias is shaped: [{ tf, bias, note }] where tf is "D"|"4H"|"1H"
+// and bias is "BULL"|"BEAR"|"NEUTRAL". `brief.primary_draw` and
+// `brief.htf_destination` provide the imbalance / draw / reaction rows.
+//
+// Returns [{ k, v, tip }] — one per slot, missing rows render as "—".
+// `tip` is the full strategy doc bullet text used as the title="" tooltip.
+export function htfBiasToRowsConcise(brief) {
+  // Bias trio renders as "D:BULL / 4H:BULL / 1H:BEAR" — abbreviate the
+  // tf labels (DAILY → D) and the bias enums (BULLISH → BULL, BEARISH →
+  // BEAR, MIXED stays MIXED, NEUTRAL → NEU) so the row fits the 1fr
+  // column without wrapping.
+  const abbrevTf = (tf) => {
+    const t = String(tf || "").toUpperCase();
+    if (t === "DAILY") return "D";
+    return t;
+  };
+  const abbrevBias = (b) => {
+    const v = String(b || "").toUpperCase();
+    if (v === "BULLISH")  return "BULL";
+    if (v === "BEARISH")  return "BEAR";
+    if (v === "NEUTRAL")  return "NEU";
+    return v;
+  };
+  const biases = (brief?.htf_bias || [])
+    .map((r) => `${abbrevTf(r.tf)}:${abbrevBias(r.bias)}`)
+    .join(" / ");
+  const pd = brief?.primary_draw;
+  const draw = brief?.htf_destination;
+  const reaction = pd?.state || (pd?.took_liq ? "rejected" : null);
+  // "Best imbalances" formatted as "<tf> <dir> <kind> · took_liq yes/no".
+  // Examples: "h1 bull FVG · took_liq yes", "h4 bear BPR · took_liq no".
+  let bestImbalances = "—";
+  if (pd) {
+    const tf = pd.tf || pd.timeframe;
+    const dir = pd.dir ? String(pd.dir).toLowerCase() : null;
+    const kind = pd.kind || pd.type;
+    const liq = pd.took_liq != null ? `took_liq ${pd.took_liq ? "yes" : "no"}` : "";
+    const parts = [tf, dir, (kind || "").toUpperCase()].filter(Boolean);
+    const head = parts.join(" ") || "—";
+    bestImbalances = [head, liq].filter(Boolean).join(" · ");
+  }
+  return [
+    {
+      k: "Structure",
+      v: biases || "—",
+      tip: "Structure on D / 4H / 1H — bos / mss direction of each",
+    },
+    {
+      k: "Best imbalances",
+      v: bestImbalances,
+      tip: "Best imbalances in that direction (large FVGs / BPRs that took liquidity)",
+    },
+    {
+      k: "Main draw",
+      v: draw || "—",
+      tip: "Main HTF draw (next major buy-side / sell-side pool)",
+    },
+    {
+      k: "PD reaction",
+      v: reaction || "—",
+      tip: "Recent reaction off HTF PD array",
+    },
+  ];
+}
+
+// Map brief.overnight_block + brief.key_levels to STEP 2 header rows.
+// Returns [{k, v, tip}] — Asia H/L, London H/L, Overnight verdict.
+//
+// Sources, in order:
+//   1. brief.overnight_block.asia.{high,low} / .london.{high,low} —
+//      structured form (post-2026-05-26 chain spec)
+//   2. brief.key_levels with name AS_H/AS_L/LO_H/LO_L (legacy form)
+//
+// Overnight verdict reads:
+//   1. brief.overnight_block.overnight_verdict — the canonical enum field
+//   2. brief.overnight.find(r => /tone|overnight/i.test(r.k)).v
+//   3. brief.overnight[0].note  (legacy)
+//   4. brief.overnight[0].v     (legacy stub)
+export function overnightHeaderRows(brief) {
+  const ob = brief?.overnight_block || {};
+  const kl = brief?.key_levels || [];
+  const findOne = (names) => kl.find((k) => names.some((n) => k.name === n));
+
+  const asia = ob.asia;
+  const london = ob.london;
+  const asiaH = asia?.high  ?? findOne(["AS_H", "AS.H", "ASIA_H"])?.price;
+  const asiaL = asia?.low   ?? findOne(["AS_L", "AS.L", "ASIA_L"])?.price;
+  const londonH = london?.high ?? findOne(["LO_H", "LO.H", "LONDON_H"])?.price;
+  const londonL = london?.low  ?? findOne(["LO_L", "LO.L", "LONDON_L"])?.price;
+
+  const ov = brief?.overnight || [];
+  const verdictRow = ov.find((r) => r && typeof r.k === "string" && /tone|overnight/i.test(r.k));
+  const overnight =
+    ob.overnight_verdict
+    || verdictRow?.v
+    || ov[0]?.note
+    || ov[0]?.v
+    || "—";
+
+  return [
+    {
+      k: "Asia H / L",
+      v: asiaH != null && asiaL != null ? `${asiaH} / ${asiaL}` : "—",
+      tip: "Asia high / low — the overnight range that often gets swept on London or NY open",
+    },
+    {
+      k: "London H / L",
+      v: londonH != null && londonL != null ? `${londonH} / ${londonL}` : "—",
+      tip: "London high / low — set during the 02:00-05:00 ET window",
+    },
+    {
+      k: "Overnight",
+      v: overnight,
+      tip: "Overnight: extending HTF or consolidating",
+    },
+  ];
+}
+
+// Render the SCENARIOS panel meta — sizing-if-A+ line. Reads sizing_note
+// from the brief if present.
+export function scenariosMeta(brief) {
+  const note = brief?.sizing_note;
+  if (!note) return "claude proposed";
+  return `claude proposed · ${note}`;
 }

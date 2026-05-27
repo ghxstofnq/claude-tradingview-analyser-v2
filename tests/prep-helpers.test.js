@@ -8,6 +8,10 @@ import {
   selectPillar,
   pillar2ToRows,
   formatChainChip,
+  htfBiasToRowsConcise,
+  overnightHeaderRows,
+  scenariosMeta,
+  stripCitations,
 } from "../app/renderer/src/Prep.helpers.js";
 
 describe("groupLevelsByPrice", () => {
@@ -136,5 +140,190 @@ describe("formatChainChip", () => {
     const r = formatChainChip("stale:18");
     assert.equal(r.visible, true);
     assert.equal(r.tone, "stale");
+  });
+});
+
+describe("htfBiasToRowsConcise", () => {
+  it("formats biases as 'D:BULL / 4H:BULL / 1H:BEAR'", () => {
+    const brief = {
+      htf_bias: [
+        { tf: "D",  bias: "BULL" },
+        { tf: "4H", bias: "BULL" },
+        { tf: "1H", bias: "BEAR" },
+      ],
+      htf_destination: "PWH 21450",
+      primary_draw: { kind: "FVG", tf: "4H", took_liq: true, state: "ce_tapped" },
+    };
+    const rows = htfBiasToRowsConcise(brief);
+    assert.equal(rows[0].k, "Structure");
+    assert.equal(rows[0].v, "D:BULL / 4H:BULL / 1H:BEAR");
+    assert.equal(rows[1].k, "Best imbalances");
+    // tf first, then dir (omitted here), then kind — "4H FVG · took_liq yes"
+    assert.match(rows[1].v, /4H FVG · took_liq yes/);
+    assert.equal(rows[2].v, "PWH 21450");
+    assert.equal(rows[3].v, "ce_tapped");
+  });
+
+  it("renders '—' for missing fields", () => {
+    const rows = htfBiasToRowsConcise({});
+    assert.equal(rows.length, 4);
+    assert.deepEqual(rows.map((r) => r.v), ["—", "—", "—", "—"]);
+  });
+
+  it("each row carries a strategy-doc tooltip", () => {
+    const rows = htfBiasToRowsConcise({});
+    for (const r of rows) assert.ok(r.tip && r.tip.length > 10);
+  });
+});
+
+describe("overnightHeaderRows", () => {
+  it("formats Asia H/L and London H/L from key_levels (legacy form)", () => {
+    const brief = {
+      key_levels: [
+        { name: "AS_H", price: 21380 },
+        { name: "AS_L", price: 21290 },
+        { name: "LO_H", price: 21420 },
+        { name: "LO_L", price: 21340 },
+      ],
+      overnight_block: { overnight_verdict: "extending HTF" },
+    };
+    const rows = overnightHeaderRows(brief);
+    assert.equal(rows[0].v, "21380 / 21290");
+    assert.equal(rows[1].v, "21420 / 21340");
+    assert.equal(rows[2].v, "extending HTF");
+  });
+
+  it("accepts dotted-name variants for legacy briefs", () => {
+    const brief = { key_levels: [
+      { name: "AS.H", price: 100 }, { name: "AS.L", price: 90 },
+    ]};
+    const rows = overnightHeaderRows(brief);
+    assert.equal(rows[0].v, "100 / 90");
+  });
+});
+
+describe("scenariosMeta", () => {
+  it("returns 'claude proposed' when no sizing_note", () => {
+    assert.equal(scenariosMeta({}), "claude proposed");
+  });
+
+  it("appends sizing_note when present", () => {
+    assert.equal(scenariosMeta({ sizing_note: "sizing 2c if A+" }), "claude proposed · sizing 2c if A+");
+  });
+});
+
+describe("stripCitations", () => {
+  it("removes inline (json.path) citation parentheticals", () => {
+    const input = "Bullish across Daily +16.81% (brief_digest.symbols.MNQ1!.htf.daily.change_pct), 4H +7.54% (brief_digest.symbols.MNQ1!.htf.h4.change_pct).";
+    const out = stripCitations(input);
+    assert.equal(out, "Bullish across Daily +16.81%, 4H +7.54%.");
+  });
+
+  it("removes citations with array indexing + bang chars", () => {
+    const input = "FVG at 29 805.25 (engine_by_tf.h1.fvgs[17]) — primary draw.";
+    const out = stripCitations(input);
+    assert.equal(out, "FVG at 29 805.25 — primary draw.");
+  });
+
+  it("collapses double spaces left behind", () => {
+    const input = "A (path.one) B (path.two) C";
+    const out = stripCitations(input);
+    assert.equal(out, "A B C");
+  });
+
+  it("handles null / empty input", () => {
+    assert.equal(stripCitations(null), "");
+    assert.equal(stripCitations(undefined), "");
+    assert.equal(stripCitations(""), "");
+  });
+});
+
+describe("overnightHeaderRows — overnight_block.overnight_verdict", () => {
+  it("reads overnight_block.overnight_verdict (canonical field)", () => {
+    const brief = {
+      overnight_block: {
+        asia:   { high: 29990,   low: 29770.5, state: "swept",   cite: "x" },
+        london: { high: 29930.5, low: 29743,   state: "swept",   cite: "x" },
+        overnight_verdict: "consolidating",
+      },
+    };
+    const rows = overnightHeaderRows(brief);
+    assert.equal(rows[0].v, "29990 / 29770.5");
+    assert.equal(rows[1].v, "29930.5 / 29743");
+    assert.equal(rows[2].v, "consolidating");
+  });
+
+  it("falls back to brief.overnight[0].v when no overnight_block", () => {
+    const brief = { overnight: [{ k: "Asia range", v: "30 pts" }] };
+    const rows = overnightHeaderRows(brief);
+    assert.equal(rows[2].v, "30 pts");
+  });
+
+  it("prefers brief.overnight[].v whose k matches /overnight|tone/", () => {
+    const brief = {
+      overnight: [
+        { k: "Asia", v: "swept" },
+        { k: "London", v: "swept" },
+        { k: "Overnight tone", v: "extending HTF" },
+      ],
+    };
+    const rows = overnightHeaderRows(brief);
+    assert.equal(rows[2].v, "extending HTF");
+  });
+});
+
+describe("pillar2ToRows — TF-prefixed element names", () => {
+  it("matches h4 / m5 element names from the chain spec", () => {
+    const pillar2 = {
+      elements: [
+        { name: "h4 quality (good / acceptable / normal)", status: "pass" },
+        { name: "h1 quality (good / clean / normal)", status: "pass" },
+        { name: "m5 anatomy (clean displacement / doji_wick candle)", status: "weak" },
+        { name: "m15 anatomy (clean / normal)", status: "pass" },
+      ],
+    };
+    const rows = pillar2ToRows(pillar2);
+    // 3h range — no element matches (no "range" / "3h range" in the chain spec)
+    assert.equal(rows[0].v, "—");
+    // 4H/1H displacement — matches h4 first
+    assert.match(rows[1].v, /PASS/);
+    // 15m/5m candles — matches m5 (anatomy)
+    assert.match(rows[2].v, /WEAK/);
+  });
+
+  it("still matches legacy 'range' / 'displacement' / 'candle' names", () => {
+    const pillar2 = {
+      elements: [
+        { name: "range", status: "pass" },
+        { name: "displacement", status: "weak" },
+        { name: "candle", status: "pass" },
+      ],
+    };
+    const rows = pillar2ToRows(pillar2);
+    assert.match(rows[0].v, /PASS/);
+    assert.match(rows[1].v, /WEAK/);
+    assert.match(rows[2].v, /PASS/);
+  });
+});
+
+describe("htfBiasToRowsConcise — abbreviation + dir in best imbalances", () => {
+  it("abbreviates DAILY -> D and BULLISH -> BULL", () => {
+    const brief = {
+      htf_bias: [
+        { tf: "DAILY", bias: "BULLISH" },
+        { tf: "4H",    bias: "BEARISH" },
+        { tf: "1H",    bias: "MIXED" },
+      ],
+    };
+    const rows = htfBiasToRowsConcise(brief);
+    assert.equal(rows[0].v, "D:BULL / 4H:BEAR / 1H:MIXED");
+  });
+
+  it("includes pd.dir in best imbalances output", () => {
+    const brief = {
+      primary_draw: { tf: "h1", dir: "bull", kind: "fvg", took_liq: true },
+    };
+    const rows = htfBiasToRowsConcise(brief);
+    assert.match(rows[1].v, /h1 bull FVG · took_liq yes/);
   });
 });

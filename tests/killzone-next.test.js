@@ -50,3 +50,58 @@ test('after NY PM start, next killzone wraps to next-day London Open', () => {
   assert.equal(s.next_killzone_label, 'London Open (next day)');
   assert.equal(s.seconds_to_next_killzone, (3 * 60 + 24 * 60 - 14 * 60) * 60);
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// open_window_start_ms / open_window_end_ms — bug discovered 2026-05-27.
+// computeSessionGate never set these fields; analyze.js then passed
+// Infinity to compute-leader, which filtered out every FVG and returned
+// reason="no_fvgs_created_in_window" every time, regardless of data.
+// ─────────────────────────────────────────────────────────────────────────
+
+test('open_window bounds match NY-AM 09:30→09:45 ET during NY-AM phases', () => {
+  // 09:35 ET on 2026-05-20 (Wed, EDT) — phase open_reaction_ny_am.
+  const s = sessionAt('2026-05-20T13:35:00Z');
+  assert.equal(s.phase, 'open_reaction_ny_am');
+  const expectedStart = Date.parse('2026-05-20T13:30:00Z'); // 09:30 ET
+  const expectedEnd   = Date.parse('2026-05-20T13:45:00Z'); // 09:45 ET
+  assert.equal(s.open_window_start_ms, expectedStart);
+  assert.equal(s.open_window_end_ms,   expectedEnd);
+});
+
+test('open_window bounds still anchor to today during pre_session_ny_am', () => {
+  // 08:00 ET — before the open window but window bounds should already
+  // point at today's 09:30 ET so compute-leader can pre-emptively read.
+  const s = sessionAt('2026-05-20T12:00:00Z');
+  assert.equal(s.phase, 'pre_session_ny_am');
+  const expectedStart = Date.parse('2026-05-20T13:30:00Z');
+  assert.equal(s.open_window_start_ms, expectedStart);
+  assert.equal(s.open_window_end_ms,   expectedStart + 15 * 60 * 1000);
+});
+
+test('open_window bounds shift to NY-PM 13:30→13:45 ET during NY-PM phases', () => {
+  // 13:35 ET on 2026-05-20 — phase open_reaction_ny_pm.
+  const s = sessionAt('2026-05-20T17:35:00Z');
+  assert.equal(s.phase, 'open_reaction_ny_pm');
+  const expectedStart = Date.parse('2026-05-20T17:30:00Z'); // 13:30 ET
+  const expectedEnd   = Date.parse('2026-05-20T17:45:00Z'); // 13:45 ET
+  assert.equal(s.open_window_start_ms, expectedStart);
+  assert.equal(s.open_window_end_ms,   expectedEnd);
+});
+
+test('open_window bounds are null during london_open phase', () => {
+  // 04:00 ET on 2026-05-20 — phase london_open. Leader picks only apply
+  // to NY open-reactions per the strategy chain.
+  const s = sessionAt('2026-05-20T08:00:00Z');
+  assert.equal(s.phase, 'london_open');
+  assert.equal(s.open_window_start_ms, null);
+  assert.equal(s.open_window_end_ms, null);
+});
+
+test('open_window bounds are null during inter_session', () => {
+  // 18:30 ET — past NY PM + past the 17:00-18:00 ET daily settlement
+  // break, before next-day's pre-session. Phase is inter_session.
+  const s = sessionAt('2026-05-20T22:30:00Z');
+  assert.equal(s.phase, 'inter_session');
+  assert.equal(s.open_window_start_ms, null);
+  assert.equal(s.open_window_end_ms, null);
+});
