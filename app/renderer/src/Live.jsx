@@ -126,20 +126,31 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
   };
 
   if (!activeSetup) {
+    // The meta slot is a tight tag-line on the right of the panel header —
+    // long reasons (detector diagnostic prose like "MSS: no failure_swing
+    // with dir=bear in pillar3.failure_swings; ...") wrap into a wall of
+    // text that looks broken. Keep meta short; render the full reason as
+    // body prose where it can wrap properly.
     return (
       <div className="work-scroll">
         <Panel title="ENTRY CANDIDATE"
-               meta={noTradeReason ? `no-trade · ${noTradeReason}` : "waiting for setup"}>
+               right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
+          {noTradeReason ? (
+            <>
+              <div className="sect-hd">NO-TRADE REASON</div>
+              <div style={proseStyle}>{noTradeReason}</div>
+            </>
+          ) : null}
           {readHtml ? (
             <>
               <div className="sect-hd">CLAUDE READ {latestReply.t ? `· ${latestReply.t}` : ""}</div>
               <div style={proseStyle}>{readHtml}</div>
             </>
-          ) : (
+          ) : !noTradeReason ? (
             <div style={{ color: "var(--label)", padding: "8px 0", fontSize: 11 }}>
               waiting for Claude's next bar-close read…
             </div>
-          )}
+          ) : null}
         </Panel>
       </div>
     );
