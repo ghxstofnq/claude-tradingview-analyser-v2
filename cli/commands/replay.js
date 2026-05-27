@@ -5,11 +5,12 @@ register('replay', {
   description: 'Replay mode controls',
   subcommands: new Map([
     ['start', {
-      description: 'Start replay mode',
+      description: 'Start replay mode at a specific date',
       options: {
         date: { type: 'string', short: 'd', description: 'Start date (YYYY-MM-DD)' },
+        from: { type: 'string', description: 'Start date alias for --date (YYYY-MM-DD)' },
       },
-      handler: (opts) => core.start({ date: opts.date }),
+      handler: (opts) => core.start({ date: opts.date || opts.from }),
     }],
     ['step', {
       description: 'Advance one bar in replay',

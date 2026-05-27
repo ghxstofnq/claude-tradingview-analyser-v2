@@ -15,7 +15,7 @@ export async function list() {
   const targets = await resp.json();
 
   const tabs = targets
-    .filter(t => t.type === 'page' && /tradingview\.com\/chart/i.test(t.url))
+    .filter(t => (t.type === 'page' || t.type === 'webview') && /tradingview\.com\/chart/i.test(t.url))
     .map((t, i) => ({
       index: i,
       id: t.id,
@@ -60,7 +60,7 @@ export async function newTab() {
 export async function closeTab() {
   const before = await list();
   if (before.tab_count <= 1) {
-    throw new Error('Cannot close the last tab. Use tv_launch to restart TradingView instead.');
+    throw new Error('Cannot close the last tab. Open a new tab in the in-app webview (Cmd+T while focused on the chart pane) before closing the last one.');
   }
 
   const c = await getClient();

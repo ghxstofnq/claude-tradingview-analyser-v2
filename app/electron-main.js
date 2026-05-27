@@ -21,6 +21,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
 const isDev = !app.isPackaged;
 
+// Expose this Electron process (including all renderer processes — the
+// in-app TradingView <webview> in TvChart.jsx) over CDP on port 9223.
+// The CLI's tab-discovery in packages/core/tab.js filters by URL pattern
+// "tradingview.com/chart" and so picks the webview's target automatically.
+// MUST run before app.whenReady() — Chromium reads command-line switches at startup.
+app.commandLine.appendSwitch("remote-debugging-port", "9223");
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,

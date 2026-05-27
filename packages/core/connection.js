@@ -71,9 +71,11 @@ export async function connect() {
 async function findChartTarget() {
   const resp = await fetch(`http://${CDP_HOST}:${CDP_PORT}/json/list`);
   const targets = await resp.json();
-  // Prefer targets with tradingview.com/chart in the URL
-  return targets.find(t => t.type === 'page' && /tradingview\.com\/chart/i.test(t.url))
-    || targets.find(t => t.type === 'page' && /tradingview/i.test(t.url))
+  // Accept either standalone tabs (TV Desktop fallback) or Electron <webview>
+  // targets (the default, post-2026-05-27 webview migration).
+  const isChart = (t) => (t.type === 'page' || t.type === 'webview');
+  return targets.find(t => isChart(t) && /tradingview\.com\/chart/i.test(t.url))
+    || targets.find(t => isChart(t) && /tradingview/i.test(t.url))
     || null;
 }
 

@@ -27,11 +27,7 @@
  */
 import { evaluate, evaluateAsync, getClient } from './connection.js';
 
-const DIALOG_QA = 'alerts-create-edit-dialog';
-const SUBMIT_QA = 'submit';
 const CANCEL_QA = 'cancel';
-const MSG_BUTTON_QA = 'alert-message-button';
-const MSG_SUB_DIALOG_QA = 'alerts-message-edit-dialog';
 
 // ---------- helpers ----------
 
@@ -134,162 +130,161 @@ async function ensureAlertsPanelOpen() {
 
 // ---------- create ----------
 
+// Create an alert via TradingView's REST API
+// (POST https://pricealerts.tradingview.com/create_alert).
+//
+// Replaces the previous DOM-keyboard automation, which targeted TV Desktop's
+// alert dialog and broke after the 2026-05-28 webview migration (TV Web's
+// alert dialog has different DOM). The REST endpoint is the same one TV Web's
+// own "Create alert" button POSTs to — discovered by intercepting fetch from
+// inside the page context (see docs/tradingview-cookbook.md). Uses session
+// cookies via `credentials: 'include'`, just like list().
+//
+// Parameters:
+//   condition  — currently only "crossing" (alias: "cross") is supported, the
+//                default condition type. Other types (greater_than, less_than,
+//                entering_channel, etc.) can be added by extending the
+//                `conditions[].type` value below.
+//   price      — the price level to alert on. Number or numeric string.
+//   message    — alert label. Defaults to TV's standard "<SYM> Crossing <PRICE>"
+//                format when omitted.
 export async function create({ condition, price, message }) {
-  let preIds = new Set();
-  try {
-    const pre = await list();
-    preIds = new Set((pre.alerts || []).map(a => a.alert_id));
-  } catch (_) {}
-
-  // 1) Open Create Alert dialog.
-  const opened = await evaluate(`
-    (function() {
-      var btn = document.querySelector('[aria-label="Create alert"]');
-      if (btn) { btn.click(); return true; }
-      return false;
-    })()
-  `);
-  if (!opened) {
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice)) {
     return {
       success: false,
-      reason: 'Could not click [aria-label="Create alert"] — TradingView UI may have changed.',
-      requested_price: Number(price), condition,
-      source: 'dom_keyboard_unverified',
+      reason: `invalid price: ${price}`,
+      source: 'rest_api',
     };
   }
-  await sleep(1000);
 
-  const client = await getClient();
-
-  // 2) Custom message FIRST (when set) — opens a sub-dialog. Set the message
-  // before touching the price input, because navigating away from the price
-  // input loses any typed value (TV's framework only commits on Enter).
-  let messageSet = false;
-  if (message) {
-    const tabClicked = await evaluate(`
-      (function() {
-        var dlg = document.querySelector('[data-qa-id=${JSON.stringify(DIALOG_QA)}]');
-        if (!dlg) return false;
-        var btn = dlg.querySelector('[data-qa-id=${JSON.stringify(MSG_BUTTON_QA)}]');
-        if (!btn) return false;
-        btn.click();
-        return true;
-      })()
-    `);
-    if (tabClicked) {
-      await sleep(700);
-      const taFocused = await evaluate(`
-        (function() {
-          var sub = document.querySelector('[data-qa-id=${JSON.stringify(MSG_SUB_DIALOG_QA)}]');
-          if (!sub) return false;
-          var ta = sub.querySelector('textarea#alert-message');
-          if (!ta) return false;
-          ta.focus();
-          ta.select();
-          return true;
-        })()
-      `);
-      if (taFocused) {
-        await pressKey(client, 'Backspace');
-        await sleep(60);
-        await typeString(client, message, 15);
-        await sleep(150);
-        // Submit the sub-dialog to commit the message + return to main dialog.
-        await evaluate(`
-          (function() {
-            var sub = document.querySelector('[data-qa-id=${JSON.stringify(MSG_SUB_DIALOG_QA)}]');
-            sub && sub.querySelector('[data-qa-id=${JSON.stringify(SUBMIT_QA)}]')?.click();
-          })()
-        `);
-        await sleep(600);
-        messageSet = true;
+  // Read the active chart's symbol + resolution. The POST payload needs both:
+  // the symbol descriptor (wrapped in TV's "=<json>" format) and the chart
+  // resolution (1m, 5m, 1h, etc.). Other defaults (session=regular,
+  // backadjustment=default, currency-id=USD) match what TV Web's own dialog
+  // sends — captured via fetch-interceptor probe.
+  const chartInfo = await evaluate(`
+    (function() {
+      try {
+        var chart = window.TradingViewApi._activeChartWidgetWV.value();
+        return { symbol: chart.symbol(), resolution: chart.resolution() };
+      } catch(e) {
+        return { error: e.message };
       }
-    }
-  }
-
-  // 3 + 4) Focus + select the price input, then type via CDP keystrokes.
-  // This must happen LAST — TV's price model is volatile and only commits
-  // when Enter is pressed while the input is focused.
-  const focused = await evaluate(`
-    (function() {
-      var dlg = document.querySelector('[data-qa-id=${JSON.stringify(DIALOG_QA)}]');
-      if (!dlg) return false;
-      var input = dlg.querySelector('input[type="text"]');
-      if (!input) return false;
-      input.focus();
-      input.select();
-      return true;
     })()
   `);
-  if (!focused) {
+  if (chartInfo?.error) {
     return {
       success: false,
-      reason: 'Create dialog opened but could not focus the price input.',
-      requested_price: Number(price), condition,
-      message_set_attempted: !!message,
-      message_set_success: messageSet,
-      source: 'dom_keyboard_unverified',
+      reason: 'Could not read chart symbol/resolution: ' + chartInfo.error,
+      source: 'rest_api',
     };
   }
-  await pressKey(client, 'Backspace');
-  await sleep(80);
-  await typeString(client, price, 25);
 
-  // 5) Submit via Enter — commits the typed price into TV's model AND
-  // submits the dialog. Single-action commit is the only reliable path.
-  await sleep(200);
-  await pressKey(client, 'Enter');
+  const symbolDescriptor = '=' + JSON.stringify({
+    backadjustment: 'default',
+    'currency-id': 'USD',
+    session: 'regular',
+    symbol: chartInfo.symbol,
+  });
 
-  // 7) Wait + verify.
-  await sleep(1800);
-  let createdAlert = null;
-  try {
-    const post = await list();
-    const newAlerts = (post.alerts || []).filter(a => !preIds.has(a.alert_id));
-    if (newAlerts.length > 0) {
-      const reqPrice = Number(price);
-      const priceOf = a => {
-        const v = a.condition?.series?.find(s => s.type === 'value')?.value;
-        return typeof v === 'number' ? v : null;
-      };
-      newAlerts.sort((a, b) => {
-        const pa = priceOf(a), pb = priceOf(b);
-        if (pa === null) return 1;
-        if (pb === null) return -1;
-        return Math.abs(pa - reqPrice) - Math.abs(pb - reqPrice);
-      });
-      createdAlert = newAlerts[0];
-    }
-  } catch (_) {}
+  // Default label mirrors TV's own "<TICKER> Crossing <PRICE>" with the
+  // symbol prefix stripped (e.g. CME_MINI:MNQ1! → MNQ1!).
+  const ticker = (chartInfo.symbol || '').split(':').pop() || chartInfo.symbol;
+  const defaultMessage = `${ticker} Crossing ${numericPrice}`;
+  const msg = message || defaultMessage;
 
-  if (createdAlert) {
-    const createdPrice = createdAlert.condition?.series?.find(s => s.type === 'value')?.value ?? null;
-    const drift = createdPrice !== null ? Math.round((createdPrice - Number(price)) * 100) / 100 : null;
+  // 30-day expiration, matching the TV Web default observed in the probe.
+  const expiration = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const payload = {
+    conditions: [{
+      type: 'cross',
+      frequency: 'on_first_fire',
+      series: [
+        { type: 'barset' },
+        { type: 'value', value: numericPrice },
+      ],
+      resolution: chartInfo.resolution,
+    }],
+    symbol: symbolDescriptor,
+    resolution: chartInfo.resolution,
+    message: msg,
+    sound_file: null,
+    sound_duration: 0,
+    popup: false,
+    auto_deactivate: true,
+    email: false,
+    sms_over_email: false,
+    mobile_push: true,
+    web_hook: null,
+    name: null,
+    expiration: expiration,
+    active: true,
+    ignore_warnings: true,
+  };
+
+  // Double-JSON-stringify so the body is a properly-escaped JS string literal
+  // when interpolated into the evaluateAsync source. The payload contains an
+  // already-JSON-encoded symbol descriptor whose backslashes/quotes would
+  // break naive template-literal escaping.
+  const bodyLiteral = JSON.stringify(JSON.stringify({ payload }));
+
+  // POST from inside the page context — session cookies + auth come from
+  // the user's signed-in TradingView session via `credentials: 'include'`.
+  //
+  // IMPORTANT: do NOT set Content-Type. TV's own UI omits it, which makes
+  // this a "simple" CORS request (body sent as text/plain) — no preflight.
+  // Setting Content-Type: application/json triggers a CORS preflight that
+  // TV's server rejects, surfacing as "TypeError: Failed to fetch". The
+  // server parses the body as JSON regardless of the Content-Type header.
+  const result = await evaluateAsync(`
+    fetch('https://pricealerts.tradingview.com/create_alert', {
+      method: 'POST',
+      credentials: 'include',
+      body: ${bodyLiteral},
+    })
+    .then(function(r) { return r.json().then(function(b) { return { status: r.status, ok: r.ok, body: b }; }); })
+    .catch(function(e) { return { error: e.message }; })
+  `);
+
+  if (result?.error) {
     return {
-      success: true,
-      alert_id: createdAlert.alert_id,
-      requested_price: Number(price),
-      created_price: createdPrice,
-      drift,
-      drift_warning: drift !== null && drift !== 0
-        ? `Price drifted ${drift > 0 ? '+' : ''}${drift} — TV rounded or dropped fraction.`
-        : null,
-      condition,
-      message: createdAlert.message || '(auto)',
-      message_set_attempted: !!message,
-      message_set_success: messageSet,
-      source: 'dom_keyboard_verified_via_list',
+      success: false,
+      reason: `create_alert fetch error: ${result.error}`,
+      source: 'rest_api',
     };
   }
+  if (!result?.ok) {
+    return {
+      success: false,
+      reason: `create_alert returned ${result?.status}: ${JSON.stringify(result?.body || {}).slice(0, 200)}`,
+      status: result?.status,
+      source: 'rest_api',
+    };
+  }
+
+  // TV's create_alert response has the same shape as list_alerts:
+  //   { s: "ok", r: { alert_id: <number>, ... } }
+  // Be liberal in extracting the id — some endpoints flatten it.
+  const r = result.body || {};
+  const alertId = r.r?.alert_id ?? r.alert_id ?? r.id ?? null;
+  const createdPrice = r.r?.condition?.series?.find?.(s => s?.type === 'value')?.value
+    ?? numericPrice;
+  const drift = Math.round((createdPrice - numericPrice) * 100) / 100;
 
   return {
-    success: false,
-    reason: 'No new alert appeared in list() after submit.',
-    requested_price: Number(price),
-    condition,
-    message: message || '(none)',
-    message_set_attempted: !!message,
-    source: 'dom_keyboard_unverified',
+    success: true,
+    alert_id: alertId,
+    requested_price: numericPrice,
+    created_price: createdPrice,
+    drift,
+    drift_warning: drift !== 0
+      ? `Price drifted ${drift > 0 ? '+' : ''}${drift} — TV rounded.`
+      : null,
+    condition: condition || 'crossing',
+    message: msg,
+    source: 'rest_api',
   };
 }
 

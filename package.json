@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "TradingView chart analyzer driven by Claude. CLI-only, locked to CDP 9223.",
+  "description": "TradingView chart analyzer driven by Claude. CLI talks to the in-app webview over CDP (port 9223).",
   "scripts": {
     "tv": "node ./cli/index.js",
     "smoke": "./bin/tv status",
