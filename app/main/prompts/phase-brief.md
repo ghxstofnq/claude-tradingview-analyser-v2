@@ -23,30 +23,7 @@ You manage TradingView price alerts via three tools:
 
 Propose alerts in prose during analysis turns after a pre-session grade (HTF draw, untaken liquidity, bias-flip level), when a candidate setup forms (confirmation + invalidation), or after a confirmed setup (TP1, TP2, invalidation). Name the levels with cited prices; wait for the trader's reply before arming during analysis turns.
 
-<bundle_fields>
-
-The ICT Engine indicator is the single data source. It emits one schema-versioned evidence table; `tv analyze` parses it into structured numeric objects. Every price resolves at a real JSON path.
-
-- `chart` — symbol, current resolution, indicators on chart.
-- `quote.last` — current price.
-- `bars` — OHLCV summary + `last_5_bars` at the current chart TF.
-- `bars_by_tf.{daily, h4, h1, m15, m5, m1}` — per-TF bar summaries incl. `range` and `change_pct` (use these for HTF momentum).
-- `engine` — the parsed ICT Engine table at the chart's current TF: `{schema, schema_supported, meta, levels[], sweeps[], fvgs[], bprs[], swings[], structures[], pools[], quality}`.
-- `engine_by_tf.{daily, h4, h1, m15, m5, m1}` — the same parsed engine object captured at each TF. HTF FVGs and HTF structure live here (`.fvgs`, `.structures`, `.swings`, `.quality`, `.levels`).
-- `pair` (present only when `tv analyze --pair` was used) — dual-symbol scan: `{primary, secondary, window_start_ms, window_end_ms, symbols, leader_evidence, leader_decided, leader}`. `pair.symbols.<symbol>` carries the same shape as the top-level bundle for each symbol. `pair.leader_evidence` is computed in code (`{primary_disp_score, secondary_disp_score, margin, threshold, reason, primary_fvg_path, secondary_fvg_path}`); cite it verbatim. `pair.leader` is `null` until `surface_leader_decision` fires; the chosen symbol thereafter.
-- `pair_short_circuited` (present only when the analyzer detected an existing pair-decision.json for the active session) — `true` means the bundle is single-symbol on the leader; no `pair` block this turn.
-- `gates.session.*` — clock-based facts (phase, label, minutes_into_phase, next_killzone_label, seconds_to_next_killzone, in_killzone, is_market_closed, replay state).
-- `gates.engine.meta` — `{schema, schema_supported, tf, emit_ny, symbol, emit_ms, emit_age_seconds, stale, engine_session}` provenance. **If `stale: true` (emit_age_seconds > 90), the engine output is older than one bar — say "engine output is <N>s stale" and emit `surface_no_trade` rather than reading numbers that may be wrong.** `engine_session` is Pine's DST-aware classification (`asia|london|ny_am|ny_pm|off`) — flag any drift vs `gates.session.phase`.
-- `gates.engine.price_context.{inside_fvgs, inside_bprs, nearest_opposing_fvg_above, nearest_opposing_fvg_below}` — engine zones containing current price plus the closest unfilled opposing FVG on either side. Each carries pre-computed `{distance_to_top, distance_to_bottom, distance_to_ce}` (signed; positive = price above). Cite the pre-computed distances directly.
-- `gates.engine.pillar1.session_levels.{PWH, PWL, PDH, PDL, AS_H, AS_L, LO_H, LO_L, NYAM_H, NYAM_L}` — each `{name, price, state, swept, formed_ms, position_vs_price}`. `untaken_sell_side_below[]` + `untaken_buy_side_above[]` are pre-sorted draw targets. `sweeps[]` — explicit liquidity-raid events `{target, price, side, swept_ms, rejected}` (`rejected: true` = a failure-swing reversal tell).
-- `gates.engine.pillar1.{liquidity_pools, untaken_pools_above, untaken_pools_below}` — equal-high (`kind=eqh`) / equal-low (`kind=eql`) pools the engine maintains (strategy §2.1 draw-target liquidity). Sorted closest-first. Each pool `{kind, side, price, swept}`.
-- `gates.engine.pillar2.{current_tf, m5, m15}` — engine quality verdict per TF: `{range_3h, range_quality (good|tight|na), displacement (clean|acceptable|weak|na), candle (engulfing|doji_wick|normal), atr_14, atr_17, session}`. `acceptable` displacement is workable but weaker than `clean`. ATRs are Wilder values shipped by Pine.
-- `gates.engine.pillar3.fvgs[]` — `{kind (fvg|ifvg), dir (bull|bear), top, bottom, ce, created_ms, took_liq, disp_score, reacted, reaction_dir, state (fresh|ce_tapped|filled|inverted|invalidated), size_quality (tiny|normal|large|unknown)}`. Use the engine's `size_quality` field for FVG size decisions: skip `tiny` zones as setup FVGs; `normal` and `large` are tradable. `reacted=true` + `reaction_dir` says the zone already mitigated and in which direction. Pine keeps the most-recent 24 per TF (FIFO).
-- `gates.engine.pillar3.fvgs_ranked[]` — same shape, pre-sorted by `(state=fresh DESC, took_liq DESC, disp_score DESC)`. Prefer this when picking a setup FVG; `fvgs_ranked[0]` is the highest-priority candidate. `fvgs[]` stays Pine order for raw inspection.
-- `gates.engine.pillar3.{bprs[], swings:{internal[], swing[]}, structure_events[], structures_by_tier:{swing[], internal[]}, failure_swings[], most_recent_structure, fvg_summary}` — each swing `{kind, price, bar_ms, tier, swept, is_high}`; each `structure_events` entry `{event (bos|mss), dir, level, displacement, tier, validation (break|sweep), confirmed_ms, is_reclaimed}`. Prefer `structures_by_tier.swing[]` for Trend/MSS reads on external pivots. `failure_swings[]` is the pre-filtered pool of `event=mss + validation=sweep` — stop-run reversals, the strongest reversal cue in the engine. `most_recent_structure` is the latest by `confirmed_ms`. **`is_reclaimed`** is computed from `quote.last` vs `level` by `dir`: a bullish BoS at 29804.75 is `is_reclaimed: true` when `quote.last < 29804.75` (the breakout failed back into the prior range). Same logic for MSS. Treat a reclaimed bos/mss as invalidating the continuation read — don't cite it as a bullish/bearish continuation cue when reclaimed.
-- `gates.engine.confirmation.{last_bar, last_bar_age_seconds, m5_last_bar, m15_last_bar}` — single-bar confirmation facts `{time, open, high, low, close, body_ratio, direction, range, close_position_in_range}`.
-
-</bundle_fields>
+<!-- @partial:bundle-fields -->
 
 <phase name="brief">
 
@@ -207,27 +184,4 @@ End the turn with one `surface_session_brief` call per symbol — twice in `--pa
 
 </phase>
 
-<ict_vocabulary>
-
-- **Market-structure labels (HH/HL/LH/LL)** — the ICT Engine names a swing pivot with the textbook convention: the SECOND letter is the pivot type (`H`igh or `L`ow), the FIRST is whether it is `H`igher or `L`ower than the previous pivot of that same type.
-  - `HH` = Higher High — a swing **high** above the prior high
-  - `HL` = Higher Low — a swing **low** above the prior low
-  - `LH` = Lower High — a swing **high** below the prior high
-  - `LL` = Lower Low — a swing **low** below the prior low
-  - `HH` and `LH` are swing **highs**; `HL` and `LL` are swing **lows**. Each engine swing also carries an explicit `is_high` boolean — trust it. An uptrend prints `HH` + `HL`; a downtrend prints `LH` + `LL`.
-- **HTF / LTF** — higher TF (Daily / 4H / 1H) sets bias; LTF (15m / 5m / 1m) triggers.
-- **Liquidity** — stop pools above swing highs (buy-side) or below swing lows (sell-side).
-- **PDH / PDL** — previous day's high / low.
-- **FVG** — 3-bar imbalance. The engine emits each with `top` / `bottom` / `ce` / `state`; acts as a retracement target.
-- **BPR** — Balanced Price Range. Overlapping bullish + bearish FVGs; the engine emits these as `bprs[]`.
-- **Order block** — last opposing candle before strong displacement.
-- **Mitigation** — price returning to an FVG / OB. The engine tracks it as FVG `state`: `fresh → ce_tapped → filled`.
-- **Inversion FVG** — bearish FVG violated bullishly (or vice versa) — flipped polarity. The engine emits `kind=ifvg`, `state=inverted`.
-- **Killzone** — institutional flow window (London Open, NY AM, NY PM).
-- **CE** — Consequent Encroachment, FVG midpoint. The engine emits it as `ce`.
-- **Displacement** — wide-range directional move creating an FVG. The engine scores it per FVG as `disp_score` (0–1).
-- **Sweep / liquidity raid** — wick beyond a swing/level reversing. The engine emits explicit `sweep` events with a `rejected` flag.
-- **MSS / BOS** — Market Structure Shift (counter-trend break) / Break of Structure (continuation). The engine emits both as `structure_events` with `event`, `dir`, `validation`.
-- **Draw on Liquidity** — the major pool price is being pulled toward.
-
-</ict_vocabulary>
+<!-- @partial:ict-vocab -->

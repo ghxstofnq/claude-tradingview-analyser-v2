@@ -29,10 +29,12 @@ import {
 import { getPersistentMemory } from "./persistent-memory.js";
 import { extractUsageFromResult } from "./usage.js";
 import { classifyError } from "./error-classifier.js";
+import { findPartialReferences, composePhaseWithPartials } from "./prompt-composer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.join(__dirname, "prompts");
 const KERNEL_PATH = path.join(PROMPTS_DIR, "kernel.md");
+const PARTIALS_DIR = path.join(PROMPTS_DIR, "partials");
 const PHASE_PATHS = {
   "bar-close": path.join(PROMPTS_DIR, "phase-bar-close.md"),
   "brief":     path.join(PROMPTS_DIR, "phase-brief.md"),
@@ -118,10 +120,22 @@ async function loadPromptFile(absPath, label) {
 
 async function loadSystemPrompt(purpose) {
   const phasePath = PHASE_PATHS[purpose] || PHASE_PATHS["bar-close"];
-  const [kernel, phase] = await Promise.all([
+  const [kernel, phaseRaw] = await Promise.all([
     loadPromptFile(KERNEL_PATH, "kernel.md"),
     loadPromptFile(phasePath, `phase-${purpose}.md`),
   ]);
+
+  // Scan phase body for <!-- @partial:NAME --> markers and read each
+  // referenced partial. When no markers exist (current state during
+  // migration), the loop is a no-op and the composed phase === phaseRaw.
+  const partialNames = findPartialReferences(phaseRaw);
+  const partialContents = new Map();
+  for (const name of partialNames) {
+    const partialPath = path.join(PARTIALS_DIR, `${name}.md`);
+    const content = await loadPromptFile(partialPath, `partials/${name}.md`);
+    partialContents.set(name, content);
+  }
+  const composedPhase = composePhaseWithPartials(phaseRaw, partialContents);
 
   // Persistent-memory block — prepended (most cache-stable position). Loaded
   // by runOneTurn() at the start of each turn so the snapshot is fresh-per-
@@ -130,7 +144,7 @@ async function loadSystemPrompt(purpose) {
   const memBlock = getPersistentMemory().formatBlockForSystemPrompt();
   const memPrefix = memBlock ? memBlock + "\n\n" : "";
 
-  return memPrefix + kernel + "\n\n" + phase;
+  return memPrefix + kernel + "\n\n" + composedPhase;
 }
 
 // Purposes that can WRITE to persistent memory via the memory tool.
