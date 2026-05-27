@@ -53,3 +53,29 @@ export function composePhaseWithPartials(body, partialContents) {
     return content;
   });
 }
+
+/**
+ * The SDK's cache-breakpoint sentinel — matches the runtime constant
+ * exported by @anthropic-ai/claude-agent-sdk (SYSTEM_PROMPT_DYNAMIC_BOUNDARY
+ * in sdk.d.ts). Duplicated here so prompt-composer.js stays dependency-free
+ * for unit tests. The runtime loader in sdk.js imports the real constant —
+ * this one is only used by joinSystemPrompt below.
+ */
+const BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+
+/**
+ * Reduce a systemPrompt value (string or string[]) to a single string.
+ * For arrays: drop the cache-boundary sentinel, join the rest with "\n\n".
+ * For strings: pass through unchanged. Throws on other types.
+ *
+ * Used by snapshot / verify / diff scripts and by tests that compare the
+ * composed prompt as text. Kept here so the module stays pure (node --test
+ * friendly) — the SDK constant import lives in sdk.js.
+ */
+export function joinSystemPrompt(value) {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) {
+    throw new Error("joinSystemPrompt: expected string or string[]");
+  }
+  return value.filter((b) => b !== BOUNDARY).join("\n\n");
+}

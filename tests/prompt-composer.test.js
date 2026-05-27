@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   findPartialReferences,
   composePhaseWithPartials,
+  joinSystemPrompt,
 } from "../app/main/prompt-composer.js";
 
 // ---------- findPartialReferences ----------
@@ -85,4 +86,47 @@ test("composePhaseWithPartials: preserves multibyte UTF-8 in partial content", (
   const body = "<!-- @partial:foo -->";
   const map = new Map([["foo", "α β γ — em-dash\n"]]);
   assert.equal(composePhaseWithPartials(body, map), "α β γ — em-dash");
+});
+
+// ---------- joinSystemPrompt ----------
+
+const BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+
+test("joinSystemPrompt: passes a string through unchanged (idempotent)", () => {
+  assert.equal(joinSystemPrompt("hello world"), "hello world");
+});
+
+test("joinSystemPrompt: joins string[] with double newline", () => {
+  assert.equal(joinSystemPrompt(["A", "B", "C"]), "A\n\nB\n\nC");
+});
+
+test("joinSystemPrompt: removes the boundary marker before joining", () => {
+  assert.equal(
+    joinSystemPrompt(["A", "B", BOUNDARY, "C"]),
+    "A\n\nB\n\nC"
+  );
+});
+
+test("joinSystemPrompt: boundary in the middle vs end produces same content", () => {
+  assert.equal(joinSystemPrompt(["A", BOUNDARY, "B"]), "A\n\nB");
+});
+
+test("joinSystemPrompt: empty array returns empty string", () => {
+  assert.equal(joinSystemPrompt([]), "");
+});
+
+test("joinSystemPrompt: array of only boundaries returns empty string", () => {
+  assert.equal(joinSystemPrompt([BOUNDARY]), "");
+});
+
+test("joinSystemPrompt: throws on null", () => {
+  assert.throws(() => joinSystemPrompt(null), /expected string or string\[\]/);
+});
+
+test("joinSystemPrompt: throws on number", () => {
+  assert.throws(() => joinSystemPrompt(42), /expected string or string\[\]/);
+});
+
+test("joinSystemPrompt: throws on object (non-array)", () => {
+  assert.throws(() => joinSystemPrompt({foo: "bar"}), /expected string or string\[\]/);
 });

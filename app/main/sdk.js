@@ -13,7 +13,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { query, tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import { query, tool, createSdkMcpServer, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { tvAlertCreate, tvAlertList, tvAlertDeleteOne } from "./tools/tv-alerts.js";
@@ -29,7 +29,7 @@ import {
 import { getPersistentMemory } from "./persistent-memory.js";
 import { extractUsageFromResult } from "./usage.js";
 import { classifyError } from "./error-classifier.js";
-import { findPartialReferences, composePhaseWithPartials } from "./prompt-composer.js";
+import { findPartialReferences, composePhaseWithPartials, joinSystemPrompt } from "./prompt-composer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.join(__dirname, "prompts");
@@ -142,9 +142,20 @@ async function loadSystemPrompt(purpose) {
   // turn but byte-stable across the turn's many messages. See
   // app/main/persistent-memory.js for the snapshot-freeze contract.
   const memBlock = getPersistentMemory().formatBlockForSystemPrompt();
-  const memPrefix = memBlock ? memBlock + "\n\n" : "";
 
-  return memPrefix + kernel + "\n\n" + composedPhase;
+  // Return as string[] so the SDK places a prompt-cache breakpoint at
+  // SYSTEM_PROMPT_DYNAMIC_BOUNDARY: blocks before are part of the
+  // cross-session-cacheable prefix (memBlock stable per day, kernel
+  // permanent); composedPhase varies per purpose and sits after.
+  // Mixed-purpose sequences hit the shared prefix instead of paying full
+  // input cost on every switch. joinSystemPrompt() in prompt-composer.js
+  // reverses this for tests/scripts that compare composed prompts as text.
+  return [
+    ...(memBlock ? [memBlock] : []),
+    kernel,
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+    composedPhase,
+  ];
 }
 
 // Purposes that can WRITE to persistent memory via the memory tool.
@@ -705,8 +716,12 @@ export async function initSdk() {
   // — bar-close is the most common purpose, use it as the warm-up shape.
   const warmup = await loadSystemPrompt("bar-close");
   _mcpServer = buildMcpServer();
+  // loadSystemPrompt now returns string[] (PR 3 — cache breakpoint). The
+  // boot log is informational; report the joined char count to stay
+  // comparable with pre-PR-3 logs (~33000 chars for bar-close).
+  const warmupChars = joinSystemPrompt(warmup).length;
   // eslint-disable-next-line no-console
-  console.log("[sdk] init ok, prompt length (bar-close)", warmup.length, "tools", _allowedToolNames);
+  console.log("[sdk] init ok, prompt length (bar-close)", warmupChars, "tools", _allowedToolNames);
 }
 
 export function resetSession(purpose) {

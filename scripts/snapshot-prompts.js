@@ -7,6 +7,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _loadSystemPromptForTests as loadSystemPrompt } from "../app/main/sdk.js";
+import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.resolve(__dirname, "..", "tests", ".tmp-prompt-snapshots");
@@ -16,7 +17,7 @@ const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close", "catch-up"];
 async function main() {
   await fs.mkdir(OUT_DIR, { recursive: true });
   for (const purpose of PURPOSES) {
-    const prompt = await loadSystemPrompt(purpose);
+    const prompt = joinSystemPrompt(await loadSystemPrompt(purpose));
     const outPath = path.join(OUT_DIR, `${purpose}.txt`);
     await fs.writeFile(outPath, prompt, "utf8");
     console.log(`wrote ${outPath} (${prompt.length} chars)`);

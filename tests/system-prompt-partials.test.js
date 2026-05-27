@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { _loadSystemPromptForTests as loadSystemPrompt } from "../app/main/sdk.js";
+import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 
 // Each purpose's composed prompt MUST contain every marker in its row.
 // Markers are strings searched with includes(); each must appear EXACTLY
@@ -61,7 +62,7 @@ const EXPECTED_SECTIONS = {
 
 for (const [purpose, sections] of Object.entries(EXPECTED_SECTIONS)) {
   test(`${purpose}: composed prompt contains every expected section exactly once`, async () => {
-    const prompt = await loadSystemPrompt(purpose);
+    const prompt = joinSystemPrompt(await loadSystemPrompt(purpose));
     for (const marker of sections) {
       const count = prompt.split(marker).length - 1;
       assert.equal(
@@ -74,20 +75,20 @@ for (const [purpose, sections] of Object.entries(EXPECTED_SECTIONS)) {
 }
 
 test("composed prompt for chat does NOT contain analysis-only sections", async () => {
-  const prompt = await loadSystemPrompt("chat");
+  const prompt = joinSystemPrompt(await loadSystemPrompt("chat"));
   assert.ok(!prompt.includes("<bundle_fields>"), "chat must not carry bundle_fields");
   assert.ok(!prompt.includes("<examples>"), "chat must not carry examples");
   assert.ok(!prompt.includes("<anti_patterns>\n"), "chat must not carry anti_patterns");
 });
 
 test("composed prompt for review does NOT contain analysis-only sections", async () => {
-  const prompt = await loadSystemPrompt("review");
+  const prompt = joinSystemPrompt(await loadSystemPrompt("review"));
   assert.ok(!prompt.includes("<bundle_fields>"), "review must not carry bundle_fields");
   assert.ok(!prompt.includes("<examples>"), "review must not carry examples");
 });
 
 test("composed prompt for wrap does NOT contain analysis-only sections", async () => {
-  const prompt = await loadSystemPrompt("wrap");
+  const prompt = joinSystemPrompt(await loadSystemPrompt("wrap"));
   assert.ok(!prompt.includes("<bundle_fields>"), "wrap must not carry bundle_fields");
   assert.ok(!prompt.includes("<examples>"), "wrap must not carry examples");
 });

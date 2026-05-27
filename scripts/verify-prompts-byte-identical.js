@@ -8,6 +8,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _loadSystemPromptForTests as loadSystemPrompt } from "../app/main/sdk.js";
+import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOT_DIR = path.resolve(__dirname, "..", "tests", ".tmp-prompt-snapshots");
@@ -18,7 +19,7 @@ async function main() {
   for (const purpose of PURPOSES) {
     const oldPath = path.join(SNAPSHOT_DIR, `${purpose}.txt`);
     const oldText = await fs.readFile(oldPath, "utf8");
-    const newText = await loadSystemPrompt(purpose);
+    const newText = joinSystemPrompt(await loadSystemPrompt(purpose));
     if (newText === oldText) {
       console.log(`${purpose.padEnd(12)} OK (${newText.length} chars)`);
     } else {
