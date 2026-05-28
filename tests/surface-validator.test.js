@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSetupAgainstCandidate } from '../app/main/tools/surface.js';
+import { validateSetupAgainstCandidate, surfaceNoTrade, setCurrentCandidate, clearCurrentCandidate, clearCurrentSurfaceState } from '../app/main/tools/surface.js';
 
 function validCandidate() {
   return {
@@ -68,4 +68,15 @@ test('validator: throws when grade exceeds grade_capped', () => {
 test('validator: throws when model/side mismatch with detector', () => {
   const payload = { model: 'Trend', side: 'long', entry: 29998.5, entry_cite: 'engine_by_tf.m5.fvgs[3].top', stop: 29981.25, stop_cite: 'bars_by_tf.m5.last_5_bars[0].low', tp1: 30015, tp1_cite: 'pillar1.mnq.overnight.untaken_above[0]', tp2: 30119, tp2_cite: 'pillar1.mnq.overnight.untaken_above[1]', grade: 'B' };
   assert.throws(() => validateSetupAgainstCandidate(payload, validCandidate(), validBundle()), /model\/side.*does not match/);
+});
+
+test('surface_no_trade rejects missed valid setup when detector has a best_candidate', async () => {
+  clearCurrentSurfaceState();
+  setCurrentCandidate(validCandidate(), validBundle());
+  await assert.rejects(
+    () => surfaceNoTrade({ reason: 'waiting' }),
+    /detector emitted a tradable best_candidate.*surface_setup/i,
+  );
+  clearCurrentCandidate();
+  clearCurrentSurfaceState();
 });

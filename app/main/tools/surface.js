@@ -255,6 +255,9 @@ export async function surfaceSetup(payload) {
 }
 
 export async function surfaceNoTrade({ reason }) {
+  if (_currentCandidate?.best_candidate && _currentBundle) {
+    throw new Error('surface_no_trade: detector emitted a tradable best_candidate. Use surface_setup or clear the detector candidate; no-trade would create a missed valid setup.');
+  }
   // #19 If a surface_setup just fired in this turn, surface_no_trade
   // would race with it — UI shows whichever lands last. The setup is
   // the higher-value signal; ignore no_trade if a setup is live and
