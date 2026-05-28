@@ -231,11 +231,16 @@ function recordMemoryWrite(target) {
   _lastWriteByTarget.set(target, Date.now());
 }
 
+function shouldRecordMemoryWrite(action, result) {
+  return result?.success === true && action !== "remove";
+}
+
 // Exported for tests only.
 export const _guardrailsForTests = {
   checkMemoryGuardrails,
   recordMemoryWrite,
   resetMemoryGuardrails,
+  shouldRecordMemoryWrite,
   getState: () => ({
     writesThisTurn: _memoryWritesThisTurn,
     lastByTarget: new Map(_lastWriteByTarget),
@@ -682,7 +687,7 @@ If a write would exceed the char limit, the tool refuses and tells you which ent
           } else {
             result = { success: false, error: `unknown action '${action}' — use add/replace/remove` };
           }
-          if (result.success) recordMemoryWrite(target);
+          if (shouldRecordMemoryWrite(action, result)) recordMemoryWrite(target);
           return result.success ? ok(result) : err(result.error || "memory tool failed");
         } catch (e) {
           return err(e?.message || String(e));

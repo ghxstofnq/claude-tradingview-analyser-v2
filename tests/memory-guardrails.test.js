@@ -2,7 +2,20 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { _guardrailsForTests } from "../app/main/sdk.js";
 
-const { checkMemoryGuardrails, recordMemoryWrite, resetMemoryGuardrails, getState } = _guardrailsForTests;
+const {
+  checkMemoryGuardrails,
+  recordMemoryWrite,
+  resetMemoryGuardrails,
+  getState,
+  shouldRecordMemoryWrite,
+} = _guardrailsForTests;
+
+test("remove success does not consume write cap or target throttle", () => {
+  assert.equal(shouldRecordMemoryWrite("remove", { success: true }), false);
+  assert.equal(shouldRecordMemoryWrite("add", { success: true }), true);
+  assert.equal(shouldRecordMemoryWrite("replace", { success: true }), true);
+  assert.equal(shouldRecordMemoryWrite("add", { success: false }), false);
+});
 
 test("guardrails allow normal adds under the per-turn cap", () => {
   resetMemoryGuardrails();
