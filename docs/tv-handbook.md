@@ -115,14 +115,17 @@ Drift: TV may round the requested price to the symbol's tick. Response includes 
 ## Replay
 
 ```bash
-./bin/tv replay start --from 2025-05-20    # start at a date (YYYY-MM-DD)
-./bin/tv replay start -d 2025-05-20        # alias for --from
-./bin/tv replay status                     # is replay active? current bar time?
-./bin/tv replay step                       # advance one bar
-./bin/tv replay autoplay -s 500            # toggle autoplay; speed = ms delay (lower = faster)
-./bin/tv replay stop                       # exit replay back to realtime
-./bin/tv replay trade buy                  # paper-trade in replay (buy, sell, close)
+./bin/tv replay start --from 2025-05-20              # start at a date (YYYY-MM-DD)
+./bin/tv replay start -d 2025-05-20                  # alias for --from
+./bin/tv replay start --from 2025-05-20 --at 09:30   # anchor to NY AM open (HH:MM ET, DST-aware)
+./bin/tv replay status                               # is replay active? current bar time?
+./bin/tv replay step                                 # advance one bar
+./bin/tv replay autoplay -s 500                      # toggle autoplay; speed = ms delay (lower = faster)
+./bin/tv replay stop                                 # exit replay back to realtime
+./bin/tv replay trade buy                            # paper-trade in replay (buy, sell, close)
 ```
+
+Date-only behavior: a bare `--from YYYY-MM-DD` is interpreted by JS as **midnight UTC**, which is 8 PM ET *the prior day*. Use `--at HH:MM` to anchor to an ET wall-clock time (09:30 = NY AM open, 13:30 = London close, etc.). TV snaps to the bar whose open is at or just before the requested instant — so `--at 09:30` on a 1m chart lands you on the 09:29 ET bar (the bar that closes *at* 09:30).
 
 ## Screenshots
 

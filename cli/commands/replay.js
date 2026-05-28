@@ -9,8 +9,9 @@ register('replay', {
       options: {
         date: { type: 'string', short: 'd', description: 'Start date (YYYY-MM-DD)' },
         from: { type: 'string', description: 'Start date alias for --date (YYYY-MM-DD)' },
+        at: { type: 'string', description: 'Optional ET time-of-day (HH:MM), e.g. 09:30 for NY AM open. Without --at, a bare date is interpreted as midnight UTC (= 8 PM ET prior day).' },
       },
-      handler: (opts) => core.start({ date: opts.date || opts.from }),
+      handler: (opts) => core.start({ date: opts.date || opts.from, time: opts.at }),
     }],
     ['step', {
       description: 'Advance one bar in replay',

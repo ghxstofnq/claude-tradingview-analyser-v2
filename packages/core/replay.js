@@ -7,7 +7,29 @@ function wv(path) {
   return `(function(){ var v = ${path}; return (v && typeof v === 'object' && typeof v.value === 'function') ? v.value() : v; })()`;
 }
 
-export async function start({ date } = {}) {
+// Convert "YYYY-MM-DD" + "HH:MM" (ET wall clock) into an ISO UTC timestamp.
+// DST-aware: probes whether ET is EDT (UTC-4) or EST (UTC-5) on that date.
+// Without time, a bare date string is interpreted as midnight UTC by JS's
+// Date constructor, which is 8 PM ET the prior day — useful for "set replay
+// to the very start of date X UTC" but never what a trader means when they
+// say "replay 2026-05-20".
+export function etTimestampToIsoUtc(dateStr, timeStr) {
+  const [y, mo, d] = String(dateStr).split('-').map(Number);
+  const [hh, mm = 0] = String(timeStr).split(':').map(Number);
+  if (![y, mo, d, hh, mm].every(n => Number.isFinite(n))) {
+    throw new Error(`Invalid date/time for ET conversion: date='${dateStr}' time='${timeStr}'`);
+  }
+  // Trial 1: assume EDT (UTC-4). If the resulting UTC moment shows our
+  // intended ET hour, we're done. Otherwise EST (UTC-5).
+  const t1Ms = Date.UTC(y, mo - 1, d, hh + 4, mm);
+  const etHourAtT1 = new Date(t1Ms).toLocaleString('en-US', {
+    timeZone: 'America/New_York', hour: '2-digit', hour12: false,
+  });
+  if ((parseInt(etHourAtT1, 10) % 24) === hh) return new Date(t1Ms).toISOString();
+  return new Date(Date.UTC(y, mo - 1, d, hh + 5, mm)).toISOString();
+}
+
+export async function start({ date, time } = {}) {
   const rp = await getReplayApi();
   const available = await evaluate(wv(`${rp}.isReplayAvailable()`));
   if (!available) throw new Error('Replay is not available for the current symbol/timeframe');
@@ -15,8 +37,12 @@ export async function start({ date } = {}) {
   await evaluate(`${rp}.showReplayToolbar()`);
   await new Promise(r => setTimeout(r, 500));
 
-  if (date) await evaluate(`${rp}.selectDate(new Date('${date}'))`);
-  else await evaluate(`${rp}.selectFirstAvailableDate()`);
+  if (date) {
+    const tsArg = time ? etTimestampToIsoUtc(date, time) : date;
+    await evaluate(`${rp}.selectDate(new Date('${tsArg}'))`);
+  } else {
+    await evaluate(`${rp}.selectFirstAvailableDate()`);
+  }
   await new Promise(r => setTimeout(r, 1000));
 
   // Check for "Data point unavailable" toast which corrupts the chart
