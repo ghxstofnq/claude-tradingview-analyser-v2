@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tally, agreementPct, replayAccuracyReport } from '../scripts/judge-report.js';
+import { tally, agreementPct, replayAccuracyReport, formatReplayAccuracyReport } from '../scripts/judge-report.js';
 
 test('tally counts verdicts per dimension', () => {
   const results = [
@@ -37,4 +37,29 @@ test('replayAccuracyReport counts false candidates, missed valid setups, wrong s
   assert.equal(report.wrong_side, 1);
   assert.equal(report.mismatches.length, 4);
   assert.deepEqual(report.mismatches.map((m) => m.fixture), ['false-candidate', 'missed-valid', 'wrong-model', 'wrong-side']);
+});
+
+test('formatReplayAccuracyReport prints decision-grade replay failure counts', () => {
+  const text = formatReplayAccuracyReport({
+    total: 6,
+    correct_trades: 1,
+    correct_no_trades: 1,
+    false_candidates: 1,
+    missed_valid_setups: 1,
+    wrong_model: 1,
+    wrong_side: 1,
+    mismatches: [
+      { fixture: 'false-candidate', type: 'false_candidate' },
+      { fixture: 'missed-valid', type: 'missed_valid_setup' },
+    ],
+  });
+
+  assert.match(text, /Replay accuracy — 6 case\(s\)/);
+  assert.match(text, /correct trades\s+1/);
+  assert.match(text, /correct no-trades\s+1/);
+  assert.match(text, /false candidates\s+1/);
+  assert.match(text, /missed valid setups\s+1/);
+  assert.match(text, /wrong model\s+1/);
+  assert.match(text, /wrong side\s+1/);
+  assert.match(text, /false-candidate\s+false_candidate/);
 });

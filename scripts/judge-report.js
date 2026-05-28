@@ -86,6 +86,25 @@ export function replayAccuracyReport(cases) {
   return report;
 }
 
+export function formatReplayAccuracyReport(report) {
+  const lines = [
+    `Replay accuracy — ${report.total} case(s)`,
+    `  correct trades       ${report.correct_trades}`,
+    `  correct no-trades    ${report.correct_no_trades}`,
+    `  false candidates     ${report.false_candidates}`,
+    `  missed valid setups  ${report.missed_valid_setups}`,
+    `  wrong model          ${report.wrong_model}`,
+    `  wrong side           ${report.wrong_side}`,
+  ];
+  if ((report.mismatches ?? []).length) {
+    lines.push('  mismatches:');
+    for (const m of report.mismatches) {
+      lines.push(`    ${String(m.fixture ?? '(unknown)').padEnd(24)} ${m.type}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 function main() {
   const files = readdirSync(FIXTURES).filter((f) => f.endsWith('.judge.json'));
   if (files.length === 0) {
@@ -98,6 +117,12 @@ function main() {
   for (const [dim, counts] of Object.entries(dims)) {
     console.log(`  ${dim.padEnd(22)} ${agreementPct(counts)}%  ` +
       `(agree ${counts.agree} / partial ${counts.partial} / disagree ${counts.disagree})`);
+  }
+
+  const replayFiles = readdirSync(FIXTURES).filter((f) => f.endsWith('.replay.json') || f.endsWith('.accuracy.json'));
+  if (replayFiles.length) {
+    const cases = replayFiles.map((f) => JSON.parse(readFileSync(join(FIXTURES, f), 'utf8')));
+    console.log(`\n${formatReplayAccuracyReport(replayAccuracyReport(cases))}`);
   }
 }
 
