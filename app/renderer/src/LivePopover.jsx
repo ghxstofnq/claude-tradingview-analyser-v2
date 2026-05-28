@@ -22,6 +22,7 @@ import { useChat } from "./hooks/useChat.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
 import { useSessionBrief } from "./hooks/useSessionBrief.js";
 import { useClock } from "./hooks/useClock.js";
+import { useWalkers } from "./hooks/useWalkers.js";
 
 // ── Loop banner (only when unhealthy) ────────────────────────────────
 function LoopBanner({ status }) {
@@ -131,7 +132,40 @@ function latestClaudeReadHtml(messages) {
 }
 
 // ── Sub-state 2: ENTRY HUNT (Step 5 + Step 6) ────────────────────────
+// WALKER STATUS panel — renders the per-session walker engine state above
+// the entry candidate. Walker engine replaced Claude reasoning for Pillar 3
+// + confirmation; this panel exposes what the engine is watching in real time.
+function WalkerStatusPanel({ walkers }) {
+  if (!walkers || walkers.length === 0) return null;
+  return (
+    <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
+      <div style={{ color: "var(--label)", fontSize: 10, letterSpacing: ".22em", marginBottom: 8 }}>WALKER STATUS</div>
+      {walkers.map((w) => {
+        const ageM = w.last_advanced_at ? Math.round((Date.now() - w.last_advanced_at) / 60_000) : null;
+        return (
+          <div key={w.id} style={{ fontSize: 10.5, marginBottom: 6 }}>
+            <div style={{ color: "var(--value)" }}>
+              {w.panel_id} · {w.model} · {w.variant} · {(w.size_multiplier ?? 1).toFixed(1)}× size
+            </div>
+            <div style={{ color: "var(--label-dim)" }}>
+              ▸ {w.stage}{ageM != null ? ` (${ageM}m)` : ""}
+            </div>
+            {w.displacement_fvg && (
+              <div style={{ color: "var(--label)" }}>
+                watching FVG {w.displacement_fvg.low}–{w.displacement_fvg.high}
+                {w.hypothetical_r_to_stop != null ? ` · R-to-stop ${w.hypothetical_r_to_stop}` : ""}
+                {w.hypothetical_r_to_tp1 != null ? ` · R-to-TP1 ${w.hypothetical_r_to_tp1}` : ""}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat }) {
+  const walkers = useWalkers();
   // Show Claude's latest read regardless of whether a setup is active —
   // when no setup, it explains *why* no-trade; when a setup is in play,
   // it gives the chain rationale.
@@ -154,6 +188,7 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
     // body prose where it can wrap properly.
     return (
       <div className="work-scroll">
+        <WalkerStatusPanel walkers={walkers} />
         <Panel title="ENTRY CANDIDATE"
                right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
           {noTradeReason ? (
@@ -169,7 +204,7 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
             </>
           ) : !noTradeReason ? (
             <div style={{ color: "var(--label)", padding: "8px 0", fontSize: 11 }}>
-              waiting for Claude's next bar-close read…
+              waiting for walker engine to fire…
             </div>
           ) : null}
         </Panel>
@@ -189,6 +224,7 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
   const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : "dim";
   return (
     <div className="work-scroll">
+      <WalkerStatusPanel walkers={walkers} />
       <Panel title="ENTRY CANDIDATE"
              right={
                <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
