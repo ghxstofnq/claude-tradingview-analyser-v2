@@ -74,14 +74,15 @@ let _running = false;
  * Should this bar-close turn route into <phase name="catch_up"> instead of
  * the regular phase? True iff:
  * - We're past the open-reaction window (entry_hunt phase or post_session)
- * - pillar1.md exists (brief did fire)
+ * - pillar1.md + pillar2.md exist (brief/pillar state is complete)
  * - ltf-bias.md does NOT exist (open-reaction never ran or didn't finalize)
  *
  * Spec: docs/superpowers/specs/2026-05-26-strategy-chain-design.md §5.1
  */
-export function shouldRouteToCatchUp({ sessionPhase, pillar1Exists, ltfBiasExists }) {
+export function shouldRouteToCatchUp({ sessionPhase, pillar1Exists, pillar2Exists, ltfBiasExists }) {
   if (ltfBiasExists) return false;
   if (!pillar1Exists) return false;
+  if (!pillar2Exists) return false;
   if (sessionPhase === 'entry_hunt_ny_am' || sessionPhase === 'entry_hunt_ny_pm') return true;
   if (sessionPhase === 'post_ny_am' || sessionPhase === 'post_ny_pm') return true;
   return false;
@@ -485,11 +486,13 @@ Do not walk MSS / Trend / Inversion from scratch. Do not paraphrase the rejectio
   // routing per spec §5.1.
   const sdir = await activeSessionDir();
   const pillar1Exists = existsSync(path.join(sdir, "pillar1.md"));
+  const pillar2Exists = existsSync(path.join(sdir, "pillar2.md"));
   const ltfBiasExists = existsSync(path.join(sdir, "ltf-bias.md"));
   const sessionPhase = `${phase}_${session.replace("-", "_")}`;
   const isCatchUp = shouldRouteToCatchUp({
     sessionPhase,
     pillar1Exists,
+    pillar2Exists,
     ltfBiasExists,
   });
   // When in catch-up mode, REPLACE the per-phase hint with a focused

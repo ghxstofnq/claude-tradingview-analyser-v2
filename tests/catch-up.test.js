@@ -18,9 +18,21 @@ describe('catch-up routing', () => {
       sessionPhase: 'entry_hunt_ny_am',
       minutesIntoPhase: 30,
       pillar1Exists: true,
+      pillar2Exists: true,
       ltfBiasExists: false,
     });
     assert.equal(r, true);
+  });
+
+  test('past window, pillar1 exists but pillar2 missing → not catch-up because brief is incomplete', () => {
+    const r = shouldRouteToCatchUp({
+      sessionPhase: 'entry_hunt_ny_am',
+      minutesIntoPhase: 30,
+      pillar1Exists: true,
+      pillar2Exists: false,
+      ltfBiasExists: false,
+    });
+    assert.equal(r, false);
   });
 
   test('past window, ltf-bias.md exists → normal flow (not catch-up)', () => {
@@ -28,6 +40,7 @@ describe('catch-up routing', () => {
       sessionPhase: 'entry_hunt_ny_am',
       minutesIntoPhase: 30,
       pillar1Exists: true,
+      pillar2Exists: true,
       ltfBiasExists: true,
     });
     assert.equal(r, false);
@@ -38,6 +51,7 @@ describe('catch-up routing', () => {
       sessionPhase: 'entry_hunt_ny_am',
       minutesIntoPhase: 30,
       pillar1Exists: false,
+      pillar2Exists: false,
       ltfBiasExists: false,
     });
     assert.equal(r, false);
@@ -48,6 +62,7 @@ describe('catch-up routing', () => {
       sessionPhase: 'entry_hunt_ny_pm',
       minutesIntoPhase: 30,
       pillar1Exists: true,
+      pillar2Exists: true,
       ltfBiasExists: false,
     });
     assert.equal(r, true);
@@ -58,6 +73,7 @@ describe('catch-up routing', () => {
       sessionPhase: 'post_ny_am',
       minutesIntoPhase: 5,
       pillar1Exists: true,
+      pillar2Exists: true,
       ltfBiasExists: false,
     });
     assert.equal(r, true);
@@ -68,6 +84,7 @@ describe('catch-up routing', () => {
       sessionPhase: 'inter_session',
       minutesIntoPhase: 0,
       pillar1Exists: true,
+      pillar2Exists: true,
       ltfBiasExists: false,
     });
     assert.equal(r, false);

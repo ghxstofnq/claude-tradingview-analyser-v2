@@ -100,6 +100,12 @@ export async function writeBrief(dir, payload) {
   );
   await writeAtomic(path.join(dir, "pillar1.md"), pillar1Md);
   await writeAtomic(path.join(dir, "pillar2.md"), pillar2Md);
+
+  // A brief refresh changes the HTF/Pillar context that LTF bias is derived
+  // from. If catch-up/open-reaction already wrote ltf-bias.md (for example
+  // from an empty/partial session folder before the brief completed), remove
+  // it so the next eligible bar regenerates against the fresh pillar pair.
+  await fs.rm(path.join(dir, "ltf-bias.md"), { force: true });
 }
 
 /**

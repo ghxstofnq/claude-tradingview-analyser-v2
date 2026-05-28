@@ -101,6 +101,20 @@ describe("brief flow — surface tool", () => {
     assert.match(txt, /--- pillars\.md ---/);
     assert.equal((txt.match(/--- pillar1\.md ---/g) || []).length, 0);
   });
+
+  it("invalidates stale ltf-bias.md after a fresh brief writes pillars", async () => {
+    const { writeBrief } = await import("../app/main/session-memory.js");
+    const dir = path.join(SANDBOX, "invalidate-ltf-bias");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "ltf-bias.md"), "---\nltf_bias: stand_aside\nchain_status: stale\n---\n");
+
+    await writeBrief(dir, { ...VALID_PRIMARY_BRIEF, ts: "2026-05-25T13:00:00Z" });
+
+    await assert.rejects(
+      fs.readFile(path.join(dir, "ltf-bias.md"), "utf8"),
+      { code: "ENOENT" },
+    );
+  });
 });
 
 describe("brief flow — postValidate", () => {
