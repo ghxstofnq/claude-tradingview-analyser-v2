@@ -15,6 +15,7 @@ function baseBundle() {
     },
     gates: {
       engine: {
+        meta: { stale: false, emit_age_seconds: 0, schema_supported: true },
         price_context: { last: 29998.5, inside_fvgs: [{ kind: 'fvg', dir: 'bull', top: 29998.5, bottom: 29992.5, state: 'fresh' }], inside_bprs: [] },
         pillar1: { sweeps: [{ target: 'AS_L', price: 29982.25, side: 'sell', rejected: true, swept_ms: 1779836280000 }] },
         pillar2: { current_tf: { range_quality: 'good', displacement: 'clean' } },
@@ -459,6 +460,47 @@ test('detectSetups: returns wait state when engine stale', () => {
   const r = detectSetups({ bundle: b, leader: 'mnq', ltf_bias_context: {}, untaken_targets: {} });
   assert.equal(r.best_candidate, null);
   assert.match(r.rejection_summary, /stale/i);
+});
+
+test('detectSetups: blocks when engine source health meta is missing', () => {
+  const b = fullPositiveMssBundle();
+  delete b.gates.engine.meta;
+  const r = detectSetups({
+    bundle: b,
+    leader: 'mnq',
+    ltf_bias_context: { bias: 'bull', htf_ltf_alignment: 'aligned', grade_cap: 'A+', entry_model_priority: 'mss' },
+    untaken_targets: { untaken_above: [{ price: 30015, cite: 'pillar1.mnq.overnight.untaken_above[0]' }, { price: 30119, cite: 'pillar1.mnq.overnight.untaken_above[1]' }], untaken_below: [] },
+  });
+  assert.equal(r.best_candidate, null);
+  assert.match(r.rejection_summary, /source health/i);
+  assert.match(r.rejection_summary, /missing/i);
+});
+
+test('detectSetups: blocks when engine source health stale flag is unknown', () => {
+  const b = fullPositiveMssBundle();
+  delete b.gates.engine.meta.stale;
+  const r = detectSetups({
+    bundle: b,
+    leader: 'mnq',
+    ltf_bias_context: { bias: 'bull', htf_ltf_alignment: 'aligned', grade_cap: 'A+', entry_model_priority: 'mss' },
+    untaken_targets: { untaken_above: [{ price: 30015, cite: 'pillar1.mnq.overnight.untaken_above[0]' }, { price: 30119, cite: 'pillar1.mnq.overnight.untaken_above[1]' }], untaken_below: [] },
+  });
+  assert.equal(r.best_candidate, null);
+  assert.match(r.rejection_summary, /source health/i);
+  assert.match(r.rejection_summary, /stale/i);
+});
+
+test('detectSetups: blocks unsupported ICT Engine schema before candidate promotion', () => {
+  const b = fullPositiveMssBundle();
+  b.gates.engine.meta.schema_supported = false;
+  const r = detectSetups({
+    bundle: b,
+    leader: 'mnq',
+    ltf_bias_context: { bias: 'bull', htf_ltf_alignment: 'aligned', grade_cap: 'A+', entry_model_priority: 'mss' },
+    untaken_targets: { untaken_above: [{ price: 30015, cite: 'pillar1.mnq.overnight.untaken_above[0]' }, { price: 30119, cite: 'pillar1.mnq.overnight.untaken_above[1]' }], untaken_below: [] },
+  });
+  assert.equal(r.best_candidate, null);
+  assert.match(r.rejection_summary, /unsupported/i);
 });
 
 test('detectSetups: builds MSS-long candidate when all components present', () => {

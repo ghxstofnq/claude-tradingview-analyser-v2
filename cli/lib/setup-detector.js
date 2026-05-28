@@ -353,6 +353,24 @@ export function deriveEntry({ kind, fvg, bpr, side, tf, fvgIdx, bprIdx }) {
 // Orchestrator — detectSetups, candidate builders, conflict resolution.
 // ============================================================================
 
+function engineHealthWaitReason(bundle) {
+  const engine = bundle?.gates?.engine;
+  if (!engine) return 'Engine source health missing: gates.engine not available. No trade.';
+  const meta = engine.meta;
+  if (!meta) return 'Engine source health missing: gates.engine.meta not available. No trade.';
+  if (meta.schema_supported === false || bundle?.engine?.schema_supported === false) {
+    return 'Unsupported ICT Engine schema. No trade until supported evidence is emitted.';
+  }
+  if (meta.stale !== false) {
+    if (meta.stale === true) {
+      const age = meta.emit_age_seconds;
+      return `Engine stale (age ${age}s). Awaiting fresh data.`;
+    }
+    return 'Engine source health unknown: meta.stale missing. No trade until fresh=false is explicit.';
+  }
+  return null;
+}
+
 export function detectSetups({ bundle, leader, ltf_bias_context, untaken_targets }) {
   const meta = {
     detector_version: '1.0',
@@ -361,12 +379,10 @@ export function detectSetups({ bundle, leader, ltf_bias_context, untaken_targets
     bar_close_ms: bundle?.quote?.time ? bundle.quote.time * 1000 : null,
   };
 
-  // Early returns: leader undefined, engine stale, missing brief digest.
+  // Early returns: leader undefined, missing/unknown/unsupported/stale engine source health, missing brief digest.
   if (!leader) return waitState({ reason: 'Awaiting leader decision in open_reaction', meta });
-  if (bundle?.gates?.engine?.meta?.stale === true) {
-    const age = bundle.gates.engine.meta.emit_age_seconds;
-    return waitState({ reason: `Engine stale (age ${age}s). Awaiting fresh data.`, meta });
-  }
+  const engineHealthReason = engineHealthWaitReason(bundle);
+  if (engineHealthReason) return waitState({ reason: engineHealthReason, meta });
   if (!bundle?.brief_digest?.symbols) {
     return waitState({ reason: 'Awaiting brief. Run brief phase first.', meta });
   }
