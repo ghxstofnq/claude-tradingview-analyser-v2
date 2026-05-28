@@ -53,6 +53,42 @@
         "ltf_bias_context": { "bias": "bull", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "mss" }
       },
       "expected": { "outcome": "no_trade" }
+    },
+    {
+      "fixture": "011-trend-bull-weak-confirmation-no-trade",
+      "bundlePath": "011-trend-bull-weak-confirmation-no-trade.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bull", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "trend" }
+      },
+      "expected": { "outcome": "no_trade" }
+    },
+    {
+      "fixture": "012-trend-bull-missing-primary-draw-no-trade",
+      "bundlePath": "012-trend-bull-missing-primary-draw-no-trade.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bull", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "trend" }
+      },
+      "expected": { "outcome": "no_trade" }
+    },
+    {
+      "fixture": "013-inversion-short-weak-confirmation-no-trade",
+      "bundlePath": "013-inversion-short-weak-confirmation-no-trade.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bear", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "inversion" }
+      },
+      "expected": { "outcome": "no_trade" }
+    },
+    {
+      "fixture": "014-inversion-short-missing-primary-draw-no-trade",
+      "bundlePath": "014-inversion-short-missing-primary-draw-no-trade.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bear", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "inversion" }
+      },
+      "expected": { "outcome": "no_trade" }
     }
   ]
 }

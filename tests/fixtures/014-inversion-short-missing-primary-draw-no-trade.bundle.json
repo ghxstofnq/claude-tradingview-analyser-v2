@@ -1,0 +1,286 @@
+{
+  "timestamp": "2026-05-26T18:04:00.000Z",
+  "chart": {
+    "success": true,
+    "symbol": "CME_MINI:MNQ1!",
+    "resolution": "5",
+    "chartType": 1,
+    "studies": [
+      {
+        "id": "VYLfls",
+        "name": "ICT Engine"
+      }
+    ]
+  },
+  "visible_range": {
+    "success": true,
+    "visible_range": {
+      "from": 1779832800,
+      "to": 1779836400
+    },
+    "bars_range": {
+      "from": 1779832800,
+      "to": 1779836400
+    }
+  },
+  "quote": {
+    "success": true,
+    "symbol": "CME_MINI:MNQ1!",
+    "time": 1779836400,
+    "open": 30005,
+    "high": 30007.5,
+    "low": 29995,
+    "close": 29995.5,
+    "last": 29995.5,
+    "volume": 920
+  },
+  "bars": {
+    "success": true,
+    "bar_count": 12,
+    "period": {
+      "from": 1779832800,
+      "to": 1779836400
+    },
+    "open": 30015,
+    "close": 29995.5,
+    "high": 30018,
+    "low": 29993,
+    "range": 25,
+    "change": -19.5,
+    "change_pct": "-0.06%",
+    "avg_volume": 480,
+    "last_5_bars": [
+      {
+        "time": 1779836160,
+        "open": 30010,
+        "high": 30014,
+        "low": 30006,
+        "close": 30013,
+        "volume": 380
+      },
+      {
+        "time": 1779836220,
+        "open": 30013,
+        "high": 30015,
+        "low": 30005,
+        "close": 30007,
+        "volume": 510
+      },
+      {
+        "time": 1779836280,
+        "open": 30007,
+        "high": 30008,
+        "low": 29998,
+        "close": 30000,
+        "volume": 720
+      },
+      {
+        "time": 1779836340,
+        "open": 30000,
+        "high": 30002,
+        "low": 29993,
+        "close": 29996.5,
+        "volume": 880
+      },
+      {
+        "time": 1779836400,
+        "open": 29996.5,
+        "high": 30001,
+        "low": 29994,
+        "close": 29995.5,
+        "volume": 920
+      }
+    ]
+  },
+  "bars_by_tf": {
+    "m5": {
+      "success": true,
+      "last_5_bars": [
+        {
+          "time": 1779836160,
+          "open": 30010,
+          "high": 30014,
+          "low": 30006,
+          "close": 30013,
+          "volume": 380
+        },
+        {
+          "time": 1779836400,
+          "open": 30007,
+          "high": 30015,
+          "low": 29993,
+          "close": 29995.5,
+          "volume": 2110
+        }
+      ]
+    }
+  },
+  "indicators": [],
+  "engine": {
+    "schema": 6,
+    "schema_supported": true,
+    "meta": {
+      "tf": "m5",
+      "stale": false
+    },
+    "levels": [],
+    "sweeps": [],
+    "fvgs": [],
+    "bprs": [],
+    "swings": [],
+    "structures": [],
+    "pools": [],
+    "quality": {}
+  },
+  "engine_by_tf": {
+    "m5": {
+      "fvgs": [
+        {
+          "kind": "ifvg",
+          "dir": "bear",
+          "top": 30007,
+          "bottom": 30001,
+          "ce": 30004,
+          "state": "fresh",
+          "reacted": true,
+          "size_quality": "medium",
+          "created_ms": 1779836400000,
+          "took_liq": false,
+          "disp_score": 0.72
+        }
+      ],
+      "bprs": [],
+      "structures": [
+        {
+          "event": "mss",
+          "dir": "bear",
+          "level": 29994,
+          "displacement": true,
+          "tier": "internal",
+          "validation": "break",
+          "confirmed_ms": 1779836400000
+        }
+      ],
+      "quality": {
+        "displacement": "clean",
+        "range_quality": "good"
+      }
+    }
+  },
+  "brief_digest": {
+    "symbols": {
+      "MNQ1!": {
+        "htf": {
+          "daily": {},
+          "h4": {},
+          "h1": {}
+        },
+        "pillar1": {
+          "session_levels": {},
+          "sweeps": [],
+          "untaken_pools_above": [],
+          "untaken_pools_below": [
+            {
+              "price": 29950,
+              "cite": "pillar1.mnq.overnight.untaken_below[0]"
+            },
+            {
+              "price": 29880,
+              "cite": "pillar1.mnq.overnight.untaken_below[1]"
+            }
+          ],
+          "htf_destination": {
+            "dir": "below",
+            "cite": "pillar1.mnq.htf_destination"
+          }
+        },
+        "pillar2": {
+          "current_tf": {
+            "range_quality": "good",
+            "displacement": "clean"
+          }
+        },
+        "ltf_context": {}
+      }
+    }
+  },
+  "gates": {
+    "session": {
+      "label": "ny_pm",
+      "phase": "entry_hunt",
+      "in_killzone": true,
+      "is_market_closed": false
+    },
+    "engine": {
+      "meta": {
+        "tf": "m5",
+        "stale": false,
+        "schema_supported": true
+      },
+      "price_context": {
+        "last": 29995.5,
+        "inside_fvgs": [
+          {
+            "kind": "ifvg",
+            "dir": "bear",
+            "top": 30007,
+            "bottom": 30001,
+            "state": "fresh"
+          }
+        ],
+        "inside_bprs": []
+      },
+      "pillar1": {
+        "session_levels": {},
+        "sweeps": []
+      },
+      "pillar2": {
+        "current_tf": {
+          "range_quality": "good",
+          "displacement": "clean"
+        },
+        "m5": {
+          "displacement": "clean"
+        },
+        "m15": {
+          "displacement": "clean"
+        }
+      },
+      "pillar3": {
+        "failure_swings": [],
+        "fvg_summary": {
+          "size_quality": "medium"
+        },
+        "structures_by_tier": {
+          "swing": [
+            {
+              "level": 30015,
+              "tier": "swing",
+              "is_high": true
+            }
+          ],
+          "internal": []
+        },
+        "most_recent_structure": {
+          "event": "mss",
+          "dir": "bear",
+          "level": 29994,
+          "displacement": true
+        }
+      },
+      "confirmation": {
+        "entry_state": "confirmed",
+        "confirm_close": 1,
+        "ce_held": true,
+        "chop_15m": 0,
+        "confirm_dir": "bear",
+        "last_bar": {
+          "body_ratio": 0.68,
+          "direction": "bearish",
+          "close_position_in_range": 0.15,
+          "time": 1779836400
+        }
+      }
+    }
+  }
+}
