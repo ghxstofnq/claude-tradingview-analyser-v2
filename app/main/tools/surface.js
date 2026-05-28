@@ -130,6 +130,23 @@ function isUntakenTarget(cite, bundle) {
   return true;
 }
 
+function numericCiteValue(resolved) {
+  if (typeof resolved === 'number') return resolved;
+  if (!resolved || typeof resolved !== 'object') return null;
+  for (const key of ['price', 'value', 'top', 'bottom', 'high', 'low']) {
+    if (Number.isFinite(resolved[key])) return resolved[key];
+  }
+  return null;
+}
+
+function assertPayloadValueMatchesCite(errors, label, value, cite, bundle) {
+  const resolvedValue = numericCiteValue(resolveCite(cite, bundle));
+  if (resolvedValue === null) return; // unresolved cites are reported by the cite-resolution check.
+  if (!Number.isFinite(value) || Math.abs(resolvedValue - value) >= 0.01) {
+    errors.push(`${label} ${value} does not match cited value ${resolvedValue} at ${cite}`);
+  }
+}
+
 export function validateSetupAgainstCandidate(payload, candidate, bundle) {
   const errors = [];
   const cand = candidate?.best_candidate;
@@ -152,7 +169,15 @@ export function validateSetupAgainstCandidate(payload, candidate, bundle) {
   const matchedStop = (cand.stop_options ?? []).find((opt) => Math.abs(opt.value - payload.stop) < 0.01);
   if (!matchedStop) {
     errors.push(`stop value ${payload.stop} not in detector's stop_options: ${(cand.stop_options ?? []).map((o) => `${o.kind}=${o.value}`).join(', ')}`);
+  } else if (matchedStop.cite !== payload.stop_cite) {
+    errors.push(`stop_cite ${payload.stop_cite} does not match selected detector stop cite ${matchedStop.cite}`);
   }
+
+  // 3b. Prices must match their own evidence citations, not just resolve somewhere.
+  assertPayloadValueMatchesCite(errors, 'entry', payload.entry, payload.entry_cite, bundle);
+  assertPayloadValueMatchesCite(errors, 'stop', payload.stop, payload.stop_cite, bundle);
+  assertPayloadValueMatchesCite(errors, 'tp1', payload.tp1, payload.tp1_cite, bundle);
+  assertPayloadValueMatchesCite(errors, 'tp2', payload.tp2, payload.tp2_cite, bundle);
 
   // 4. Grade <= grade_capped.
   if (_gradeRank(payload.grade) > _gradeRank(cand.grade_capped)) {

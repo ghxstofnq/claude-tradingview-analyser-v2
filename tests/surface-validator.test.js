@@ -23,6 +23,7 @@ function validCandidate() {
 function validBundle() {
   return {
     engine_by_tf: { m5: { fvgs: [{}, {}, {}, { top: 29998.5 }] } },
+    engine: { swings: { internal: [null, null, null, null, null, null, null, { price: 29982.25 }] } },
     bars_by_tf: { m5: { last_5_bars: [{ low: 29981.25 }] } },
     pillar1: { mnq: { overnight: { untaken_above: [{ price: 30015 }, { price: 30119 }] } } },
     gates: { engine: { pillar1: { session_levels: { AS_H: { price: 29990, swept: true, valid_as_target: false } } } } },
@@ -47,6 +48,16 @@ test('validator: throws when tp1_cite points at swept level', () => {
 test('validator: throws when stop value not in stop_options', () => {
   const payload = { model: 'MSS', side: 'long', entry: 29998.5, entry_cite: 'engine_by_tf.m5.fvgs[3].top', stop: 29970, stop_cite: 'bars_by_tf.m5.last_5_bars[0].low', tp1: 30015, tp1_cite: 'pillar1.mnq.overnight.untaken_above[0]', tp2: 30119, tp2_cite: 'pillar1.mnq.overnight.untaken_above[1]', grade: 'B' };
   assert.throws(() => validateSetupAgainstCandidate(payload, validCandidate(), validBundle()), /stop_options/);
+});
+
+test('validator: throws when stop cite does not match the selected detector stop option', () => {
+  const payload = { model: 'MSS', side: 'long', entry: 29998.5, entry_cite: 'engine_by_tf.m5.fvgs[3].top', stop: 29981.25, stop_cite: 'engine.swings.internal[7]', tp1: 30015, tp1_cite: 'pillar1.mnq.overnight.untaken_above[0]', tp2: 30119, tp2_cite: 'pillar1.mnq.overnight.untaken_above[1]', grade: 'B' };
+  assert.throws(() => validateSetupAgainstCandidate(payload, validCandidate(), validBundle()), /stop_cite.*does not match/);
+});
+
+test('validator: throws when TP value does not match cited target value', () => {
+  const payload = { model: 'MSS', side: 'long', entry: 29998.5, entry_cite: 'engine_by_tf.m5.fvgs[3].top', stop: 29981.25, stop_cite: 'bars_by_tf.m5.last_5_bars[0].low', tp1: 30010, tp1_cite: 'pillar1.mnq.overnight.untaken_above[0]', tp2: 30119, tp2_cite: 'pillar1.mnq.overnight.untaken_above[1]', grade: 'B' };
+  assert.throws(() => validateSetupAgainstCandidate(payload, validCandidate(), validBundle()), /tp1.*does not match cited value/);
 });
 
 test('validator: throws when grade exceeds grade_capped', () => {
