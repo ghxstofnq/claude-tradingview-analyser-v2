@@ -548,6 +548,28 @@ test('detectSetups: builds MSS-long candidate when all components present', () =
   assert.equal(r.best_candidate?.tp1?.value, 30015);
 });
 
+test('detectSetups: no-trade rejections expose every missing component blocker', () => {
+  const b = fullPositiveMssBundle();
+  b.gates.engine.pillar1.sweeps = [];
+  b.gates.engine.price_context.inside_fvgs = [];
+  b.gates.engine.confirmation.entry_state = 'waiting';
+  b.gates.engine.confirmation.confirm_close = 0;
+
+  const r = detectSetups({
+    bundle: b,
+    leader: 'mnq',
+    ltf_bias_context: { bias: 'bull', htf_ltf_alignment: 'aligned', grade_cap: 'A+', entry_model_priority: 'mss' },
+    untaken_targets: { untaken_above: [{ price: 30015, cite: 'pillar1.mnq.overnight.untaken_above[0]' }, { price: 30119, cite: 'pillar1.mnq.overnight.untaken_above[1]' }], untaken_below: [] },
+  });
+
+  const mss = r.rejections.find((x) => x.model === 'MSS' && x.side === 'long');
+  assert.equal(r.best_candidate, null);
+  assert.ok(Array.isArray(mss?.blockers));
+  assert.ok(mss.blockers.some((b) => b.component === 'liquidity_grab' && /no rejected sell-side sweep/.test(b.reason)));
+  assert.ok(mss.blockers.some((b) => b.component === 'retrace_to_fvg' && /not currently inside/.test(b.reason)));
+  assert.ok(mss.blockers.some((b) => b.component === 'confirmation' && /entry_state=waiting/.test(b.reason)));
+});
+
 test('pickBestCandidate: prefers entry_model_priority resolver order', () => {
   const candidates = [
     { model: 'Trend', side: 'long', grade_proposed: 'A+', tradable: true, components: {}, rationale: 'x' },

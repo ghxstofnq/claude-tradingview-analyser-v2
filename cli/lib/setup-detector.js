@@ -407,7 +407,12 @@ export function detectSetups({ bundle, leader, ltf_bias_context, untaken_targets
   if (tradables.length === 0) {
     return {
       best_candidate: null,
-      rejections: nonTradables.map((c) => ({ model: c.model, side: c.side, reason: firstMissingReason(c.components) || c.grade_capped })),
+      rejections: nonTradables.map((c) => ({
+        model: c.model,
+        side: c.side,
+        reason: firstMissingReason(c.components) || c.grade_capped,
+        blockers: componentBlockers(c.components),
+      })),
       rejection_summary: buildRejectionSummary(
         nonTradables.map((c) => ({ model: c.model, side: c.side, reason: firstMissingReason(c.components) })),
         { side: nonTradables[0]?.side, ...untaken_targets }
@@ -420,7 +425,12 @@ export function detectSetups({ bundle, leader, ltf_bias_context, untaken_targets
   // Add non-tradable models to rejections for full visibility.
   const allRejections = [
     ...rejections,
-    ...nonTradables.map((c) => ({ model: c.model, side: c.side, reason: firstMissingReason(c.components) || `grade ${c.grade_capped}` })),
+    ...nonTradables.map((c) => ({
+      model: c.model,
+      side: c.side,
+      reason: firstMissingReason(c.components) || `grade ${c.grade_capped}`,
+      blockers: componentBlockers(c.components),
+    })),
   ];
   return {
     best_candidate,
@@ -444,6 +454,17 @@ function firstMissingReason(components) {
   if (!components) return null;
   const missing = Object.values(components).find((c) => !c?.present);
   return missing?.missing_reason ?? null;
+}
+
+function componentBlockers(components) {
+  if (!components) return [];
+  return Object.entries(components)
+    .filter(([, c]) => c?.present !== true)
+    .map(([component, c]) => ({
+      component,
+      reason: c?.missing_reason ?? `${component} missing`,
+      cite: c?.cite ?? null,
+    }));
 }
 
 function buildPivots(bundle) {
