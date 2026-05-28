@@ -12,7 +12,7 @@
     "fixture:coverage": "node ./scripts/fixture-coverage.js",
     "fixture:new": "node ./scripts/new-fixture.js",
     "judge:report": "node ./scripts/judge-report.js",
-    "test:unit": "node --test tests/*.test.js"
+    "test:unit": "node --test tests/*.test.js tests/walker/*.test.js"
   },
   "workspaces": ["packages/*"],
   "dependencies": {
