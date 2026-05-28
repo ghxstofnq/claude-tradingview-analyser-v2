@@ -92,6 +92,13 @@ contextBridge.exposeInMainWorld("api", {
     start() { return ipcRenderer.invoke("detector:start"); },
     stop()  { return ipcRenderer.invoke("detector:stop"); },
   },
+  walkers: {
+    onState(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("walkers:state", listener);
+      return () => ipcRenderer.removeListener("walkers:state", listener);
+    },
+  },
   alert: {
     arm(price, label) {
       return ipcRenderer.invoke("alert:arm", { price, label });
