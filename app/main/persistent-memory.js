@@ -41,6 +41,37 @@ const ENTRY_DELIMITER = "\n§\n";
 
 const SEPARATOR = "═".repeat(46);
 
+// ─────────────────────────────────────────────────────────────────────
+// Backtest context — when set, writers short-circuit and return
+// {success:true, suppressed:true, run_id} without mutating disk. Reads
+// (formatForSystemPrompt, load) are unaffected. This is what makes
+// backtest runs repeatable: a second run of the same session produces
+// the same result as the first, since memory is read-only during a run.
+// ─────────────────────────────────────────────────────────────────────
+let _backtestContext = null;
+
+export function setBacktestContext(ctx) {
+  _backtestContext = ctx;
+}
+
+export function clearBacktestContext() {
+  _backtestContext = null;
+}
+
+export function inBacktest() {
+  return _backtestContext !== null;
+}
+
+function _suppressedResult(target) {
+  return {
+    success: true,
+    suppressed: true,
+    run_id: _backtestContext?.runId ?? null,
+    target,
+    reason: "backtest_context_active",
+  };
+}
+
 /**
  * Decode a target name to its filename. Throws on invalid targets so the
  * tool boundary surfaces a clean error.
@@ -185,6 +216,7 @@ export class PersistentMemory {
    * Refuses on duplicate entries or cap overflow.
    */
   async add(target, content) {
+    if (_backtestContext) return _suppressedResult(target);
     const trimmed = (content || "").trim();
     if (!trimmed) {
       return {
@@ -237,6 +269,7 @@ export class PersistentMemory {
    * Refuses on ambiguous match or cap overflow.
    */
   async replace(target, oldText, newContent) {
+    if (_backtestContext) return _suppressedResult(target);
     const oldTrim = (oldText || "").trim();
     const newTrim = (newContent || "").trim();
     if (!oldTrim) return { success: false, error: "old_text cannot be empty" };
@@ -299,6 +332,7 @@ export class PersistentMemory {
    * replace.
    */
   async remove(target, oldText) {
+    if (_backtestContext) return _suppressedResult(target);
     const oldTrim = (oldText || "").trim();
     if (!oldTrim) return { success: false, error: "old_text cannot be empty" };
     if (target !== "memory" && target !== "user") {

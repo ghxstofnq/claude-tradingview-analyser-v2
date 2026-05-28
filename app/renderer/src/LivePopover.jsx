@@ -4,7 +4,7 @@
 // here. RISK rows are broken into Entry / Stop (red) / TP1 / TP2 (green)
 // for color-coded scannability.
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   selectPillar3,
@@ -19,23 +19,44 @@ import { useOpenReaction } from "./hooks/useOpenReaction.js";
 import { useLastBar } from "./hooks/useLastBar.js";
 import { useHealth } from "./hooks/useHealth.js";
 import { useChat } from "./hooks/useChat.js";
+import { useBacktestRunning } from "./hooks/useBacktest.js";
 import { useSessionBrief } from "./hooks/useSessionBrief.js";
 import { useClock } from "./hooks/useClock.js";
 
 // ── Loop banner (only when unhealthy) ────────────────────────────────
 function LoopBanner({ status }) {
-  if (status === "healthy" || !status) return null;
-  const tone = status === "down" ? "red" : "amber";
-  const label = status === "down" ? "DETECTOR DOWN" : "DETECTOR STALE";
+  const running = status === "healthy";
+  const stale = status === "stale";
+  const tone = running ? "var(--green)" : stale ? "var(--amber)" : "var(--red)";
+  const label = running ? "DETECTOR · RUNNING"
+              : stale ? "DETECTOR · STALE"
+              : "DETECTOR · STOPPED";
+  const onClick = async () => {
+    try {
+      if (running) await window.api?.detector?.stop?.();
+      else await window.api?.detector?.start?.();
+    } catch { /* best-effort */ }
+  };
   return (
     <div style={{
       padding: "6px 16px",
       borderBottom: "1px solid var(--border)",
       background: "var(--surface-2)",
-      color: tone === "red" ? "var(--red)" : "var(--amber)",
+      display: "flex", alignItems: "center", justifyContent: "space-between",
       fontSize: 10.5, letterSpacing: ".22em",
     }}>
-      {label} · bar-close polling is paused — fix in System page
+      <span style={{ color: tone }}>{label}</span>
+      <span onClick={onClick}
+            style={{
+              cursor: "pointer",
+              padding: "2px 10px",
+              border: `1px solid ${tone}`,
+              color: tone,
+              letterSpacing: ".18em",
+              fontSize: 9.5,
+            }}>
+        {running ? "STOP" : "START"}
+      </span>
     </div>
   );
 }
@@ -267,7 +288,11 @@ function InTradeView({ activeTrade, lastBar, chat }) {
 }
 
 // ── Router ────────────────────────────────────────────────────────────
-function LiveWorkstation() {
+function LiveBody() {
+  // All hooks first — React requires identical hook order across renders, so
+  // we can't early-return before the rest of these. We render the backtest
+  // placeholder below as a normal conditional in JSX.
+  const backtest = useBacktestRunning();
   const health = useHealth();
   const { activeTrade, accept, reject } = useTrades();
   const { activeSetup, noTradeReason } = useActiveSetup();
@@ -287,6 +312,25 @@ function LiveWorkstation() {
   // Bug observed 2026-05-27: the prior router fell through to
   // OpenReactionView whenever activeSetup was null, leaving stale
   // +10m open-reaction data on screen during the entry_hunt phase.
+  // Backtest exclusive mode: the chart is in replay, live data is meaningless.
+  // Show a placeholder. (All hooks above this point have already run.)
+  if (backtest.running) {
+    const sLabel = ({ "ny-am": "NY-AM", "ny-pm": "NY-PM", london: "LONDON" })[backtest.session] ?? backtest.session ?? "";
+    return (
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        height: "100%", color: "var(--label)", gap: 10,
+      }}>
+        <div style={{ letterSpacing: "0.22em", fontSize: "12px" }}>
+          BACKTEST RUNNING{sLabel ? ` · ${sLabel}` : ""}
+        </div>
+        <div style={{ fontSize: "10.5px", color: "var(--label-dim)" }}>
+          LIVE DATA UNAVAILABLE — CHART IS IN REPLAY
+        </div>
+      </div>
+    );
+  }
+
   const inOpenReaction = clock?.phase === "OPEN REACTION";
   let body;
   if (activeTrade) {
@@ -307,4 +351,62 @@ function LiveWorkstation() {
   );
 }
 
-export { OpenReactionView, EntryHuntView, InTradeView, LiveWorkstation };
+// ───────────────────────────────────────────────────────────────────────
+// LiveCell — topbar cell + anchored 420px popover wrapper. Tri-state
+// badge: dim IDLE/DONE, amber HUNT pulse, green/red pulse + live P&L.
+function LiveCell() {
+  const [open, setOpen] = useState(false);
+  const { activeTrade } = useTrades();
+  const { activeSetup } = useActiveSetup();
+  const clock = useClock();
+  const lastBar = useLastBar();
+
+  // Derive cell badge state from the existing inputs (no extra subscriptions)
+  let badge;
+  if (activeTrade) {
+    const pnl = liveGridFromTrade(activeTrade, lastBar)?.pnl;
+    const pnlR = typeof pnl?.r === "number" ? pnl.r : 0;
+    const cls = pnlR >= 0 ? "green" : "red";
+    badge = (<><span className={"pulse " + cls} /><span className={"pnl " + cls}>{pnlR >= 0 ? "+" : ""}{pnlR.toFixed(1)}R</span></>);
+  } else if (activeSetup || clock?.phase === "OPEN REACTION" || clock?.phase === "ENTRY HUNT") {
+    badge = (<><span className="pulse" /><span className="state amber">HUNT</span></>);
+  } else {
+    badge = (<span className="dot dim" />);
+  }
+
+  useEffect(() => {
+    const onOpen = (e) => {
+      if (e.detail?.which === "live") setOpen((o) => !o);
+      if (e.detail?.which === "all-close") setOpen(false);
+    };
+    window.addEventListener("topbar:open-cell", onOpen);
+    return () => window.removeEventListener("topbar:open-cell", onOpen);
+  }, []);
+
+  const onCellClick = (e) => {
+    if (e.target.closest(".bt-popover")) return;
+    setOpen((o) => !o);
+  };
+
+  return (
+    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={onCellClick}>
+      <span className="k">LIVE</span>
+      {badge}
+      {open && (
+        <div className="bt-popover" onClick={(e) => e.stopPropagation()}>
+          <div className="head">
+            <span className="t">LIVE</span>
+            <span className="x" onClick={() => setOpen(false)}>×</span>
+          </div>
+          <div className="body">
+            <LiveBody />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export { OpenReactionView, EntryHuntView, InTradeView, LiveCell };
+// Legacy alias for App.jsx until Task 11 rewires the topbar
+export { LiveBody as LiveWorkstation };

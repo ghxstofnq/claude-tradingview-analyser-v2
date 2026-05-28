@@ -5,9 +5,10 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { TradingViewChart, TvSignInBanner } from "./TvChart.jsx";
 import { EvidenceContext, EvidenceSidePanel, ClaudeFeed } from "./Shared.jsx";
-import { PrepWorkstation } from "./Prep.jsx";
-import { LiveWorkstation } from "./Live.jsx";
-import { ReviewWorkstation } from "./Review.jsx";
+import { BacktestCell } from "./BacktestPopover.jsx";
+import { PrepCell } from "./PrepPopover.jsx";
+import { LiveCell } from "./LivePopover.jsx";
+import { ReviewCell } from "./ReviewPopover.jsx";
 import { SystemPage } from "./System.jsx";
 import { RiskPage } from "./Risk.jsx";
 import { FixturesPage } from "./Fixtures.jsx";
@@ -43,7 +44,7 @@ function SymbolSwitcher({ symbol, setSymbol }) {
       <span className="v" onClick={() => setOpen((o) => !o)}>{symbol} ▾</span>
       {open && (
         <div className="sym-menu" style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 50,
+          position: "absolute", top: "100%", right: 0, zIndex: 50,
           background: "var(--surface-1)", border: "1px solid var(--border)",
           minWidth: 240,
         }}>
@@ -248,40 +249,29 @@ function AlertToast({ alert, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-function TopBar({ mode, setMode, symbol, setSymbol, theme, setTheme,
+function TopBar({ symbol, setSymbol, theme, setTheme,
                   clock,
                   news, newsOpen, setNewsOpen, newsImminent,
                   alerts, alertsOpen, setAlertsOpen, onDisarm,
                   chat, claudeOpen, setClaudeOpen,
-                  loopStatus }) {
-  const modes = [
-    { id: "prep",   label: "PREP",   n: "01" },
-    { id: "live",   label: "LIVE",   n: "02" },
-    { id: "review", label: "REVIEW", n: "03" },
-  ];
+                  currentPrice }) {
   const newsCount = news.length;
   const alertCount = alerts.fired.length + alerts.armed.length;
-  const chatActive = !!(chat?.typing || (chat?.messages?.length > 0));
+  const chatActive = !!(chat?.typing || (chat?.workingPurposes?.size > 0));
   return (
     <header className="topbar">
-      <div className="id">
-        <span className="glyph"></span>
-        <span>ICT · WORKSTATION</span>
-      </div>
-      <div className="modes">
-        {modes.map((m) => (
-          <button key={m.id}
-                  className={"mode-btn" + (mode === m.id ? " on" : "")}
-                  onClick={() => setMode(m.id)}>
-            <span className="n">{m.n}</span>
-            <span>{m.label}</span>
-          </button>
-        ))}
-      </div>
+      <div className="id" />
       <div className="status">
-        <SymbolSwitcher symbol={symbol} setSymbol={setSymbol} />
-        <div className="cell"><span className="k">ET</span><span className="v">{clock?.clock || "—"}</span></div>
-        <div className="cell"><span className="k">PH</span><span className="v amber">{clock?.phase || "—"}</span></div>
+        <div className={"cell pop-cell" + (alertCount > 0 ? " has-alerts" : "")}
+             onClick={() => setAlertsOpen((o) => !o)}>
+          <span className="k">ALERTS</span>
+          <span className="count">{alertCount}</span>
+          {alertsOpen && (
+            <AlertsPopover alerts={alerts}
+              onClose={() => setAlertsOpen(false)}
+              onDisarm={onDisarm} />
+          )}
+        </div>
         <div className={"cell pop-cell" + (newsCount > 0 ? " has-news" : "")}
              onClick={() => setNewsOpen((o) => !o)}>
           <span className="k">NEWS</span>
@@ -293,16 +283,10 @@ function TopBar({ mode, setMode, symbol, setSymbol, theme, setTheme,
             <NewsPopover payload={{ events: news }} now={new Date()} onClose={() => setNewsOpen(false)} />
           )}
         </div>
-        <div className={"cell pop-cell" + (alertCount > 0 ? " has-alerts" : "")}
-             onClick={() => setAlertsOpen((o) => !o)}>
-          <span className="k">ALERTS</span>
-          <span className="count">{alertCount}</span>
-          {alertsOpen && (
-            <AlertsPopover alerts={alerts}
-              onClose={() => setAlertsOpen(false)}
-              onDisarm={onDisarm} />
-          )}
-        </div>
+        <BacktestCell />
+        <ReviewCell />
+        <LiveCell />
+        <PrepCell symbol={symbol} currentPrice={currentPrice} />
         <div className="cell pop-cell claude-cell"
              onClick={() => setClaudeOpen((o) => !o)}>
           <span className="k">CLAUDE</span>
@@ -311,10 +295,7 @@ function TopBar({ mode, setMode, symbol, setSymbol, theme, setTheme,
             <ClaudePopover chat={chat} onClose={() => setClaudeOpen(false)} />
           )}
         </div>
-        <div className="cell">
-          <span className="k">LOOP</span>
-          <span className={"dot " + (loopStatus === "stale" ? "stale" : loopStatus === "down" ? "down" : "")}></span>
-        </div>
+        <SymbolSwitcher symbol={symbol} setSymbol={setSymbol} />
         <div className="cell">
           <button className={"th-btn" + (theme === "dark" ? " on" : "")}
                   onClick={() => setTheme("dark")}>◐</button>
@@ -326,15 +307,21 @@ function TopBar({ mode, setMode, symbol, setSymbol, theme, setTheme,
   );
 }
 
-function StatusLine({ state, focus, cycle, killzone, lastBar }) {
+function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase }) {
+  const loopDown = loopStatus === "stale" || loopStatus === "down";
   return (
     <div className="statusline">
       <div className="grp">
         <span className="item"><span className="k">STATE</span><span className="v">{state}</span></span>
         <span className="item"><span className="k">FOCUS</span><span className="v">{focus}</span></span>
         <span className="item"><span className="k">CYCLE</span><span className="v">{cycle}</span></span>
+        <span className="item" title={`LOOP · ${loopStatus || "ok"}`}>
+          <span className="k">LOOP</span>
+          <span className={"dot " + (loopDown ? "down" : "")}></span>
+        </span>
       </div>
       <div className="grp">
+        <span className="item"><span className="k">PH</span><span className="v amber">{phase}</span></span>
         <span className="item"><span className="k">KZ</span><span className="v">{killzone}</span></span>
         <span className="item"><span className="k">LAST BAR</span><span className="v">{lastBar}</span></span>
       </div>
@@ -353,7 +340,7 @@ const UTIL_PAGES = {
 
 // ─────────────────────────────────────────────────────────────────────────────
 function App() {
-  const [mode, setMode] = useState("prep");
+  // Mode tabs removed 2026-05-28; PREP/LIVE/REVIEW are popovers in the topbar.
   const [symbol, setSymbol] = useState("MNQ1!");
   const [utilPage, setUtilPage] = useState(() => location.hash.slice(1));
   useEffect(() => {
@@ -374,12 +361,25 @@ function App() {
     try { localStorage.setItem("workstation:theme", theme); } catch (e) {}
   }, [theme]);
 
-  // Mode sync — restore from main on boot + push on user change.
+  // Hotkeys: 1/2/3 open PREP/LIVE/REVIEW popovers; Esc closes any open
+  // popover. Implemented via a window CustomEvent that each *Cell subscribes
+  // to ("topbar:open-cell"). Ignore keypresses while a text input is focused
+  // so typing in the brief search field etc. isn't intercepted.
   useEffect(() => {
-    const off = window.api?.mode?.onCurrent?.((ev) => {
-      if (ev?.mode) setMode(ev.mode);
-    });
-    return () => off?.();
+    const onKey = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      let which = null;
+      if (e.key === "1") which = "prep";
+      else if (e.key === "2") which = "live";
+      else if (e.key === "3") which = "review";
+      else if (e.key === "Escape") which = "all-close";
+      if (which) {
+        window.dispatchEvent(new CustomEvent("topbar:open-cell", { detail: { which } }));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Alerts state — replaced by main's TV poll.
@@ -460,22 +460,14 @@ function App() {
 
   const [newsOpen, setNewsOpen] = useState(false);
 
-  const split = mode === "live" ? "split-70" : "split-50";
   const UtilComp = UTIL_PAGES[utilPage] || null;
-  const Workstation =
-    mode === "prep"   ? PrepWorkstation :
-    mode === "live"   ? LiveWorkstation :
-                        ReviewWorkstation;
 
   return (
     <EvidenceContext.Provider value={openEvidence}>
     <div className="app">
-      <TopBar mode={mode}
-              setMode={(m) => { setMode(m); window.api?.mode?.switch?.(m); }}
-              symbol={symbol} setSymbol={setSymbol}
+      <TopBar symbol={symbol} setSymbol={setSymbol}
               theme={theme} setTheme={setTheme}
               clock={clock}
-              loopStatus={health?.loop}
               news={remainingEvents}
               newsOpen={newsOpen} setNewsOpen={setNewsOpen}
               newsImminent={newsImminent}
@@ -483,12 +475,14 @@ function App() {
               alertsOpen={alertsOpen} setAlertsOpen={setAlertsOpen}
               onDisarm={disarm}
               chat={chat}
-              claudeOpen={claudeOpen} setClaudeOpen={setClaudeOpen} />
+              claudeOpen={claudeOpen} setClaudeOpen={setClaudeOpen}
+              currentPrice={currentPrice} />
 
-      {/* Persistent chart-host — mounted ONCE at the App root. Switching
-          between modes / util pages toggles the .hidden class so the TV
-          session stays alive. */}
-      <div className={"chart-host " + (UtilComp ? "hidden" : split)}>
+      {/* Persistent chart-host — mounted ONCE at the App root. Util pages
+          toggle the .hidden class so the TV session stays alive. PREP/LIVE/
+          REVIEW are popovers now (no full-pane workstation), so chart goes
+          full-width by default. */}
+      <div className={"chart-host " + (UtilComp ? "hidden" : "full")}>
         <div className="chart-body">
           <ErrorBoundary label="CHART">
             <TradingViewChart symbol={symbol} />
@@ -511,22 +505,21 @@ function App() {
           </ErrorBoundary>
         </div>
       ) : (
-        <div className={"main " + split}>
+        // Chart is the only main-area view; popovers in the topbar host the
+        // PREP / LIVE / REVIEW content on demand.
+        <div className="main">
           <div className="chart-spacer" />
-          <div className="work-pane">
-            <ErrorBoundary label={mode.toUpperCase()}>
-              <Workstation symbol={symbol} currentPrice={currentPrice} />
-            </ErrorBoundary>
-          </div>
         </div>
       )}
 
       <StatusLine
-        state={mode.toUpperCase()}
+        state={"CHART"}
         focus={symbol}
         cycle={lastBar?.hhmm || "—"}
         killzone={clock?.killzone || "—"}
-        lastBar={lastBar?.ts ? `${lastBar.hhmm} · ${lastBar.age_label}` : "—"} />
+        lastBar={lastBar?.ts ? `${lastBar.hhmm} · ${lastBar.age_label}` : "—"}
+        loopStatus={health?.loop}
+        phase={clock?.phase || "—"} />
     </div>
     </EvidenceContext.Provider>
   );

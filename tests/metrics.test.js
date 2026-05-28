@@ -72,6 +72,27 @@ describe("metrics — record", () => {
       // no file created — also acceptable
     }
   });
+
+  it("carries optional run_id through to disk (backtest tagging)", async () => {
+    try { await fs.unlink(METRICS_FILE); } catch {}
+    const { record } = await import("../app/main/metrics.js");
+    await record({
+      kind: "bar-close", event: "succeeded", session: "ny-am",
+      durationMs: 1234, run_id: "20260528-103047-am-2026-05-20",
+    });
+    const txt = await fs.readFile(METRICS_FILE, "utf8");
+    const row = JSON.parse(txt.trim().split("\n").pop());
+    assert.equal(row.run_id, "20260528-103047-am-2026-05-20");
+  });
+
+  it("omits run_id when not provided (existing rows unaffected)", async () => {
+    try { await fs.unlink(METRICS_FILE); } catch {}
+    const { record } = await import("../app/main/metrics.js");
+    await record({ kind: "brief", event: "succeeded", session: "ny-am", durationMs: 1234 });
+    const txt = await fs.readFile(METRICS_FILE, "utf8");
+    const row = JSON.parse(txt.trim().split("\n").pop());
+    assert.equal("run_id" in row, false);
+  });
 });
 
 describe("metrics — rotateMetricsFile", () => {

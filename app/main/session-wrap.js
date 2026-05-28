@@ -171,6 +171,9 @@ const _driver = makeScheduledTurn({
   isAlreadyDoneFn: isAlreadyDone,
   buildPromptFn: buildPrompt,
   onSuccessFn: fireReviewTurn,
+  // Wrap emits ~30K tokens of session summary; default 5 min isn't always
+  // enough on opus/medium. Match brief's 10 min override.
+  timeoutMs: 600_000,
 });
 
 export const bootstrap = _driver.bootstrap;

@@ -53,7 +53,31 @@ function mostRecentSession(hour, minute) {
   return "ny-pm";                          // overnight / pre-London — last NY PM
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Backtest session-dir override.
+//
+// When set, activeSessionDir() returns state/backtest/<run-id>/<session>/
+// instead of state/session/<date>/<session>/. Same shape, different root,
+// so every existing writer (session-memory.js, bar-close.js, etc.) lands
+// in the backtest folder without any per-callsite changes.
+// ─────────────────────────────────────────────────────────────────────
+let _backtestSessionContext = null;
+
+export function setBacktestSessionContext(ctx) {
+  _backtestSessionContext = ctx;
+}
+
+export function clearBacktestSessionContext() {
+  _backtestSessionContext = null;
+}
+
 export async function activeSessionDir() {
+  if (_backtestSessionContext) {
+    const { runId, session } = _backtestSessionContext;
+    const dir = path.join(REPO_ROOT, "state", "backtest", runId, session);
+    await fs.mkdir(dir, { recursive: true });
+    return dir;
+  }
   const { date, session, et_hour, et_minute } = currentSession();
   const folder = session === "idle"
     ? mostRecentSession(et_hour, et_minute)

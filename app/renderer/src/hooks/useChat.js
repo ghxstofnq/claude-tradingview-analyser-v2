@@ -48,7 +48,14 @@ export function useChat() {
   const [typing, setTyping] = useState(false);
   // #44 "queued behind <purpose>" hint while waiting on the mutex.
   const [queuedBehind, setQueuedBehind] = useState(null);
+  // Set of purposes with an in-flight turn (from the global activity
+  // stream). Drives the CLAUDE dot's green-when-working state.
+  const [workingPurposes, setWorkingPurposes] = useState(new Set());
   const streamingIdxRef = useRef(null);   // index of the in-flight reply message
+  // Map of purpose → index of its currently-streaming activity row, so
+  // tool_call / end events append to the right row instead of creating
+  // duplicates.
+  const activityIdxRef = useRef(new Map());
 
   useEffect(() => {
     if (!window.api?.chat) {
@@ -124,12 +131,92 @@ export function useChat() {
       clearTypingWatchdog();
     });
 
+    // Global activity stream — every userTurn across all purposes. The
+    // chat purpose has its own dedicated handlers above, so we skip
+    // chat-purpose events here to avoid duplicating the prose. Other
+    // purposes (bar-close, brief, wrap, review, catch-up) get a compact
+    // activity row showing start → tool calls → end with duration.
+    const offActivity = window.api?.claude?.onActivity?.((ev) => {
+      const purpose = ev?.purpose;
+      if (!purpose) return;
+      // Track working set for the CLAUDE dot. Chat counts too — when
+      // the user sends a message the dot should turn green.
+      if (ev.type === "activity_start") {
+        setWorkingPurposes((prev) => {
+          const next = new Set(prev); next.add(purpose); return next;
+        });
+      } else if (ev.type === "activity_end") {
+        setWorkingPurposes((prev) => {
+          if (!prev.has(purpose)) return prev;
+          const next = new Set(prev); next.delete(purpose); return next;
+        });
+      }
+      // Skip chat-purpose activity messages — the dedicated chat:* flow
+      // above already renders the actual prose. We only want to *show*
+      // the autonomous purposes (bar-close, brief, etc.) here.
+      if (purpose === "chat") return;
+      const purposeLbl = purpose.toUpperCase();
+      if (ev.type === "activity_start") {
+        setMessages((prev) => {
+          const next = trimHistory(prev.slice());
+          next.push({
+            type: "activity",
+            t: nowStamp(),
+            body: `<div style="color:var(--label);font-size:9.5px;letter-spacing:.12em"><span style="color:var(--amber)">▸ ${purposeLbl}</span> · started</div>`,
+          });
+          activityIdxRef.current.set(purpose, next.length - 1);
+          return next;
+        });
+      } else if (ev.type === "tool_call") {
+        const toolName = ev?.name || ev?.tool || "tool";
+        setMessages((prev) => {
+          const idx = activityIdxRef.current.get(purpose);
+          if (idx == null || !prev[idx]) return prev;
+          const next = prev.slice();
+          next[idx] = {
+            ...next[idx],
+            body: (next[idx].body || "") +
+              `<div style="color:var(--label);font-size:9.5px;letter-spacing:.08em;padding-left:14px">→ ${escapeHtml(toolName)}</div>`,
+          };
+          return next;
+        });
+      } else if (ev.type === "activity_end") {
+        const idx = activityIdxRef.current.get(purpose);
+        activityIdxRef.current.delete(purpose);
+        if (idx == null) return;
+        setMessages((prev) => {
+          if (!prev[idx]) return prev;
+          const next = prev.slice();
+          next[idx] = {
+            ...next[idx],
+            body: (next[idx].body || "") +
+              `<div style="color:var(--green);font-size:9.5px;letter-spacing:.08em;padding-left:14px">✓ done</div>`,
+          };
+          return next;
+        });
+      } else if (ev.type === "error") {
+        const idx = activityIdxRef.current.get(purpose);
+        if (idx == null) return;
+        setMessages((prev) => {
+          if (!prev[idx]) return prev;
+          const next = prev.slice();
+          next[idx] = {
+            ...next[idx],
+            body: (next[idx].body || "") +
+              `<div style="color:var(--red);font-size:9.5px;letter-spacing:.08em;padding-left:14px">✗ ${escapeHtml(ev.message || "error")}</div>`,
+          };
+          return next;
+        });
+      }
+    });
+
     return () => {
       offChunk?.();
       offTurnComplete?.();
       offQueued?.();
       offQueueReady?.();
       offError?.();
+      offActivity?.();
     };
   }, []);
 
@@ -201,5 +288,5 @@ export function useChat() {
     clearTypingWatchdog();
   }
 
-  return { messages, typing, send, cancel, reset, queuedBehind };
+  return { messages, typing, send, cancel, reset, queuedBehind, workingPurposes };
 }
