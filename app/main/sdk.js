@@ -31,6 +31,7 @@ import { setBacktestSessionContext, clearBacktestSessionContext } from "./sessio
 import { extractUsageFromResult } from "./usage.js";
 import { classifyError } from "./error-classifier.js";
 import { findPartialReferences, composePhaseWithPartials, joinSystemPrompt } from "./prompt-composer.js";
+import { validateTurnSurfaceContract } from "./turn-surface-contract.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.join(__dirname, "prompts");
@@ -881,6 +882,7 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
 }
 
 async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
+  const toolCallsThisTurn = [];
   // Wrap onEvent so every "error" event picks up a classified `kind` +
   // `retryable` hint. Consumers (bar-close retry logic, UI error chip)
   // can react differently per kind without each reimplementing the
@@ -890,6 +892,9 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
   // across all purposes.
   const onEvent = (ev) => {
     let processed = ev;
+    if (ev && ev.type === "tool_call" && ev.name) {
+      toolCallsThisTurn.push(ev.name);
+    }
     if (ev && ev.type === "error" && !ev.kind) {
       const classified = classifyError(ev.message);
       processed = { ...ev, kind: classified.kind, retryable: classified.retryable };
@@ -992,7 +997,7 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
 
   const startedAt = Date.now();
   try {
-    await Promise.race([iterateMessages(q, purpose, onEvent, cancelToken, startedAt), timeoutPromise]);
+    await Promise.race([iterateMessages(q, purpose, onEvent, cancelToken, startedAt, text, toolCallsThisTurn), timeoutPromise]);
     if (timedOut) {
       const msg = `userTurn timed out after ${timeoutMs}ms (purpose=${purpose})`;
       // eslint-disable-next-line no-console
@@ -1026,7 +1031,7 @@ export function cancelCurrentTurn() {
   return true;
 }
 
-async function iterateMessages(q, purpose, onEvent, cancelToken, startedAt) {
+async function iterateMessages(q, purpose, onEvent, cancelToken, startedAt, turnText = "", toolCallsThisTurn = []) {
   let msgCount = 0;
   try {
     for await (const msg of q) {
@@ -1060,6 +1065,10 @@ async function iterateMessages(q, purpose, onEvent, cancelToken, startedAt) {
       // #63 Include the wall-clock duration so the UI can show
       // "this bar-close took 47s".
       const durationMs = startedAt ? Date.now() - startedAt : null;
+      const contract = validateTurnSurfaceContract({ purpose, text: turnText, toolCalls: toolCallsThisTurn });
+      if (!contract.ok) {
+        onEvent?.({ type: "error", message: `surface contract violation (purpose=${purpose}): ${contract.message}` });
+      }
       onEvent?.({ type: "turn_complete", durationMs, purpose });
     }
   }

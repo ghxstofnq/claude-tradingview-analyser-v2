@@ -10,7 +10,7 @@ Reference for the prompts and files the in-app Claude session sees, separate fro
 | Every closed bar in LIVE mode | **Per-bar** | [`app/main/bar-close.js`](../app/main/bar-close.js) |
 | Auto at 06:05 / 12:05 / 16:05 ET + app-open catch-up | **Session wrap** | [`app/main/session-wrap.js`](../app/main/session-wrap.js) |
 
-All three call `userTurn()` in [`app/main/sdk.js`](../app/main/sdk.js) which calls the Claude Agent SDK's `query()`, with the per-turn prompt below as the user message and the system prompt assembled from two pieces.
+All three call `userTurn()` in [`app/main/sdk.js`](../app/main/sdk.js) which calls the Claude Agent SDK's `query()`, with the per-turn prompt below as the user message and the system prompt assembled from two pieces. After each completed turn, `app/main/turn-surface-contract.js` validates the observed `surface_*` tool calls; a prose-only or wrong-phase turn emits a `surface contract violation` error before `turn_complete`, so the dashboard/metrics cannot silently treat a non-surfaced analysis as successful.
 
 ---
 
