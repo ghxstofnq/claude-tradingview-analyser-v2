@@ -10,6 +10,59 @@ const TF_MS = { m1: 60_000, m5: 300_000, m15: 900_000, h1: 3_600_000, h4: 14_400
 
 const MIN_CONFIRMATION_BODY_RATIO = 0.6;
 
+function hasExplicitEntryConfirmation(conf = {}) {
+  return ['entry_state', 'confirm_close', 'ce_held', 'chop_15m', 'confirm_dir', 'minutes_in_zone'].some((k) => Object.prototype.hasOwnProperty.call(conf, k));
+}
+
+function isTruthyFlag(v) {
+  return v === true || v === 1 || v === '1' || v === 'true';
+}
+
+function evaluateEntryConfirmation(conf = {}, side) {
+  const lb = conf.last_bar ?? {};
+  const explicit = hasExplicitEntryConfirmation(conf);
+  const isLong = side === 'long';
+  const wantedDir = isLong ? 'bullish' : 'bearish';
+  const wantedShortDir = isLong ? 'bull' : 'bear';
+
+  if (explicit) {
+    const entryState = conf.entry_state;
+    const confirmClose = isTruthyFlag(conf.confirm_close);
+    const chop = isTruthyFlag(conf.chop_15m);
+    const ceFailed = conf.ce_held === false || conf.ce_held === 0 || conf.ce_held === '0' || conf.ce_held === 'false';
+    const confirmDir = conf.confirm_dir ?? lb.direction;
+    const dirMatches = confirmDir == null || confirmDir === wantedDir || confirmDir === wantedShortDir;
+    let missing_reason = null;
+    if (entryState !== 'confirmed') missing_reason = `entry_state=${entryState ?? 'missing'} is not confirmed`;
+    else if (!confirmClose) missing_reason = `confirm_close=${conf.confirm_close ?? 'missing'} is not true`;
+    else if (ceFailed) missing_reason = 'ce_held=false';
+    else if (chop) missing_reason = 'chop_15m=1';
+    else if (!dirMatches) missing_reason = `confirm_dir ${confirmDir} not matching side ${side}`;
+    return {
+      present: missing_reason == null,
+      cite: 'gates.engine.confirmation',
+      value: { ...conf, last_bar: lb },
+      ...(missing_reason ? { missing_reason } : {}),
+    };
+  }
+
+  const lbEmpty = lb.direction == null && lb.body_ratio == null;
+  const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
+  const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
+  return {
+    present: confirmedDir && bodyOk,
+    cite: 'gates.engine.confirmation.last_bar',
+    value: lb,
+    ...(confirmedDir && bodyOk ? {} : {
+      missing_reason: lbEmpty
+        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
+        : !bodyOk
+          ? `last_bar.body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
+          : `last_bar.direction ${lb.direction} not matching side ${side}`,
+    }),
+  };
+}
+
 export function evaluateMssComponents(bundle, ctx, tf) {
   const eng = bundle?.gates?.engine ?? {};
   const tfEng = bundle?.engine_by_tf?.[tf] ?? {};
@@ -59,23 +112,8 @@ export function evaluateMssComponents(bundle, ctx, tf) {
     ...(insideMatch ? {} : { missing_reason: 'price not currently inside a fresh same-direction FVG — fresh FVG just created is not yet retested' }),
   };
 
-  // 5. confirmation — last_bar body_ratio + direction.
-  const lb = eng.confirmation?.last_bar ?? {};
-  const lbEmpty = lb.direction == null && lb.body_ratio == null;
-  const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
-  const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
-  const confirmation = {
-    present: confirmedDir && bodyOk,
-    cite: 'gates.engine.confirmation.last_bar',
-    value: lb,
-    ...(confirmedDir && bodyOk ? {} : {
-      missing_reason: lbEmpty
-        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
-        : !bodyOk
-          ? `last_bar.body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
-          : `last_bar.direction ${lb.direction} not matching side ${side}`,
-    }),
-  };
+  // 5. confirmation — explicit entry_state/confirm_close gate when emitted, legacy last_bar fallback otherwise.
+  const confirmation = evaluateEntryConfirmation(eng.confirmation ?? {}, side);
 
   // 6. displacement_quality — pillar3 size_quality AND pillar2 displacement.
   const sizeQ = eng.pillar3?.fvg_summary?.size_quality;
@@ -147,23 +185,8 @@ export function evaluateTrendComponents(bundle, ctx, tf) {
     ...(match ? {} : { missing_reason: `no inside FVG or BPR matching dir=${isLong ? 'bull' : 'bear'}` }),
   };
 
-  // 4. confirmation — same as MSS.
-  const lb = eng.confirmation?.last_bar ?? {};
-  const lbEmpty = lb.direction == null && lb.body_ratio == null;
-  const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
-  const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
-  const confirmation = {
-    present: confirmedDir && bodyOk,
-    cite: 'gates.engine.confirmation.last_bar',
-    value: lb,
-    ...(confirmedDir && bodyOk ? {} : {
-      missing_reason: lbEmpty
-        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
-        : !bodyOk
-          ? `body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
-          : `direction ${lb.direction} not matching side ${side}`,
-    }),
-  };
+  // 4. confirmation — explicit entry_state/confirm_close gate when emitted, legacy last_bar fallback otherwise.
+  const confirmation = evaluateEntryConfirmation(eng.confirmation ?? {}, side);
 
   // 5. displacement_quality — same as MSS.
   const sizeQ = eng.pillar3?.fvg_summary?.size_quality;
@@ -224,23 +247,8 @@ export function evaluateInversionComponents(bundle, ctx, tf) {
     ...(insideIfvg ? {} : { missing_reason: `price not currently inside an inverted FVG of dir=${isLong ? 'bull' : 'bear'}` }),
   };
 
-  // 4. confirmation — same as MSS/Trend.
-  const lb = eng.confirmation?.last_bar ?? {};
-  const lbEmpty = lb.direction == null && lb.body_ratio == null;
-  const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
-  const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
-  const confirmation = {
-    present: confirmedDir && bodyOk,
-    cite: 'gates.engine.confirmation.last_bar',
-    value: lb,
-    ...(confirmedDir && bodyOk ? {} : {
-      missing_reason: lbEmpty
-        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
-        : !bodyOk
-          ? `body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
-          : `direction ${lb.direction} not matching side ${side}`,
-    }),
-  };
+  // 4. confirmation — explicit entry_state/confirm_close gate when emitted, legacy last_bar fallback otherwise.
+  const confirmation = evaluateEntryConfirmation(eng.confirmation ?? {}, side);
 
   // 5. displacement_quality — same as MSS/Trend.
   const sizeQ = eng.pillar3?.fvg_summary?.size_quality;

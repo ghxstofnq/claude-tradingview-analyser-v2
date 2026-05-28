@@ -90,6 +90,49 @@ test('MSS confirmation: absent when last_bar body_ratio<0.6', () => {
   assert.equal(r.confirmation.present, false);
 });
 
+test('MSS confirmation: explicit entry_state waiting blocks even when last_bar looks bullish', () => {
+  const b = baseBundle();
+  b.gates.engine.confirmation.entry_state = 'waiting';
+  b.gates.engine.confirmation.confirm_close = 0;
+  b.gates.engine.confirmation.ce_held = true;
+  b.gates.engine.confirmation.chop_15m = 0;
+  const r = evaluateMssComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.confirmation.present, false);
+  assert.match(r.confirmation.missing_reason, /entry_state=waiting/);
+});
+
+test('MSS confirmation: explicit confirmed entry requires confirm_close and no CE/chop failure', () => {
+  const b = baseBundle();
+  b.gates.engine.confirmation.entry_state = 'confirmed';
+  b.gates.engine.confirmation.confirm_close = 1;
+  b.gates.engine.confirmation.ce_held = true;
+  b.gates.engine.confirmation.chop_15m = 0;
+  const r = evaluateMssComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.confirmation.present, true);
+});
+
+test('MSS confirmation: explicit chop_15m blocks confirmed-looking entry', () => {
+  const b = baseBundle();
+  b.gates.engine.confirmation.entry_state = 'confirmed';
+  b.gates.engine.confirmation.confirm_close = 1;
+  b.gates.engine.confirmation.ce_held = true;
+  b.gates.engine.confirmation.chop_15m = 1;
+  const r = evaluateMssComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.confirmation.present, false);
+  assert.match(r.confirmation.missing_reason, /chop_15m=1/);
+});
+
+test('MSS confirmation: explicit CE failure blocks confirmed-looking entry', () => {
+  const b = baseBundle();
+  b.gates.engine.confirmation.entry_state = 'confirmed';
+  b.gates.engine.confirmation.confirm_close = 1;
+  b.gates.engine.confirmation.ce_held = false;
+  b.gates.engine.confirmation.chop_15m = 0;
+  const r = evaluateMssComponents(b, BULL_LONG_CTX, 'm5');
+  assert.equal(r.confirmation.present, false);
+  assert.match(r.confirmation.missing_reason, /ce_held=false/);
+});
+
 test('MSS displacement_quality: present when size_quality!=weak AND displacement clean/acceptable', () => {
   const r = evaluateMssComponents(baseBundle(), BULL_LONG_CTX, 'm5');
   assert.equal(r.displacement_quality.present, true);
