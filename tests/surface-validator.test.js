@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSetupAgainstCandidate, surfaceNoTrade, setCurrentCandidate, clearCurrentCandidate, clearCurrentSurfaceState } from '../app/main/tools/surface.js';
+import { validateSetupAgainstCandidate, surfaceSetup, surfaceNoTrade, setCurrentCandidate, clearCurrentCandidate, clearCurrentSurfaceState } from '../app/main/tools/surface.js';
 
 function validCandidate() {
   return {
@@ -70,6 +70,18 @@ test('validator: throws when model/side mismatch with detector', () => {
   assert.throws(() => validateSetupAgainstCandidate(payload, validCandidate(), validBundle()), /model\/side.*does not match/);
 });
 
+test('surface_setup rejects when detector truth is explicit no-trade', async () => {
+  clearCurrentSurfaceState();
+  setCurrentCandidate({ best_candidate: null, rejections: [{ model: 'MSS', side: 'long', reason: 'entry_state=waiting is not confirmed' }] }, validBundle());
+  const payload = { model: 'MSS', side: 'long', entry: 29998.5, entry_cite: 'engine_by_tf.m5.fvgs[3].top', stop: 29981.25, stop_cite: 'bars_by_tf.m5.last_5_bars[0].low', tp1: 30015, tp1_cite: 'pillar1.mnq.overnight.untaken_above[0]', tp2: 30119, tp2_cite: 'pillar1.mnq.overnight.untaken_above[1]', grade: 'B' };
+  await assert.rejects(
+    () => surfaceSetup(payload),
+    /detector emitted best_candidate=null.*surface_no_trade/i,
+  );
+  clearCurrentCandidate();
+  clearCurrentSurfaceState();
+});
+
 test('surface_no_trade rejects missed valid setup when detector has a best_candidate', async () => {
   clearCurrentSurfaceState();
   setCurrentCandidate(validCandidate(), validBundle());
@@ -80,3 +92,4 @@ test('surface_no_trade rejects missed valid setup when detector has a best_candi
   clearCurrentCandidate();
   clearCurrentSurfaceState();
 });
+

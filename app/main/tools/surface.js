@@ -204,7 +204,7 @@ export async function surfaceSetup(payload) {
   // Detector audit: when bar-close set a candidate for this turn,
   // validate the payload against it. Strict (reject) mode from day one
   // per spec — tests-only trust path.
-  if (_currentCandidate?.best_candidate && _currentBundle) {
+  if (_currentCandidate && _currentBundle) {
     validateSetupAgainstCandidate(payload, _currentCandidate, _currentBundle);
   }
   const dir = await activeSessionDir();
