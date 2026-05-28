@@ -550,6 +550,7 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
   // Compose a single "WHO · time" line matching the mockup.
   const headLabel = (m) => {
     const who = m.type === "bar-read" ? "BAR-CLOSE · CLAUDE"
+              : m.type === "activity" ? "CLAUDE · ACTIVITY"
               : m.type === "reply" ? "CLAUDE" : "YOU";
     return m.t ? `${who} · ${m.t}` : who;
   };

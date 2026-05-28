@@ -4,7 +4,7 @@
 // here. RISK rows are broken into Entry / Stop (red) / TP1 / TP2 (green)
 // for color-coded scannability.
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   selectPillar3,
@@ -19,23 +19,45 @@ import { useOpenReaction } from "./hooks/useOpenReaction.js";
 import { useLastBar } from "./hooks/useLastBar.js";
 import { useHealth } from "./hooks/useHealth.js";
 import { useChat } from "./hooks/useChat.js";
+import { useBacktestRunning } from "./hooks/useBacktest.js";
 import { useSessionBrief } from "./hooks/useSessionBrief.js";
 import { useClock } from "./hooks/useClock.js";
+import { useWalkers } from "./hooks/useWalkers.js";
 
 // ── Loop banner (only when unhealthy) ────────────────────────────────
 function LoopBanner({ status }) {
-  if (status === "healthy" || !status) return null;
-  const tone = status === "down" ? "red" : "amber";
-  const label = status === "down" ? "DETECTOR DOWN" : "DETECTOR STALE";
+  const running = status === "healthy";
+  const stale = status === "stale";
+  const tone = running ? "var(--green)" : stale ? "var(--amber)" : "var(--red)";
+  const label = running ? "DETECTOR · RUNNING"
+              : stale ? "DETECTOR · STALE"
+              : "DETECTOR · STOPPED";
+  const onClick = async () => {
+    try {
+      if (running) await window.api?.detector?.stop?.();
+      else await window.api?.detector?.start?.();
+    } catch { /* best-effort */ }
+  };
   return (
     <div style={{
       padding: "6px 16px",
       borderBottom: "1px solid var(--border)",
       background: "var(--surface-2)",
-      color: tone === "red" ? "var(--red)" : "var(--amber)",
+      display: "flex", alignItems: "center", justifyContent: "space-between",
       fontSize: 10.5, letterSpacing: ".22em",
     }}>
-      {label} · bar-close polling is paused — fix in System page
+      <span style={{ color: tone }}>{label}</span>
+      <span onClick={onClick}
+            style={{
+              cursor: "pointer",
+              padding: "2px 10px",
+              border: `1px solid ${tone}`,
+              color: tone,
+              letterSpacing: ".18em",
+              fontSize: 9.5,
+            }}>
+        {running ? "STOP" : "START"}
+      </span>
     </div>
   );
 }
@@ -110,7 +132,40 @@ function latestClaudeReadHtml(messages) {
 }
 
 // ── Sub-state 2: ENTRY HUNT (Step 5 + Step 6) ────────────────────────
+// WALKER STATUS panel — renders the per-session walker engine state above
+// the entry candidate. Walker engine replaced Claude reasoning for Pillar 3
+// + confirmation; this panel exposes what the engine is watching in real time.
+function WalkerStatusPanel({ walkers }) {
+  if (!walkers || walkers.length === 0) return null;
+  return (
+    <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
+      <div style={{ color: "var(--label)", fontSize: 10, letterSpacing: ".22em", marginBottom: 8 }}>WALKER STATUS</div>
+      {walkers.map((w) => {
+        const ageM = w.last_advanced_at ? Math.round((Date.now() - w.last_advanced_at) / 60_000) : null;
+        return (
+          <div key={w.id} style={{ fontSize: 10.5, marginBottom: 6 }}>
+            <div style={{ color: "var(--value)" }}>
+              {w.panel_id} · {w.model} · {w.variant} · {(w.size_multiplier ?? 1).toFixed(1)}× size
+            </div>
+            <div style={{ color: "var(--label-dim)" }}>
+              ▸ {w.stage}{ageM != null ? ` (${ageM}m)` : ""}
+            </div>
+            {w.displacement_fvg && (
+              <div style={{ color: "var(--label)" }}>
+                watching FVG {w.displacement_fvg.low}–{w.displacement_fvg.high}
+                {w.hypothetical_r_to_stop != null ? ` · R-to-stop ${w.hypothetical_r_to_stop}` : ""}
+                {w.hypothetical_r_to_tp1 != null ? ` · R-to-TP1 ${w.hypothetical_r_to_tp1}` : ""}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat }) {
+  const walkers = useWalkers();
   // Show Claude's latest read regardless of whether a setup is active —
   // when no setup, it explains *why* no-trade; when a setup is in play,
   // it gives the chain rationale.
@@ -133,6 +188,7 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
     // body prose where it can wrap properly.
     return (
       <div className="work-scroll">
+        <WalkerStatusPanel walkers={walkers} />
         <Panel title="ENTRY CANDIDATE"
                right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
           {noTradeReason ? (
@@ -148,7 +204,7 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
             </>
           ) : !noTradeReason ? (
             <div style={{ color: "var(--label)", padding: "8px 0", fontSize: 11 }}>
-              waiting for Claude's next bar-close read…
+              waiting for walker engine to fire…
             </div>
           ) : null}
         </Panel>
@@ -168,6 +224,7 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
   const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : "dim";
   return (
     <div className="work-scroll">
+      <WalkerStatusPanel walkers={walkers} />
       <Panel title="ENTRY CANDIDATE"
              right={
                <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
@@ -267,7 +324,11 @@ function InTradeView({ activeTrade, lastBar, chat }) {
 }
 
 // ── Router ────────────────────────────────────────────────────────────
-function LiveWorkstation() {
+function LiveBody() {
+  // All hooks first — React requires identical hook order across renders, so
+  // we can't early-return before the rest of these. We render the backtest
+  // placeholder below as a normal conditional in JSX.
+  const backtest = useBacktestRunning();
   const health = useHealth();
   const { activeTrade, accept, reject } = useTrades();
   const { activeSetup, noTradeReason } = useActiveSetup();
@@ -287,6 +348,25 @@ function LiveWorkstation() {
   // Bug observed 2026-05-27: the prior router fell through to
   // OpenReactionView whenever activeSetup was null, leaving stale
   // +10m open-reaction data on screen during the entry_hunt phase.
+  // Backtest exclusive mode: the chart is in replay, live data is meaningless.
+  // Show a placeholder. (All hooks above this point have already run.)
+  if (backtest.running) {
+    const sLabel = ({ "ny-am": "NY-AM", "ny-pm": "NY-PM", london: "LONDON" })[backtest.session] ?? backtest.session ?? "";
+    return (
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        height: "100%", color: "var(--label)", gap: 10,
+      }}>
+        <div style={{ letterSpacing: "0.22em", fontSize: "12px" }}>
+          BACKTEST RUNNING{sLabel ? ` · ${sLabel}` : ""}
+        </div>
+        <div style={{ fontSize: "10.5px", color: "var(--label-dim)" }}>
+          LIVE DATA UNAVAILABLE — CHART IS IN REPLAY
+        </div>
+      </div>
+    );
+  }
+
   const inOpenReaction = clock?.phase === "OPEN REACTION";
   let body;
   if (activeTrade) {
@@ -307,4 +387,62 @@ function LiveWorkstation() {
   );
 }
 
-export { OpenReactionView, EntryHuntView, InTradeView, LiveWorkstation };
+// ───────────────────────────────────────────────────────────────────────
+// LiveCell — topbar cell + anchored 420px popover wrapper. Tri-state
+// badge: dim IDLE/DONE, amber HUNT pulse, green/red pulse + live P&L.
+function LiveCell() {
+  const [open, setOpen] = useState(false);
+  const { activeTrade } = useTrades();
+  const { activeSetup } = useActiveSetup();
+  const clock = useClock();
+  const lastBar = useLastBar();
+
+  // Derive cell badge state from the existing inputs (no extra subscriptions)
+  let badge;
+  if (activeTrade) {
+    const pnl = liveGridFromTrade(activeTrade, lastBar)?.pnl;
+    const pnlR = typeof pnl?.r === "number" ? pnl.r : 0;
+    const cls = pnlR >= 0 ? "green" : "red";
+    badge = (<><span className={"pulse " + cls} /><span className={"pnl " + cls}>{pnlR >= 0 ? "+" : ""}{pnlR.toFixed(1)}R</span></>);
+  } else if (activeSetup || clock?.phase === "OPEN REACTION" || clock?.phase === "ENTRY HUNT") {
+    badge = (<><span className="pulse" /><span className="state amber">HUNT</span></>);
+  } else {
+    badge = (<span className="dot dim" />);
+  }
+
+  useEffect(() => {
+    const onOpen = (e) => {
+      if (e.detail?.which === "live") setOpen((o) => !o);
+      if (e.detail?.which === "all-close") setOpen(false);
+    };
+    window.addEventListener("topbar:open-cell", onOpen);
+    return () => window.removeEventListener("topbar:open-cell", onOpen);
+  }, []);
+
+  const onCellClick = (e) => {
+    if (e.target.closest(".bt-popover")) return;
+    setOpen((o) => !o);
+  };
+
+  return (
+    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={onCellClick}>
+      <span className="k">LIVE</span>
+      {badge}
+      {open && (
+        <div className="bt-popover" onClick={(e) => e.stopPropagation()}>
+          <div className="head">
+            <span className="t">LIVE</span>
+            <span className="x" onClick={() => setOpen(false)}>×</span>
+          </div>
+          <div className="body">
+            <LiveBody />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export { OpenReactionView, EntryHuntView, InTradeView, LiveCell };
+// Legacy alias for App.jsx until Task 11 rewires the topbar
+export { LiveBody as LiveWorkstation };

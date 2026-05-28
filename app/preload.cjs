@@ -1,6 +1,17 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
+  claude: {
+    // Cross-purpose activity stream — fires for every event from any
+    // userTurn (brief, wrap, bar-close, chat, review, catch-up, shutdown).
+    // Used by the CLAUDE popover to show what Claude is doing globally,
+    // not just in the interactive chat conversation.
+    onActivity(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("claude:activity", listener);
+      return () => ipcRenderer.removeListener("claude:activity", listener);
+    },
+  },
   chat: {
     send(text) {
       return ipcRenderer.invoke("chat:send_message", { text });
@@ -35,16 +46,6 @@ contextBridge.exposeInMainWorld("api", {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("chat:queue_ready", listener);
       return () => ipcRenderer.removeListener("chat:queue_ready", listener);
-    },
-  },
-  mode: {
-    switch(mode) {
-      return ipcRenderer.invoke("mode:switch", { mode });
-    },
-    onCurrent(cb) {
-      const listener = (_e, ev) => cb(ev);
-      ipcRenderer.on("mode:current", listener);
-      return () => ipcRenderer.removeListener("mode:current", listener);
     },
   },
   trade: {
@@ -85,6 +86,17 @@ contextBridge.exposeInMainWorld("api", {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("health:update", listener);
       return () => ipcRenderer.removeListener("health:update", listener);
+    },
+  },
+  detector: {
+    start() { return ipcRenderer.invoke("detector:start"); },
+    stop()  { return ipcRenderer.invoke("detector:stop"); },
+  },
+  walkers: {
+    onState(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("walkers:state", listener);
+      return () => ipcRenderer.removeListener("walkers:state", listener);
     },
   },
   alert: {
@@ -214,6 +226,34 @@ contextBridge.exposeInMainWorld("api", {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("calendar:update", listener);
       return () => ipcRenderer.removeListener("calendar:update", listener);
+    },
+  },
+  backtest: {
+    start(cfg) {
+      return ipcRenderer.invoke("backtest:start", cfg);
+    },
+    stop() {
+      return ipcRenderer.invoke("backtest:stop");
+    },
+    decision({ choice, setupId, reason } = {}) {
+      return ipcRenderer.invoke("backtest:decision", { choice, setupId, reason });
+    },
+    list() {
+      return ipcRenderer.invoke("backtest:list");
+    },
+    get({ runId }) {
+      return ipcRenderer.invoke("backtest:get", { runId });
+    },
+    delete({ runId }) {
+      return ipcRenderer.invoke("backtest:delete", { runId });
+    },
+    status() {
+      return ipcRenderer.invoke("backtest:status");
+    },
+    onEvent(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("backtest:event", listener);
+      return () => ipcRenderer.removeListener("backtest:event", listener);
     },
   },
 });

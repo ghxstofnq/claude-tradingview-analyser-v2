@@ -164,6 +164,13 @@ Cite from `brief_digest.symbols.<sym>.ltf_context.*` or `pillar1.session_levels.
 
 Use the strategy sizing table + memory.USER overrides. Format: `"0.75 R · Tue standard (strategy.sizing-table)"` or `"0.5 R · A+ but Mon-reduced (strategy.sizing-table, memory.USER)"`. Cite must contain `(strategy...)` OR `(memory.USER)` OR `(memory.MEMORY)`.
 
+### Step 7.5 — Prose Summary
+
+Set `prose_summary` to a 2-4 sentence synthesis of the brief, written in the trader's voice. Read aloud, this should sound like the trader explaining the day's setup to a colleague — HTF context, the room price has, primary draw, what you're watching for. The UI renders prose-style with subtle bold + color emphasis on key prices and biases — you just write natural sentences. Citations are NOT required here (the structured fields above carry the cite discipline). Min 50 chars, max 1000.
+
+Example:
+> "HTF stacks bearish D → 1H. Daily took PDH 29105 and is set up for a PDL 29050 visit; overnight held the 4H FVG 29070–29105 untaken. Pillar 2 is clean (78pt range, 0.72 body). Watching two shorts: an A+ MSS on a sweep of 29105 and a B-grade iFVG flip at 29080. Skipping longs at PDL — daily bias overrides."
+
 ### Step 8 — Self-check before surface_session_brief
 
 - Each `htf_bias` row's `note` cites at least one path **at that TF** (`brief_digest.symbols.<sym>.htf.<tf>` or sub-paths). Wrong-TF cites are bugs.

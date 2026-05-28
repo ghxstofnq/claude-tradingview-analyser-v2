@@ -16,6 +16,7 @@ import {
 } from "./Prep.helpers.js";
 import { useSessionBrief, formatAge } from "./hooks/useSessionBrief.js";
 import { armAlertReal, useAlertStateListener } from "./hooks/useAlerts.js";
+import { useBacktestRunning } from "./hooks/useBacktest.js";
 
 // ───────────────────────────────────────────────────────────────────────
 // SESSION BRIEF panel — prose blob + status + tabs.
@@ -159,6 +160,31 @@ function Step3Panel({ brief }) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
+// BRIEF · CLAUDE — free-form prose summary written by the brief turn
+// into brief.prose_summary (added 2026-05-28). Renders nothing if absent
+// (legacy briefs that pre-date the schema field).
+function BriefProseSection({ brief }) {
+  const prose = brief?.prose_summary;
+  if (!prose || typeof prose !== "string" || prose.trim().length === 0) return null;
+  const ts = brief?.ts ? new Date(brief.ts).toLocaleTimeString("en-US", {
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York",
+  }) : null;
+  const grade = brief?.pillar_grade;
+  return (
+    <Panel title="BRIEF · CLAUDE">
+      <div className="brief-prose">
+        {(ts || grade) && (
+          <span className="ts">
+            {ts ? `${ts} ET` : ""}{ts && grade ? " · " : ""}{grade ? `${grade} pre-session` : ""}
+          </span>
+        )}
+        {prose}
+      </div>
+    </Panel>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────
 // SCENARIOS panel.
 function ScenariosPanel({ brief }) {
   const scenarios = brief?.scenarios || [];
@@ -176,7 +202,9 @@ function ScenariosPanel({ brief }) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-function PrepWorkstation({ symbol, currentPrice }) {
+function PrepBody({ symbol, currentPrice }) {
+  // All hooks first — we conditionally render the backtest placeholder below.
+  const backtest = useBacktestRunning();
   const {
     brief,
     selectedSymbol, setSelectedSymbol,
@@ -221,6 +249,12 @@ function PrepWorkstation({ symbol, currentPrice }) {
   const pillarGrade = brief?.pillar_grade;
   const chainStatus = brief?.chain_status;
 
+  // Backtest exclusive mode: live data is meaningless while a run is in flight.
+  // (All hooks above have run; this is just conditional rendering.)
+  if (backtest.running) {
+    return <BacktestRunningPlaceholder session={backtest.session} />;
+  }
+
   return (
     <div className="work-scroll">
       <SessionBriefPanel
@@ -239,9 +273,77 @@ function PrepWorkstation({ symbol, currentPrice }) {
                   armed={armed} fired={fired}
                   onArm={onArm} onDisarm={onDisarm} />
       <Step3Panel brief={brief} />
+      <BriefProseSection brief={brief} />
       <ScenariosPanel brief={brief} />
     </div>
   );
 }
 
-export { PrepWorkstation };
+// ───────────────────────────────────────────────────────────────────────
+// PrepCell — topbar cell + anchored popover wrapper around PrepBody.
+// Same recipe as BacktestCell (open/close on click, click outside closes,
+// badge shows pre-session grade or "—").
+function PrepCell({ symbol, currentPrice }) {
+  const [open, setOpen] = useState(false);
+  const { brief } = useSessionBrief();
+  const hasBrief = !!brief;
+
+  // Keyboard hotkey: "1" opens / Esc closes (wired via App.jsx CustomEvent)
+  useEffect(() => {
+    const onOpen = (e) => {
+      if (e.detail?.which === "prep") setOpen((o) => !o);
+      if (e.detail?.which === "all-close") setOpen(false);
+    };
+    window.addEventListener("topbar:open-cell", onOpen);
+    return () => window.removeEventListener("topbar:open-cell", onOpen);
+  }, []);
+
+  const onCellClick = (e) => {
+    if (e.target.closest(".bt-popover")) return;
+    setOpen((o) => !o);
+  };
+
+  return (
+    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={onCellClick}>
+      <span className="k">PREP</span>
+      <span className={"dot " + (hasBrief ? "" : "dim")} />
+      {open && (
+        <div className="bt-popover w-660" onClick={(e) => e.stopPropagation()}>
+          <div className="head">
+            <span className="t">PREP</span>
+            <span className="sub">{brief?.date ?? "—"} · {sessionShort(brief?.session) ?? ""}</span>
+            <span className="x" onClick={() => setOpen(false)}>×</span>
+          </div>
+          <div className="body">
+            <PrepBody symbol={symbol} currentPrice={currentPrice} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BacktestRunningPlaceholder({ session }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      height: "100%", color: "var(--label)", gap: 10,
+    }}>
+      <div style={{ letterSpacing: "0.22em", fontSize: "12px" }}>
+        BACKTEST RUNNING{session ? ` · ${sessionShort(session)}` : ""}
+      </div>
+      <div style={{ fontSize: "10.5px", color: "var(--label-dim)" }}>
+        LIVE DATA UNAVAILABLE — CHART IS IN REPLAY
+      </div>
+    </div>
+  );
+}
+
+function sessionShort(s) {
+  return ({ "ny-am": "NY-AM", "ny-pm": "NY-PM", london: "LONDON" })[s] ?? (s ?? "");
+}
+
+export { PrepCell };
+// Legacy export — App.jsx still imports PrepWorkstation until the topbar
+// rewire lands; alias keeps that build path working until Task 11.
+export { PrepBody as PrepWorkstation };

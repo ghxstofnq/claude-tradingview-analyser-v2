@@ -3,7 +3,7 @@
 // Reads useReview() directly. CANDIDATE LEDGER rows are clickable to
 // expand into a full TradeCard for confirmed/accepted rows.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
@@ -202,7 +202,7 @@ function SessionLibraryPanel({ library, currentDate, currentSession, onPick }) {
 }
 
 // ── Workstation ──────────────────────────────────────────────────────
-function ReviewWorkstation() {
+function ReviewBody() {
   const [picked, setPicked] = useState({});
   const { journal, library } = useReview(picked);
   const ledger = React.useMemo(
@@ -234,4 +234,61 @@ function ReviewWorkstation() {
   );
 }
 
-export { ReviewWorkstation };
+// ───────────────────────────────────────────────────────────────────────
+// ReviewCell — topbar cell + anchored 660px popover wrapper. Badge shows
+// today's session P&L color-coded (or setup count pre-session).
+function ReviewCell() {
+  const [open, setOpen] = useState(false);
+  const { journal, library } = useReview();
+  const today = library?.[0];                  // assumed sorted newest-first
+  const totalR = today?.total_r ?? null;
+
+  let badge;
+  if (totalR == null || totalR === 0) {
+    badge = <span className="count dim">{today?.setups ?? 0}</span>;
+  } else {
+    const cls = totalR > 0 ? "green" : "red";
+    badge = (
+      <span className={"count " + cls}>
+        {totalR > 0 ? "+" : ""}{Number(totalR).toFixed(1)}R
+      </span>
+    );
+  }
+
+  useEffect(() => {
+    const onOpen = (e) => {
+      if (e.detail?.which === "review") setOpen((o) => !o);
+      if (e.detail?.which === "all-close") setOpen(false);
+    };
+    window.addEventListener("topbar:open-cell", onOpen);
+    return () => window.removeEventListener("topbar:open-cell", onOpen);
+  }, []);
+
+  const onCellClick = (e) => {
+    if (e.target.closest(".bt-popover")) return;
+    setOpen((o) => !o);
+  };
+
+  return (
+    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={onCellClick}>
+      <span className="k">REVIEW</span>
+      {badge}
+      {open && (
+        <div className="bt-popover w-660" onClick={(e) => e.stopPropagation()}>
+          <div className="head">
+            <span className="t">REVIEW</span>
+            <span className="sub">{journal?.date ?? "—"} · {journal?.session?.toUpperCase() ?? ""}</span>
+            <span className="x" onClick={() => setOpen(false)}>×</span>
+          </div>
+          <div className="body">
+            <ReviewBody />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export { ReviewCell };
+// Legacy alias until Task 11 rewires the topbar
+export { ReviewBody as ReviewWorkstation };

@@ -1,7 +1,8 @@
 // IPC handlers — the bridge between the renderer's UI and main's services.
 
 import { ipcMain } from "electron";
-import { userTurn, cancelCurrentTurn, resetSession } from "./sdk.js";
+import { userTurn, cancelCurrentTurn, resetSession, addActivityListener } from "./sdk.js";
+import { startDetector, stopDetector } from "./bar-close.js";
 import { record as recordMetric, readRows as loadMetricRows } from "./metrics.js";
 import { summarizeUsage, todayET } from "./usage.js";
 import { getPersistentMemory } from "./persistent-memory.js";
@@ -19,6 +20,7 @@ import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal, getPr
 import { getLastBar } from "./last-bar.js";
 import { getCache as getSymbolCache } from "./symbol-cache.js";
 import { readCache as readCalendarCache } from "./calendar.js";
+import { registerBacktestIpc } from "./ipc-backtest.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -26,6 +28,21 @@ export function registerIpc(win) {
   const send = (channel, payload) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
+
+  // Forward every userTurn event (from any purpose) to the renderer so the
+  // CLAUDE conversation can show what Claude is doing across all purposes.
+  addActivityListener((ev) => send("claude:activity", ev));
+
+  // Start / stop the bar-close detector from the LIVE popover. Idempotent
+  // — startDetector already no-ops if a detector is alive.
+  ipcMain.handle("detector:start", async () => {
+    try { startDetector({ send }); return { ok: true }; }
+    catch (err) { return { ok: false, error: String(err?.message || err) }; }
+  });
+  ipcMain.handle("detector:stop", async () => {
+    try { stopDetector(); send("health:update", { detector: "stopped" }); return { ok: true }; }
+    catch (err) { return { ok: false, error: String(err?.message || err) }; }
+  });
 
   ipcMain.handle("chat:send_message", async (_evt, { text }) => {
     recordMetric({ kind: "chat", event: "started" });
@@ -155,14 +172,9 @@ export function registerIpc(win) {
     return { ok: true };
   });
 
-  ipcMain.handle("mode:switch", async (_evt, { mode }) => {
-    try {
-      setMode(mode);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: String(err?.message || err) };
-    }
-  });
+  // mode:switch IPC removed 2026-05-28 — PREP/LIVE/REVIEW are popovers now,
+  // no more mode tabs. setMode() still exists for internal main-process use
+  // (see mode.js) but the renderer no longer drives it.
 
   ipcMain.handle("alert:arm", async (_evt, { price, label }) => {
     try {
@@ -382,6 +394,9 @@ export function registerIpc(win) {
       return { ok: false, error: String(err?.message || err) };
     }
   });
+
+  // Backtest IPC — start/stop/decision/list/get/delete + backtest:event stream
+  registerBacktestIpc(win);
 
   return { send };
 }

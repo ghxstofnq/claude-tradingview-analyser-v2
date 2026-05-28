@@ -26,7 +26,8 @@ import {
   surfaceSessionSummary,
   surfaceLeaderDecision,
 } from "./tools/surface.js";
-import { getPersistentMemory } from "./persistent-memory.js";
+import { getPersistentMemory, setBacktestContext, clearBacktestContext } from "./persistent-memory.js";
+import { setBacktestSessionContext, clearBacktestSessionContext } from "./sessions.js";
 import { extractUsageFromResult } from "./usage.js";
 import { classifyError } from "./error-classifier.js";
 import { findPartialReferences, composePhaseWithPartials, joinSystemPrompt } from "./prompt-composer.js";
@@ -69,6 +70,19 @@ let _turnInFlight = Promise.resolve();
 // a "stop" button when Claude is mid-thought (token-burning loop, wrong
 // analysis worth aborting, etc.) without forcing an app restart.
 let _currentCancel = null; // { cancelToken, q, purpose }
+
+// Global activity broadcaster — every event from every userTurn (any
+// purpose) is forwarded to all registered listeners with a `purpose` tag.
+// Lets a single subscriber (ipc.js → renderer) show "what Claude is
+// currently doing" across all purposes, not just the chat purpose.
+const _activityListeners = new Set();
+export function addActivityListener(fn) { _activityListeners.add(fn); }
+export function removeActivityListener(fn) { _activityListeners.delete(fn); }
+function _broadcastActivity(ev) {
+  for (const fn of _activityListeners) {
+    try { fn(ev); } catch { /* listener errors must not break the turn */ }
+  }
+}
 
 // Wall-clock timeout per turn. If Claude / the network hangs, we don't want
 // the mutex held forever — that would freeze every other caller.
@@ -447,6 +461,14 @@ function buildMcpServer() {
         bias_picture: z.string().describe("One paragraph synthesizing P1 + P2 + LTF bias, prices cited"),
         what_happened: z.string().describe("One paragraph — did setups fire / confirm; the session's narrative"),
         watch_next_session: z.array(z.string()).describe("One or two bullets — what to watch in the next session"),
+        // Free-form prose rendered in the REVIEW popover's WRAP · CLAUDE
+        // section. 2-4 sentences in the trader's voice — what happened,
+        // which setups paid, lessons for next session.
+        prose_summary: z.string().min(50).max(1000).optional().describe(
+          "2-4 sentences in your own words on what happened this session. " +
+          "Call out which setups paid, which didn't, and one lesson worth remembering for next session. " +
+          "Example: 'Two A+ shorts in line with the bearish HTF. First MSS at 29105 sweep hit TP1 in 9 bars — textbook. Second (Trend continuation at 10:18) stopped — entered late, RR was already 1:0.7. Day +1.7R. Memory note: late-entry continuations are still hitting stops more than 50% — flag for next session.'",
+        ),
       },
       async (args) => {
         try {
@@ -590,6 +612,16 @@ function buildMcpServer() {
         pillar2_verdict: z.enum(["good", "marginal", "poor"]).optional().describe("Final P2 verdict for the session. Gates entry_hunt — 'poor' → stand aside."),
         no_trade_reason: z.enum(["data_gap", "engine_stale", "pillar2_poor", "htf_unclear", "session_closed"]).optional().describe("Required iff pillar_grade==='no-trade'. Drives the hard-vs-soft short-circuit downstream."),
         chain_status: z.string().optional().describe("clean | degraded:<reason> | divergent | backfilled:<phase> | stale:<minutes>"),
+        // Free-form prose rendered in the PREP popover's BRIEF · CLAUDE
+        // section. 2-4 sentences in the trader's voice — HTF context, the
+        // room price has, primary draw, what you're watching for. The UI
+        // does its own color emphasis via `<b>` / .green / .red / .amber
+        // spans — Claude just writes natural sentences.
+        prose_summary: z.string().min(50).max(1000).optional().describe(
+          "2-4 sentences in your own words synthesizing the brief. Read aloud, " +
+          "this should sound like the trader explaining the day's setup to a colleague. " +
+          "Example: 'HTF stacks bearish D → 1H. Daily took PDH 29105 and is set up for a PDL 29050 visit; overnight held the 4H FVG 29070–29105 untaken. Pillar 2 is clean. Watching two shorts: an A+ MSS on a sweep of 29105 and a B-grade iFVG flip at 29080.'",
+        ),
       },
       async (args) => {
         try {
@@ -736,38 +768,12 @@ export function resetSession(purpose) {
 
 // Model config. Per Claude Code docs (code.claude.com/docs/en/model-config):
 // the "opus" alias on Max/Team/Enterprise plans auto-resolves to Opus 4.7
-// with 1M context — no [1m] suffix needed, no full model ID gymnastics.
-// "sonnet" fallback (also auto-1M-context on Max) so the per-bar loop
-// survives a transient Opus outage without losing session context.
-//
-// Pre-merge (PR #43 squash) used "claude-opus-4-6-fast" + a long comment
-// arguing against 4.7. That decision was reversed during the day's work:
-// the account doesn't have Fast Mode access, and 4.7's strict literal
-// instruction-following turned out to be exactly what the dual-symbol
-// brief needed to reliably emit surface_session_brief twice. Keeping the
-// "opus" alias here so it tracks whatever current Opus the account has.
-const MODEL = "sonnet";
+// with 1M context. Opus everywhere; no Sonnet fallback per user decision
+// (2026-05-28).
+const MODEL = "opus";
 const FALLBACK_MODEL = "opus";
 
-// Per-purpose model override. Brief and wrap turns emit ~30K output tokens
-// (full prose + citations across HTF / overnight / pillars / scenarios)
-// — Sonnet at ~25-30 tok/s can't fit that inside the 10-min userTurn
-// timeout, while Opus 4.7 at ~67 tok/s comfortably finishes in 7-8 min.
-//
-// Observed live 2026-05-27: every Sonnet-primary brief attempt today
-// (London 02:00, NY-AM 09:00, manual 11:01) hit the 600s timeout with
-// 781+ content_block_delta messages mid-stream. Yesterday's NY-PM
-// brief on Opus (via fallback after Sonnet errored) completed in 444s.
-//
-// Pinning brief/wrap to Opus removes the timeout cliff. The fallback
-// for these purposes is Sonnet (if Opus is rate-limited or down, we
-// at least try). Other purposes (bar-close, chat, catch-up, review)
-// keep the Sonnet→Opus default.
-const HEAVY_OUTPUT_PURPOSES = new Set(["brief", "wrap"]);
-function modelForPurpose(purpose) {
-  if (HEAVY_OUTPUT_PURPOSES.has(purpose)) {
-    return { model: "opus", fallbackModel: "sonnet" };
-  }
+function modelForPurpose(_purpose) {
   return { model: MODEL, fallbackModel: FALLBACK_MODEL };
 }
 
@@ -786,7 +792,7 @@ function modelForPurpose(purpose) {
 // entry_model_priority — those are pre-computed.
 //
 // Levels: low | medium | high | xhigh | max.
-const EFFORT = "high";
+const EFFORT = "medium";
 
 /**
  * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close
@@ -806,7 +812,7 @@ const EFFORT = "high";
  *   - `onEvent`: event callback (chunk / tool_call / turn_complete / error).
  *   - `timeoutMs`: optional override (default 300_000).
  */
-export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS }) {
+export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null }) {
   if (!purpose) {
     const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | catch-up | review)";
     onEvent?.({ type: "error", message: msg });
@@ -831,10 +837,22 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
   }
   await prev;
 
+  // Backtest mode: scope the session-dir override + memory-write
+  // suppression to the duration of this turn. Live behavior is untouched
+  // (these short-circuit to no-ops when backtestContext is null).
+  if (backtestContext) {
+    setBacktestSessionContext({ runId: backtestContext.runId, session: backtestContext.session });
+    setBacktestContext({ runId: backtestContext.runId });
+  }
+
   try {
     if (queued) onEvent?.({ type: "queue_ready" });
     await runOneTurn({ text, purpose, onEvent, timeoutMs });
   } finally {
+    if (backtestContext) {
+      clearBacktestSessionContext();
+      clearBacktestContext();
+    }
     release();
   }
 }
@@ -844,16 +862,19 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
   // `retryable` hint. Consumers (bar-close retry logic, UI error chip)
   // can react differently per kind without each reimplementing the
   // pattern matching. See app/main/error-classifier.js for the taxonomy.
-  const onEvent = rawOnEvent
-    ? (ev) => {
-        if (ev && ev.type === "error" && !ev.kind) {
-          const classified = classifyError(ev.message);
-          rawOnEvent({ ...ev, kind: classified.kind, retryable: classified.retryable });
-        } else {
-          rawOnEvent(ev);
-        }
-      }
-    : undefined;
+  // Also forwards every event to the global activity broadcaster (with
+  // purpose tag) so the CLAUDE conversation can show what's happening
+  // across all purposes.
+  const onEvent = (ev) => {
+    let processed = ev;
+    if (ev && ev.type === "error" && !ev.kind) {
+      const classified = classifyError(ev.message);
+      processed = { ...ev, kind: classified.kind, retryable: classified.retryable };
+    }
+    if (rawOnEvent) rawOnEvent(processed);
+    _broadcastActivity({ ...processed, purpose });
+  };
+  _broadcastActivity({ type: "activity_start", purpose, ts: Date.now(), text });
   // Reset the per-turn memory-write counter. The throttle counter is NOT
   // reset — it spans across turns by design.
   resetMemoryGuardrails();
@@ -874,7 +895,9 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
   const opts = {
     systemPrompt,
     model,
-    fallbackModel,
+    // Agent SDK rejects identical main/fallback. Only pass fallbackModel
+    // when it differs from the main model.
+    ...(fallbackModel && fallbackModel !== model ? { fallbackModel } : {}),
     effort: EFFORT,
     // tools: ["Read", "Glob"] — explicitly load ONLY these built-in tools
     // (no Edit / Write / Bash / Task / etc). Read is critical because
@@ -959,6 +982,7 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
   } finally {
     clearTimeout(timeoutHandle);
     _currentCancel = null;
+    _broadcastActivity({ type: "activity_end", purpose, ts: Date.now() });
   }
 }
 
