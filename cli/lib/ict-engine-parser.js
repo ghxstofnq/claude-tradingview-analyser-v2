@@ -10,8 +10,9 @@
  * Pine v6 indicator (emitMeta/emitLevelAndSweep/emitFvg/... emitters).
  */
 
-/** Engine table schema this parser understands. Guard on meta.schema. */
+/** Engine table schemas this parser understands. Guard on meta.schema. */
 export const ENGINE_SCHEMA = 1;
+export const SUPPORTED_SCHEMAS = new Set([1, 2]);
 
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
@@ -28,16 +29,28 @@ const ROW_FIELD_TYPES = {
   meta: { schema: 'num', count: 'num', emit_ms: 'num' },
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },
   sweep: { price: 'num', swept_ms: 'num', rejected: 'bool' },
+  // V2 (schema=2) added per-zone lifecycle fields (entered_ms..entry_state) on
+  // both fvg and bpr. They're additive — V1 emits leave them absent and the
+  // parser drops absent keys. String-typed enums (size_quality, confirm_dir,
+  // entry_state) default to 'str' so they survive without an explicit entry.
   fvg: {
     top: 'num', bottom: 'num', ce: 'num', created_ms: 'num',
     took_liq: 'bool', disp_score: 'num', reacted: 'bool',
+    entered_ms: 'num', bars_in_zone: 'num', minutes_in_zone: 'num',
+    ce_held: 'bool', confirm_close: 'bool', confirm_ms: 'num', chop_15m: 'bool',
   },
-  bpr: { top: 'num', bottom: 'num', created_ms: 'num', took_liq: 'bool', reacted: 'bool' },
+  bpr: {
+    top: 'num', bottom: 'num', ce: 'num', created_ms: 'num',
+    took_liq: 'bool', reacted: 'bool',
+    entered_ms: 'num', bars_in_zone: 'num', minutes_in_zone: 'num',
+    ce_held: 'bool', confirm_close: 'bool', confirm_ms: 'num', chop_15m: 'bool',
+  },
   swing: { price: 'num', bar_ms: 'num', swept: 'bool' },
   structure: {
     level: 'num', broken_swing_ms: 'num', confirmed_ms: 'num', displacement: 'bool',
   },
   liquidity: { price: 'num', swept: 'bool' },
+  // V2 dropped has_chop, added session (str default). atr_14/17 stay num.
   quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num' },
 };
 
@@ -96,7 +109,7 @@ export function parseIctEngineTable(rows) {
     if (type === 'meta') {
       out.meta = fields;
       out.schema = fields.schema ?? null;
-      out.schema_supported = out.schema === ENGINE_SCHEMA;
+      out.schema_supported = SUPPORTED_SCHEMAS.has(out.schema);
     } else if (type === 'level') out.levels.push(fields);
     else if (type === 'sweep') out.sweeps.push(fields);
     else if (type === 'fvg') out.fvgs.push(fields);
@@ -114,7 +127,11 @@ export function parseIctEngineTable(rows) {
  * Returns the rows array, or null when the indicator is not on the chart.
  */
 export function findIctEngineRows(pineTablesResult) {
-  const study = (pineTablesResult?.studies || []).find((s) => s?.name === 'ICT Engine');
+  // Match V1 ('ICT Engine') and V2 ('ICT Engine V2') by prefix — substring is
+  // intentionally loose so future minor versions don't break discovery.
+  const study = (pineTablesResult?.studies || []).find(
+    (s) => typeof s?.name === 'string' && /^ICT Engine\b/i.test(s.name),
+  );
   const rows = study?.tables?.[0]?.rows;
   return Array.isArray(rows) ? rows : null;
 }
