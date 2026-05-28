@@ -63,21 +63,32 @@ function evaluateEntryConfirmation(conf = {}, side) {
   };
 }
 
+function evaluateContextDraw(ctx, side) {
+  const isLong = side === 'long';
+  const htfDir = ctx.htf_destination?.dir;
+  const aligned = (isLong && htfDir === 'above') || (!isLong && htfDir === 'below');
+  const hasHtfCite = typeof ctx.htf_destination?.cite === 'string' && ctx.htf_destination.cite.length > 0;
+  const hasPrimaryDraw = !!ctx.primary_draw && typeof ctx.primary_draw.cite === 'string' && ctx.primary_draw.cite.length > 0;
+  let missing_reason = null;
+  if (!aligned) missing_reason = `htf_destination dir=${htfDir}, side=${side} not aligned`;
+  else if (!hasHtfCite) missing_reason = 'htf_destination cite missing';
+  else if (!hasPrimaryDraw) missing_reason = 'primary_draw evidence missing';
+  return {
+    present: missing_reason == null,
+    cite: ctx.htf_destination?.cite ?? null,
+    value: { htf_destination: ctx.htf_destination ?? null, primary_draw: ctx.primary_draw ?? null },
+    ...(missing_reason ? { missing_reason } : {}),
+  };
+}
+
 export function evaluateMssComponents(bundle, ctx, tf) {
   const eng = bundle?.gates?.engine ?? {};
   const tfEng = bundle?.engine_by_tf?.[tf] ?? {};
   const side = ctx.side;
   const isLong = side === 'long';
 
-  // 1. context_draw — side aligns with htf_destination dir.
-  const htfDir = ctx.htf_destination?.dir;
-  const context_draw_aligned = (isLong && htfDir === 'above') || (!isLong && htfDir === 'below');
-  const context_draw = {
-    present: context_draw_aligned,
-    cite: ctx.htf_destination?.cite ?? null,
-    value: ctx.htf_destination ?? null,
-    ...(context_draw_aligned ? {} : { missing_reason: `htf_destination dir=${htfDir}, side=${side} not aligned` }),
-  };
+  // 1. context_draw — side aligns with htf_destination and carries HTF draw provenance.
+  const context_draw = evaluateContextDraw(ctx, side);
 
   // 2. liquidity_grab — recent sweep matching side.
   const sweeps = eng.pillar1?.sweeps ?? [];
@@ -144,14 +155,7 @@ export function evaluateTrendComponents(bundle, ctx, tf) {
   const isLong = side === 'long';
 
   // 1. context_draw — same as MSS.
-  const htfDir = ctx.htf_destination?.dir;
-  const aligned = (isLong && htfDir === 'above') || (!isLong && htfDir === 'below');
-  const context_draw = {
-    present: aligned,
-    cite: ctx.htf_destination?.cite ?? null,
-    value: ctx.htf_destination ?? null,
-    ...(aligned ? {} : { missing_reason: `htf_destination dir=${htfDir}, side=${side} not aligned` }),
-  };
+  const context_draw = evaluateContextDraw(ctx, side);
 
   // 2. bos_in_direction — most_recent_structure is BoS in correct dir.
   const mrs = eng.pillar3?.most_recent_structure;
@@ -218,14 +222,7 @@ export function evaluateInversionComponents(bundle, ctx, tf) {
   const isLong = side === 'long';
 
   // 1. context_draw — same as MSS/Trend.
-  const htfDir = ctx.htf_destination?.dir;
-  const aligned = (isLong && htfDir === 'above') || (!isLong && htfDir === 'below');
-  const context_draw = {
-    present: aligned,
-    cite: ctx.htf_destination?.cite ?? null,
-    value: ctx.htf_destination ?? null,
-    ...(aligned ? {} : { missing_reason: `htf_destination dir=${htfDir}, side=${side} not aligned` }),
-  };
+  const context_draw = evaluateContextDraw(ctx, side);
 
   // 2. inverted_pd_array — fresh ifvg in correct direction in the TF's FVG list.
   const tfFvgs = tfEng.fvgs ?? [];

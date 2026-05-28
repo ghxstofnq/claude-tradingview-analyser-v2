@@ -29,7 +29,11 @@ function baseBundle() {
   };
 }
 
-const BULL_LONG_CTX = { side: 'long', htf_destination: { dir: 'above', cite: 'pillar1.mnq.htf_destination' } };
+const BULL_LONG_CTX = {
+  side: 'long',
+  htf_destination: { dir: 'above', cite: 'pillar1.mnq.htf_destination' },
+  primary_draw: { kind: 'fvg', cite: 'engine_by_tf.h4.fvgs[0]' },
+};
 
 test('MSS context_draw: present when side aligns with htf_destination', () => {
   const r = evaluateMssComponents(baseBundle(), BULL_LONG_CTX, 'm5');
@@ -37,9 +41,21 @@ test('MSS context_draw: present when side aligns with htf_destination', () => {
 });
 
 test('MSS context_draw: absent when side opposite to htf_destination', () => {
-  const r = evaluateMssComponents(baseBundle(), { side: 'short', htf_destination: { dir: 'above' } }, 'm5');
+  const r = evaluateMssComponents(baseBundle(), { ...BULL_LONG_CTX, side: 'short', htf_destination: { dir: 'above', cite: 'pillar1.mnq.htf_destination' } }, 'm5');
   assert.equal(r.context_draw.present, false);
   assert.match(r.context_draw.missing_reason, /htf_destination dir=above/);
+});
+
+test('MSS context_draw: absent when htf_destination lacks evidence citation', () => {
+  const r = evaluateMssComponents(baseBundle(), { ...BULL_LONG_CTX, htf_destination: { dir: 'above' } }, 'm5');
+  assert.equal(r.context_draw.present, false);
+  assert.match(r.context_draw.missing_reason, /htf_destination cite missing/);
+});
+
+test('MSS context_draw: absent when primary_draw evidence is missing', () => {
+  const r = evaluateMssComponents(baseBundle(), { ...BULL_LONG_CTX, primary_draw: null }, 'm5');
+  assert.equal(r.context_draw.present, false);
+  assert.match(r.context_draw.missing_reason, /primary_draw/);
 });
 
 test('MSS liquidity_grab: present when sweep matches side', () => {
