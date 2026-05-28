@@ -71,6 +71,19 @@ let _turnInFlight = Promise.resolve();
 // analysis worth aborting, etc.) without forcing an app restart.
 let _currentCancel = null; // { cancelToken, q, purpose }
 
+// Auth circuit breaker. If Claude Code reports local auth is missing, stop
+// auto schedulers from burning a failed SDK turn every bar. Manual login + app
+// restart clears this in-memory flag; full resetSession() also clears it for tests.
+// Scoped resetSession(purpose) must NOT clear it — chat reset should not re-enable autos.
+let _authBlocked = null; // { ts, message }
+export function isClaudeAuthBlocked() { return _authBlocked; }
+function markClaudeAuthBlocked(message) {
+  if (_authBlocked) return;
+  _authBlocked = { ts: Date.now(), message };
+  // eslint-disable-next-line no-console
+  console.warn("[sdk] Claude auth blocked — suppressing auto turns until restart/login", message);
+}
+
 // Global activity broadcaster — every event from every userTurn (any
 // purpose) is forwarded to all registered listeners with a `purpose` tag.
 // Lets a single subscriber (ipc.js → renderer) show "what Claude is
@@ -762,9 +775,19 @@ export async function initSdk() {
 }
 
 export function resetSession(purpose) {
-  if (purpose) _sessionIds.delete(purpose);
-  else _sessionIds.clear();
+  if (purpose) {
+    _sessionIds.delete(purpose);
+    return;
+  }
+  _sessionIds.clear();
+  _authBlocked = null;
 }
+
+export const _authCircuitForTests = {
+  block(message = "Claude Code not logged in") { markClaudeAuthBlocked(message); },
+  current() { return _authBlocked; },
+  clear() { _authBlocked = null; },
+};
 
 // Model config. Per Claude Code docs (code.claude.com/docs/en/model-config):
 // the "opus" alias on Max/Team/Enterprise plans auto-resolves to Opus 4.7
@@ -870,6 +893,9 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
     if (ev && ev.type === "error" && !ev.kind) {
       const classified = classifyError(ev.message);
       processed = { ...ev, kind: classified.kind, retryable: classified.retryable };
+      if (classified.kind === "auth") markClaudeAuthBlocked(classified.message);
+    } else if (ev && ev.type === "error" && ev.kind === "auth") {
+      markClaudeAuthBlocked(ev.message || "Claude auth failed");
     }
     if (rawOnEvent) rawOnEvent(processed);
     _broadcastActivity({ ...processed, purpose });

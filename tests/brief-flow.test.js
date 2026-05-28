@@ -126,6 +126,51 @@ describe("brief flow — postValidate", () => {
   });
 });
 
+describe("brief flow — chart preflight retry", () => {
+  it("retries transient TradingView null/chart-ready errors before succeeding", async () => {
+    const { ensureChartStateWithRetry } = await import("../app/main/session-brief.js");
+    const calls = [];
+    const sleeps = [];
+
+    const result = await ensureChartStateWithRetry({
+      symbol: "MNQ1!",
+      ensureFn: async (opts) => {
+        calls.push(opts);
+        if (calls.length === 1) throw new Error("JS evaluation error: Error: Value is null");
+        if (calls.length === 2) throw new Error("Cannot read properties of undefined (reading '_activeChartWidgetWV')");
+        return { ok: true };
+      },
+      sleepFn: async (ms) => { sleeps.push(ms); },
+      maxAttempts: 3,
+      baseDelayMs: 25,
+    });
+
+    assert.deepEqual(result, { ok: true });
+    assert.equal(calls.length, 3);
+    assert.deepEqual(sleeps, [25, 50]);
+  });
+
+  it("does not retry permanent chart preflight failures", async () => {
+    const { ensureChartStateWithRetry } = await import("../app/main/session-brief.js");
+    let calls = 0;
+
+    await assert.rejects(
+      () => ensureChartStateWithRetry({
+        symbol: "MNQ1!",
+        ensureFn: async () => {
+          calls += 1;
+          throw new Error("wrong symbol: expected MNQ1!");
+        },
+        sleepFn: async () => {},
+        maxAttempts: 3,
+        baseDelayMs: 25,
+      }),
+      /wrong symbol/,
+    );
+    assert.equal(calls, 1);
+  });
+});
+
 // Grade-semantics guards in surface.js. Catches the 2026-05-26 failure mode
 // where pillar_grade="B" was surfaced with two WEAK pillars — internally
 // inconsistent per CLAUDE.md constraint #9 (two weak/missing → no-trade).

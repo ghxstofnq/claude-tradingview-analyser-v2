@@ -25,7 +25,10 @@ const PATTERNS = [
   // Content moderation refusal.
   [/content filter|content policy|refused to respond|safety|moderation/i, "content_filter"],
   // Auth / credential issues. 401/403 + plain English equivalents.
-  [/unauthori[sz]ed|invalid.?api.?key|forbidden|403|401|oauth|credential|expired token/i, "auth"],
+  // Claude Code SDK returns plain text like "Not logged in · Please run /login"
+  // when the local CLI/OAuth session is absent; classify it as non-retryable
+  // auth, not unknown, or live schedulers will spam failed turns every bar.
+  [/unauthori[sz]ed|invalid.?api.?key|forbidden|403|401|oauth|credential|expired token|not logged in|please run \/login|login required/i, "auth"],
   // Network errors — DNS, refused, reset, TLS handshake.
   [/ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|socket hang up|TLS|fetch failed|network/i, "network"],
   // Our own timeout (wall-clock).

@@ -115,6 +115,33 @@ async function isAlreadyDone(session) {
   return !!(await getBriefForToday(session));
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isTransientChartReadyError(err) {
+  const msg = String(err?.message || err || "");
+  return /Value is null|_activeChartWidgetWV|Cannot read properties of undefined|chart.*ready|TradingViewApi/i.test(msg);
+}
+
+export async function ensureChartStateWithRetry({
+  symbol,
+  ensureFn = ensureChartState,
+  sleepFn = sleep,
+  maxAttempts = 5,
+  baseDelayMs = 500,
+} = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await ensureFn({ symbol });
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= maxAttempts || !isTransientChartReadyError(err)) throw err;
+      await sleepFn(baseDelayMs * attempt);
+    }
+  }
+  throw lastErr;
+}
+
 // Preflight: skip the brief turn when the market is closed (no fresh data
 // to analyze), when replay is active on the chart (would grade replay
 // state instead of live), or when the chart isn't on a pair symbol (the
@@ -145,9 +172,9 @@ async function preflight() {
   // the pair symbols. Pin to PAIR_PRIMARY before the turn so the analyzer
   // never gets a wrong-symbol bundle.
   try {
-    await ensureChartState({ symbol: PAIR_PRIMARY });
+    await ensureChartStateWithRetry({ symbol: PAIR_PRIMARY });
   } catch (err) {
-    return { ok: false, reason: `chart preflight failed: ${err?.message || err}` };
+    return { ok: false, reason: `chart preflight failed after retry: ${err?.message || err}` };
   }
   return { ok: true };
 }

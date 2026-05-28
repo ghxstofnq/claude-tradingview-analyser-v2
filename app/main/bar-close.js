@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as replayCore from "@tvmcp/core/replay";
-import { userTurn } from "./sdk.js";
+import { userTurn, isClaudeAuthBlocked } from "./sdk.js";
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
@@ -352,13 +352,18 @@ async function runClaudeTurnFor(ev, session, phase) {
     recordMetric({ kind: "bar-close", event: "skipped", session, reason: `brief_no_trade_hard:${briefNoTradeReason}` });
     return;
   }
+  // If Claude Code is not authenticated, keep deterministic bar/trade/walker
+  // ticking alive but suppress LLM turns. Otherwise a missing local login
+  // creates one failed catch-up/wrap/brief attempt per scheduler tick.
+  const authBlocked = isClaudeAuthBlocked();
+
   // Catch-up: if we entered entry-hunt without a pair-decision (started the
   // system after 09:45 ET for NY AM / 13:15 for NY PM / 03:15 for London),
   // the open-reaction window has already passed and surface_leader_decision
   // never fired. Trigger a one-shot catch-up turn now to pick the leader
   // from current data so the rest of entry-hunt has the chart pinned and
   // can run normally.
-  if (phase === "entry_hunt" && !(await pairDecisionExists())) {
+  if (!authBlocked && phase === "entry_hunt" && !(await pairDecisionExists())) {
     await runLeaderCatchupTurn(ev, session).catch((err) => {
       // eslint-disable-next-line no-console
       console.warn("[bar-close] leader catch-up threw", err?.message || err);
@@ -382,6 +387,17 @@ async function runClaudeTurnFor(ev, session, phase) {
       // Fall through to Claude turn as a safety net for the first iterations.
     }
   }
+
+  if (authBlocked) {
+    recordMetric({ kind: "bar-close", event: "skipped", session, reason: "claude_auth_blocked" });
+    _send?.("app:error", {
+      source: "sdk",
+      level: "warn",
+      message: "Claude Code not logged in — auto LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.",
+    });
+    return;
+  }
+
   await preflightChartState(ev, phase).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[bar-close] preflightChartState threw", err?.message || err);

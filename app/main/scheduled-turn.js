@@ -15,11 +15,25 @@
 //     fails, give up and wait for the next scheduled trigger or a manual.
 //   - "skipped" status now reports a reason, surfaced in onStatus events.
 
-import { userTurn, resetSession } from "./sdk.js";
+import { userTurn, resetSession, isClaudeAuthBlocked } from "./sdk.js";
 import { record as recordMetric } from "./metrics.js";
+import { classifyError } from "./error-classifier.js";
 
 const TRIGGER_LOOKAHEAD_MIN = 72 * 60; // walk up to 72 hours for next trigger
 const RETRY_AFTER_MS = 60_000;          // one retry on failure
+
+export function shouldRetryScheduledTurnForTests({ isRetry = false, errorMessage = "", authBlocked = false } = {}) {
+  if (isRetry) return false;
+  if (authBlocked) return false;
+  const kind = classifyError(errorMessage).kind;
+  return kind !== "auth";
+}
+
+function authBlockedMessage() {
+  const blocked = isClaudeAuthBlocked();
+  if (!blocked) return null;
+  return blocked.message || "Claude Code not logged in";
+}
 
 function nyParts(date = new Date()) {
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -134,6 +148,15 @@ export function makeScheduledTurn(config) {
       }
     }
 
+    const authMsg = authBlockedMessage();
+    if (authMsg) {
+      const message = "Claude Code not logged in — scheduled LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.";
+      _send?.(config.statusChannel, { state: "skipped", session, reason: "claude_auth_blocked", message });
+      _send?.("app:error", { source: config.name, level: "warn", message });
+      recordMetric({ kind: config.purpose, event: "skipped", session, reason: "claude_auth_blocked" });
+      return;
+    }
+
     _running = true;
     _send?.(config.statusChannel, { state: "running", session });
     recordMetric({ kind: config.purpose, event: "started", session });
@@ -213,6 +236,7 @@ export function makeScheduledTurn(config) {
       // eslint-disable-next-line no-console
       console.error(`[${config.name}] run failed`, err);
       const msg = String(err?.message || err);
+      lastErrorMsg = msg;
       _send?.(config.statusChannel, { state: "error", session, message: msg });
       if (!metricRecorded) {
         recordMetric({ kind: config.purpose, event: "failed", session, reason: msg, durationMs: Date.now() - startedAt });
@@ -223,7 +247,11 @@ export function makeScheduledTurn(config) {
     }
 
     // One retry on error. Guarded by isRetry so a failed retry doesn't loop.
-    if (errored && !isRetry) {
+    if (errored && shouldRetryScheduledTurnForTests({
+      isRetry,
+      errorMessage: lastErrorMsg,
+      authBlocked: !!authBlockedMessage(),
+    })) {
       // Drop the cached session_id for this purpose so the retry starts a
       // fresh conversation. If the first attempt died mid-tool-call (e.g.
       // userTurn timeout), the SDK still has a confused partial state on

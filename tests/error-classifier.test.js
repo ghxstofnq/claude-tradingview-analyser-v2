@@ -36,7 +36,14 @@ test("classifies content-filter refusals", () => {
 });
 
 test("classifies auth failures", () => {
-  for (const msg of ["401 Unauthorized", "invalid api key", "OAuth token expired", "Forbidden 403"]) {
+  for (const msg of [
+    "401 Unauthorized",
+    "invalid api key",
+    "OAuth token expired",
+    "Forbidden 403",
+    "Claude Code returned an error result: Not logged in · Please run /login",
+    "login required",
+  ]) {
     assert.equal(classifyError(msg).kind, "auth", msg);
   }
   assert.equal(classifyError("401 Unauthorized").retryable, false);
