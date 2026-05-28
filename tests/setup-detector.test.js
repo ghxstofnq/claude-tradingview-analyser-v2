@@ -472,7 +472,7 @@ test('detectSetups: returns wait state when leader undefined', () => {
 
 test('detectSetups: returns wait state when engine stale', () => {
   const b = baseBundle();
-  b.gates = { ...b.gates, engine: { ...b.gates.engine, meta: { stale: true, emit_age_seconds: 9999 } } };
+  b.gates = { ...b.gates, engine: { ...b.gates.engine, meta: { ...b.gates.engine.meta, stale: true, emit_age_seconds: 9999 } } };
   const r = detectSetups({ bundle: b, leader: 'mnq', ltf_bias_context: {}, untaken_targets: {} });
   assert.equal(r.best_candidate, null);
   assert.match(r.rejection_summary, /stale/i);
@@ -517,6 +517,20 @@ test('detectSetups: blocks unsupported ICT Engine schema before candidate promot
   });
   assert.equal(r.best_candidate, null);
   assert.match(r.rejection_summary, /unsupported/i);
+});
+
+test('detectSetups: blocks unknown ICT Engine schema support before candidate promotion', () => {
+  const b = fullPositiveMssBundle();
+  delete b.gates.engine.meta.schema_supported;
+  const r = detectSetups({
+    bundle: b,
+    leader: 'mnq',
+    ltf_bias_context: { bias: 'bull', htf_ltf_alignment: 'aligned', grade_cap: 'A+', entry_model_priority: 'mss' },
+    untaken_targets: { untaken_above: [{ price: 30015, cite: 'pillar1.mnq.overnight.untaken_above[0]' }, { price: 30119, cite: 'pillar1.mnq.overnight.untaken_above[1]' }], untaken_below: [] },
+  });
+  assert.equal(r.best_candidate, null);
+  assert.match(r.rejection_summary, /schema/i);
+  assert.match(r.rejection_summary, /unknown|missing/i);
 });
 
 test('detectSetups: builds MSS-long candidate when all components present', () => {

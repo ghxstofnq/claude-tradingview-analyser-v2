@@ -47,7 +47,7 @@
   "gates": {
     "session": { "label": "ny_pm", "phase": "entry_hunt", "in_killzone": true, "is_market_closed": false },
     "engine": {
-      "meta": { "tf": "m5", "stale": false },
+      "meta": { "tf": "m5", "stale": false, "schema_supported": true },
       "price_context": { "last": 29998.5, "inside_fvgs": [{ "kind": "fvg", "dir": "bull", "top": 29998.5, "bottom": 29992.5, "state": "fresh" }], "inside_bprs": [] },
       "pillar1": {
         "session_levels": { "AS_L": { "name": "AS_L", "price": 29982.25, "taken": false }, "PDH": { "name": "PDH", "price": 30119, "taken": false } },

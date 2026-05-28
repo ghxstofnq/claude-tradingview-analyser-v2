@@ -46,7 +46,7 @@
   "gates": {
     "session": { "label": "ny_pm", "phase": "entry_hunt", "in_killzone": true, "is_market_closed": false },
     "engine": {
-      "meta": { "tf": "m5", "stale": false },
+      "meta": { "tf": "m5", "stale": false, "schema_supported": true },
       "price_context": { "last": 29995.5, "inside_fvgs": [{ "kind": "ifvg", "dir": "bear", "top": 30007, "bottom": 30001, "state": "fresh" }], "inside_bprs": [] },
       "pillar1": { "session_levels": {}, "sweeps": [] },
       "pillar2": { "current_tf": { "range_quality": "good", "displacement": "clean" }, "m5": { "displacement": "clean" }, "m15": { "displacement": "clean" } },

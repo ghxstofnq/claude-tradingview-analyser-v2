@@ -355,8 +355,11 @@ function engineHealthWaitReason(bundle) {
   if (!engine) return 'Engine source health missing: gates.engine not available. No trade.';
   const meta = engine.meta;
   if (!meta) return 'Engine source health missing: gates.engine.meta not available. No trade.';
-  if (meta.schema_supported === false || bundle?.engine?.schema_supported === false) {
-    return 'Unsupported ICT Engine schema. No trade until supported evidence is emitted.';
+  if (meta.schema_supported !== true || bundle?.engine?.schema_supported === false) {
+    if (meta.schema_supported === false || bundle?.engine?.schema_supported === false) {
+      return 'Unsupported ICT Engine schema. No trade until supported evidence is emitted.';
+    }
+    return 'ICT Engine schema support unknown/missing. No trade until schema_supported=true is explicit.';
   }
   if (meta.stale !== false) {
     if (meta.stale === true) {
