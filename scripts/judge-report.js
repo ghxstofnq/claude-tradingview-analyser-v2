@@ -16,6 +16,16 @@ import { join } from 'node:path';
 
 const FIXTURES = 'tests/fixtures';
 
+export function loadReplayCasesFromDir(dir = FIXTURES) {
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.replay.json') || f.endsWith('.accuracy.json'))
+    .flatMap((f) => {
+      const parsed = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      const cases = Array.isArray(parsed?.cases) ? parsed.cases : [parsed];
+      return cases.map((c) => ({ fixture: c.fixture ?? f.replace(/\.(replay|accuracy)\.json$/, ''), ...c }));
+    });
+}
+
 /** Count verdicts per dimension across all judge results. */
 export function tally(judgeResults) {
   const dims = {};
@@ -119,10 +129,9 @@ function main() {
       `(agree ${counts.agree} / partial ${counts.partial} / disagree ${counts.disagree})`);
   }
 
-  const replayFiles = readdirSync(FIXTURES).filter((f) => f.endsWith('.replay.json') || f.endsWith('.accuracy.json'));
-  if (replayFiles.length) {
-    const cases = replayFiles.map((f) => JSON.parse(readFileSync(join(FIXTURES, f), 'utf8')));
-    console.log(`\n${formatReplayAccuracyReport(replayAccuracyReport(cases))}`);
+  const replayCases = loadReplayCasesFromDir(FIXTURES);
+  if (replayCases.length) {
+    console.log(`\n${formatReplayAccuracyReport(replayAccuracyReport(replayCases))}`);
   }
 }
 

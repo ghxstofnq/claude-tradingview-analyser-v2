@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tally, agreementPct, replayAccuracyReport, formatReplayAccuracyReport } from '../scripts/judge-report.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { tally, agreementPct, replayAccuracyReport, formatReplayAccuracyReport, loadReplayCasesFromDir } from '../scripts/judge-report.js';
 
 test('tally counts verdicts per dimension', () => {
   const results = [
@@ -62,4 +65,25 @@ test('formatReplayAccuracyReport prints decision-grade replay failure counts', (
   assert.match(text, /wrong model\s+1/);
   assert.match(text, /wrong side\s+1/);
   assert.match(text, /false-candidate\s+false_candidate/);
+});
+
+test('loadReplayCasesFromDir reads .replay.json files that contain one case or a cases array', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'replay-cases-'));
+  writeFileSync(join(dir, 'single.replay.json'), JSON.stringify({
+    fixture: 'single',
+    expected: { outcome: 'no_trade' },
+    actual: { outcome: 'no_trade' },
+  }));
+  writeFileSync(join(dir, 'batch.replay.json'), JSON.stringify({ cases: [
+    { fixture: 'batch-valid', expected: { outcome: 'trade', model: 'MSS', side: 'long' }, actual: { outcome: 'trade', model: 'MSS', side: 'long' } },
+    { fixture: 'batch-false', expected: { outcome: 'no_trade' }, actual: { outcome: 'trade', model: 'Trend', side: 'short' } },
+  ] }));
+  writeFileSync(join(dir, 'ignore.judge.json'), JSON.stringify({ dimensions: { grade: 'agree' } }));
+
+  const cases = loadReplayCasesFromDir(dir);
+
+  assert.deepEqual(cases.map((c) => c.fixture).sort(), ['batch-false', 'batch-valid', 'single']);
+  const report = replayAccuracyReport(cases);
+  assert.equal(report.total, 3);
+  assert.equal(report.false_candidates, 1);
 });
