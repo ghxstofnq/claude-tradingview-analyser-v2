@@ -6,10 +6,14 @@ import { EventEmitter } from "node:events";
 import { tvAnalyzeFull, tvAnalyzeFast } from "../main/tools/tv-analyze.js";
 import { tvAlertCreate, tvAlertList } from "../main/tools/tv-alerts.js";
 
-function fakeProc({ exitCode = 0 } = {}) {
+function fakeProc({ exitCode = 0, stdout = "" } = {}) {
   const p = new EventEmitter();
+  p.stdout = new EventEmitter();
   p.stderr = new EventEmitter();
-  setImmediate(() => p.emit("close", exitCode));
+  setImmediate(() => {
+    if (stdout) p.stdout.emit("data", Buffer.from(stdout));
+    p.emit("close", exitCode);
+  });
   return p;
 }
 
@@ -66,7 +70,7 @@ test("tvAlertCreate passes price and label as --price / --message", async () => 
   const calls = [];
   const fakeSpawn = (cmd, args) => {
     calls.push(args);
-    return fakeProc();
+    return fakeProc({ stdout: JSON.stringify({ success: true, alert_id: "test-alert", requested_price: 21540.25 }) });
   };
   await tvAlertCreate({ price: 21540.25, label: "PDH" }, { spawn: fakeSpawn });
   const a = calls[0];

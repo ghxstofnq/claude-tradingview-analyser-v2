@@ -9,19 +9,20 @@
 // switches and trade accepts never unmount it, so the chart never reloads.
 
 import React, { useEffect as useEffectTv, useRef as useRefTv, useState as useStateTv } from "react";
+import { chartUrl, buildSyncChartSymbolScript } from "./tv-symbols.js";
 
-const TV_SYMBOL_MAP = {
-  "MNQ1!": "CME_MINI:MNQ1!",
-  "MES1!": "CME_MINI:MES1!",
-  "MYM1!": "CME_MINI:MYM1!",
-  "M2K1!": "CME_MINI:M2K1!",
-  "MGC1!": "COMEX_MINI:MGC1!",
-  "MCL1!": "NYMEX_MINI:MCL1!",
-};
-
-function chartUrl(symbol) {
-  const sym = TV_SYMBOL_MAP[symbol] || "CME_MINI:MNQ1!";
-  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(sym)}`;
+async function syncWebviewSymbol(wv, symbol) {
+  if (!wv || typeof wv.executeJavaScript !== "function") return null;
+  try {
+    const res = await wv.executeJavaScript(buildSyncChartSymbolScript(symbol), false);
+    // eslint-disable-next-line no-console
+    console.log("[tv-webview] symbol-sync", res);
+    return res;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[tv-webview] symbol-sync failed", e?.message || e);
+    return { ok: false, reason: e?.message || String(e) };
+  }
 }
 
 function TradingViewChart({ symbol = "MNQ1!" }) {
@@ -40,11 +41,13 @@ function TradingViewChart({ symbol = "MNQ1!" }) {
       // eslint-disable-next-line no-console
       console.log("[tv-webview] dom-ready", wv.getURL?.());
     };
-    const onDidFinishLoad = () => {
+    const onDidFinishLoad = async () => {
       // eslint-disable-next-line no-console
       console.log("[tv-webview] did-finish-load", wv.getURL?.());
       if (cancelled) return;
       clearTimeout(failsafe);
+      await syncWebviewSymbol(wv, symbol);
+      if (cancelled) return;
       setReady(true);
       setFailure(null);
     };
@@ -88,7 +91,10 @@ function TradingViewChart({ symbol = "MNQ1!" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retryNonce]);
 
-  // Best-effort symbol switching without reloading.
+  // Best-effort symbol switching without unmounting. A persisted TradingView
+  // session can ignore the URL's ?symbol= and restore the last chart (observed
+  // NFLX while the workstation topbar said MNQ1!), so always verify/sync via
+  // TradingViewApi after the webview is ready instead of trusting getURL().
   useEffectTv(() => {
     const wv = ref.current;
     if (!wv || !ready) return;
@@ -96,8 +102,10 @@ function TradingViewChart({ symbol = "MNQ1!" }) {
     try {
       if (typeof wv.getURL === "function" && wv.getURL() !== target) {
         wv.loadURL(target);
+        return;
       }
     } catch (e) { /* silent */ }
+    syncWebviewSymbol(wv, symbol);
   }, [symbol, ready]);
 
   const retry = () => {
