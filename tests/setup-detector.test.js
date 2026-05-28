@@ -95,12 +95,13 @@ test('MSS retrace_to_fvg: absent when inside_fvgs empty (FVG just created, not y
   assert.match(r.retrace_to_fvg.missing_reason, /not yet retested/);
 });
 
-test('MSS confirmation: present when last_bar body_ratio>=0.6 and direction matches', () => {
+test('MSS confirmation: absent when explicit entry truth is missing even if last_bar looks valid', () => {
   const r = evaluateMssComponents(baseBundle(), BULL_LONG_CTX, 'm5');
-  assert.equal(r.confirmation.present, true);
+  assert.equal(r.confirmation.present, false);
+  assert.match(r.confirmation.missing_reason, /entry_state=missing/);
 });
 
-test('MSS confirmation: absent when last_bar body_ratio<0.6', () => {
+test('MSS confirmation: absent when last_bar body_ratio<0.6 and explicit entry truth is missing', () => {
   const b = baseBundle();
   b.gates.engine.confirmation.last_bar.body_ratio = 0.4;
   const r = evaluateMssComponents(b, BULL_LONG_CTX, 'm5');
@@ -124,6 +125,7 @@ test('MSS confirmation: explicit confirmed entry requires confirm_close and no C
   b.gates.engine.confirmation.confirm_close = 1;
   b.gates.engine.confirmation.ce_held = true;
   b.gates.engine.confirmation.chop_15m = 0;
+  b.gates.engine.confirmation.confirm_dir = 'bull';
   const r = evaluateMssComponents(b, BULL_LONG_CTX, 'm5');
   assert.equal(r.confirmation.present, true);
 });
@@ -203,12 +205,12 @@ test('Trend bos_in_direction: clean reason when most_recent_structure is null (n
   assert.doesNotMatch(r.bos_in_direction.missing_reason, /undefined/);
 });
 
-test('Trend confirmation: clean reason when last_bar empty (no "undefined" in text)', () => {
+test('Trend confirmation: clean reason when explicit entry truth is missing (no "undefined" in text)', () => {
   const b = trendBaseBundle();
   b.gates.engine.confirmation.last_bar = {};
   const r = evaluateTrendComponents(b, BULL_LONG_CTX, 'm5');
   assert.equal(r.confirmation.present, false);
-  assert.match(r.confirmation.missing_reason, /no last_bar emitted yet/);
+  assert.match(r.confirmation.missing_reason, /entry_state=missing/);
   assert.doesNotMatch(r.confirmation.missing_reason, /undefined/);
 });
 
@@ -243,8 +245,10 @@ test('Trend pullback_to_pd_array: absent when inside_fvgs+inside_bprs empty', ()
   assert.equal(r.pullback_to_pd_array.present, false);
 });
 
-test('Trend confirmation: present when last_bar body_ratio>=0.6 and direction matches', () => {
-  const r = evaluateTrendComponents(trendBaseBundle(), BULL_LONG_CTX, 'm5');
+test('Trend confirmation: present when explicit entry truth is confirmed and direction matches', () => {
+  const b = trendBaseBundle();
+  b.gates.engine.confirmation = { ...b.gates.engine.confirmation, entry_state: 'confirmed', confirm_close: 1, ce_held: true, chop_15m: 0, confirm_dir: 'bull' };
+  const r = evaluateTrendComponents(b, BULL_LONG_CTX, 'm5');
   assert.equal(r.confirmation.present, true);
 });
 
@@ -296,8 +300,10 @@ test('Inversion tap_into_ifvg: absent when inside_fvgs has no ifvg', () => {
   assert.equal(r.tap_into_ifvg.present, false);
 });
 
-test('Inversion confirmation: present when last_bar body_ratio>=0.6 and direction matches', () => {
-  const r = evaluateInversionComponents(inversionBaseBundle(), BULL_LONG_CTX, 'm5');
+test('Inversion confirmation: present when explicit entry truth is confirmed and direction matches', () => {
+  const b = inversionBaseBundle();
+  b.gates.engine.confirmation = { ...b.gates.engine.confirmation, entry_state: 'confirmed', confirm_close: 1, ce_held: true, chop_15m: 0, confirm_dir: 'bull' };
+  const r = evaluateInversionComponents(b, BULL_LONG_CTX, 'm5');
   assert.equal(r.confirmation.present, true);
 });
 
@@ -460,6 +466,14 @@ function fullPositiveMssBundle() {
       { time: 1779836280 / 1, low: 29982.25, high: 29991.5 },
       { time: 1779836400 / 1, low: 29990, high: 29998.5 },
     ] },
+  };
+  b.gates.engine.confirmation = {
+    ...b.gates.engine.confirmation,
+    entry_state: 'confirmed',
+    confirm_close: 1,
+    ce_held: true,
+    chop_15m: 0,
+    confirm_dir: 'bull',
   };
   return b;
 }

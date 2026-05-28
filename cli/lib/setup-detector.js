@@ -8,58 +8,39 @@ const TF_MS = { m1: 60_000, m5: 300_000, m15: 900_000, h1: 3_600_000, h4: 14_400
 // Strategy reference: docs/strategy/entry-models.md §MSS.
 // ============================================================================
 
-const MIN_CONFIRMATION_BODY_RATIO = 0.6;
-
-function hasExplicitEntryConfirmation(conf = {}) {
-  return ['entry_state', 'confirm_close', 'ce_held', 'chop_15m', 'confirm_dir', 'minutes_in_zone'].some((k) => Object.prototype.hasOwnProperty.call(conf, k));
-}
-
 function isTruthyFlag(v) {
   return v === true || v === 1 || v === '1' || v === 'true';
 }
 
+function isFalseFlag(v) {
+  return v === false || v === 0 || v === '0' || v === 'false';
+}
+
 function evaluateEntryConfirmation(conf = {}, side) {
   const lb = conf.last_bar ?? {};
-  const explicit = hasExplicitEntryConfirmation(conf);
   const isLong = side === 'long';
   const wantedDir = isLong ? 'bullish' : 'bearish';
   const wantedShortDir = isLong ? 'bull' : 'bear';
+  const entryState = conf.entry_state;
+  const confirmClose = isTruthyFlag(conf.confirm_close);
+  const ceHeld = isTruthyFlag(conf.ce_held);
+  const chopExplicitClear = isFalseFlag(conf.chop_15m);
+  const confirmDir = conf.confirm_dir;
+  const dirMatches = confirmDir === wantedDir || confirmDir === wantedShortDir;
 
-  if (explicit) {
-    const entryState = conf.entry_state;
-    const confirmClose = isTruthyFlag(conf.confirm_close);
-    const chop = isTruthyFlag(conf.chop_15m);
-    const ceFailed = conf.ce_held === false || conf.ce_held === 0 || conf.ce_held === '0' || conf.ce_held === 'false';
-    const confirmDir = conf.confirm_dir ?? lb.direction;
-    const dirMatches = confirmDir == null || confirmDir === wantedDir || confirmDir === wantedShortDir;
-    let missing_reason = null;
-    if (entryState !== 'confirmed') missing_reason = `entry_state=${entryState ?? 'missing'} is not confirmed`;
-    else if (!confirmClose) missing_reason = `confirm_close=${conf.confirm_close ?? 'missing'} is not true`;
-    else if (ceFailed) missing_reason = 'ce_held=false';
-    else if (chop) missing_reason = 'chop_15m=1';
-    else if (!dirMatches) missing_reason = `confirm_dir ${confirmDir} not matching side ${side}`;
-    return {
-      present: missing_reason == null,
-      cite: 'gates.engine.confirmation',
-      value: { ...conf, last_bar: lb },
-      ...(missing_reason ? { missing_reason } : {}),
-    };
-  }
+  let missing_reason = null;
+  if (entryState !== 'confirmed') missing_reason = `entry_state=${entryState ?? 'missing'} is not confirmed`;
+  else if (!confirmClose) missing_reason = `confirm_close=${conf.confirm_close ?? 'missing'} is not true`;
+  else if (!ceHeld) missing_reason = `ce_held=${conf.ce_held ?? 'missing'} is not true`;
+  else if (!chopExplicitClear) missing_reason = `chop_15m=${conf.chop_15m ?? 'missing'} is not explicitly clear`;
+  else if (!confirmDir) missing_reason = 'confirm_dir missing';
+  else if (!dirMatches) missing_reason = `confirm_dir ${confirmDir} not matching side ${side}`;
 
-  const lbEmpty = lb.direction == null && lb.body_ratio == null;
-  const confirmedDir = (isLong && lb.direction === 'bullish') || (!isLong && lb.direction === 'bearish');
-  const bodyOk = (lb.body_ratio ?? 0) >= MIN_CONFIRMATION_BODY_RATIO;
   return {
-    present: confirmedDir && bodyOk,
-    cite: 'gates.engine.confirmation.last_bar',
-    value: lb,
-    ...(confirmedDir && bodyOk ? {} : {
-      missing_reason: lbEmpty
-        ? 'no last_bar emitted yet (engine has not closed a bar this TF)'
-        : !bodyOk
-          ? `last_bar.body_ratio ${lb.body_ratio} below ${MIN_CONFIRMATION_BODY_RATIO}`
-          : `last_bar.direction ${lb.direction} not matching side ${side}`,
-    }),
+    present: missing_reason == null,
+    cite: 'gates.engine.confirmation',
+    value: { ...conf, last_bar: lb },
+    ...(missing_reason ? { missing_reason } : {}),
   };
 }
 

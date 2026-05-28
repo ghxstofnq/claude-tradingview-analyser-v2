@@ -60,7 +60,7 @@
         "structures_by_tier": { "swing": [], "internal": [{ "level": 29982.25, "tier": "internal", "is_high": false }] },
         "most_recent_structure": { "event": "mss", "dir": "bull", "level": 30002.25 }
       },
-      "confirmation": { "last_bar": { "body_ratio": 0.7, "direction": "bullish", "close_position_in_range": 0.85, "time": 1779836400 } }
+      "confirmation": { "entry_state": "confirmed", "confirm_close": 1, "ce_held": true, "chop_15m": 0, "confirm_dir": "bull", "last_bar": { "body_ratio": 0.7, "direction": "bullish", "close_position_in_range": 0.85, "time": 1779836400 } }
     }
   }
 }

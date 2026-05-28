@@ -56,7 +56,7 @@
         "structures_by_tier": { "swing": [{ "level": 30015, "tier": "swing", "is_high": true }], "internal": [] },
         "most_recent_structure": { "event": "mss", "dir": "bear", "level": 29994, "displacement": true }
       },
-      "confirmation": { "last_bar": { "body_ratio": 0.68, "direction": "bearish", "close_position_in_range": 0.15, "time": 1779836400 } }
+      "confirmation": { "entry_state": "confirmed", "confirm_close": 1, "ce_held": true, "chop_15m": 0, "confirm_dir": "bear", "last_bar": { "body_ratio": 0.68, "direction": "bearish", "close_position_in_range": 0.15, "time": 1779836400 } }
     }
   }
 }

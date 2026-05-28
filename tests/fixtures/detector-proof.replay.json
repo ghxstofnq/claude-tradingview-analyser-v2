@@ -35,6 +35,24 @@
         "ltf_bias_context": { "bias": "mixed", "htf_ltf_alignment": "divergent", "grade_cap": "B" }
       },
       "expected": { "outcome": "no_trade" }
+    },
+    {
+      "fixture": "009-mss-bull-weak-confirmation-no-trade",
+      "bundlePath": "009-mss-bull-weak-confirmation-no-trade.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bull", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "mss" }
+      },
+      "expected": { "outcome": "no_trade" }
+    },
+    {
+      "fixture": "010-mss-bull-missing-primary-draw-no-trade",
+      "bundlePath": "010-mss-bull-missing-primary-draw-no-trade.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bull", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "mss" }
+      },
+      "expected": { "outcome": "no_trade" }
     }
   ]
 }
