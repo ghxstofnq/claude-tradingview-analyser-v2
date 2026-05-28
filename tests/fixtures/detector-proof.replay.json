@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "fixture": "006-mss-bull-tradable",
+      "bundlePath": "006-mss-bull-tradable.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bull", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "mss" }
+      },
+      "expected": { "outcome": "trade", "model": "MSS", "side": "long" }
+    },
+    {
+      "fixture": "007-trend-bull-tradable",
+      "bundlePath": "007-trend-bull-tradable.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bull", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "trend" }
+      },
+      "expected": { "outcome": "trade", "model": "Trend", "side": "long" }
+    },
+    {
+      "fixture": "008-inversion-short-tradable",
+      "bundlePath": "008-inversion-short-tradable.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "bear", "htf_ltf_alignment": "aligned", "grade_cap": "A+", "entry_model_priority": "inversion" }
+      },
+      "expected": { "outcome": "trade", "model": "Inversion", "side": "short" }
+    },
+    {
+      "fixture": "005-divergent-ny-open-no-trade",
+      "bundlePath": "005-divergent-ny-open.bundle.json",
+      "input": {
+        "leader": "mnq",
+        "ltf_bias_context": { "bias": "mixed", "htf_ltf_alignment": "divergent", "grade_cap": "B" }
+      },
+      "expected": { "outcome": "no_trade" }
+    }
+  ]
+}

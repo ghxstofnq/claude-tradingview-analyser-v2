@@ -11,6 +11,31 @@ Regression baselines for `/analyze` and the project's analysis pipeline. Each fi
 2. Run `npm run fixture:new -- <label>` — picks the next free `NNN`, captures the chart via `tv analyze --out` (the `--out` flag is required: the multi-TF Pine bundle exceeds the ~64KB stdout truncation limit), and scaffolds the `expected.md` template.
 3. Hand-grade the bundle using the strategy's 7-step checklist (`docs/strategy/trading-strategy-2026.md §7`). Write to `tests/fixtures/NNN-label.expected.md`. Cite every price with `<price> (<json.path>)`.
 4. `npm run smoke:fixtures` — verifies bundle schema and that every cited price resolves to a matching value in the paired bundle.
+5. If the fixture should count toward deterministic detector accuracy, add it to `detector-proof.replay.json` with:
+   - `bundlePath`
+   - `input.leader`
+   - optional `input.ltf_bias_context`
+   - expected `{ outcome, model, side }` for trades or `{ outcome: "no_trade" }`
+6. Run `npm run replay` — this hydrates replay cases, runs the detector, and fails non-zero on false candidates, missed valid setups, wrong model, or wrong side.
+
+## Replay proof pack
+
+`detector-proof.replay.json` is the current runnable detector proof pack. It is not a replacement for real GXNQ-labeled session accuracy, but it is the fast gate for whether the deterministic detector still executes known strategy fixtures correctly.
+
+Current coverage:
+
+- MSS long valid setup
+- Trend long valid setup
+- Inversion short valid setup
+- divergent/open-reaction no-trade
+
+Acceptance gate:
+
+```bash
+npm run replay
+```
+
+Expected result: zero mismatches, zero false candidates, zero missed valid setups, zero wrong model, zero wrong side.
 
 ## What `npm run smoke:fixtures` checks
 

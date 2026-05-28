@@ -12,6 +12,7 @@
     "fixture:coverage": "node ./scripts/fixture-coverage.js",
     "fixture:new": "node ./scripts/new-fixture.js",
     "judge:report": "node ./scripts/judge-report.js",
+    "replay": "node ./scripts/replay-runner.js",
     "test:unit": "node --test tests/*.test.js"
   },
   "workspaces": ["packages/*"],
