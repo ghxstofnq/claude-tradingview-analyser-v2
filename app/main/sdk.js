@@ -837,7 +837,7 @@ const EFFORT = "medium";
  *   - `onEvent`: event callback (chunk / tool_call / turn_complete / error).
  *   - `timeoutMs`: optional override (default 300_000).
  */
-export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null }) {
+export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null }) {
   if (!purpose) {
     const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | catch-up | review)";
     onEvent?.({ type: "error", message: msg });
@@ -872,7 +872,7 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
 
   try {
     if (queued) onEvent?.({ type: "queue_ready" });
-    await runOneTurn({ text, purpose, onEvent, timeoutMs });
+    await runOneTurn({ text, purpose, onEvent, timeoutMs, providerOverride });
   } finally {
     if (backtestContext) {
       clearBacktestSessionContext();
@@ -882,7 +882,8 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
   }
 }
 
-async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
+async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, providerOverride = null }) {
+  const provider = resolveLlmProvider({ purpose, providerOverride });
   const toolCallsThisTurn = [];
   // Wrap onEvent so every "error" event picks up a classified `kind` +
   // `retryable` hint. Consumers (bar-close retry logic, UI error chip)
@@ -922,7 +923,6 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
     console.warn("[sdk] persistent memory load failed (continuing without)", err?.message || err);
   }
   const systemPrompt = await loadSystemPrompt(purpose);
-  const provider = resolveLlmProvider({ purpose });
   if (provider.name === "codex") {
     // Codex is available as a text-only replacement provider. Tool-requiring
     // purposes fail closed inside runCodexTextTurn instead of pretending Codex

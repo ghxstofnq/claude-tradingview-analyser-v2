@@ -15,6 +15,11 @@ import { FixturesPage } from "./Fixtures.jsx";
 import { HealthPage } from "./Health.jsx";
 import { SettingsPage } from "./Settings.jsx";
 import { ErrorBoundary } from "./ErrorBoundary.jsx";
+import {
+  CHAT_PROVIDER_CELLS,
+  buildProviderPopoverTitle,
+  buildProviderSubmitOptions,
+} from "./provider-popover-contract.js";
 
 import { useHealth } from "./hooks/useHealth.js";
 import { useAlertFiredListener, useAlertStateListener } from "./hooks/useAlerts.js";
@@ -214,19 +219,21 @@ function AlertsPopover({ alerts, onClose, onDisarm }) {
   );
 }
 
-function ClaudePopover({ chat, onClose }) {
+function ProviderPopover({ provider, chat, onClose }) {
   const messages = chat?.messages || [];
+  const providerLabel = provider.toUpperCase();
   return (
     <div className="claude-popover" onClick={(e) => e.stopPropagation()}>
       <div className="head">
-        <span className="t">CLAUDE · CONVERSATION</span>
+        <span className="t">{buildProviderPopoverTitle(provider)}</span>
         <span className="x" onClick={onClose}>×</span>
       </div>
       <div className="body">
         <ClaudeFeed
           messages={messages}
           typing={chat?.typing}
-          onSubmit={(text) => chat?.send?.(text)}
+          providerLabel={providerLabel}
+          onSubmit={(text) => chat?.send?.(text, buildProviderSubmitOptions(provider))}
           onCancel={chat?.typing ? chat?.cancel : null}
           onReset={chat?.reset}
         />
@@ -253,11 +260,14 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
                   clock,
                   news, newsOpen, setNewsOpen, newsImminent,
                   alerts, alertsOpen, setAlertsOpen, onDisarm,
-                  chat, claudeOpen, setClaudeOpen,
+                  chats, openProvider, setOpenProvider,
                   currentPrice }) {
   const newsCount = news.length;
   const alertCount = alerts.fired.length + alerts.armed.length;
-  const chatActive = !!(chat?.typing || (chat?.workingPurposes?.size > 0));
+  const chatActive = (provider) => {
+    const chat = chats?.[provider];
+    return !!(chat?.typing || (chat?.workingPurposes?.size > 0));
+  };
   return (
     <header className="topbar">
       <div className="id" />
@@ -287,14 +297,19 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
         <ReviewCell />
         <LiveCell />
         <PrepCell symbol={symbol} currentPrice={currentPrice} />
-        <div className="cell pop-cell claude-cell"
-             onClick={() => setClaudeOpen((o) => !o)}>
-          <span className="k">CLAUDE</span>
-          <span className={"claude-dot" + (chatActive ? " active" : "")} />
-          {claudeOpen && (
-            <ClaudePopover chat={chat} onClose={() => setClaudeOpen(false)} />
-          )}
-        </div>
+        {CHAT_PROVIDER_CELLS.map((cell) => (
+          <div key={cell.provider} className={`cell pop-cell claude-cell ${cell.provider}-cell`}
+               onClick={() => setOpenProvider((cur) => cur === cell.provider ? null : cell.provider)}>
+            <span className="k">{cell.label}</span>
+            <span className={"claude-dot" + (chatActive(cell.provider) ? " active" : "")} />
+            {openProvider === cell.provider && (
+              <ProviderPopover
+                provider={cell.provider}
+                chat={chats?.[cell.provider]}
+                onClose={() => setOpenProvider(null)} />
+            )}
+          </div>
+        ))}
         <SymbolSwitcher symbol={symbol} setSymbol={setSymbol} />
         <div className="cell">
           <button className={"th-btn" + (theme === "dark" ? " on" : "")}
@@ -414,9 +429,12 @@ function App() {
   const openEvidence = (refData, label) => setEvidence({ refData, label });
   const closeEvidence = () => setEvidence(null);
 
-  // CLAUDE popover state — global, shared across all pages
-  const chat = useChat();
-  const [claudeOpen, setClaudeOpen] = useState(false);
+  // LLM provider popover state — Claude and Codex share the same chat controls
+  // but send an explicit provider override so Codex can be tested side-by-side.
+  const claudeChat = useChat({ provider: "claude" });
+  const codexChat = useChat({ provider: "codex" });
+  const chats = { claude: claudeChat, codex: codexChat };
+  const [openProvider, setOpenProvider] = useState(null);
 
   // Calendar — real ForexFactory feed via main process
   const calendarPayload = useCalendar();
@@ -474,8 +492,8 @@ function App() {
               alerts={alerts}
               alertsOpen={alertsOpen} setAlertsOpen={setAlertsOpen}
               onDisarm={disarm}
-              chat={chat}
-              claudeOpen={claudeOpen} setClaudeOpen={setClaudeOpen}
+              chats={chats}
+              openProvider={openProvider} setOpenProvider={setOpenProvider}
               currentPrice={currentPrice} />
 
       {/* Persistent chart-host — mounted ONCE at the App root. Util pages

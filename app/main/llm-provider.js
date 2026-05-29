@@ -12,10 +12,10 @@ export function envKeyForPurpose(purpose) {
   return `TV_LLM_PROVIDER_${String(purpose || '').toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
 }
 
-export function resolveLlmProvider({ purpose = 'chat', env = process.env } = {}) {
+export function resolveLlmProvider({ purpose = 'chat', env = process.env, providerOverride = null } = {}) {
   const purposeOverride = env[envKeyForPurpose(purpose)];
   const globalProvider = env.TV_LLM_PROVIDER || env.LLM_PROVIDER || env.CLAUDE_TRADINGVIEW_LLM_PROVIDER;
-  const name = normalizeProviderName(purposeOverride || globalProvider || 'claude');
+  const name = normalizeProviderName(providerOverride || purposeOverride || globalProvider || 'claude');
   if (name === 'codex') {
     return {
       name,

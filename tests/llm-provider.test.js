@@ -18,6 +18,13 @@ describe('LLM provider selection', () => {
     assert.deepEqual(provider.args, ['exec', '--skip-git-repo-check']);
   });
 
+  test('supports an explicit provider override for side-by-side Claude/Codex chat popovers', () => {
+    const provider = resolveLlmProvider({ purpose: 'chat', providerOverride: 'codex', env: { TV_LLM_PROVIDER_CHAT: 'claude' } });
+    assert.equal(provider.name, 'codex');
+    assert.equal(provider.supportsToolCalling, false);
+    assert.equal(provider.toolRequired, false);
+  });
+
   test('marks automated surface-tool purposes as requiring tools when Codex is selected', () => {
     const provider = resolveLlmProvider({ purpose: 'bar-close', env: { TV_LLM_PROVIDER: 'codex' } });
     assert.equal(provider.name, 'codex');

@@ -487,7 +487,7 @@ function TradeCard({ trade, showSnapshot = true }) {
 }
 
 // ---------- Claude conversation feed ----------
-function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, firedPrices, onCancel, onReset }) {
+function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, firedPrices, onCancel, onReset, providerLabel = "CLAUDE" }) {
   const feedRef = useRef(null);
   const [input, setInput] = useState("");
   // #34 Don't auto-scroll if the user has scrolled up to read history.
@@ -549,9 +549,9 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
   };
   // Compose a single "WHO · time" line matching the mockup.
   const headLabel = (m) => {
-    const who = m.type === "bar-read" ? "BAR-CLOSE · CLAUDE"
-              : m.type === "activity" ? "CLAUDE · ACTIVITY"
-              : m.type === "reply" ? "CLAUDE" : "YOU";
+    const who = m.type === "bar-read" ? `BAR-CLOSE · ${providerLabel}`
+              : m.type === "activity" ? `${providerLabel} · ACTIVITY`
+              : m.type === "reply" ? providerLabel : "YOU";
     return m.t ? `${who} · ${m.t}` : who;
   };
   return (
@@ -565,7 +565,7 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
         ))}
         {typing && (
           <div className="claude-msg reply">
-            <div className="head"><span className="who">CLAUDE · now</span></div>
+            <div className="head"><span className="who">{providerLabel} · now</span></div>
             <div className="body">
               <span className="typing"><i></i><i></i><i></i></span>
             </div>
@@ -589,12 +589,12 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
             onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <span className="prompt">&gt;</span>
         <input value={input} onChange={(e) => setInput(e.target.value)}
-               placeholder={onArmPrice ? "ask claude… (click any price to arm an alert)" : "ask claude…"} />
+               placeholder={onArmPrice ? `ask ${providerLabel.toLowerCase()}… (click any price to arm an alert)` : `ask ${providerLabel.toLowerCase()}…`} />
         {(onCancel || onReset) && (
           <span className="claude-controls">
             {typing && onCancel && (
               <span className="ctl red" onClick={(e) => { e.preventDefault(); onCancel?.(); }}
-                    title="abort Claude's current turn">[ STOP ]</span>
+                    title={`abort ${providerLabel}'s current turn`}>[ STOP ]</span>
             )}
             {onReset && (
               <span className="ctl" onClick={(e) => { e.preventDefault(); onReset?.(); }}

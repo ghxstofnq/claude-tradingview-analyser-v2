@@ -44,7 +44,7 @@ export function registerIpc(win) {
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
-  ipcMain.handle("chat:send_message", async (_evt, { text }) => {
+  ipcMain.handle("chat:send_message", async (_evt, { text, provider } = {}) => {
     recordMetric({ kind: "chat", event: "started" });
     const startedAt = Date.now();
     let errored = false;
@@ -53,6 +53,7 @@ export function registerIpc(win) {
       await userTurn({
         text,
         purpose: "chat",
+        providerOverride: provider,
         onEvent: (ev) => {
           if (ev.type === "chunk") send("chat:chunk", ev);
           else if (ev.type === "tool_call") send("chat:tool_call", ev);

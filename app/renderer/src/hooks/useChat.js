@@ -43,7 +43,7 @@ function escapeHtml(s) {
 // #68 useChat now owns only the chat-stream concern. The activeSetup
 // + noTradeReason state lives in useActiveSetup so the setup card
 // survives chat resets and is conceptually separate.
-export function useChat() {
+export function useChat({ provider = "claude" } = {}) {
   const [messages, setMessages] = useState([]);
   const [typing, setTyping] = useState(false);
   // #44 "queued behind <purpose>" hint while waiting on the mutex.
@@ -251,7 +251,7 @@ export function useChat() {
     setTyping(true);
     armTypingWatchdog();
     try {
-      const res = await window.api.chat.send(text);
+      const res = await window.api.chat.send(text, { provider });
       dlog("[useChat] send returned", res);
     } catch (err) {
       // eslint-disable-next-line no-console

@@ -13,8 +13,8 @@ contextBridge.exposeInMainWorld("api", {
     },
   },
   chat: {
-    send(text) {
-      return ipcRenderer.invoke("chat:send_message", { text });
+    send(text, options = {}) {
+      return ipcRenderer.invoke("chat:send_message", { text, provider: options.provider });
     },
     cancel() {
       return ipcRenderer.invoke("chat:cancel_turn");
