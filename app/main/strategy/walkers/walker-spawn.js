@@ -16,7 +16,7 @@ function collectGateBlockers(context) {
   return [...new Set(blockers)];
 }
 
-export function spawnWalker({ context, model, side, pdArray = null, existingWalkers = [] }) {
+export function spawnWalker({ context, model, side, pdArray = null, setupEvidence = {}, existingWalkers = [] }) {
   const blockers = collectGateBlockers(context);
   if (!WALKER_MODELS.includes(model)) blockers.push('unknown_walker_model');
   if (!WALKER_SIDES.includes(side)) blockers.push('unknown_walker_side');
@@ -26,7 +26,7 @@ export function spawnWalker({ context, model, side, pdArray = null, existingWalk
     return { spawned: false, walker: null, blockers: [...new Set(blockers)] };
   }
 
-  const walker = createWalker({ context, model, side, pdArray });
+  const walker = createWalker({ context, model, side, pdArray, setupEvidence });
   const duplicate = existingWalkers.find((candidate) => isActiveWalker(candidate) && sameWalkerKey(candidate, walker));
   if (duplicate) {
     return { spawned: false, walker: duplicate, blockers: ['duplicate_active_walker'] };

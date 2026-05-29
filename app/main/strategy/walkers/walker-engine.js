@@ -36,4 +36,6 @@ export function runWalkerEngine({ context, walkers = [], spawnRequests = [], adv
 export { advanceWalker } from './walker-advance.js';
 export { killWalker } from './walker-kill.js';
 export { spawnWalker } from './walker-spawn.js';
+export * from './mss-lifecycle.js';
+export * from './execution-packet.js';
 export * from './walker-state.js';

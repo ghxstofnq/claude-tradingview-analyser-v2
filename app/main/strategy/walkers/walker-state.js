@@ -47,7 +47,7 @@ export function createWalkerId({ context, model, side, pdArray }) {
     .replace(/^_|_$/g, '');
 }
 
-export function createWalker({ context, model, side, pdArray = null }) {
+export function createWalker({ context, model, side, pdArray = null, setupEvidence = {} }) {
   const eventTimeUtc = context?.eventTimeUtc;
   const pdArrayRef = normalizeEvidenceRef(pdArray?.evidenceRef ?? pdArray?.cite ?? pdArray?.id);
   return {
@@ -64,14 +64,17 @@ export function createWalker({ context, model, side, pdArray = null }) {
     tapRef: null,
     confirmationRef: null,
     blockers: [],
-    evidence: pdArrayRef
-      ? {
-          pdArray: {
-            evidenceRef: pdArrayRef,
-            rawPayload: pdArray,
-          },
-        }
-      : {},
+    evidence: {
+      ...(pdArrayRef
+        ? {
+            pdArray: {
+              evidenceRef: pdArrayRef,
+              rawPayload: pdArray,
+            },
+          }
+        : {}),
+      ...setupEvidence,
+    },
   };
 }
 

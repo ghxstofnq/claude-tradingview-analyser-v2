@@ -70,6 +70,30 @@ test('buildStrategyContext: missing engine/meta/schema/stale/rows become blocked
   }
 });
 
+test('buildStrategyContext: preserves MSS lifecycle evidence for deterministic walker requests', () => {
+  const context = buildStrategyContext(validBundle({
+    gates: {
+      engine: {
+        ...validBundle().gates.engine,
+        pillar1: {
+          ...validBundle().gates.engine.pillar1,
+          sweeps: [{ side: 'sell', rejected: true, swept_ms: 1780062000000 }],
+        },
+        pillar3: {
+          failure_swings: [{ event: 'mss', validation: 'sweep', dir: 'bull', created_ms: 1780062180000 }],
+        },
+        price_context: {
+          inside_fvgs: [{ kind: 'fvg', dir: 'bull', state: 'fresh', ref: 'ict.rows[0]' }],
+        },
+      },
+    },
+  }));
+
+  assert.equal(context.pillar3.sweeps[0].evidenceRef, 'gates.engine.pillar1.sweeps[0]');
+  assert.equal(context.pillar3.failureSwings[0].evidenceRef, 'gates.engine.pillar3.failure_swings[0]');
+  assert.equal(context.pillar3.insidePdArrays[0].evidenceRef, 'ict.rows[0]');
+});
+
 test('buildStrategyContext: unknown market or session blocks deterministically', () => {
   const unknownMarket = buildStrategyContext(validBundle({ market: 'NQ1!' }));
   assert.equal(unknownMarket.sourceHealth.status, 'blocked');

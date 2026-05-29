@@ -18,6 +18,15 @@ function normalizePdRow(row, index) {
   };
 }
 
+function normalizeEvidenceList(rows = [], baseRef) {
+  return rows.map((row, index) => ({
+    ...row,
+    index,
+    evidenceRef: row.evidenceRef ?? row.ref ?? row.cite ?? `${baseRef}[${index}]`,
+    direction: normalizeDirection(row.dir ?? row.direction),
+  }));
+}
+
 function kindOf(row) {
   return String(row?.kind ?? row?.type ?? '').toLowerCase();
 }
@@ -57,12 +66,20 @@ function buildPillar2(engine, blocked) {
 
 function buildPillar3(engine) {
   const rows = getIctEngineRows(engine).map(normalizePdRow);
+  const sweeps = normalizeEvidenceList(engine?.pillar1?.sweeps ?? [], 'gates.engine.pillar1.sweeps');
+  const failureSwings = normalizeEvidenceList(engine?.pillar3?.failure_swings ?? engine?.pillar3?.failureSwings ?? [], 'gates.engine.pillar3.failure_swings');
+  const insideFvgs = normalizeEvidenceList(engine?.price_context?.inside_fvgs ?? [], 'gates.engine.price_context.inside_fvgs');
+  const insideBprs = normalizeEvidenceList(engine?.price_context?.inside_bprs ?? [], 'gates.engine.price_context.inside_bprs');
+  const confirmationRows = engine?.confirmation ? [{ ...engine.confirmation, evidenceRef: engine.confirmation.evidenceRef ?? 'gates.engine.confirmation' }] : [];
   return {
     pdArrays: rows.filter((row) => ['fvg', 'ifvg', 'bpr'].includes(kindOf(row))),
     fvgs: rows.filter((row) => kindOf(row) === 'fvg'),
     ifvgs: rows.filter((row) => kindOf(row) === 'ifvg'),
     bprs: rows.filter((row) => kindOf(row) === 'bpr'),
-    confirmationRows: engine?.confirmation ? [{ ...engine.confirmation, evidenceRef: engine.confirmation.evidenceRef ?? 'gates.engine.confirmation' }] : [],
+    sweeps,
+    failureSwings,
+    insidePdArrays: [...insideFvgs, ...insideBprs],
+    confirmationRows,
     ohlcv1m: [],
     ohlcv5m: [],
   };
