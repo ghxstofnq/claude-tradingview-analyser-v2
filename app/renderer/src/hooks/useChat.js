@@ -269,6 +269,10 @@ export function useChat({ provider = "claude" } = {}) {
     try {
       await window.api?.chat?.cancel?.();
     } catch { /* best-effort */ }
+    streamingIdxRef.current = null;
+    setTyping(false);
+    setQueuedBehind(null);
+    clearTypingWatchdog();
   }
 
   // Reset chat conversation: clears the renderer history AND tells main

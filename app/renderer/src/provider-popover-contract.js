@@ -4,12 +4,14 @@ export const CHAT_PROVIDER_CELLS = Object.freeze([
     label: 'CLAUDE',
     popoverClassName: 'claude-popover',
     feedComponent: 'ClaudeFeed',
+    placement: 'statusline',
   }),
   Object.freeze({
     provider: 'codex',
     label: 'CODEX',
     popoverClassName: 'claude-popover',
     feedComponent: 'ClaudeFeed',
+    placement: 'statusline',
   }),
 ]);
 
@@ -25,4 +27,8 @@ export function buildProviderPopoverTitle(provider) {
 
 export function buildProviderSubmitOptions(provider) {
   return { provider: normalizeChatProvider(provider) };
+}
+
+export function getExclusiveActiveProvider(_currentProvider, requestedProvider) {
+  return normalizeChatProvider(requestedProvider);
 }

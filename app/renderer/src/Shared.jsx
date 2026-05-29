@@ -556,7 +556,7 @@ function ClaudeFeed({ messages, typing, onSubmit, onArmPrice, armedPrices, fired
   };
   return (
     <div className="claude">
-      <div className="claude-feed" ref={feedRef}>
+      <div className="claude-feed" ref={feedRef} data-empty-label={`no messages yet — ask ${providerLabel.toLowerCase()} below`}>
         {messages.map((m, i) => (
           <div key={i} className={"claude-msg " + m.type}>
             <div className="head"><span className="who">{headLabel(m)}</span></div>
