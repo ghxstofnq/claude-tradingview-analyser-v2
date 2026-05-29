@@ -19,8 +19,8 @@ contextBridge.exposeInMainWorld("api", {
     cancel() {
       return ipcRenderer.invoke("chat:cancel_turn");
     },
-    reset() {
-      return ipcRenderer.invoke("chat:reset");
+    reset(options = {}) {
+      return ipcRenderer.invoke("chat:reset", { provider: options.provider });
     },
     onChunk(cb) {
       const listener = (_e, ev) => cb(ev);

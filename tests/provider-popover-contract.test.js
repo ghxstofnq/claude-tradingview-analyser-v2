@@ -7,6 +7,7 @@ import {
   getExclusiveActiveProvider,
   getProviderChat,
   isProviderChatActive,
+  shouldProviderHandleEvent,
 } from '../app/renderer/src/provider-popover-contract.js';
 
 describe('provider popover contract', () => {
@@ -45,5 +46,18 @@ describe('provider popover contract', () => {
     assert.deepEqual(getProviderChat(chats, 'codex').messages, [{ text: 'codex-only' }]);
     assert.equal(isProviderChatActive(chats, 'claude'), false);
     assert.equal(isProviderChatActive(chats, 'codex'), true);
+  });
+
+  test('provider chat hooks ignore events emitted for the other provider', () => {
+    assert.equal(shouldProviderHandleEvent('claude', { provider: 'claude' }), true);
+    assert.equal(shouldProviderHandleEvent('claude', { provider: 'codex' }), false);
+    assert.equal(shouldProviderHandleEvent('codex', { provider: 'codex' }), true);
+    assert.equal(shouldProviderHandleEvent('openai-codex', { provider: 'codex' }), true);
+  });
+
+  test('untagged legacy chat events remain visible to Claude only', () => {
+    assert.equal(shouldProviderHandleEvent('claude', {}), true);
+    assert.equal(shouldProviderHandleEvent('codex', {}), false);
+    assert.equal(shouldProviderHandleEvent('codex', null), false);
   });
 });

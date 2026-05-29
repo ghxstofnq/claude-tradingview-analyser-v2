@@ -42,3 +42,9 @@ export function isProviderChatActive(chats, provider) {
   const chat = getProviderChat(chats, provider);
   return !!(chat?.typing || (chat?.workingPurposes?.size > 0));
 }
+
+export function shouldProviderHandleEvent(ownerProvider, event) {
+  const owner = normalizeChatProvider(ownerProvider);
+  if (!event || !event.provider) return owner === 'claude';
+  return owner === normalizeChatProvider(event.provider);
+}

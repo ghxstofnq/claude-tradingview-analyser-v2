@@ -6,6 +6,7 @@
 // `body` is HTML; user-typed text is escaped before being inserted.
 
 import { useEffect, useRef, useState } from "react";
+import { shouldProviderHandleEvent } from "../provider-popover-contract.js";
 
 // #20 Gate verbose console logging behind a localStorage flag so
 // production runs aren't noisy. Set `localStorage.debug_chat = "1"` in
@@ -66,6 +67,7 @@ export function useChat({ provider = "claude" } = {}) {
     dlog("[useChat] subscribing to chat events");
 
     const offChunk = window.api.chat.onChunk((ev) => {
+      if (!shouldProviderHandleEvent(provider, ev)) return;
       dlog("[useChat] chunk", JSON.stringify(ev?.text || "").slice(0, 80));
       setMessages((prev) => {
         const idx = streamingIdxRef.current;
@@ -82,6 +84,7 @@ export function useChat({ provider = "claude" } = {}) {
     // useActiveSetup now — see #68.)
 
     const offTurnComplete = window.api.chat.onTurnComplete((ev) => {
+      if (!shouldProviderHandleEvent(provider, ev)) return;
       dlog("[useChat] turn_complete", ev);
       // #63 Append a one-line duration footer to the streaming reply so
       // the trader sees "took 47s" without a separate panel. Skip if
@@ -107,13 +110,16 @@ export function useChat({ provider = "claude" } = {}) {
     });
 
     const offQueued = window.api.chat.onQueued?.((ev) => {
+      if (!shouldProviderHandleEvent(provider, ev)) return;
       setQueuedBehind(ev?.waitingOn || "another turn");
     });
-    const offQueueReady = window.api.chat.onQueueReady?.(() => {
+    const offQueueReady = window.api.chat.onQueueReady?.((ev) => {
+      if (!shouldProviderHandleEvent(provider, ev)) return;
       setQueuedBehind(null);
     });
 
     const offError = window.api.error?.onError?.((ev) => {
+      if (!shouldProviderHandleEvent(provider, ev)) return;
       // eslint-disable-next-line no-console
       console.error("[useChat] app:error", ev);
       // Warnings (level=warn) get an amber tint + "notice:" prefix instead
@@ -137,6 +143,7 @@ export function useChat({ provider = "claude" } = {}) {
     // purposes (bar-close, brief, wrap, review, catch-up) get a compact
     // activity row showing start → tool calls → end with duration.
     const offActivity = window.api?.claude?.onActivity?.((ev) => {
+      if (!shouldProviderHandleEvent(provider, ev)) return;
       const purpose = ev?.purpose;
       if (!purpose) return;
       // Track working set for the CLAUDE dot. Chat counts too — when
@@ -218,7 +225,7 @@ export function useChat({ provider = "claude" } = {}) {
       offError?.();
       offActivity?.();
     };
-  }, []);
+  }, [provider]);
 
   // Typing watchdog. If turn_complete is missed (IPC blip, app:error
   // before chunks start, etc), `typing` would stay true forever and the
@@ -284,7 +291,7 @@ export function useChat({ provider = "claude" } = {}) {
   // reset() + clearSetup() from useActiveSetup independently.
   async function reset() {
     try {
-      await window.api?.chat?.reset?.();
+      await window.api?.chat?.reset?.({ provider });
     } catch { /* best-effort */ }
     setMessages([]);
     streamingIdxRef.current = null;
