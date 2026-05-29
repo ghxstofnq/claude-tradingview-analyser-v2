@@ -32,6 +32,7 @@ import { extractUsageFromResult } from "./usage.js";
 import { classifyError } from "./error-classifier.js";
 import { findPartialReferences, composePhaseWithPartials, joinSystemPrompt } from "./prompt-composer.js";
 import { validateTurnSurfaceContract } from "./turn-surface-contract.js";
+import { resolveLlmProvider, runCodexTextTurn } from "./llm-provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.join(__dirname, "prompts");
@@ -921,6 +922,14 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
     console.warn("[sdk] persistent memory load failed (continuing without)", err?.message || err);
   }
   const systemPrompt = await loadSystemPrompt(purpose);
+  const provider = resolveLlmProvider({ purpose });
+  if (provider.name === "codex") {
+    // Codex is available as a text-only replacement provider. Tool-requiring
+    // purposes fail closed inside runCodexTextTurn instead of pretending Codex
+    // can call the MCP surface tools that lock packet truth.
+    await runCodexTextTurn({ text, systemPrompt, purpose, onEvent, timeoutMs, provider });
+    return;
+  }
   const resumeId = _sessionIds.get(purpose);
   const { model, fallbackModel } = modelForPurpose(purpose);
   const opts = {
