@@ -15,7 +15,8 @@
     "replay": "node ./scripts/replay-runner.js",
     "review:real": "node ./scripts/real-review.js",
     "verify:grading": "node ./scripts/real-review.js --verify-grading",
-    "test:unit": "node --test tests/*.test.js tests/walker/*.test.js"
+    "test": "npm run test:unit",
+    "test:unit": "node --test tests/*.test.js tests/walker/*.test.js tests/strategy/context/*.test.js"
   },
   "workspaces": ["packages/*"],
   "dependencies": {
