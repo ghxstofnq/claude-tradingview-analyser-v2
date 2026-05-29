@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import * as replayCore from "@tvmcp/core/replay";
 import { userTurn, isClaudeAuthBlocked } from "./sdk.js";
 import { currentSession } from "./sessions.js";
-import { tvAnalyzeFull } from "./tools/tv-analyze.js";
+import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
@@ -85,6 +85,21 @@ export function shouldRouteToCatchUp({ sessionPhase, pillar1Exists, pillar2Exist
   if (!pillar2Exists) return false;
   if (sessionPhase === 'entry_hunt_ny_am' || sessionPhase === 'entry_hunt_ny_pm') return true;
   if (sessionPhase === 'post_ny_am' || sessionPhase === 'post_ny_pm') return true;
+  return false;
+}
+
+export function entryHuntFastScanArgs() {
+  return {
+    pair: PAIR_DEFAULT,
+    baseline: baselinePathFor(PAIR_PRIMARY),
+    baselineSecondary: baselinePathFor(PAIR_SECONDARY),
+  };
+}
+
+export function shouldShortCircuitAfterWalkerTick({ phase }) {
+  // Hybrid entry-hunt: the JS walker owns rule evaluation, but it must not
+  // swallow the per-bar Claude packaging/no-trade turn. The previous early
+  // return made the detector look alive while Claude stopped after catch-up.
   return false;
 }
 
@@ -372,15 +387,21 @@ async function runClaudeTurnFor(ev, session, phase) {
     // pair-decision.json may exist now; preflight will pin chart on next call
   }
 
-  // Walker engine path — replaces the entry-hunt Claude turn. Pure JS state
-  // machine decides MSS/Trend/Inversion; no LLM in the Pillar 3 critical path.
-  // Brief, open-reaction, wrap, review, catch-up still fire on Claude below.
-  // Spec: docs/superpowers/specs/2026-05-28-walker-engine-and-claude-md-slim-design.md
+  await preflightChartState(ev, phase).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] preflightChartState threw", err?.message || err);
+  });
+
+  // Hybrid entry-hunt path: refresh the fast scan every bar, let the JS walker
+  // own rule evaluation, then continue into the Claude packaging/no-trade turn.
+  // This keeps Claude active after catch-up without asking it to re-walk MSS /
+  // Trend / Inversion from scratch.
   if (phase === "entry_hunt") {
+    await refreshEntryHuntScanForWalker(session);
     try {
       await runWalkerTickFor(ev, session);
       recordMetric({ kind: "bar-close", event: "walker_ticked", session });
-      return;
+      if (shouldShortCircuitAfterWalkerTick({ phase })) return;
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn("[bar-close] walker tick threw", err?.message || err);
@@ -398,11 +419,6 @@ async function runClaudeTurnFor(ev, session, phase) {
     });
     return;
   }
-
-  await preflightChartState(ev, phase).catch((err) => {
-    // eslint-disable-next-line no-console
-    console.warn("[bar-close] preflightChartState threw", err?.message || err);
-  });
 
   const memory = await readSessionMemory();
   const mip = minutesIntoPhase(session, ev, phase);
@@ -656,6 +672,17 @@ async function readLtfBiasFrontmatter() {
 // scan + brief + memory, calls walkerTick, persists walkers.json, and surfaces
 // any fired triggers via the existing surface_setup path so the LIVE popover
 // renders accept/reject as it would for a Claude-surfaced setup.
+async function refreshEntryHuntScanForWalker(session) {
+  try {
+    await tvAnalyzeFast(entryHuntFastScanArgs(), { skipRead: true });
+    recordMetric({ kind: "bar-close", event: "scan_refreshed", session });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] entry-hunt scan refresh failed", err?.message || err);
+    recordMetric({ kind: "bar-close", event: "scan_refresh_failed", session, reason: String(err?.message || err) });
+  }
+}
+
 async function runWalkerTickFor(ev, session) {
   const inputs = await buildDetectorInputs();
   if (!inputs?.bundle?.gates) return;
