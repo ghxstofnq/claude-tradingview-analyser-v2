@@ -1,0 +1,38 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-05-29-mnq-ny-am-inversion-long",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "GXNQ",
+  "source_message": "GXNQ Discord label: 29-05-2026, MNQ, Trade, Inversion, long, entry 10:48, stop low of 10:45, TP1: 30,437.50",
+  "trade_date": "2026-05-29",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "trade",
+    "model": "Inversion",
+    "side": "long",
+    "entry_time_et": "2026-05-29T10:48:00-04:00",
+    "stop_anchor_time_et": "2026-05-29T10:45:00-04:00",
+    "stop_anchor": "low_of_10:45_candle",
+    "tp1": 30437.5
+  },
+  "evidence_requirements": [
+    "bundle must include 10:45 ET candle low for stop validation",
+    "bundle must include 10:48 ET confirmation candle for entry validation",
+    "bundle must prove Inversion long state: violated opposing FVG and valid close-through/confirmation before or at 10:48 ET",
+    "bundle must prove TP1 30437.50 is untaken liquidity at entry time",
+    "bundle must prove source health fresh, schema supported, and ICT Engine rows present as-of 10:48 ET"
+  ],
+  "replay": {
+    "ready": false,
+    "bundlePath": null,
+    "reason_not_ready": "Need historical/as-of bundle or replay capture ending at 2026-05-29 10:48 ET before this can be scored by npm run replay."
+  },
+  "notes": [
+    "This is the first GXNQ-labeled real-session validation target for V2.",
+    "Do not use later candles to repair the 10:48 decision. The detector must be evaluated as-of the entry confirmation time.",
+    "Stop is structural: low of the 10:45 ET candle. Resolve exact price from captured bars before marking replay.ready=true."
+  ]
+}
