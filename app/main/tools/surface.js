@@ -100,13 +100,18 @@ export function getCurrentSurfaceState() {
 // invoking the turn so surfaceSetup can audit the model's payload.
 let _currentCandidate = null;
 let _currentBundle = null;
+let _currentDeterministicPacket = null;
 export function setCurrentCandidate(candidate, bundle) {
   _currentCandidate = candidate;
   _currentBundle = bundle;
 }
+export function setCurrentDeterministicPacket(packet) {
+  _currentDeterministicPacket = packet ?? null;
+}
 export function clearCurrentCandidate() {
   _currentCandidate = null;
   _currentBundle = null;
+  _currentDeterministicPacket = null;
 }
 
 const GRADE_RANK_VAL = { 'no-trade': 0, B: 1, 'A+': 2 };
@@ -145,6 +150,29 @@ function assertPayloadValueMatchesCite(errors, label, value, cite, bundle) {
   if (!Number.isFinite(value) || Math.abs(resolvedValue - value) >= 0.01) {
     errors.push(`${label} ${value} does not match cited value ${resolvedValue} at ${cite}`);
   }
+}
+
+export function validateSetupAgainstDeterministicPacket(payload, packet) {
+  const errors = [];
+  if (!packet || packet.status !== 'executable' || packet.finalVerdict !== 'manual_candidate') {
+    throw new Error('surface_setup: no executable deterministic packet is active. Use surface_no_trade instead.');
+  }
+  const checks = [
+    ['model', payload.model, packet.model],
+    ['side', payload.side, packet.side],
+    ['grade', payload.grade, packet.grade],
+    ['entry', payload.entry, packet.entry?.price],
+    ['stop', payload.stop, packet.stop?.price],
+    ['tp1', payload.tp1, packet.tp1?.price],
+  ];
+  for (const [labelName, actual, expected] of checks) {
+    if (typeof expected === 'number') {
+      if (!Number.isFinite(actual) || Math.abs(actual - expected) >= 0.01) errors.push(`${labelName} ${actual} does not match deterministic packet ${expected}`);
+    } else if (actual !== expected) {
+      errors.push(`${labelName} ${actual} does not match deterministic packet ${expected}`);
+    }
+  }
+  if (errors.length) throw new Error(`surface_setup deterministic packet validation failed: ${errors.join('; ')}`);
 }
 
 export function validateSetupAgainstCandidate(payload, candidate, bundle) {
@@ -204,6 +232,9 @@ export async function surfaceSetup(payload) {
   // Detector audit: when bar-close set a candidate for this turn,
   // validate the payload against it. Strict (reject) mode from day one
   // per spec — tests-only trust path.
+  if (_currentDeterministicPacket) {
+    validateSetupAgainstDeterministicPacket(payload, _currentDeterministicPacket);
+  }
   if (_currentCandidate && _currentBundle) {
     validateSetupAgainstCandidate(payload, _currentCandidate, _currentBundle);
   }

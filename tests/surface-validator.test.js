@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSetupAgainstCandidate, surfaceSetup, surfaceNoTrade, setCurrentCandidate, clearCurrentCandidate, clearCurrentSurfaceState } from '../app/main/tools/surface.js';
+import { validateSetupAgainstCandidate, validateSetupAgainstDeterministicPacket, surfaceSetup, surfaceNoTrade, setCurrentCandidate, clearCurrentCandidate, clearCurrentSurfaceState } from '../app/main/tools/surface.js';
 
 function validCandidate() {
   return {
@@ -68,6 +68,23 @@ test('validator: throws when grade exceeds grade_capped', () => {
 test('validator: throws when model/side mismatch with detector', () => {
   const payload = { model: 'Trend', side: 'long', entry: 29998.5, entry_cite: 'engine_by_tf.m5.fvgs[3].top', stop: 29981.25, stop_cite: 'bars_by_tf.m5.last_5_bars[0].low', tp1: 30015, tp1_cite: 'pillar1.mnq.overnight.untaken_above[0]', tp2: 30119, tp2_cite: 'pillar1.mnq.overnight.untaken_above[1]', grade: 'B' };
   assert.throws(() => validateSetupAgainstCandidate(payload, validCandidate(), validBundle()), /model\/side.*does not match/);
+});
+
+test('deterministic packet validator rejects Claude setup that differs from executable packet truth', () => {
+  const packet = {
+    status: 'executable',
+    finalVerdict: 'manual_candidate',
+    model: 'Trend',
+    side: 'long',
+    grade: 'B',
+    entry: { price: 21000, evidenceRef: 'packet.entry' },
+    stop: { price: 20990, evidenceRef: 'packet.stop' },
+    tp1: { price: 21020, evidenceRef: 'packet.tp1' },
+  };
+  const valid = { model: 'Trend', side: 'long', grade: 'B', entry: 21000, stop: 20990, tp1: 21020 };
+  assert.doesNotThrow(() => validateSetupAgainstDeterministicPacket(valid, packet));
+  assert.throws(() => validateSetupAgainstDeterministicPacket({ ...valid, entry: 21001 }, packet), /entry.*deterministic packet/);
+  assert.throws(() => validateSetupAgainstDeterministicPacket(valid, { ...packet, status: 'blocked', finalVerdict: 'no_trade' }), /no executable deterministic packet/);
 });
 
 test('surface_setup rejects when detector truth is explicit no-trade', async () => {
