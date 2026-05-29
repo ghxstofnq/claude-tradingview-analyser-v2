@@ -24,7 +24,7 @@ import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./c
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
 import { activeSessionDir } from "./sessions.js";
-import { attachDetectorBriefDigest } from "../../cli/lib/detector-brief-digest.js";
+import { attachDetectorBriefDigest, parseHtfDestination } from "../../cli/lib/detector-brief-digest.js";
 import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
@@ -86,6 +86,16 @@ export function shouldRouteToCatchUp({ sessionPhase, pillar1Exists, pillar2Exist
   if (sessionPhase === 'entry_hunt_ny_am' || sessionPhase === 'entry_hunt_ny_pm') return true;
   if (sessionPhase === 'post_ny_am' || sessionPhase === 'post_ny_pm') return true;
   return false;
+}
+
+export function briefFilenameForLeader(leader) {
+  if (leader === "mnq") return `brief-${PAIR_PRIMARY}.json`;
+  if (leader === "mes") return `brief-${PAIR_SECONDARY}.json`;
+  return "brief.json";
+}
+
+export function htfBiasFromBrief(brief) {
+  return parseHtfDestination(brief?.htf_destination)?.dir || brief?.htf_destination?.direction || brief?.htf_bias || null;
 }
 
 export function entryHuntFastScanArgs() {
@@ -691,8 +701,8 @@ async function runWalkerTickFor(ev, session) {
   const prev = readWalkersJson(dir, session);
 
   // Augment gates with HTF bias from brief (walker spawn checks gates.htf_bias).
-  const brief = await readBriefJson(session).catch(() => null);
-  const htf_bias = brief?.htf_destination?.direction || brief?.htf_bias || null;
+  const brief = await readBriefJson(session, inputs.leader).catch(() => null);
+  const htf_bias = htfBiasFromBrief(brief);
   const gates = { ...inputs.bundle.gates, htf_bias };
 
   const bars = {
@@ -760,10 +770,19 @@ function walkerSetupToSurfacePayload(setup, walkerId, ev) {
   };
 }
 
-async function readBriefJson(session) {
+async function readBriefJson(session, leader = null) {
   const dir = await activeSessionDir();
-  const txt = await fs.readFile(path.join(dir, "brief.json"), "utf8");
-  return JSON.parse(txt);
+  const candidates = [briefFilenameForLeader(leader), "brief.json"].filter((v, i, a) => v && a.indexOf(v) === i);
+  let lastErr;
+  for (const filename of candidates) {
+    try {
+      const txt = await fs.readFile(path.join(dir, filename), "utf8");
+      return JSON.parse(txt);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
 }
 
 async function readMemoryMdContent() {
@@ -832,10 +851,10 @@ async function buildDetectorInputs() {
   if (!bundle) return null;
 
   // Brief on disk has htf_destination + primary_draw + overnight_block.
-  let brief = null;
-  try { brief = JSON.parse(await fs.readFile(path.join(dir, "brief.json"), "utf8")); } catch {}
-
   const leader = await readPairDecisionLeader();
+  let brief = null;
+  try { brief = await readBriefJson(session, leader); } catch {}
+
   const ltf_bias_context = await readLtfBiasFrontmatter();
 
   // Synthesize brief_digest fields the detector reads — see
