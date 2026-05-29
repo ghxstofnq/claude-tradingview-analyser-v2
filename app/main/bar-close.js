@@ -703,44 +703,33 @@ async function runDeterministicPacketTruthForBar(ev, session) {
     return truth;
   }
 
-  const strategyBundle = buildStrategyBundleForRuntime(inputs, ev, session);
-  const context = buildStrategyContext(strategyBundle);
   const previous = await readDeterministicWalkersJson(dir);
-  const result = runDeterministicWalkerStrategy({ context, walkers: previous.walkers ?? [] });
-  const nextState = { schemaVersion: 1, walkers: result.walkers, updatedAt: new Date().toISOString() };
+  const truth = buildDeterministicPacketTruthFromInputs({
+    inputs,
+    previousWalkers: previous.walkers ?? [],
+    event: ev,
+    session,
+  });
+  const nextState = { schemaVersion: 1, walkers: truth.walkers, updatedAt: new Date().toISOString() };
   await writeDeterministicWalkersJson(dir, nextState);
 
-  const bestPacket = result.bestPacket ? { ...result.bestPacket, finalVerdict: result.finalVerdict } : null;
+  const bestPacket = truth.bestPacket;
   const blockingPacket = bestPacket ?? {
     status: 'blocked',
     finalVerdict: 'no_trade',
-    blockers: result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet'],
-  };
-
-  const truth = {
-    schemaVersion: 1,
-    eventTimeUtc: ev?.ts ?? null,
-    market: context.market,
-    session,
-    finalVerdict: result.finalVerdict,
-    bestPacket,
-    packets: result.packets,
-    blockers: blockingPacket.blockers ?? [],
-    sourceHealth: context.sourceHealth,
-    walkers: result.walkers,
-    events: result.events,
+    blockers: truth.blockers?.length ? truth.blockers : ['no_confirmed_packet'],
   };
 
   const { setCurrentDeterministicPacket } = await import("./tools/surface.js");
   setCurrentDeterministicPacket(bestPacket ?? blockingPacket);
   await persistDeterministicTruth(dir, truth);
   _send?.('deterministic:packet', truth);
-  _send?.('walkers:state', { session, walkers: result.walkers, deterministic: true });
+  _send?.('walkers:state', { session, walkers: truth.walkers, deterministic: true });
 
   if (bestPacket) {
-    await surfaceSetup(deterministicPacketToSurfacePayload(bestPacket, ev));
+    await surfaceSetup(truth.surfacePayload);
   } else {
-    const reason = `deterministic packet blocked: ${(truth.blockers?.length ? truth.blockers : ['no_confirmed_packet']).join(', ')}`;
+    const reason = truth.noTradeReason ?? `deterministic packet blocked: ${(truth.blockers?.length ? truth.blockers : ['no_confirmed_packet']).join(', ')}`;
     await surfaceNoTrade({ reason }).catch((err) => {
       // A recent setup can suppress no-trade; that's fine for UI lifecycle.
       if (!/suppressed/i.test(String(err?.message || err))) throw err;
@@ -748,6 +737,32 @@ async function runDeterministicPacketTruthForBar(ev, session) {
   }
 
   return truth;
+}
+
+function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [], event, session } = {}) {
+  const strategyBundle = buildStrategyBundleForRuntime(inputs, event, session);
+  const context = buildStrategyContext(strategyBundle);
+  const result = runDeterministicWalkerStrategy({ context, walkers: previousWalkers });
+  const bestPacket = result.bestPacket ? { ...result.bestPacket, finalVerdict: result.finalVerdict } : null;
+  const blockers = bestPacket
+    ? []
+    : (result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet']);
+  const noTradeReason = bestPacket ? null : `deterministic packet blocked: ${(blockers.length ? blockers : ['no_confirmed_packet']).join(', ')}`;
+  return {
+    schemaVersion: 1,
+    eventTimeUtc: event?.ts ?? null,
+    market: context.market,
+    session,
+    finalVerdict: result.finalVerdict,
+    bestPacket,
+    packets: result.packets,
+    blockers,
+    sourceHealth: context.sourceHealth,
+    walkers: result.walkers,
+    events: result.events,
+    surfacePayload: bestPacket ? deterministicPacketToSurfacePayload(bestPacket, event) : null,
+    noTradeReason,
+  };
 }
 
 function buildStrategyBundleForRuntime(inputs, ev, session) {
@@ -1007,6 +1022,12 @@ async function buildDetectorInputs() {
     },
   };
 }
+
+export const __test = {
+  buildDeterministicPacketTruthFromInputs,
+  buildStrategyBundleForRuntime,
+  deterministicPacketToSurfacePayload,
+};
 
 // Read the chosen leader symbol from pair-decision.json. Returns null if
 // the file is missing, malformed, or leader is null (inconclusive). Used
