@@ -20,6 +20,8 @@ import {
   buildProviderPopoverTitle,
   buildProviderSubmitOptions,
   getExclusiveActiveProvider,
+  getProviderChat,
+  isProviderChatActive,
 } from "./provider-popover-contract.js";
 
 import { useHealth } from "./hooks/useHealth.js";
@@ -306,11 +308,13 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
 }
 
 function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
-                      chat, activeProvider, setActiveProvider, openProvider, setOpenProvider }) {
+                      chats, activeProvider, setActiveProvider, openProvider, setOpenProvider }) {
   const loopDown = loopStatus === "stale" || loopStatus === "down";
-  const chatActive = !!(chat?.typing || (chat?.workingPurposes?.size > 0));
+  const activeChat = getProviderChat(chats, activeProvider);
+  const chatActive = isProviderChatActive(chats, activeProvider);
   const selectProvider = (provider) => {
     const next = getExclusiveActiveProvider(activeProvider, provider);
+    if (next !== activeProvider && chatActive) activeChat?.cancel?.();
     setActiveProvider(next);
     setOpenProvider((cur) => cur === next ? null : next);
   };
@@ -327,10 +331,10 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
                     className={"provider-chip" + (selected ? " selected" : "")}
                     onClick={(e) => { e.stopPropagation(); selectProvider(cell.provider); }}>
                 <span className="k">{cell.label}</span>
-                <span className={"claude-dot" + (selected && chatActive ? " active" : "")} />
+                <span className={"claude-dot" + (selected && isProviderChatActive(chats, cell.provider) ? " active" : "")} />
                 {openProvider === cell.provider && selected && (
                   <ProviderPopover provider={cell.provider}
-                                   chat={chat}
+                                   chat={getProviderChat(chats, cell.provider)}
                                    onClose={() => setOpenProvider(null)} />
                 )}
               </span>
@@ -338,7 +342,7 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
           })}
           <span className={"provider-stop" + (chatActive ? " active" : " disabled")}
                 title={`stop ${activeProvider}`}
-                onClick={(e) => { e.stopPropagation(); if (chatActive) chat?.cancel?.(); }}>
+                onClick={(e) => { e.stopPropagation(); if (chatActive) activeChat?.cancel?.(); }}>
             STOP
           </span>
         </span>
@@ -442,11 +446,13 @@ function App() {
   const openEvidence = (refData, label) => setEvidence({ refData, label });
   const closeEvidence = () => setEvidence(null);
 
-  // LLM provider state — one shared chat transport with an exclusive provider
-  // selector so Claude and Codex cannot be active at the same time.
+  // LLM provider state — Claude and Codex keep separate conversations while
+  // the status bar exposes exactly one active provider at a time.
   const [activeProvider, setActiveProvider] = useState("claude");
   const [openProvider, setOpenProvider] = useState(null);
-  const chat = useChat({ provider: activeProvider });
+  const claudeChat = useChat({ provider: "claude" });
+  const codexChat = useChat({ provider: "codex" });
+  const chats = { claude: claudeChat, codex: codexChat };
 
   // Calendar — real ForexFactory feed via main process
   const calendarPayload = useCalendar();
@@ -548,7 +554,7 @@ function App() {
         lastBar={lastBar?.ts ? `${lastBar.hhmm} · ${lastBar.age_label}` : "—"}
         loopStatus={health?.loop}
         phase={clock?.phase || "—"}
-        chat={chat}
+        chats={chats}
         activeProvider={activeProvider}
         setActiveProvider={setActiveProvider}
         openProvider={openProvider}

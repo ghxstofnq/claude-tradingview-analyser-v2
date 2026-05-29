@@ -32,3 +32,13 @@ export function buildProviderSubmitOptions(provider) {
 export function getExclusiveActiveProvider(_currentProvider, requestedProvider) {
   return normalizeChatProvider(requestedProvider);
 }
+
+export function getProviderChat(chats, provider) {
+  const normalized = normalizeChatProvider(provider);
+  return chats?.[normalized] || null;
+}
+
+export function isProviderChatActive(chats, provider) {
+  const chat = getProviderChat(chats, provider);
+  return !!(chat?.typing || (chat?.workingPurposes?.size > 0));
+}

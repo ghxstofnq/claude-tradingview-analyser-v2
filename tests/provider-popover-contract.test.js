@@ -5,6 +5,8 @@ import {
   buildProviderPopoverTitle,
   buildProviderSubmitOptions,
   getExclusiveActiveProvider,
+  getProviderChat,
+  isProviderChatActive,
 } from '../app/renderer/src/provider-popover-contract.js';
 
 describe('provider popover contract', () => {
@@ -31,5 +33,17 @@ describe('provider popover contract', () => {
     assert.equal(getExclusiveActiveProvider('codex', 'claude'), 'claude');
     assert.equal(getExclusiveActiveProvider('codex', 'codex'), 'codex');
     assert.equal(getExclusiveActiveProvider('bad-provider', 'openai-codex'), 'codex');
+  });
+
+  test('provider popovers use provider-specific chat history instead of shared Claude history', () => {
+    const claude = { messages: [{ text: 'claude-only' }], typing: false, workingPurposes: new Set() };
+    const codex = { messages: [{ text: 'codex-only' }], typing: true, workingPurposes: new Set(['chat']) };
+    const chats = { claude, codex };
+
+    assert.equal(getProviderChat(chats, 'claude'), claude);
+    assert.equal(getProviderChat(chats, 'codex'), codex);
+    assert.deepEqual(getProviderChat(chats, 'codex').messages, [{ text: 'codex-only' }]);
+    assert.equal(isProviderChatActive(chats, 'claude'), false);
+    assert.equal(isProviderChatActive(chats, 'codex'), true);
   });
 });
