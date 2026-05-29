@@ -37,5 +37,8 @@ export { advanceWalker } from './walker-advance.js';
 export { killWalker } from './walker-kill.js';
 export { spawnWalker } from './walker-spawn.js';
 export * from './mss-lifecycle.js';
+export * from './trend-lifecycle.js';
+export * from './inversion-lifecycle.js';
+export * from './deterministic-strategy.js';
 export * from './execution-packet.js';
 export * from './walker-state.js';
