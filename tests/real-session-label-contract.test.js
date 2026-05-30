@@ -60,3 +60,30 @@ test('real-session labels are strict enough to prevent ambiguous tradable fixtur
     }
   }
 });
+
+test('trade labels declare a no-lookahead replay readiness contract before they can be scored', () => {
+  for (const file of readdirSync(REAL_SESSION_LABEL_DIR).filter((f) => f.endsWith('.label.json'))) {
+    const label = readLabel(file);
+    if (label.expected?.outcome !== 'trade') continue;
+
+    assert.equal(label.replay?.ready, false, `${file}: should stay unscored until evidence bundle exists`);
+    assert.equal(label.replay?.bundlePath, null, `${file}: bundlePath must remain null until captured`);
+    assert.match(label.replay?.as_of_et, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00-04:00$/, `${file}: as_of_et`);
+    assert.match(label.replay?.as_of_utc, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z$/, `${file}: as_of_utc`);
+    assert.deepEqual(label.replay?.required_candles, [
+      { tf: '1m', time_et: label.expected.stop_anchor_time_et, purpose: 'stop_anchor' },
+      { tf: '1m', time_et: label.expected.entry_time_et, purpose: 'entry_confirmation' },
+    ], `${file}: required candles`);
+    assert.deepEqual(label.replay?.required_timeframes, {
+      premarket_context: ['D1', 'H4', 'H1', '15M', '5M'],
+      entry_window: ['15M', '5M', '1M'],
+    }, `${file}: required_timeframes`);
+    assert.deepEqual(label.replay?.capture_window_et, {
+      context_start: `${label.trade_date}T09:30:00-04:00`,
+      entry_window_end: `${label.trade_date}T12:00:00-04:00`,
+      as_of: label.expected.entry_time_et,
+    }, `${file}: capture_window_et`);
+    assert.ok(label.replay?.readiness_checks?.includes('no bars after as_of may be used for entry decision'), `${file}: no-lookahead check`);
+    assert.ok(label.replay?.readiness_checks?.includes('TP1 must cite untaken liquidity existing before/as-of entry'), `${file}: TP1 check`);
+  }
+});
