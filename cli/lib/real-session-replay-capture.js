@@ -18,6 +18,22 @@ export const ENTRY_TIMEFRAMES = [
 ];
 
 const REQUIRED_KEYS = ['daily', 'h4', 'h1', 'm15', 'm5', 'm1'];
+const EXPECTED_MIN_BAR_SECONDS = {
+  daily: 86400,
+  h4: 14400,
+  h1: 3600,
+  m15: 900,
+  m5: 300,
+  m1: 60,
+};
+const EXPECTED_RESOLUTION_LABEL = {
+  daily: 'D1',
+  h4: 'H4',
+  h1: 'H1',
+  m15: '15m',
+  m5: '5m',
+  m1: '1m',
+};
 
 export function buildReplayCapturePlan({
   label,
@@ -160,7 +176,12 @@ export function validateReplayCaptureBundle(bundle, plan = bundle?.plan) {
 
   for (const key of REQUIRED_KEYS) {
     const bars = bundle.bars_by_tf?.[key];
-    if (!Array.isArray(bars?.bars) || bars.bars.length === 0) blockers.push(`missing bars_by_tf.${key}`);
+    if (!Array.isArray(bars?.bars) || bars.bars.length === 0) {
+      blockers.push(`missing bars_by_tf.${key}`);
+    } else {
+      const spacingBlocker = validateBarSpacing(key, bars.bars);
+      if (spacingBlocker) blockers.push(spacingBlocker);
+    }
     if (bundle.engine_by_tf?.[key] == null) blockers.push(`missing engine_by_tf.${key}`);
   }
 
@@ -197,6 +218,33 @@ export function writeReplayBundleAtomic(outPath, bundle, plan = bundle?.plan, { 
   writeFileSync(tmp, `${JSON.stringify(finalBundle, null, 2)}\n`);
   renameSync(tmp, outPath);
   return { success: true, out: outPath, validation };
+}
+
+function validateBarSpacing(key, bars) {
+  const expected = EXPECTED_MIN_BAR_SECONDS[key];
+  if (!expected || bars.length < 2) return null;
+  const times = [...new Set(bars.map((b) => Number(b.time)).filter(Number.isFinite))].sort((a, b) => a - b);
+  if (times.length < 2) return null;
+  const positiveDeltas = [];
+  for (let i = 1; i < times.length; i += 1) {
+    const delta = times[i] - times[i - 1];
+    if (delta > 0) positiveDeltas.push(delta);
+  }
+  if (positiveDeltas.length === 0) return null;
+  const minDelta = Math.min(...positiveDeltas);
+  if (minDelta < expected) {
+    const observed = formatResolutionFromSeconds(minDelta);
+    const expectedLabel = EXPECTED_RESOLUTION_LABEL[key] ?? `${expected}s`;
+    return `bars_by_tf.${key} appears to contain ${observed} bars, expected ${expectedLabel} resolution`;
+  }
+  return null;
+}
+
+function formatResolutionFromSeconds(seconds) {
+  if (seconds % 86400 === 0) return `${seconds / 86400}D`;
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
 }
 
 function normalizeEtDateTime(value) {

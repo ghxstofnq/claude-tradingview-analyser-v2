@@ -33,15 +33,26 @@ function bar(time, open = 1) {
   return { time, open, high: open + 1, low: open - 1, close: open + 0.5, volume: 10 };
 }
 
+const EXPECTED_SECONDS_BY_KEY = {
+  daily: 86400,
+  h4: 14400,
+  h1: 3600,
+  m15: 900,
+  m5: 300,
+  m1: 60,
+};
+
 function goodTfBars(plan, key) {
   const pull = plan.pulls.find((p) => p.key === key);
+  const step = EXPECTED_SECONDS_BY_KEY[key] ?? 60;
+  const end = key === 'm1' ? plan.entry_window_end_utc_unix : pull.to_utc_unix;
   const bars = [
-    bar(pull.from_utc_unix, 100),
-    bar(Math.min(pull.to_utc_unix, plan.as_of_utc_unix), 101),
-    bar(pull.to_utc_unix, 102),
+    bar(end - (2 * step), 100),
+    bar(end - step, 101),
+    bar(end, 102),
   ];
   if (key === 'm1') {
-    bars.splice(1, 0, bar(1780065900, 100.5));
+    bars.unshift(bar(1780065900, 100.5), bar(1780066080, 101.5));
   }
   return { success: true, bars };
 }
@@ -100,6 +111,32 @@ test('validateReplayCaptureBundle fails closed on missing required TFs, missing 
   const lookahead = validateReplayCaptureBundle(withLookahead, plan);
   assert.equal(lookahead.ok, false);
   assert.ok(lookahead.blockers.includes('decision_bars_by_tf.m1 contains lookahead bar after as_of 2026-05-29T14:48:00Z'));
+});
+
+test('validateReplayCaptureBundle fails closed when captured bars do not match requested timeframe spacing', () => {
+  const plan = buildReplayCapturePlan({ label });
+  const oneMinuteBars = {
+    success: true,
+    tv_resolution: '15',
+    bars: [bar(1780066560), bar(1780066620), bar(1780066680)],
+  };
+  const bundle = {
+    plan,
+    bars_by_tf: {
+      daily: goodTfBars(plan, 'daily'), h4: goodTfBars(plan, 'h4'), h1: goodTfBars(plan, 'h1'),
+      m15: oneMinuteBars, m5: goodTfBars(plan, 'm5'),
+      m1: { success: true, bars: [bar(1780065900), bar(1780066080), bar(plan.entry_window_end_utc_unix)] },
+    },
+    decision_bars_by_tf: { m1: { success: true, bars: [bar(1780065900), bar(1780066080)] } },
+    engine_by_tf: {
+      daily: { meta: { schema: 2 } }, h4: { meta: { schema: 2 } }, h1: { meta: { schema: 2 } },
+      m15: { meta: { schema: 2 } }, m5: { meta: { schema: 2 } }, m1: { meta: { schema: 2 } },
+    },
+  };
+
+  const invalid = validateReplayCaptureBundle(bundle, plan);
+  assert.equal(invalid.ok, false);
+  assert.ok(invalid.blockers.includes('bars_by_tf.m15 appears to contain 1m bars, expected 15m resolution'));
 });
 
 test('captureReplayBundle uses adapter to pull all requested TFs and builds no-lookahead decision bars', async () => {
