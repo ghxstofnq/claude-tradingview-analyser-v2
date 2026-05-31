@@ -54,6 +54,7 @@ export function replayAccuracyReport(cases) {
     missed_valid_setups: 0,
     wrong_model: 0,
     wrong_side: 0,
+    wrong_packet: 0,
     mismatches: [],
   };
 
@@ -91,9 +92,37 @@ export function replayAccuracyReport(cases) {
       report.mismatches.push({ fixture: c.fixture, type: 'wrong_side', expected, actual });
       continue;
     }
+    const wrongPacketFields = exactPacketMismatches(expected, actual);
+    if (wrongPacketFields.length) {
+      report.wrong_packet += 1;
+      report.mismatches.push({ fixture: c.fixture, type: 'wrong_packet', fields: wrongPacketFields, expected, actual });
+      continue;
+    }
     report.correct_trades += 1;
   }
   return report;
+}
+
+function expectedPrice(value) {
+  return typeof value === 'number' ? value : value?.value;
+}
+
+function actualPrice(actual, field) {
+  const value = actual?.[field];
+  return typeof value === 'number' ? value : value?.value;
+}
+
+function samePrice(a, b) {
+  return typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 0.000001;
+}
+
+function exactPacketMismatches(expected, actual) {
+  const fields = [];
+  for (const field of ['entry', 'stop', 'tp1']) {
+    if (expected[field] == null) continue;
+    if (!samePrice(expectedPrice(expected[field]), actualPrice(actual, field))) fields.push(field);
+  }
+  return fields;
 }
 
 export function formatReplayAccuracyReport(report) {
@@ -105,6 +134,7 @@ export function formatReplayAccuracyReport(report) {
     `  missed valid setups  ${report.missed_valid_setups}`,
     `  wrong model          ${report.wrong_model}`,
     `  wrong side           ${report.wrong_side}`,
+    `  wrong packet         ${report.wrong_packet ?? 0}`,
   ];
   if ((report.mismatches ?? []).length) {
     lines.push('  mismatches:');

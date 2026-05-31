@@ -1,0 +1,14 @@
+{
+  "fixture": "2026-05-29-mnq-ny-am-inversion-long-real-session",
+  "mode": "real_session_packet",
+  "labelPath": "real-sessions/2026-05-29-mnq-ny-am-inversion-long.label.json",
+  "bundlePath": "real-sessions/2026-05-29-mnq-ny-am-inversion-long.asof-1048.bundle.json",
+  "expected": {
+    "outcome": "trade",
+    "model": "Inversion",
+    "side": "long",
+    "entry": 30314.75,
+    "stop": 30269.75,
+    "tp1": 30437.5
+  }
+}
