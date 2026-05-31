@@ -35,8 +35,13 @@ test('GXNQ label 2026-05-29 MNQ inversion long is captured as a replay-ready rea
   assert.ok(label.evidence_requirements.includes('bundle must include 10:45 ET candle low for stop validation'));
   assert.ok(label.evidence_requirements.includes('bundle must include 10:48 ET confirmation candle for entry validation'));
   assert.ok(label.evidence_requirements.includes('bundle must prove TP1 30437.50 is untaken liquidity at entry time'));
-  assert.equal(label.replay.bundlePath, null);
-  assert.equal(label.replay.ready, false);
+  assert.equal(label.replay.bundlePath, '2026-05-29-mnq-ny-am-inversion-long.asof-1048.bundle.json');
+  assert.equal(label.replay.ready, true);
+  const bundle = readLabel(label.replay.bundlePath);
+  assert.equal(bundle.schema, 'gxofnq.replay-capture.v1');
+  assert.equal(bundle.validation?.ok, true);
+  assert.ok(bundle.bars_by_tf?.m1?.bars?.some((b) => b.time === 1780065900), 'bundle has 10:45 ET stop anchor candle');
+  assert.ok(bundle.bars_by_tf?.m1?.bars?.some((b) => b.time === 1780066080), 'bundle has 10:48 ET entry candle');
 });
 
 test('real-session labels are strict enough to prevent ambiguous tradable fixtures', () => {
@@ -66,8 +71,14 @@ test('trade labels declare a no-lookahead replay readiness contract before they 
     const label = readLabel(file);
     if (label.expected?.outcome !== 'trade') continue;
 
-    assert.equal(label.replay?.ready, false, `${file}: should stay unscored until evidence bundle exists`);
-    assert.equal(label.replay?.bundlePath, null, `${file}: bundlePath must remain null until captured`);
+    if (label.replay?.ready) {
+      assert.match(label.replay?.bundlePath, /\.bundle\.json$/, `${file}: ready labels must point at a bundle`);
+      const bundle = readLabel(label.replay.bundlePath);
+      assert.equal(bundle.validation?.ok, true, `${file}: ready bundle validation`);
+    } else {
+      assert.equal(label.replay?.bundlePath, null, `${file}: bundlePath must remain null until captured`);
+      assert.ok(label.replay?.reason_not_ready, `${file}: not-ready labels must explain blocker`);
+    }
     assert.match(label.replay?.as_of_et, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00-04:00$/, `${file}: as_of_et`);
     assert.match(label.replay?.as_of_utc, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z$/, `${file}: as_of_utc`);
     assert.deepEqual(label.replay?.required_candles, [

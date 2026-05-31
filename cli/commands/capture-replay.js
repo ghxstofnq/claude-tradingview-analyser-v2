@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import WebSocket from 'ws';
 
 import { register } from '../router.js';
 import * as chart from '@tvmcp/core/chart';
@@ -7,6 +8,7 @@ import { parseIctEngineTable, findIctEngineRows } from '../lib/ict-engine-parser
 import {
   buildReplayCapturePlan,
   captureReplayBundle,
+  filterBarsForPullWindow,
   writeReplayBundleAtomic,
 } from '../lib/real-session-replay-capture.js';
 
@@ -32,15 +34,116 @@ class TradingViewReplayCaptureAdapter {
       // Capture proceeds and validation reports missing bars/TFs if range load failed.
     }
 
-    const [bars, tables] = await Promise.all([
-      data.getOhlcv({ count: 500, summary: false }),
+    const [history, tables] = await Promise.all([
+      fetchTradingViewHistory(plan.symbol, pull),
       data.getPineTables(),
     ]);
+    const bars = {
+      success: true,
+      symbol: plan.symbol,
+      tv_resolution: pull.tv_resolution,
+      requested_window: pull,
+      bars: filterBarsForPullWindow(history.rows, pull),
+      raw_count: history.rows.length,
+      raw_first_time: history.rows[0]?.time ?? null,
+      raw_last_time: history.rows.at(-1)?.time ?? null,
+      source: 'tradingview-websocket-history',
+    };
     return {
-      bars: { ...bars, tv_resolution: pull.tv_resolution, requested_window: pull },
+      bars,
       engine: parseIctEngineTable(findIctEngineRows(tables)),
     };
   }
+}
+
+async function fetchTradingViewHistory(symbol, pull) {
+  const count = historyCountForPull(pull);
+  const session = `cs_${Math.random().toString(36).slice(2, 14)}`;
+  const url = 'wss://data.tradingview.com/socket.io/websocket';
+  const rows = await new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, {
+      headers: { Origin: 'https://www.tradingview.com', 'User-Agent': 'Mozilla/5.0' },
+    });
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error(`Timed out fetching TradingView history for ${symbol} ${pull.tv_resolution}`));
+    }, 20000);
+
+    ws.on('open', () => {
+      sendTv(ws, 'set_auth_token', ['unauthorized_user_token']);
+      sendTv(ws, 'chart_create_session', [session, '']);
+      sendTv(ws, 'resolve_symbol', [session, 'symbol_1', `=${JSON.stringify({ symbol, adjustment: 'splits', session: 'extended' })}`]);
+      sendTv(ws, 'create_series', [session, 's1', 's1', 'symbol_1', pull.tv_resolution, count, '']);
+    });
+    ws.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    ws.on('message', (data) => {
+      for (const msg of parseTvMessages(data)) {
+        if (msg.m === 'symbol_error' || msg.m === 'series_error' || msg.m === 'critical_error') {
+          clearTimeout(timer);
+          ws.close();
+          reject(new Error(`TradingView history error for ${symbol} ${pull.tv_resolution}: ${JSON.stringify(msg.p)}`));
+          return;
+        }
+        if (msg.m === 'timescale_update') {
+          const series = msg.p?.[1]?.s1;
+          if (Array.isArray(series?.s) && series.s.length > 0) {
+            clearTimeout(timer);
+            ws.close();
+            resolve(series.s.map((row) => normalizeTvBar(row.v)));
+            return;
+          }
+        }
+      }
+    });
+  });
+  return { rows };
+}
+
+function historyCountForPull(pull) {
+  if (pull.tv_resolution === '1') return 5000;
+  if (pull.tv_resolution === '5') return 2000;
+  if (pull.tv_resolution === '15') return 1500;
+  if (pull.tv_resolution === '60') return 1000;
+  if (pull.tv_resolution === '240') return 800;
+  return 500;
+}
+
+function normalizeTvBar(values) {
+  return {
+    time: values[0],
+    open: values[1],
+    high: values[2],
+    low: values[3],
+    close: values[4],
+    volume: values[5] ?? null,
+  };
+}
+
+function sendTv(ws, method, params) {
+  const payload = JSON.stringify({ m: method, p: params });
+  ws.send(`~m~${payload.length}~m~${payload}`);
+}
+
+function parseTvMessages(data) {
+  const text = String(data);
+  const messages = [];
+  let i = 0;
+  while (i < text.length) {
+    const marker = text.indexOf('~m~', i);
+    if (marker === -1) break;
+    const lenStart = marker + 3;
+    const lenEnd = text.indexOf('~m~', lenStart);
+    if (lenEnd === -1) break;
+    const len = Number(text.slice(lenStart, lenEnd));
+    const start = lenEnd + 3;
+    const payload = text.slice(start, start + len);
+    try { messages.push(JSON.parse(payload)); } catch {}
+    i = start + len;
+  }
+  return messages;
 }
 
 register('capture-replay', {

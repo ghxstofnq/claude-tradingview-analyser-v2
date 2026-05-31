@@ -9,6 +9,7 @@ import {
   validateReplayCaptureBundle,
   captureReplayBundle,
   writeReplayBundleAtomic,
+  filterBarsForPullWindow,
 } from '../cli/lib/real-session-replay-capture.js';
 
 const label = {
@@ -137,6 +138,31 @@ test('validateReplayCaptureBundle fails closed when captured bars do not match r
   const invalid = validateReplayCaptureBundle(bundle, plan);
   assert.equal(invalid.ok, false);
   assert.ok(invalid.blockers.includes('bars_by_tf.m15 appears to contain 1m bars, expected 15m resolution'));
+});
+
+test('filterBarsForPullWindow keeps HTF bars that overlap the requested NY window', () => {
+  const plan = buildReplayCapturePlan({ label });
+  const h1Pull = plan.pulls.find((p) => p.key === 'h1' && p.role === 'context');
+  const m1Pull = plan.pulls.find((p) => p.key === 'm1');
+
+  assert.deepEqual(
+    filterBarsForPullWindow([
+      bar(1780061400),
+      bar(1780063200),
+      bar(1780066800),
+    ], h1Pull).map((b) => b.time),
+    [1780061400, 1780063200],
+  );
+  assert.deepEqual(
+    filterBarsForPullWindow([
+      bar(1780065840),
+      bar(1780065900),
+      bar(1780066080),
+      bar(1780070400),
+      bar(1780070460),
+    ], m1Pull).map((b) => b.time),
+    [1780065840, 1780065900, 1780066080, 1780070400],
+  );
 });
 
 test('captureReplayBundle uses adapter to pull all requested TFs and builds no-lookahead decision bars', async () => {

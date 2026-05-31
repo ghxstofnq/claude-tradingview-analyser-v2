@@ -26,8 +26,8 @@
     "bundle must prove source health fresh, schema supported, and ICT Engine rows present as-of 10:48 ET"
   ],
   "replay": {
-    "ready": false,
-    "bundlePath": null,
+    "ready": true,
+    "bundlePath": "2026-05-29-mnq-ny-am-inversion-long.asof-1048.bundle.json",
     "as_of_et": "2026-05-29T10:48:00-04:00",
     "as_of_utc": "2026-05-29T14:48:00Z",
     "capture_window_et": {
@@ -60,7 +60,8 @@
       "D1/H4/H1/15M/5M context from 09:30 ET must exist before 1M entry replay is trusted",
       "15M/5M/1M entry window from 09:30 ET to 12:00 ET must be available for bar-by-bar replay"
     ],
-    "reason_not_ready": "Need historical/as-of bundle or replay capture ending at 2026-05-29 10:48 ET before this can be scored by npm run replay."
+    "capture_status": "captured",
+    "reason_not_ready": null
   },
   "notes": [
     "This is the first GXNQ-labeled real-session validation target for V2.",

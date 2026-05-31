@@ -34,6 +34,22 @@ const EXPECTED_RESOLUTION_LABEL = {
   m5: '5m',
   m1: '1m',
 };
+const EXPECTED_RESOLUTION_SECONDS = EXPECTED_MIN_BAR_SECONDS;
+
+export function filterBarsForPullWindow(bars, pull) {
+  if (!Array.isArray(bars)) return [];
+  const step = EXPECTED_RESOLUTION_SECONDS[pull?.key] ?? 60;
+  const from = Number(pull?.from_utc_unix);
+  const to = Number(pull?.to_utc_unix);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return bars;
+  return bars
+    .filter((bar) => {
+      const time = Number(bar?.time);
+      if (!Number.isFinite(time)) return false;
+      return time <= to && (time + step) > from;
+    })
+    .sort((a, b) => Number(a.time) - Number(b.time));
+}
 
 export function buildReplayCapturePlan({
   label,
