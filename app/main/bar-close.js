@@ -686,6 +686,47 @@ async function readLtfBiasFrontmatter() {
   } catch { return {}; }
 }
 
+async function readSessionStrategyState(brief = null) {
+  const dir = await activeSessionDir();
+  const pillar1Fm = await readMarkdownFrontmatter(path.join(dir, 'pillar1.md')).catch(() => null);
+  const pillar2Fm = await readMarkdownFrontmatter(path.join(dir, 'pillar2.md')).catch(() => null);
+  return {
+    ...(pillar1Fm || brief ? {
+      pillar1: {
+        status: normalizePassStatus(pillar1Fm?.status ?? pillar1Fm?.verdict ?? brief?.pillar1_status ?? 'pass'),
+        htfBias: pillar1Fm?.htf_bias ?? pillar1Fm?.htfBias ?? htfBiasFromBrief(brief) ?? null,
+        htfDraw: pillar1Fm?.htf_draw ?? pillar1Fm?.htfDraw ?? brief?.htf_destination ?? null,
+        primaryDraw: pillar1Fm?.primary_draw ?? pillar1Fm?.primaryDraw ?? brief?.primary_draw ?? null,
+      },
+    } : {}),
+    ...(pillar2Fm || brief?.pillar2_verdict ? {
+      pillar2: {
+        status: normalizePassStatus(pillar2Fm?.status ?? pillar2Fm?.verdict ?? brief?.pillar2_verdict ?? 'pass'),
+        verdict: pillar2Fm?.verdict ?? pillar2Fm?.pillar2_verdict ?? brief?.pillar2_verdict ?? null,
+      },
+    } : {}),
+  };
+}
+
+async function readMarkdownFrontmatter(filePath) {
+  const txt = await fs.readFile(filePath, 'utf8');
+  const m = txt.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return null;
+  const out = {};
+  for (const line of m[1].split('\n')) {
+    const kv = line.match(/^([A-Za-z0-9_\-.]+):\s*"?([^"#]*?)"?\s*$/);
+    if (kv) out[kv[1]] = kv[2].trim();
+  }
+  return out;
+}
+
+function normalizePassStatus(value) {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (['pass', 'passed', 'ok', 'clean', 'good', 'a+', 'b'].includes(v)) return 'pass';
+  if (!v) return null;
+  return v;
+}
+
 // Build the detector input bundle for the current bar-close turn.
 // Reads slim bundle + brief.json + ltf-bias.md + pair-decision.json from
 // disk, synthesizes brief_digest fields the detector expects (htf_destination
@@ -763,6 +804,26 @@ function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [],
       noTradeReason: `${availability.reasonPrefix}: ${blockers.join(', ')}`,
     };
   }
+  const chain = evaluateStrategyChainReadiness(inputs, context);
+  if (!chain.ok) {
+    return {
+      schemaVersion: 1,
+      eventTimeUtc: event?.ts ?? null,
+      market: context.market,
+      session,
+      finalVerdict: 'no_trade',
+      evaluationStatus: 'cannot_evaluate_strategy_chain',
+      bestPacket: null,
+      packets: [],
+      blockers: chain.blockers,
+      sourceHealth: context.sourceHealth,
+      walkers: previousWalkers,
+      events: [],
+      surfacePayload: null,
+      sessionChain: context.sessionChain,
+      noTradeReason: `cannot evaluate: strategy chain incomplete: ${chain.blockers.join(', ')}`,
+    };
+  }
   const result = runDeterministicWalkerStrategy({ context, walkers: previousWalkers });
   const bestPacket = result.bestPacket ? { ...result.bestPacket, finalVerdict: result.finalVerdict } : null;
   const blockers = bestPacket
@@ -785,6 +846,26 @@ function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [],
     surfacePayload: bestPacket ? deterministicPacketToSurfacePayload(bestPacket, event) : null,
     noTradeReason,
   };
+}
+
+function hasValue(value) {
+  return value != null && String(value).trim() !== '';
+}
+
+function evaluateStrategyChainReadiness(inputs = {}, context = {}) {
+  const blockers = [];
+  const ltf = inputs.ltf_bias_context ?? {};
+  const state = inputs.session_state ?? {};
+  if (!hasValue(inputs.leader)) blockers.push('missing_pair_decision');
+  if (!hasValue(ltf.bias)) blockers.push('missing_ltf_bias');
+  if (!hasValue(ltf.htf_ltf_alignment)) blockers.push('missing_htf_ltf_alignment');
+  if (!hasValue(ltf.entry_model_priority)) blockers.push('missing_entry_model_priority');
+  if (!hasValue(ltf.grade_cap)) blockers.push('missing_grade_cap');
+  if (!state.pillar1) blockers.push('missing_pillar1_state');
+  if (!state.pillar2) blockers.push('missing_pillar2_state');
+  if (context?.pillar1?.status !== 'pass') blockers.push(...(context?.pillar1?.blockers ?? []).filter(Boolean));
+  if (context?.pillar2?.status !== 'pass') blockers.push(...(context?.pillar2?.blockers ?? []).filter(Boolean));
+  return { ok: blockers.length === 0, blockers: [...new Set(blockers)] };
 }
 
 function buildStrategyBundleForRuntime(inputs, ev, session) {
@@ -814,6 +895,16 @@ function buildStrategyBundleForRuntime(inputs, ev, session) {
     session,
     eventTimeUtc: ev?.ts ?? bundle.eventTimeUtc ?? null,
     eventTimeEt: ev?.ts ? new Date(ev.ts).toLocaleString('en-US', { timeZone: 'America/New_York' }) : bundle.eventTimeEt ?? null,
+    sessionChain: {
+      leader: inputs.leader ?? null,
+      ltfBias: inputs.ltf_bias_context?.bias ?? null,
+      htfLtfAlignment: inputs.ltf_bias_context?.htf_ltf_alignment ?? null,
+      isRetraceDay: inputs.ltf_bias_context?.is_retrace_day ?? false,
+      entryModelPriority: inputs.ltf_bias_context?.entry_model_priority ?? null,
+      gradeCap: inputs.ltf_bias_context?.grade_cap ?? null,
+      pillar1: inputs.session_state?.pillar1 ?? null,
+      pillar2: inputs.session_state?.pillar2 ?? null,
+    },
     gates: { ...(bundle.gates ?? {}), engine },
     ohlcv1m: bundle.ohlcv1m ?? bundle.bars?.last_5_bars ?? [],
     ohlcv5m: bundle.ohlcv5m ?? bundle.bars_by_tf?.m5?.last_5_bars ?? [],
@@ -1028,6 +1119,7 @@ async function buildDetectorInputs() {
   try { brief = await readBriefJson(session, leader); } catch {}
 
   const ltf_bias_context = await readLtfBiasFrontmatter();
+  const session_state = await readSessionStrategyState(brief).catch(() => ({}));
 
   // Synthesize brief_digest fields the detector reads — see
   // cli/lib/detector-brief-digest.js for the why (single-symbol bundles
@@ -1038,6 +1130,7 @@ async function buildDetectorInputs() {
     bundle,
     leader,
     ltf_bias_context,
+    session_state,
     untaken_targets: {
       untaken_above: brief?.overnight_block?.untaken_above || [],
       untaken_below: brief?.overnight_block?.untaken_below || [],
