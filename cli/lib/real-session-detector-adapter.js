@@ -113,6 +113,41 @@ function buildBriefDigest({ label, sourceEngine, entry }) {
   };
 }
 
+function applyExplicitAsOfEngineEvidence({ label, bundle, engineByTf, sourceTf, asOfMs }) {
+  const evidence = label?.replay?.as_of_engine_evidence ?? bundle?.as_of_engine_evidence ?? null;
+  if (!evidence || typeof evidence !== 'object') return null;
+  const evidenceTf = evidence.source_tf ?? sourceTf;
+  const asOfIso = label?.replay?.as_of_utc ?? bundle?.plan?.as_of_utc;
+  if (evidence.as_of_utc && asOfIso && Date.parse(evidence.as_of_utc) !== Date.parse(asOfIso)) {
+    throw new Error(`explicit as-of engine evidence timestamp ${evidence.as_of_utc} does not match replay as_of ${asOfIso}`);
+  }
+  const target = engineByTf[evidenceTf] ?? { fvgs: [], bprs: [], structures: [], levels: [], sweeps: [], pools: [] };
+  const rows = Array.isArray(evidence.fvgs) ? evidence.fvgs : [];
+  const acceptedFvgs = [];
+  for (const row of rows) {
+    const created = Number(row?.created_ms);
+    if (!Number.isFinite(created) || created > asOfMs) {
+      throw new Error(`explicit as-of FVG evidence must have created_ms <= replay as_of (${asOfMs})`);
+    }
+    acceptedFvgs.push({
+      ...row,
+      evidence_source: evidence.source ?? 'explicit_asof_engine_evidence',
+      evidence_note: row.evidence_note ?? evidence.note ?? null,
+    });
+  }
+  target.fvgs = [...(Array.isArray(target.fvgs) ? target.fvgs : []), ...acceptedFvgs];
+  if (evidence.quality) target.quality = { ...(target.quality ?? {}), ...evidence.quality };
+  if (Array.isArray(evidence.levels)) target.levels = [...(Array.isArray(target.levels) ? target.levels : []), ...evidence.levels];
+  if (Array.isArray(evidence.sweeps)) target.sweeps = [...(Array.isArray(target.sweeps) ? target.sweeps : []), ...evidence.sweeps];
+  engineByTf[evidenceTf] = target;
+  return {
+    source: evidence.source ?? 'explicit_asof_engine_evidence',
+    source_tf: evidenceTf,
+    fvgs_added: acceptedFvgs.length,
+    quality_added: !!evidence.quality,
+  };
+}
+
 function buildEngineGates({ engineByTf, sourceTf, entryBar, asOfMs }) {
   const tfEngine = engineByTf[sourceTf] ?? {};
   const structures = tfEngine.structures ?? [];
@@ -177,6 +212,7 @@ export function buildRealSessionDetectorInput({ label, bundle, sourceTf = 'm5' }
   const entryBar = lastBarAtAsOf(bundle, asOfSeconds);
   const barsByTf = adaptBarsByTf(bundle, asOfSeconds);
   const { engineByTf, removed, removedByTf } = adaptEngineByTf(bundle, asOfMs);
+  const explicitEvidence = applyExplicitAsOfEngineEvidence({ label, bundle, engineByTf, sourceTf, asOfMs });
   const sourceEngine = engineByTf[sourceTf] ?? {};
   const briefDigest = buildBriefDigest({ label, sourceEngine, entry: Number(entryBar.close) });
   const gatesEngine = buildEngineGates({ engineByTf, sourceTf, entryBar, asOfMs });
@@ -212,6 +248,7 @@ export function buildRealSessionDetectorInput({ label, bundle, sourceTf = 'm5' }
       source_tf: sourceTf,
       future_rows_removed: removed,
       future_rows_removed_by_tf: removedByTf,
+      explicit_asof_engine_evidence: explicitEvidence,
       blockers,
     },
   };
