@@ -101,7 +101,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   padding: 4px 14px;
   color: var(--label); font-size: 10.5px;
 }
-.statusline .grp { display: flex; gap: 18px; }
+.statusline .grp { display: flex; gap: 18px; align-items: center; }
+.statusline .item { position: relative; }
 .statusline .item .k { color: var(--label-dim); letter-spacing: 0.14em; font-size: 9.5px; margin-right: 6px; }
 .statusline .item .v { color: var(--value); }
 .statusline .item .v .latch {
@@ -113,6 +114,47 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   background: var(--green); vertical-align: middle;
 }
 .statusline .item .dot.down { background: var(--red); }
+.statusline .provider-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.statusline .provider-chip,
+.statusline .provider-stop {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid var(--border-d);
+  background: transparent;
+  color: var(--label);
+  cursor: pointer;
+  letter-spacing: 0.14em;
+  font-size: 9px;
+  user-select: none;
+}
+.statusline .provider-chip.selected {
+  color: var(--value);
+  border-color: var(--amber);
+}
+.statusline .provider-chip.selected .k { color: var(--amber); }
+.statusline .provider-stop.active {
+  color: var(--red);
+  border-color: var(--red);
+}
+.statusline .provider-stop.disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.statusline .claude-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--label-dim); margin-left: 2px; transition: background 0.2s, box-shadow 0.2s;
+}
+.statusline .claude-dot.active {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: claudePulse 1.6s ease-in-out infinite;
+}
 
 .main { display: grid; min-height: 0; }
 
@@ -611,7 +653,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   max-height: 380px;
 }
 .claude-feed:empty::before {
-  content: "no messages yet — ask claude below";
+  content: attr(data-empty-label);
   color: var(--label); font-size: 11px; text-align: center;
   display: block; padding: 24px 0;
 }
@@ -761,7 +803,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   background: var(--amber); border-radius: 50%; margin-right: 8px;
 }
 
-/* CLAUDE chip in top bar — surface-2 bg, glowing green dot when active. */
+/* LLM provider chips: topbar legacy selector and statusline controls both use
+   the same dot animation. */
 .cell .claude-dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--label-dim); margin-left: 6px; transition: background 0.2s, box-shadow 0.2s;
@@ -801,6 +844,14 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 }
 .claude-popover .head .x { color: var(--label); cursor: pointer; font-size: 13px; }
 .claude-popover .body { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.statusline .claude-popover.statusline-popover {
+  top: auto;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+}
 .claude-popover .empty { padding: 14px; color: var(--label); font-size: 11px; text-align: center; }
 
 @media (max-height: 800px) {

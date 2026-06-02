@@ -24,6 +24,7 @@ import "./commands/stream.js";
 import "./commands/analyze.js";
 import "./commands/dash.js";
 import "./commands/trades.js";
+import "./commands/capture-replay.js";
 
 import { run } from "./router.js";
 await run(process.argv);

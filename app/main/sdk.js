@@ -32,6 +32,7 @@ import { extractUsageFromResult } from "./usage.js";
 import { classifyError } from "./error-classifier.js";
 import { findPartialReferences, composePhaseWithPartials, joinSystemPrompt } from "./prompt-composer.js";
 import { validateTurnSurfaceContract } from "./turn-surface-contract.js";
+import { resolveLlmProvider, runCodexTextTurn, normalizeProviderName } from "./llm-provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.join(__dirname, "prompts");
@@ -53,7 +54,11 @@ const PHASE_PATHS = {
 // One global _sessionId — the old design — meant a NY AM brief and a 13:00
 // bar-close ended up resuming the same conversation, and yesterday's London
 // brief was in context when today's London brief ran.
-const _sessionIds = new Map(); // purpose -> sessionId
+const _sessionIds = new Map(); // purpose/provider key -> sessionId
+function sessionKeyForPurposeProvider(purpose, providerName = 'claude') {
+  const normalized = normalizeProviderName(providerName);
+  return normalized === 'claude' ? String(purpose || '') : `${String(purpose || '')}:${normalized}`;
+}
 let _mcpServer = null;
 let _allowedToolNames = [];
 let _memoryToolName = "";  // populated in buildMcpServer; whitelisted per-purpose
@@ -775,9 +780,9 @@ export async function initSdk() {
   console.log("[sdk] init ok, prompt length (bar-close)", warmupChars, "tools", _allowedToolNames);
 }
 
-export function resetSession(purpose) {
+export function resetSession(purpose, providerName = 'claude') {
   if (purpose) {
-    _sessionIds.delete(purpose);
+    _sessionIds.delete(sessionKeyForPurposeProvider(purpose, providerName));
     return;
   }
   _sessionIds.clear();
@@ -836,7 +841,7 @@ const EFFORT = "medium";
  *   - `onEvent`: event callback (chunk / tool_call / turn_complete / error).
  *   - `timeoutMs`: optional override (default 300_000).
  */
-export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null }) {
+export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null }) {
   if (!purpose) {
     const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | catch-up | review)";
     onEvent?.({ type: "error", message: msg });
@@ -871,7 +876,7 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
 
   try {
     if (queued) onEvent?.({ type: "queue_ready" });
-    await runOneTurn({ text, purpose, onEvent, timeoutMs });
+    await runOneTurn({ text, purpose, onEvent, timeoutMs, providerOverride });
   } finally {
     if (backtestContext) {
       clearBacktestSessionContext();
@@ -881,7 +886,8 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
   }
 }
 
-async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
+async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, providerOverride = null }) {
+  const provider = resolveLlmProvider({ purpose, providerOverride });
   const toolCallsThisTurn = [];
   // Wrap onEvent so every "error" event picks up a classified `kind` +
   // `retryable` hint. Consumers (bar-close retry logic, UI error chip)
@@ -902,10 +908,11 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
     } else if (ev && ev.type === "error" && ev.kind === "auth") {
       markClaudeAuthBlocked(ev.message || "Claude auth failed");
     }
+    processed = { ...processed, provider: provider.name };
     if (rawOnEvent) rawOnEvent(processed);
     _broadcastActivity({ ...processed, purpose });
   };
-  _broadcastActivity({ type: "activity_start", purpose, ts: Date.now(), text });
+  _broadcastActivity({ type: "activity_start", purpose, provider: provider.name, ts: Date.now(), text });
   // Reset the per-turn memory-write counter. The throttle counter is NOT
   // reset — it spans across turns by design.
   resetMemoryGuardrails();
@@ -921,7 +928,15 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
     console.warn("[sdk] persistent memory load failed (continuing without)", err?.message || err);
   }
   const systemPrompt = await loadSystemPrompt(purpose);
-  const resumeId = _sessionIds.get(purpose);
+  if (provider.name === "codex") {
+    // Codex is available as a text-only replacement provider. Tool-requiring
+    // purposes fail closed inside runCodexTextTurn instead of pretending Codex
+    // can call the MCP surface tools that lock packet truth.
+    await runCodexTextTurn({ text, systemPrompt, purpose, onEvent, timeoutMs, provider });
+    return;
+  }
+  const resumeKey = sessionKeyForPurposeProvider(purpose, provider.name);
+  const resumeId = _sessionIds.get(resumeKey);
   const { model, fallbackModel } = modelForPurpose(purpose);
   const opts = {
     systemPrompt,
@@ -1013,7 +1028,7 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs }) {
   } finally {
     clearTimeout(timeoutHandle);
     _currentCancel = null;
-    _broadcastActivity({ type: "activity_end", purpose, ts: Date.now() });
+    _broadcastActivity({ type: "activity_end", purpose, provider: provider.name, ts: Date.now() });
   }
 }
 
@@ -1045,7 +1060,7 @@ async function iterateMessages(q, purpose, onEvent, cancelToken, startedAt, turn
         return;
       }
       msgCount += 1;
-      if (msg.session_id) _sessionIds.set(purpose, msg.session_id);
+      if (msg.session_id) _sessionIds.set(sessionKeyForPurposeProvider(purpose, 'claude'), msg.session_id);
       // eslint-disable-next-line no-console
       console.log("[sdk] msg", purpose, msg.type, msg.type === "stream_event" ? msg.event?.type : "");
       handleSdkMessage(msg, onEvent);

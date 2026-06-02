@@ -1,0 +1,71 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-05-29-mnq-ny-am-inversion-long",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "GXNQ",
+  "source_message": "GXNQ Discord label: 29-05-2026, MNQ, Trade, Inversion, long, entry 10:48, stop low of 10:45, TP1: 30,437.50",
+  "trade_date": "2026-05-29",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "trade",
+    "model": "Inversion",
+    "side": "long",
+    "entry_time_et": "2026-05-29T10:48:00-04:00",
+    "stop_anchor_time_et": "2026-05-29T10:45:00-04:00",
+    "stop_anchor": "low_of_10:45_candle",
+    "tp1": 30437.5
+  },
+  "evidence_requirements": [
+    "bundle must include 10:45 ET candle low for stop validation",
+    "bundle must include 10:48 ET confirmation candle for entry validation",
+    "bundle must prove Inversion long state: violated opposing FVG and valid close-through/confirmation before or at 10:48 ET",
+    "bundle must prove TP1 30437.50 is untaken liquidity at entry time",
+    "bundle must prove source health fresh, schema supported, and ICT Engine rows present as-of 10:48 ET"
+  ],
+  "replay": {
+    "ready": true,
+    "bundlePath": "2026-05-29-mnq-ny-am-inversion-long.asof-1048.bundle.json",
+    "as_of_et": "2026-05-29T10:48:00-04:00",
+    "as_of_utc": "2026-05-29T14:48:00Z",
+    "capture_window_et": {
+      "context_start": "2026-05-29T09:30:00-04:00",
+      "entry_window_end": "2026-05-29T12:00:00-04:00",
+      "as_of": "2026-05-29T10:48:00-04:00"
+    },
+    "required_timeframes": {
+      "premarket_context": ["D1", "H4", "H1", "15M", "5M"],
+      "entry_window": ["15M", "5M", "1M"]
+    },
+    "required_candles": [
+      {
+        "tf": "1m",
+        "time_et": "2026-05-29T10:45:00-04:00",
+        "purpose": "stop_anchor"
+      },
+      {
+        "tf": "1m",
+        "time_et": "2026-05-29T10:48:00-04:00",
+        "purpose": "entry_confirmation"
+      }
+    ],
+    "readiness_checks": [
+      "no bars after as_of may be used for entry decision",
+      "10:45 ET candle low must define stop anchor or label stays unscored",
+      "10:48 ET candle close must define entry confirmation or label stays unscored",
+      "TP1 must cite untaken liquidity existing before/as-of entry",
+      "ICT Engine V2 rows/boxes/labels/levels must be captured with source health as-of entry",
+      "D1/H4/H1/15M/5M context from 09:30 ET must exist before 1M entry replay is trusted",
+      "15M/5M/1M entry window from 09:30 ET to 12:00 ET must be available for bar-by-bar replay"
+    ],
+    "capture_status": "captured",
+    "reason_not_ready": null
+  },
+  "notes": [
+    "This is the first GXNQ-labeled real-session validation target for V2.",
+    "Do not use later candles to repair the 10:48 decision. The detector must be evaluated as-of the entry confirmation time.",
+    "Stop is structural: low of the 10:45 ET candle. Resolve exact price from captured bars before marking replay.ready=true."
+  ]
+}

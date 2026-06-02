@@ -44,7 +44,7 @@ export function registerIpc(win) {
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
-  ipcMain.handle("chat:send_message", async (_evt, { text }) => {
+  ipcMain.handle("chat:send_message", async (_evt, { text, provider } = {}) => {
     recordMetric({ kind: "chat", event: "started" });
     const startedAt = Date.now();
     let errored = false;
@@ -53,6 +53,7 @@ export function registerIpc(win) {
       await userTurn({
         text,
         purpose: "chat",
+        providerOverride: provider,
         onEvent: (ev) => {
           if (ev.type === "chunk") send("chat:chunk", ev);
           else if (ev.type === "tool_call") send("chat:tool_call", ev);
@@ -63,7 +64,7 @@ export function registerIpc(win) {
           else if (ev.type === "usage") { usage = ev.usage; }
           else if (ev.type === "error") {
             errored = true;
-            send("app:error", { source: "sdk", message: ev.message });
+            send("app:error", { source: "sdk", message: ev.message, provider: ev.provider });
           }
         },
       });
@@ -81,7 +82,7 @@ export function registerIpc(win) {
         durationMs: Date.now() - startedAt,
         reason: String(err?.message || err),
       });
-      send("app:error", { source: "ipc:chat", message: String(err?.message || err) });
+      send("app:error", { source: "ipc:chat", message: String(err?.message || err), provider });
       return { ok: false, error: String(err?.message || err) };
     }
   });
@@ -165,10 +166,11 @@ export function registerIpc(win) {
     return { ok: true };
   });
 
-  ipcMain.handle("chat:reset", async () => {
-    // Reset the 'chat' purpose session id so the next user message starts
-    // a fresh conversation. Doesn't touch brief / wrap / bar-close sessions.
-    resetSession("chat");
+  ipcMain.handle("chat:reset", async (_evt, { provider } = {}) => {
+    // Reset the active provider's 'chat' purpose session id so the next user
+    // message starts a fresh conversation. Doesn't touch brief / wrap /
+    // bar-close sessions or the other provider's chat history.
+    resetSession("chat", provider || "claude");
     return { ok: true };
   });
 

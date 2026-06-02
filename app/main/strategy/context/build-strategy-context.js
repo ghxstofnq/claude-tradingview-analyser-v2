@@ -68,6 +68,7 @@ function buildPillar3(engine) {
   const rows = getIctEngineRows(engine).map(normalizePdRow);
   const sweeps = normalizeEvidenceList(engine?.pillar1?.sweeps ?? [], 'gates.engine.pillar1.sweeps');
   const failureSwings = normalizeEvidenceList(engine?.pillar3?.failure_swings ?? engine?.pillar3?.failureSwings ?? [], 'gates.engine.pillar3.failure_swings');
+  const structuralStops = normalizeEvidenceList(engine?.pillar3?.structural_stops ?? engine?.pillar3?.structuralStops ?? engine?.risk?.structural_stops ?? [], 'gates.engine.pillar3.structural_stops');
   const insideFvgs = normalizeEvidenceList(engine?.price_context?.inside_fvgs ?? [], 'gates.engine.price_context.inside_fvgs');
   const insideBprs = normalizeEvidenceList(engine?.price_context?.inside_bprs ?? [], 'gates.engine.price_context.inside_bprs');
   const confirmationRows = engine?.confirmation ? [{ ...engine.confirmation, evidenceRef: engine.confirmation.evidenceRef ?? 'gates.engine.confirmation' }] : [];
@@ -78,6 +79,7 @@ function buildPillar3(engine) {
     bprs: rows.filter((row) => kindOf(row) === 'bpr'),
     sweeps,
     failureSwings,
+    structuralStops,
     insidePdArrays: [...insideFvgs, ...insideBprs],
     confirmationRows,
     ohlcv1m: [],

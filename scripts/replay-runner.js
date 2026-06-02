@@ -10,6 +10,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { detectSetups } from '../cli/lib/setup-detector.js';
+import { buildRealSessionExecutionPacket } from '../cli/lib/real-session-packet.js';
 import { formatReplayAccuracyReport, replayAccuracyReport } from './judge-report.js';
 
 function readJson(path) {
@@ -46,11 +47,31 @@ export function hydrateReplayCase(spec, dir) {
     bundle = readJson(bundlePath);
   }
   if (!bundle) throw new Error(`Replay case ${spec.fixture}: missing bundle or bundlePath`);
-  return { ...spec, bundle };
+  let label = spec.label;
+  if (!label && spec.labelPath) {
+    const labelPath = resolve(dir, spec.labelPath);
+    const root = resolve(dir);
+    if (!labelPath.startsWith(root)) {
+      throw new Error(`Replay case ${spec.fixture}: labelPath escapes replay dir`);
+    }
+    if (!existsSync(labelPath)) {
+      throw new Error(`Replay case ${spec.fixture}: labelPath not found: ${spec.labelPath}`);
+    }
+    label = readJson(labelPath);
+  }
+  return { ...spec, bundle, ...(label ? { label } : {}) };
 }
 
 export function runReplayCase(spec, dir) {
   const hydrated = hydrateReplayCase(spec, dir);
+  if (hydrated.mode === 'real_session_packet') {
+    return {
+      fixture: hydrated.fixture,
+      source_file: hydrated.source_file,
+      expected: hydrated.expected ?? hydrated.expectedOutcome ?? {},
+      actual: buildRealSessionExecutionPacket({ label: hydrated.label, bundle: hydrated.bundle }),
+    };
+  }
   const input = hydrated.input ?? {};
   const actual = detectSetups({
     bundle: hydrated.bundle,

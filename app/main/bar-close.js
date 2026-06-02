@@ -34,7 +34,13 @@ import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { setTickerSink, tickOpenTrades, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
 import { tickWalkers } from "./walker/walker-engine.js";
 import { readWalkersJson, writeWalkersJson, parseMemorySkipLines } from "./walker/walker-runtime.js";
-import { surfaceSetup } from "./tools/surface.js";
+import { surfaceSetup, surfaceNoTrade } from "./tools/surface.js";
+import { buildStrategyContext } from "./strategy/context/build-strategy-context.js";
+import { runDeterministicWalkerStrategy } from "./strategy/walkers/deterministic-strategy.js";
+import {
+  readWalkersJson as readDeterministicWalkersJson,
+  writeWalkersJson as writeDeterministicWalkersJson,
+} from "./strategy/walkers/walker-runtime.js";
 import { readCache as readCalendarCache } from "./calendar.js";
 
 // How many recent JSONL entries to tail into the per-bar prompt.
@@ -409,13 +415,19 @@ async function runClaudeTurnFor(ev, session, phase) {
   if (phase === "entry_hunt") {
     await refreshEntryHuntScanForWalker(session);
     try {
-      await runWalkerTickFor(ev, session);
-      recordMetric({ kind: "bar-close", event: "walker_ticked", session });
+      const truth = await runDeterministicPacketTruthForBar(ev, session);
+      recordMetric({
+        kind: "bar-close",
+        event: "deterministic_packet_truth",
+        session,
+        finalVerdict: truth?.finalVerdict ?? "no_trade",
+        packetStatus: truth?.bestPacket?.status ?? truth?.packets?.[0]?.status ?? "none",
+      });
       if (shouldShortCircuitAfterWalkerTick({ phase })) return;
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn("[bar-close] walker tick threw", err?.message || err);
-      recordMetric({ kind: "bar-close", event: "walker_failed", session, reason: String(err?.message || err) });
+      console.warn("[bar-close] deterministic packet truth threw", err?.message || err);
+      recordMetric({ kind: "bar-close", event: "deterministic_packet_failed", session, reason: String(err?.message || err) });
       // Fall through to Claude turn as a safety net for the first iterations.
     }
   }
@@ -678,10 +690,148 @@ async function readLtfBiasFrontmatter() {
 // disk, synthesizes brief_digest fields the detector expects (htf_destination
 // + primary_draw — these live in brief.json, not in the analyze-time digest),
 // and returns { bundle, leader, ltf_bias_context, untaken_targets }.
-// Walker engine tick — replaces the entry-hunt Claude turn. Reads the slim
-// scan + brief + memory, calls walkerTick, persists walkers.json, and surfaces
-// any fired triggers via the existing surface_setup path so the LIVE popover
-// renders accept/reject as it would for a Claude-surfaced setup.
+// Deterministic packet truth — main live path for V2. Reads the same fresh
+// TradingView bundle used by the detector, runs the PR #3 strategy walker,
+// persists packet truth, and surfaces only the deterministic packet verdict.
+async function runDeterministicPacketTruthForBar(ev, session) {
+  const inputs = await buildDetectorInputs();
+  const dir = await activeSessionDir();
+  if (!inputs?.bundle?.gates) {
+    const truth = { finalVerdict: 'no_trade', packets: [], bestPacket: null, blockers: ['missing_scan_bundle'], eventTimeUtc: ev?.ts ?? null };
+    await persistDeterministicTruth(dir, truth);
+    await surfaceNoTrade({ reason: 'deterministic packet blocked: missing_scan_bundle' }).catch(() => {});
+    return truth;
+  }
+
+  const previous = await readDeterministicWalkersJson(dir);
+  const truth = buildDeterministicPacketTruthFromInputs({
+    inputs,
+    previousWalkers: previous.walkers ?? [],
+    event: ev,
+    session,
+  });
+  const nextState = { schemaVersion: 1, walkers: truth.walkers, updatedAt: new Date().toISOString() };
+  await writeDeterministicWalkersJson(dir, nextState);
+
+  const bestPacket = truth.bestPacket;
+  const blockingPacket = bestPacket ?? {
+    status: 'blocked',
+    finalVerdict: 'no_trade',
+    blockers: truth.blockers?.length ? truth.blockers : ['no_confirmed_packet'],
+  };
+
+  const { setCurrentDeterministicPacket } = await import("./tools/surface.js");
+  setCurrentDeterministicPacket(bestPacket ?? blockingPacket);
+  await persistDeterministicTruth(dir, truth);
+  _send?.('deterministic:packet', truth);
+  _send?.('walkers:state', { session, walkers: truth.walkers, deterministic: true });
+
+  if (bestPacket) {
+    await surfaceSetup(truth.surfacePayload);
+  } else {
+    const reason = truth.noTradeReason ?? `deterministic packet blocked: ${(truth.blockers?.length ? truth.blockers : ['no_confirmed_packet']).join(', ')}`;
+    await surfaceNoTrade({ reason }).catch((err) => {
+      // A recent setup can suppress no-trade; that's fine for UI lifecycle.
+      if (!/suppressed/i.test(String(err?.message || err))) throw err;
+    });
+  }
+
+  return truth;
+}
+
+function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [], event, session } = {}) {
+  const strategyBundle = buildStrategyBundleForRuntime(inputs, event, session);
+  const context = buildStrategyContext(strategyBundle);
+  const result = runDeterministicWalkerStrategy({ context, walkers: previousWalkers });
+  const bestPacket = result.bestPacket ? { ...result.bestPacket, finalVerdict: result.finalVerdict } : null;
+  const blockers = bestPacket
+    ? []
+    : (result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet']);
+  const noTradeReason = bestPacket ? null : `deterministic packet blocked: ${(blockers.length ? blockers : ['no_confirmed_packet']).join(', ')}`;
+  return {
+    schemaVersion: 1,
+    eventTimeUtc: event?.ts ?? null,
+    market: context.market,
+    session,
+    finalVerdict: result.finalVerdict,
+    bestPacket,
+    packets: result.packets,
+    blockers,
+    sourceHealth: context.sourceHealth,
+    walkers: result.walkers,
+    events: result.events,
+    surfacePayload: bestPacket ? deterministicPacketToSurfacePayload(bestPacket, event) : null,
+    noTradeReason,
+  };
+}
+
+function buildStrategyBundleForRuntime(inputs, ev, session) {
+  const bundle = inputs.bundle ?? {};
+  const leader = inputs.leader || bundle.symbol || bundle.market || ev?.symbol || 'unknown';
+  const briefDigest = bundle.brief_digest ?? {};
+  const engine = { ...(bundle.gates?.engine ?? {}) };
+  engine.pillar1 = {
+    ...(engine.pillar1 ?? {}),
+    htfBias: engine.pillar1?.htfBias ?? engine.pillar1?.htf_bias ?? htfBiasFromBrief(briefDigest) ?? null,
+    htfDraw: engine.pillar1?.htfDraw ?? engine.pillar1?.htf_draw ?? briefDigest.htf_destination ?? null,
+    primaryDraw: engine.pillar1?.primaryDraw ?? engine.pillar1?.primary_draw ?? briefDigest.primary_draw ?? null,
+    untakenTargets: engine.pillar1?.untakenTargets ?? {
+      above: inputs.untaken_targets?.untaken_above ?? [],
+      below: inputs.untaken_targets?.untaken_below ?? [],
+    },
+  };
+  const meta = engine.meta ?? {};
+  engine.meta = {
+    ...meta,
+    schemaSupported: meta.schemaSupported ?? meta.schema_supported ?? true,
+    stale: meta.stale ?? false,
+  };
+  return {
+    ...bundle,
+    market: leader,
+    session,
+    eventTimeUtc: ev?.ts ?? bundle.eventTimeUtc ?? null,
+    eventTimeEt: ev?.ts ? new Date(ev.ts).toLocaleString('en-US', { timeZone: 'America/New_York' }) : bundle.eventTimeEt ?? null,
+    gates: { ...(bundle.gates ?? {}), engine },
+    ohlcv1m: bundle.ohlcv1m ?? bundle.bars?.last_5_bars ?? [],
+    ohlcv5m: bundle.ohlcv5m ?? bundle.bars_by_tf?.m5?.last_5_bars ?? [],
+  };
+}
+
+async function persistDeterministicTruth(dir, truth) {
+  await fs.mkdir(dir, { recursive: true });
+  const record = { ...truth, persistedAt: new Date().toISOString() };
+  await fs.writeFile(path.join(dir, 'deterministic-packet.json'), `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  await fs.appendFile(path.join(dir, 'deterministic-packets.jsonl'), `${JSON.stringify(record)}\n`, 'utf8');
+}
+
+function deterministicPacketToSurfacePayload(packet, ev) {
+  return {
+    id: `D-${String(packet.walkerId ?? Date.now()).replace(/^w_/, '').slice(0, 14)}`,
+    model: packet.model,
+    side: packet.side,
+    entry: packet.entry?.price,
+    entry_cite: packet.entry?.evidenceRef ?? 'deterministic.entry',
+    stop: packet.stop?.price,
+    stop_cite: packet.stop?.evidenceRef ?? 'deterministic.stop',
+    tp1: packet.tp1?.price,
+    tp1_cite: packet.tp1?.evidenceRef ?? 'deterministic.tp1',
+    tp2: packet.tp2?.price ?? packet.tp1?.price,
+    tp2_cite: packet.tp2?.evidenceRef ?? packet.tp1?.evidenceRef ?? 'deterministic.tp2',
+    grade: packet.grade,
+    tf: ev?.tf ?? '1m',
+    rr: packet.tp1?.rMultiple ?? null,
+    size_multiplier: 1,
+    rationale: 'Deterministic packet truth: TradingView evidence → walker lifecycle → execution packet. LLM/provider may explain it but cannot change entry, stop, target, model, side, or grade.',
+    pillar_breakdown: [
+      { name: 'Pillar 1', verdict: 'PASS · deterministic context gate', elements: [] },
+      { name: 'Pillar 2', verdict: 'PASS · deterministic quality gate', elements: [] },
+      { name: 'Pillar 3', verdict: `PASS · ${packet.model} exact confirmation close`, elements: [] },
+    ],
+    executionPacket: packet,
+  };
+}
+
 async function refreshEntryHuntScanForWalker(session) {
   try {
     await tvAnalyzeFast(entryHuntFastScanArgs(), { skipRead: true });
@@ -872,6 +1022,12 @@ async function buildDetectorInputs() {
     },
   };
 }
+
+export const __test = {
+  buildDeterministicPacketTruthFromInputs,
+  buildStrategyBundleForRuntime,
+  deterministicPacketToSurfacePayload,
+};
 
 // Read the chosen leader symbol from pair-decision.json. Returns null if
 // the file is missing, malformed, or leader is null (inconclusive). Used

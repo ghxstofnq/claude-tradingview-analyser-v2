@@ -13,14 +13,14 @@ contextBridge.exposeInMainWorld("api", {
     },
   },
   chat: {
-    send(text) {
-      return ipcRenderer.invoke("chat:send_message", { text });
+    send(text, options = {}) {
+      return ipcRenderer.invoke("chat:send_message", { text, provider: options.provider });
     },
     cancel() {
       return ipcRenderer.invoke("chat:cancel_turn");
     },
-    reset() {
-      return ipcRenderer.invoke("chat:reset");
+    reset(options = {}) {
+      return ipcRenderer.invoke("chat:reset", { provider: options.provider });
     },
     onChunk(cb) {
       const listener = (_e, ev) => cb(ev);

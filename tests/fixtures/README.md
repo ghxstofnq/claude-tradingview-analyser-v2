@@ -56,6 +56,34 @@ Run `npm run fixture:coverage` to see which of these target cells are still empt
 
 Per [docs/research/ai-trading-analysis.md](../../docs/research/ai-trading-analysis.md) rec #7: full golden-set is ~50 fixtures eventually. The current corpus is intentionally small; build organically as interesting setups surface live.
 
+## Real-session replay capture
+
+GXNQ-labeled real sessions use a stricter capture path than ordinary `tv analyze` fixtures. A label may be captured first, but it must stay `replay.ready=false` until a no-lookahead evidence bundle exists.
+
+Default capture command:
+
+```bash
+./bin/tv capture-replay \
+  --label tests/fixtures/real-sessions/2026-05-29-mnq-ny-am-inversion-long.label.json \
+  --out tests/fixtures/real-sessions/2026-05-29-mnq-ny-am-inversion-long.asof-1048.bundle.json
+```
+
+The command plans and attempts these TradingView pulls:
+
+- Context from NY cash open / `09:30 ET` to the decision as-of timestamp:
+  - `D1`, `H4`, `H1`, `15M`, `5M`
+- Entry replay window from `09:30 ET` to `12:00 ET`:
+  - `15M`, `5M`, `1M`
+
+The written bundle has:
+
+- `bars_by_tf` — full replay-window bars where applicable.
+- `decision_bars_by_tf` — no-lookahead bars trimmed to `as_of` for entry decision scoring.
+- `engine_by_tf` — parsed ICT Engine rows captured per TF.
+- `validation` — fail-closed blockers for missing TFs, missing required candles, missing ICT Engine rows, or lookahead in decision bars.
+
+For historical TradingView gaps, the command will fail instead of inventing proof. Use `--force` only to save a diagnostic bundle; forced bundles must not flip a label to `replay.ready=true`.
+
 ## When to re-grade
 
 If the strategy changes (new rules in `docs/strategy/`), or if you (the trader) disagree with a Claude-graded expected file, **edit the `.expected.md` directly**. The expected files are not write-once — they're the project's documented opinion of "the right read" for that chart state, and that opinion can be updated.

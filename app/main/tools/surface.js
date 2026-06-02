@@ -286,6 +286,9 @@ export async function surfaceSetup(payload) {
 }
 
 export async function surfaceNoTrade({ reason }) {
+  if (_currentDeterministicPacket?.status === 'executable' && _currentDeterministicPacket?.finalVerdict === 'manual_candidate') {
+    throw new Error('surface_no_trade: executable deterministic packet is active. Use surface_setup with the deterministic packet values; no-trade would hide packet truth.');
+  }
   if (_currentCandidate?.best_candidate && _currentBundle) {
     throw new Error('surface_no_trade: detector emitted a tradable best_candidate. Use surface_setup or clear the detector candidate; no-trade would create a missed valid setup.');
   }
