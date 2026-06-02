@@ -44,6 +44,30 @@ test('evaluateLiveReadiness passes only when CDP, chart, engine, replay, bar fre
   assert.equal(result.checks.session.status, 'pass');
 });
 
+test('evaluateLiveReadiness accepts raw parsed ICT Engine V2 shape from live table collection', () => {
+  const nowMs = Date.parse('2026-06-02T22:12:40.000Z');
+  const result = evaluateLiveReadiness(baseInputs({
+    engine: {
+      schema: 2,
+      schema_supported: true,
+      meta: { schema: 2, emit_ms: Date.parse('2026-06-02T22:12:27.730Z'), tf: '1', symbol: 'MNQ1!' },
+      levels: [{ name: 'PDH', price: 30763.5 }],
+      fvgs: [{ kind: 'fvg', dir: 'bull', top: 30718.5, bottom: 30705.5 }],
+      bprs: [],
+      swings: [],
+      structures: [{ event: 'mss', dir: 'bear' }],
+      pools: [],
+      quality: { displacement: 'clean' },
+    },
+    bar: { ts: '2026-06-02T22:12:00.000Z' },
+    nowMs,
+  }));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.checks.ictEngine.status, 'pass');
+  assert.deepEqual(result.sourceHealth, { status: 'fresh', schemaSupported: true, stale: false, blockers: [] });
+});
+
 test('evaluateLiveReadiness blocks live trading on stale or wrong source instead of reporting ordinary no-trade', () => {
   const result = evaluateLiveReadiness(baseInputs({
     status: { success: true, cdp_connected: true, api_available: false, chart_symbol: 'NASDAQ:AAPL', chart_resolution: '60' },

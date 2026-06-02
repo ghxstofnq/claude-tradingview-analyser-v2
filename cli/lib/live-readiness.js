@@ -37,10 +37,40 @@ function barAgeMs({ bar, nowMs }) {
   return Number(nowMs) - parsed;
 }
 
+function engineRowsForHealth(engine = {}) {
+  if (Array.isArray(engine.rows) && engine.rows.length > 0) return engine.rows;
+  if (Array.isArray(engine.ict_engine_rows) && engine.ict_engine_rows.length > 0) return engine.ict_engine_rows;
+  if (Array.isArray(engine.ictEngineRows) && engine.ictEngineRows.length > 0) return engine.ictEngineRows;
+  return [
+    ...(engine.levels ?? []),
+    ...(engine.sweeps ?? []),
+    ...(engine.fvgs ?? []),
+    ...(engine.bprs ?? []),
+    ...(engine.swings ?? []),
+    ...(engine.structures ?? []),
+    ...(engine.pools ?? []),
+    ...(engine.quality ? [engine.quality] : []),
+  ];
+}
+
+function normalizeEngineForHealth(engine = {}, nowMs = Date.now()) {
+  if (!engine || typeof engine !== 'object') return engine;
+  const rows = engineRowsForHealth(engine);
+  const emitMs = Number(engine.meta?.emit_ms);
+  const staleFromEmit = Number.isFinite(emitMs) ? (Number(nowMs) - emitMs) > 90_000 : undefined;
+  return {
+    ...engine,
+    rows,
+    meta: {
+      ...(engine.meta ?? {}),
+      schema_supported: engine.meta?.schema_supported ?? engine.meta?.schemaSupported ?? engine.schema_supported ?? engine.schemaSupported,
+      stale: engine.meta?.stale ?? staleFromEmit,
+    },
+  };
+}
+
 function engineStudyKnown(ui = {}, engine = {}) {
-  if ((Array.isArray(engine.rows) && engine.rows.length > 0)
-    || (Array.isArray(engine.ict_engine_rows) && engine.ict_engine_rows.length > 0)
-    || (Array.isArray(engine.ictEngineRows) && engine.ictEngineRows.length > 0)) return true;
+  if (engineRowsForHealth(engine).length > 0) return true;
   const studyCount = ui?.chart?.study_count ?? ui?.chart?.studies?.length;
   if (studyCount == null) return null;
   return Number(studyCount) > 0;
@@ -92,9 +122,10 @@ export function evaluateLiveReadiness({
   if (!allowedTimeframes.has(resolution)) chartBlockers.push('unexpected_timeframe');
   checks.chart = chartBlockers.length ? fail(chartBlockers, { symbol, resolution }) : pass({ symbol, resolution });
 
-  const sourceHealth = evaluateSourceHealth({ gates: { engine } });
+  const healthEngine = normalizeEngineForHealth(engine, nowMs);
+  const sourceHealth = evaluateSourceHealth({ gates: { engine: healthEngine } });
   const engineBlockers = [];
-  const knownStudy = engineStudyKnown(ui, engine);
+  const knownStudy = engineStudyKnown(ui, healthEngine);
   if (knownStudy === false) engineBlockers.push('ict_engine_study_missing_or_unknown');
   if (sourceHealth.blockers.length) engineBlockers.push(...sourceHealth.blockers);
   checks.ictEngine = engineBlockers.length ? fail([...new Set(engineBlockers)], { sourceHealth }) : pass({ sourceHealth });
