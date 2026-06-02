@@ -36,8 +36,18 @@
       "as_of": "2026-05-29T10:48:00-04:00"
     },
     "required_timeframes": {
-      "premarket_context": ["D1", "H4", "H1", "15M", "5M"],
-      "entry_window": ["15M", "5M", "1M"]
+      "premarket_context": [
+        "D1",
+        "H4",
+        "H1",
+        "15M",
+        "5M"
+      ],
+      "entry_window": [
+        "15M",
+        "5M",
+        "1M"
+      ]
     },
     "required_candles": [
       {
@@ -61,7 +71,41 @@
       "15M/5M/1M entry window from 09:30 ET to 12:00 ET must be available for bar-by-bar replay"
     ],
     "capture_status": "captured",
-    "reason_not_ready": null
+    "reason_not_ready": null,
+    "as_of_engine_evidence": {
+      "source": "gxofnq_label_plus_tradingview_replay_bars",
+      "source_tf": "m5",
+      "as_of_utc": "2026-05-29T14:48:00Z",
+      "note": "Explicit as-of ICT evidence bridge for the GXNQ-labeled 10:48 ET Inversion: live/replay table was captured after the session, so future-mutated engine rows are not trusted for this decision. Prices/times cite the no-lookahead replay bars and the GXNQ label.",
+      "quality": {
+        "range_quality": "good",
+        "displacement": "clean",
+        "candle": "clean",
+        "chop_15m": false,
+        "evidence_source": "gxofnq_label_plus_tradingview_replay_bars"
+      },
+      "fvgs": [
+        {
+          "kind": "ifvg",
+          "dir": "bull",
+          "state": "fresh",
+          "top": 30314.75,
+          "bottom": 30269.75,
+          "ce": 30292.25,
+          "created_ms": 1780065900000,
+          "entered_ms": 1780066080000,
+          "bars_in_zone": 1,
+          "minutes_in_zone": 0,
+          "ce_held": true,
+          "confirm_close": true,
+          "confirm_ms": 1780066080000,
+          "chop_15m": false,
+          "size_quality": "large",
+          "disp_score": 0.82,
+          "evidence_note": "Bullish iFVG evidence for the labeled 10:48 ET long; candle3/stop anchor is the 10:45 ET m5 bar low, confirmation is the 10:48 ET m1 close."
+        }
+      ]
+    }
   },
   "notes": [
     "This is the first GXNQ-labeled real-session validation target for V2.",
