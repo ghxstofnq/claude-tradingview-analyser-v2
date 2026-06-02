@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -63,7 +65,7 @@ export function buildProviderSpawnEnv(env = process.env) {
   };
 }
 
-export function buildCodexInvocation({ provider, prompt }) {
+export function buildCodexInvocation({ provider, prompt, outputPath = null }) {
   const args = [...(provider?.args || ['exec'])];
   if (provider?.model) args.push('--model', provider.model);
 
@@ -73,10 +75,17 @@ export function buildCodexInvocation({ provider, prompt }) {
     args.push('-C', REPO_ROOT);
   }
 
+  // Codex stdout is a CLI transcript (banner, plugin/skill reads, hooks,
+  // logs). The chat UI should behave like Claude chat, so capture only the
+  // final assistant message and keep raw stdout/stderr for diagnostics.
+  if (args[0] === 'exec' && outputPath && !args.includes('-o') && !args.includes('--output-last-message')) {
+    args.push('--output-last-message', outputPath);
+  }
+
   // Feed the prompt through stdin instead of one huge argv item. This avoids
   // shell/argv-size edge cases and keeps multi-line system prompts unambiguous.
   args.push('-');
-  return { args, stdin: String(prompt || ''), cwd: REPO_ROOT };
+  return { args, stdin: String(prompt || ''), cwd: REPO_ROOT, outputPath };
 }
 
 function appendTail(prev, chunk, max = 2000) {
@@ -98,53 +107,64 @@ export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, t
 
   const startedAt = Date.now();
   const prompt = `${Array.isArray(systemPrompt) ? systemPrompt.join('\n\n') : String(systemPrompt || '')}\n\nUSER TURN:\n${text}`;
-  const invocation = buildCodexInvocation({ provider, prompt });
+  const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tv-codex-chat-'));
+  const outputPath = path.join(outputDir, 'last-message.md');
+  const invocation = buildCodexInvocation({ provider, prompt, outputPath });
 
-  await new Promise((resolve) => {
-    const child = spawn(provider.command, invocation.args, {
-      cwd: invocation.cwd,
-      env: buildProviderSpawnEnv(process.env),
-    });
-    let settled = false;
-    let outputTail = '';
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try { child.kill('SIGTERM'); } catch {}
-      onEvent?.({ type: 'error', message: `Codex turn timed out after ${timeoutMs}ms (purpose=${purpose})`, kind: 'timeout', retryable: true });
-      onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
-      resolve();
-    }, timeoutMs);
+  try {
+    await new Promise((resolve) => {
+      const child = spawn(provider.command, invocation.args, {
+        cwd: invocation.cwd,
+        env: buildProviderSpawnEnv(process.env),
+      });
+      let settled = false;
+      let outputTail = '';
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { child.kill('SIGTERM'); } catch {}
+        onEvent?.({ type: 'error', message: `Codex turn timed out after ${timeoutMs}ms (purpose=${purpose})`, kind: 'timeout', retryable: true });
+        onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
+        resolve();
+      }, timeoutMs);
 
-    child.stdout?.on('data', (chunk) => {
-      const textChunk = chunk.toString();
-      outputTail = appendTail(outputTail, textChunk);
-      onEvent?.({ type: 'chunk', text: textChunk });
+      child.stdout?.on('data', (chunk) => {
+        outputTail = appendTail(outputTail, chunk.toString());
+      });
+      child.stderr?.on('data', (chunk) => {
+        outputTail = appendTail(outputTail, chunk.toString());
+      });
+      child.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        onEvent?.({ type: 'error', message: `Codex provider failed to start: ${err.message}`, kind: 'provider', retryable: false });
+        onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
+        resolve();
+      });
+      child.on('exit', async (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (code !== 0) {
+          const detail = outputTail.trim() ? `: ${outputTail.trim()}` : '';
+          onEvent?.({ type: 'error', message: `Codex provider exited with code ${code}${detail}`, kind: 'provider', retryable: code !== 127 });
+        } else {
+          try {
+            const finalMessage = await fs.readFile(invocation.outputPath, 'utf8');
+            const clean = finalMessage.trim();
+            if (clean) onEvent?.({ type: 'chunk', text: clean });
+          } catch (err) {
+            const detail = outputTail.trim() ? ` Raw output tail: ${outputTail.trim()}` : '';
+            onEvent?.({ type: 'error', message: `Codex completed but no final message was captured: ${err.message}.${detail}`, kind: 'provider', retryable: true });
+          }
+        }
+        onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
+        resolve();
+      });
+      child.stdin?.end(invocation.stdin);
     });
-    child.stderr?.on('data', (chunk) => {
-      const textChunk = chunk.toString();
-      outputTail = appendTail(outputTail, textChunk);
-      onEvent?.({ type: 'chunk', text: textChunk });
-    });
-    child.on('error', (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      onEvent?.({ type: 'error', message: `Codex provider failed to start: ${err.message}`, kind: 'provider', retryable: false });
-      onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
-      resolve();
-    });
-    child.on('exit', (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (code !== 0) {
-        const detail = outputTail.trim() ? `: ${outputTail.trim()}` : '';
-        onEvent?.({ type: 'error', message: `Codex provider exited with code ${code}${detail}`, kind: 'provider', retryable: code !== 127 });
-      }
-      onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
-      resolve();
-    });
-    child.stdin?.end(invocation.stdin);
-  });
+  } finally {
+    await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
