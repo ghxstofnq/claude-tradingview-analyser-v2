@@ -1,4 +1,4 @@
-import { readFileSync, mkdirSync, appendFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, appendFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { register } from '../router.js';
@@ -10,6 +10,26 @@ import { evaluateLiveReadiness, buildLiveDryRunRecord } from '../lib/live-readin
 
 function sessionFromOpts(opts) {
   return opts.session || process.env.TV_SESSION || 'ny-am';
+}
+
+function etDateFromMs(nowMs = Date.now()) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(Number(nowMs)));
+  const get = (type) => fmt.find((p) => p.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function defaultTruthPathForSession({ session = 'ny-am', nowMs = Date.now() } = {}) {
+  return path.join(process.cwd(), 'state', 'session', etDateFromMs(nowMs), session, 'deterministic-packet.json');
+}
+
+function readTruthForDryRun(opts, nowMs) {
+  const explicitPath = opts.truth || null;
+  const truthPath = explicitPath ?? defaultTruthPathForSession({ session: sessionFromOpts(opts), nowMs });
+  if (!truthPath || !existsSync(truthPath)) return { truth: null, truthPath };
+  return { truth: JSON.parse(readFileSync(truthPath, 'utf8')), truthPath };
 }
 
 function latestBarFromOhlcv(ohlcv) {
@@ -80,15 +100,16 @@ register('live-dry-run', {
   handler: async (opts) => {
     const inputs = await collectLiveReadinessInputs(opts);
     const readiness = evaluateLiveReadiness(inputs);
-    const truth = opts.truth ? JSON.parse(readFileSync(opts.truth, 'utf8')) : null;
+    const { truth, truthPath } = readTruthForDryRun(opts, inputs.nowMs);
     const record = buildLiveDryRunRecord({ readiness, truth, event: inputs.bar });
+    const enrichedRecord = { ...record, truthPath };
     if (opts.out) {
       mkdirSync(path.dirname(opts.out), { recursive: true });
-      appendFileSync(opts.out, `${JSON.stringify({ ...record, writtenAt: new Date().toISOString() })}\n`, 'utf8');
-      return { ...record, out: opts.out };
+      appendFileSync(opts.out, `${JSON.stringify({ ...enrichedRecord, writtenAt: new Date().toISOString() })}\n`, 'utf8');
+      return { ...enrichedRecord, out: opts.out };
     }
-    return record;
+    return enrichedRecord;
   },
 });
 
-export const __test = { latestBarFromOhlcv, collectLiveReadinessInputs };
+export const __test = { latestBarFromOhlcv, collectLiveReadinessInputs, defaultTruthPathForSession, readTruthForDryRun };

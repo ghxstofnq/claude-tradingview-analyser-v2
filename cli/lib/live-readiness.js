@@ -166,19 +166,40 @@ export function buildLiveDryRunRecord({ readiness, truth = null, event = null } 
       readiness,
       eventTimeUtc: event?.ts ?? truth?.eventTimeUtc ?? null,
       bestPacket: null,
+      blockers: readiness?.blockers?.length ? readiness.blockers : ['source_health_unknown'],
       summary: `Source health blocked: ${(readiness?.blockers?.length ? readiness.blockers : ['unknown']).join(', ')}`,
     };
   }
+  if (!truth) {
+    return {
+      mode: 'live-dry-run',
+      actionable: false,
+      finalVerdict: 'cannot_evaluate_deterministic_truth',
+      readiness,
+      eventTimeUtc: event?.ts ?? null,
+      bestPacket: null,
+      blockers: ['missing_deterministic_truth'],
+      summary: 'No deterministic packet truth supplied/found. Start app LIVE until it writes deterministic-packet.json, or pass --truth state/session/<date>/<session>/deterministic-packet.json.',
+    };
+  }
   const hasPacket = !!truth?.bestPacket;
+  const blockers = truth?.blockers?.length ? truth.blockers : ['no_confirmed_packet'];
+  const cannotEvaluate = String(truth?.evaluationStatus ?? '').startsWith('cannot_evaluate');
+  const finalVerdict = hasPacket
+    ? (truth.finalVerdict ?? 'manual_candidate')
+    : cannotEvaluate
+      ? truth.evaluationStatus
+      : (truth.finalVerdict === 'cannot_evaluate_source_health' ? truth.finalVerdict : 'no_trade');
   return {
     mode: 'live-dry-run',
     actionable: hasPacket,
-    finalVerdict: hasPacket ? (truth.finalVerdict ?? 'manual_candidate') : 'no_trade',
+    finalVerdict,
     readiness,
     eventTimeUtc: event?.ts ?? truth?.eventTimeUtc ?? null,
     bestPacket: truth?.bestPacket ?? null,
+    blockers: hasPacket ? [] : blockers,
     summary: hasPacket
       ? `Candidate ready: ${truth.bestPacket.model} ${truth.bestPacket.side} entry=${truth.bestPacket.entry?.price} stop=${truth.bestPacket.stop?.price} tp1=${truth.bestPacket.tp1?.price}`
-      : `No valid setup: ${(truth?.blockers?.length ? truth.blockers : ['no_confirmed_packet']).join(', ')}`,
+      : (truth.noTradeReason ?? `No valid setup: ${blockers.join(', ')}`),
   };
 }
