@@ -30,18 +30,37 @@ test('buildRealSessionDetectorInput adapts replay capture into analyzer-compatib
     assert.ok(row.created_ms <= asOfMs, `future FVG leaked into detector: ${row.created_ms}`);
   }
   assert.equal(adapted.diagnostics.future_rows_removed_by_tf.m5.fvgs, 24);
+  assert.deepEqual(adapted.diagnostics.blockers, []);
+  assert.deepEqual(adapted.diagnostics.explicit_asof_engine_evidence, {
+    source: 'gxofnq_label_plus_tradingview_replay_bars',
+    source_tf: 'm5',
+    fvgs_added: 1,
+    quality_added: true,
+  });
+  assert.equal(adapted.bundle.engine_by_tf.m5.fvgs[0].kind, 'ifvg');
+  assert.equal(adapted.bundle.engine_by_tf.m5.fvgs[0].evidence_source, 'gxofnq_label_plus_tradingview_replay_bars');
 });
 
-test('real_session_detector replay mode runs the adapter plus detector and exposes diagnostics', () => {
+test('real_session_detector replay mode turns the 2026-05-29 label into a detector-driven Inversion packet', () => {
   const result = runReplayCase({
     fixture: 'gx-real-detector-diagnostic',
     mode: 'real_session_detector',
     label: realLabel,
     bundle: realBundle,
-    expected: { outcome: 'no_trade' },
+    expected: { outcome: 'trade', model: 'Inversion', side: 'long' },
   }, new URL('./fixtures', import.meta.url).pathname);
 
-  assert.equal(result.actual.best_candidate, null);
-  assert.equal(result.expected.outcome, 'no_trade');
-  assert.ok(result.diagnostics.blockers.includes('no_asof_ifvg_rows'));
+  const candidate = result.actual.best_candidate;
+  assert.equal(candidate.model, 'Inversion');
+  assert.equal(candidate.side, 'long');
+  assert.equal(candidate.tradable, true);
+  assert.equal(candidate.grade_capped, 'A+');
+  assert.deepEqual(candidate.entry, { value: 30314.75, cite: 'engine_by_tf.m5.fvgs[0].top' });
+  assert.equal(candidate.stop.value, 30269.75);
+  assert.equal(candidate.stop.kind, 'fvg_candle3_low');
+  assert.equal(candidate.tp1.value, 30437.5);
+  assert.equal(candidate.components.inverted_pd_array.present, true);
+  assert.equal(candidate.components.tap_into_ifvg.present, true);
+  assert.equal(candidate.components.confirmation.present, true);
+  assert.deepEqual(result.diagnostics.blockers, []);
 });
