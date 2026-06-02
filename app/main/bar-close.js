@@ -42,6 +42,7 @@ import {
   writeWalkersJson as writeDeterministicWalkersJson,
 } from "./strategy/walkers/walker-runtime.js";
 import { readCache as readCalendarCache } from "./calendar.js";
+import { classifyEvaluationAvailability } from "../../cli/lib/live-readiness.js";
 
 // How many recent JSONL entries to tail into the per-bar prompt.
 const MEMORY_SETUPS_TAIL = 5;
@@ -742,18 +743,39 @@ async function runDeterministicPacketTruthForBar(ev, session) {
 function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [], event, session } = {}) {
   const strategyBundle = buildStrategyBundleForRuntime(inputs, event, session);
   const context = buildStrategyContext(strategyBundle);
+  const availability = classifyEvaluationAvailability(context.sourceHealth);
+  if (availability.evaluationStatus === 'cannot_evaluate_source_health') {
+    const blockers = availability.blockers;
+    return {
+      schemaVersion: 1,
+      eventTimeUtc: event?.ts ?? null,
+      market: context.market,
+      session,
+      finalVerdict: 'no_trade',
+      evaluationStatus: availability.evaluationStatus,
+      bestPacket: null,
+      packets: [],
+      blockers,
+      sourceHealth: context.sourceHealth,
+      walkers: previousWalkers,
+      events: [],
+      surfacePayload: null,
+      noTradeReason: `${availability.reasonPrefix}: ${blockers.join(', ')}`,
+    };
+  }
   const result = runDeterministicWalkerStrategy({ context, walkers: previousWalkers });
   const bestPacket = result.bestPacket ? { ...result.bestPacket, finalVerdict: result.finalVerdict } : null;
   const blockers = bestPacket
     ? []
     : (result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet']);
-  const noTradeReason = bestPacket ? null : `deterministic packet blocked: ${(blockers.length ? blockers : ['no_confirmed_packet']).join(', ')}`;
+  const noTradeReason = bestPacket ? null : `${availability.reasonPrefix}: ${(blockers.length ? blockers : ['no_confirmed_packet']).join(', ')}`;
   return {
     schemaVersion: 1,
     eventTimeUtc: event?.ts ?? null,
     market: context.market,
     session,
     finalVerdict: result.finalVerdict,
+    evaluationStatus: availability.evaluationStatus,
     bestPacket,
     packets: result.packets,
     blockers,
