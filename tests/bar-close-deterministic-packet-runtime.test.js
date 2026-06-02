@@ -74,7 +74,26 @@ test('buildDeterministicPacketTruthFromInputs emits blocked no-trade reason inst
   });
 
   assert.equal(truth.finalVerdict, 'no_trade');
+  assert.equal(truth.evaluationStatus, 'evaluated');
   assert.equal(truth.bestPacket, null);
   assert.equal(truth.surfacePayload, null);
   assert.match(truth.noTradeReason, /deterministic packet blocked/);
+});
+
+test('buildDeterministicPacketTruthFromInputs labels source-health failure as cannot-evaluate, not an ordinary no-trade', () => {
+  const inputs = runtimeInputs();
+  inputs.bundle.gates.engine.meta.stale = true;
+
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs,
+    previousWalkers: [],
+    event: { ts: '2026-05-29T13:45:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+
+  assert.equal(truth.finalVerdict, 'no_trade');
+  assert.equal(truth.evaluationStatus, 'cannot_evaluate_source_health');
+  assert.deepEqual(truth.blockers, ['stale_source']);
+  assert.match(truth.noTradeReason, /^cannot evaluate: source health failed: stale_source/);
+  assert.equal(truth.bestPacket, null);
 });

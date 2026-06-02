@@ -63,6 +63,31 @@ test('buildExecutionPacketForWalker creates executable packet only from confirme
   assert.equal(packet.tp1.rMultiple, 1.73);
   assert.equal(packet.grade, 'A+');
   assert.equal(packet.finalVerdict, 'manual_candidate');
+  assert.equal(packet.evidenceAudit.entry.timestampMs, 1780062420000);
+  assert.equal(packet.evidenceAudit.entry.close, 21002);
+  assert.equal(packet.evidenceAudit.stop.rule, 'mss_swing_low');
+  assert.equal(packet.evidenceAudit.stop.anchorPrice, 20980);
+  assert.equal(packet.evidenceAudit.tp1.label, 'London High');
+  assert.equal(packet.evidenceAudit.tp1.rMultiple, 1.73);
+});
+
+test('buildExecutionPacketForWalker records rejected alternative stops for transparent review', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      pillar3: {
+        structuralStops: [
+          { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.valid' },
+          { side: 'long', price: 21005, kind: 'above_entry', evidenceRef: 'p3.stops.invalidAboveEntry' },
+          { side: 'long', price: 'bad', kind: 'malformed', evidenceRef: 'p3.stops.malformed' },
+        ],
+      },
+    }),
+    walker: confirmedMssWalker(),
+  });
+
+  assert.equal(packet.stop.evidenceRef, 'p3.stops.valid');
+  assert.deepEqual(packet.evidenceAudit.stop.rejectedAlternatives.map((item) => item.reason), ['wrong_side_of_entry', 'invalid_price']);
+  assert.deepEqual(packet.evidenceAudit.stop.rejectedAlternatives.map((item) => item.evidenceRef), ['p3.stops.invalidAboveEntry', 'p3.stops.malformed']);
 });
 
 test('buildExecutionPacketForWalker blocks instead of inventing stop or weak TP1', () => {

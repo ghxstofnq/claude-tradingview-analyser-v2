@@ -31,13 +31,33 @@ function computeRMultiple({ entry, stop, target }) {
   return Number((Math.abs(target - entry) / risk).toFixed(2));
 }
 
-function selectStructuralStop(context, side, entry) {
+function stopCandidatesWithAudit(context, side, entry) {
   const stops = context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [];
-  const candidates = stops
-    .map((stop) => ({ ...stop, price: numberOrNull(stop?.price ?? stop?.level) }))
-    .filter((stop) => stop.price != null && (side === 'long' ? stop.price < entry : stop.price > entry));
-  if (side === 'long') return candidates.sort((a, b) => b.price - a.price)[0] ?? null;
-  return candidates.sort((a, b) => a.price - b.price)[0] ?? null;
+  const valid = [];
+  const rejected = [];
+  for (const stop of stops) {
+    const price = numberOrNull(stop?.price ?? stop?.level);
+    const normalized = { ...stop, price };
+    const evidenceRef = refOf(stop);
+    if (price == null) {
+      rejected.push({ evidenceRef, reason: 'invalid_price', rawPayload: stop });
+      continue;
+    }
+    const correctSide = side === 'long' ? price < entry : price > entry;
+    if (!correctSide) {
+      rejected.push({ evidenceRef, reason: 'wrong_side_of_entry', price, rawPayload: stop });
+      continue;
+    }
+    valid.push(normalized);
+  }
+  const selected = side === 'long'
+    ? valid.sort((a, b) => b.price - a.price)[0] ?? null
+    : valid.sort((a, b) => a.price - b.price)[0] ?? null;
+  return { selected, rejected };
+}
+
+function selectStructuralStop(context, side, entry) {
+  return stopCandidatesWithAudit(context, side, entry).selected;
 }
 
 function selectTp1(context, side, entry, stop) {
@@ -59,6 +79,45 @@ function deriveGrade({ context, walker }) {
   return 'no-trade';
 }
 
+function packetEntryAudit(confirmationPayload, confirmation) {
+  return {
+    evidenceRef: refOf(confirmation),
+    timestampMs: confirmationPayload?.confirm_ms ?? confirmationPayload?.timestampMs ?? null,
+    open: confirmationPayload?.open ?? null,
+    high: confirmationPayload?.high ?? null,
+    low: confirmationPayload?.low ?? null,
+    close: confirmationPayload?.close ?? confirmationPayload?.price ?? confirmationPayload?.confirm_close_price ?? null,
+    rawPayload: confirmationPayload ?? {},
+  };
+}
+
+function packetStopAudit(stopCandidate, rejectedAlternatives = []) {
+  if (!stopCandidate) {
+    return { selected: null, rejectedAlternatives };
+  }
+  return {
+    selected: refOf(stopCandidate),
+    evidenceRef: refOf(stopCandidate),
+    rule: stopCandidate.kind ?? 'structural_stop',
+    anchorPrice: stopCandidate.price,
+    anchorTimeMs: stopCandidate.timeMs ?? stopCandidate.time_ms ?? null,
+    anchorOhlc: stopCandidate.ohlc ?? null,
+    rejectedAlternatives,
+    rawPayload: stopCandidate,
+  };
+}
+
+function packetTp1Audit(tp1Candidate) {
+  if (!tp1Candidate) return null;
+  return {
+    evidenceRef: refOf(tp1Candidate),
+    label: tp1Candidate.label ?? tp1Candidate.name ?? null,
+    targetPrice: tp1Candidate.price,
+    rMultiple: tp1Candidate.rMultiple,
+    rawPayload: tp1Candidate,
+  };
+}
+
 export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const blockers = [];
   if (!walker || walker.stage !== 'confirmed') blockers.push('walker_not_confirmed');
@@ -69,7 +128,8 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   if (entryPrice == null) blockers.push('missing_confirmation_close_price');
 
   const side = walker?.side;
-  const stopCandidate = entryPrice == null ? null : selectStructuralStop(context, side, entryPrice);
+  const stopAudit = entryPrice == null ? { selected: null, rejected: [] } : stopCandidatesWithAudit(context, side, entryPrice);
+  const stopCandidate = stopAudit.selected;
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
   const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
@@ -111,6 +171,12 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
       confirmation: confirmation ?? null,
       stop: stopCandidate ?? null,
       tp1: tp1Candidate ?? null,
+    },
+    evidenceAudit: {
+      entry: packetEntryAudit(confirmationPayload, confirmation),
+      stop: packetStopAudit(stopCandidate, stopAudit.rejected),
+      tp1: packetTp1Audit(tp1Candidate),
+      gradeBlockers: blockers.filter((blocker) => blocker === 'grade_blocked' || blocker === 'tp1_below_1_5r'),
     },
   };
 
