@@ -117,3 +117,33 @@ test('buildLiveDryRunRecord never creates an actionable setup when readiness is 
   assert.equal(record.finalVerdict, 'cannot_evaluate_source_health');
   assert.match(record.summary, /Source health blocked/);
 });
+
+test('buildLiveDryRunRecord fails explicitly when readiness is ready but deterministic truth is missing', () => {
+  const readiness = evaluateLiveReadiness(baseInputs());
+  const record = buildLiveDryRunRecord({ readiness, truth: null, event: { ts: '2026-06-02T22:28:00.000Z' } });
+
+  assert.equal(record.actionable, false);
+  assert.equal(record.finalVerdict, 'cannot_evaluate_deterministic_truth');
+  assert.deepEqual(record.blockers, ['missing_deterministic_truth']);
+  assert.match(record.summary, /No deterministic packet truth/);
+});
+
+test('buildLiveDryRunRecord preserves strategy-chain blockers from deterministic truth', () => {
+  const readiness = evaluateLiveReadiness(baseInputs());
+  const record = buildLiveDryRunRecord({
+    readiness,
+    truth: {
+      evaluationStatus: 'cannot_evaluate_strategy_chain',
+      finalVerdict: 'no_trade',
+      bestPacket: null,
+      blockers: ['missing_ltf_bias', 'missing_entry_model_priority'],
+      noTradeReason: 'cannot evaluate: strategy chain incomplete: missing_ltf_bias, missing_entry_model_priority',
+    },
+  });
+
+  assert.equal(record.actionable, false);
+  assert.equal(record.finalVerdict, 'cannot_evaluate_strategy_chain');
+  assert.deepEqual(record.blockers, ['missing_ltf_bias', 'missing_entry_model_priority']);
+  assert.match(record.summary, /missing_ltf_bias/);
+  assert.match(record.summary, /missing_entry_model_priority/);
+});
