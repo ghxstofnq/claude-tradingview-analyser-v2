@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const TOOL_REQUIRED_PURPOSES = new Set(['brief', 'bar-close', 'catch-up', 'wrap']);
+const APP_MAIN_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(APP_MAIN_DIR, '..', '..');
+const EXTRA_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'];
 
 export function normalizeProviderName(value) {
   const raw = String(value || 'claude').trim().toLowerCase();
@@ -48,6 +53,37 @@ export function providerAuthBlockedMessage() {
   return 'Claude Code not logged in — auto LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.';
 }
 
+export function buildProviderSpawnEnv(env = process.env) {
+  const existingPath = env.PATH || env.Path || '';
+  const pathParts = existingPath.split(path.delimiter).filter(Boolean);
+  const extras = EXTRA_PATH_DIRS.filter((dir) => !pathParts.includes(dir));
+  return {
+    ...env,
+    PATH: [...extras, ...pathParts].join(path.delimiter),
+  };
+}
+
+export function buildCodexInvocation({ provider, prompt }) {
+  const args = [...(provider?.args || ['exec'])];
+  if (provider?.model) args.push('--model', provider.model);
+
+  // Make Codex run from the repo root even though `npm run dev` is launched
+  // from app/. This keeps git/project discovery stable and matches CLI tests.
+  if (args[0] === 'exec' && !args.includes('-C') && !args.includes('--cd')) {
+    args.push('-C', REPO_ROOT);
+  }
+
+  // Feed the prompt through stdin instead of one huge argv item. This avoids
+  // shell/argv-size edge cases and keeps multi-line system prompts unambiguous.
+  args.push('-');
+  return { args, stdin: String(prompt || ''), cwd: REPO_ROOT };
+}
+
+function appendTail(prev, chunk, max = 2000) {
+  const next = `${prev || ''}${chunk}`;
+  return next.length > max ? next.slice(next.length - max) : next;
+}
+
 export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, timeoutMs = 300_000, provider = resolveLlmProvider({ purpose }) }) {
   if (provider.toolRequired && !provider.supportsToolCalling) {
     onEvent?.({
@@ -62,13 +98,15 @@ export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, t
 
   const startedAt = Date.now();
   const prompt = `${Array.isArray(systemPrompt) ? systemPrompt.join('\n\n') : String(systemPrompt || '')}\n\nUSER TURN:\n${text}`;
-  const args = [...provider.args];
-  if (provider.model) args.push('--model', provider.model);
-  args.push(prompt);
+  const invocation = buildCodexInvocation({ provider, prompt });
 
   await new Promise((resolve) => {
-    const child = spawn(provider.command, args, { env: process.env });
+    const child = spawn(provider.command, invocation.args, {
+      cwd: invocation.cwd,
+      env: buildProviderSpawnEnv(process.env),
+    });
     let settled = false;
+    let outputTail = '';
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -78,8 +116,16 @@ export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, t
       resolve();
     }, timeoutMs);
 
-    child.stdout?.on('data', (chunk) => onEvent?.({ type: 'chunk', text: chunk.toString() }));
-    child.stderr?.on('data', (chunk) => onEvent?.({ type: 'chunk', text: chunk.toString() }));
+    child.stdout?.on('data', (chunk) => {
+      const textChunk = chunk.toString();
+      outputTail = appendTail(outputTail, textChunk);
+      onEvent?.({ type: 'chunk', text: textChunk });
+    });
+    child.stderr?.on('data', (chunk) => {
+      const textChunk = chunk.toString();
+      outputTail = appendTail(outputTail, textChunk);
+      onEvent?.({ type: 'chunk', text: textChunk });
+    });
     child.on('error', (err) => {
       if (settled) return;
       settled = true;
@@ -92,9 +138,13 @@ export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, t
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (code !== 0) onEvent?.({ type: 'error', message: `Codex provider exited with code ${code}`, kind: 'provider', retryable: code !== 127 });
+      if (code !== 0) {
+        const detail = outputTail.trim() ? `: ${outputTail.trim()}` : '';
+        onEvent?.({ type: 'error', message: `Codex provider exited with code ${code}${detail}`, kind: 'provider', retryable: code !== 127 });
+      }
       onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
       resolve();
     });
+    child.stdin?.end(invocation.stdin);
   });
 }

@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { envKeyForPurpose, normalizeProviderName, resolveLlmProvider } from '../app/main/llm-provider.js';
+import { buildCodexInvocation, buildProviderSpawnEnv, envKeyForPurpose, normalizeProviderName, resolveLlmProvider } from '../app/main/llm-provider.js';
 
 describe('LLM provider selection', () => {
   test('defaults to Claude with tool calling', () => {
@@ -35,5 +35,22 @@ describe('LLM provider selection', () => {
   test('normalizes aliases and purpose env keys', () => {
     assert.equal(normalizeProviderName('openai-codex'), 'codex');
     assert.equal(envKeyForPurpose('bar-close'), 'TV_LLM_PROVIDER_BAR_CLOSE');
+  });
+
+  test('Codex spawn env prepends common Homebrew bin dirs so Electron can find codex', () => {
+    const env = buildProviderSpawnEnv({ PATH: '/usr/bin:/bin' });
+    const parts = env.PATH.split(':');
+    assert.equal(parts[0], '/opt/homebrew/bin');
+    assert.equal(parts[1], '/usr/local/bin');
+    assert.ok(parts.includes('/usr/bin'));
+  });
+
+  test('Codex invocation runs from repo root and sends prompt over stdin', () => {
+    const provider = resolveLlmProvider({ purpose: 'chat', providerOverride: 'codex', env: {} });
+    const invocation = buildCodexInvocation({ provider, prompt: 'hello codex' });
+    assert.deepEqual(invocation.args.slice(0, 3), ['exec', '-C', invocation.cwd]);
+    assert.equal(invocation.args.at(-1), '-');
+    assert.equal(invocation.stdin, 'hello codex');
+    assert.match(invocation.cwd, /claude-tradingview-analyser-v2$/);
   });
 });
