@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { detectSetups } from '../cli/lib/setup-detector.js';
 import { buildRealSessionExecutionPacket } from '../cli/lib/real-session-packet.js';
+import { buildRealSessionDetectorInput } from '../cli/lib/real-session-detector-adapter.js';
 import { formatReplayAccuracyReport, replayAccuracyReport } from './judge-report.js';
 
 function readJson(path) {
@@ -70,6 +71,16 @@ export function runReplayCase(spec, dir) {
       source_file: hydrated.source_file,
       expected: hydrated.expected ?? hydrated.expectedOutcome ?? {},
       actual: buildRealSessionExecutionPacket({ label: hydrated.label, bundle: hydrated.bundle }),
+    };
+  }
+  if (hydrated.mode === 'real_session_detector') {
+    const adapted = buildRealSessionDetectorInput({ label: hydrated.label, bundle: hydrated.bundle });
+    return {
+      fixture: hydrated.fixture,
+      source_file: hydrated.source_file,
+      expected: hydrated.expected ?? hydrated.expectedOutcome ?? {},
+      actual: detectSetups(adapted),
+      diagnostics: adapted.diagnostics,
     };
   }
   const input = hydrated.input ?? {};
