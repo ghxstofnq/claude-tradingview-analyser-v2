@@ -35,12 +35,18 @@ export function registerIpc(win) {
 
   // Start / stop the bar-close detector from the LIVE popover. Idempotent
   // — startDetector already no-ops if a detector is alive.
+  //
+  // Critical: the detector process alone is not enough. handleBar() gates
+  // every analysis turn on isLive(); when the PREP/LIVE/REVIEW tabs became
+  // popovers, the old mode:switch IPC was removed. Without setting mode here,
+  // LIVE HUNT could show a running detector while isLive() stayed false — no
+  // bars.jsonl, scans, walkers, deterministic truth, setups, or trades.
   ipcMain.handle("detector:start", async () => {
-    try { startDetector({ send }); return { ok: true }; }
+    try { setMode("live"); startDetector({ send }); ipc.send("mode:current", { mode: "live" }); return { ok: true }; }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
   ipcMain.handle("detector:stop", async () => {
-    try { stopDetector(); send("health:update", { detector: "stopped" }); return { ok: true }; }
+    try { stopDetector(); setMode("prep"); send("health:update", { detector: "stopped" }); ipc.send("mode:current", { mode: "prep" }); return { ok: true }; }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
