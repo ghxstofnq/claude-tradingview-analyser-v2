@@ -1,11 +1,6 @@
+export const DEFAULT_CHAT_PROVIDER = 'codex';
+
 export const CHAT_PROVIDER_CELLS = Object.freeze([
-  Object.freeze({
-    provider: 'claude',
-    label: 'CLAUDE',
-    popoverClassName: 'claude-popover',
-    feedComponent: 'ClaudeFeed',
-    placement: 'statusline',
-  }),
   Object.freeze({
     provider: 'codex',
     label: 'CODEX',
@@ -13,10 +8,17 @@ export const CHAT_PROVIDER_CELLS = Object.freeze([
     feedComponent: 'ClaudeFeed',
     placement: 'statusline',
   }),
+  Object.freeze({
+    provider: 'claude',
+    label: 'CLAUDE',
+    popoverClassName: 'claude-popover',
+    feedComponent: 'ClaudeFeed',
+    placement: 'statusline',
+  }),
 ]);
 
 export function normalizeChatProvider(provider) {
-  const raw = String(provider || 'claude').trim().toLowerCase();
+  const raw = String(provider || DEFAULT_CHAT_PROVIDER).trim().toLowerCase();
   return raw === 'codex' || raw === 'openai-codex' ? 'codex' : 'claude';
 }
 
