@@ -76,6 +76,30 @@ test('buildDeterministicPacketTruthFromInputs promotes confirmed walker into sur
   assert.equal(truth.events.length >= 1, true);
 });
 
+test('deterministicPacketToSurfacePayload derives fallback setup id from event time, not wall-clock time', () => {
+  const packet = {
+    model: 'MSS',
+    side: 'long',
+    entry: { price: 21000, evidenceRef: 'confirm.close' },
+    stop: { price: 20990, evidenceRef: 'stop.mss_swing_low' },
+    tp1: { price: 21050, evidenceRef: 'target.pdh', rMultiple: 5 },
+    grade: 'A+',
+  };
+
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 1111111111111;
+    const first = __test.deterministicPacketToSurfacePayload(packet, { ts: '2026-05-29T13:45:00.000Z', tf: '1m' });
+    Date.now = () => 2222222222222;
+    const second = __test.deterministicPacketToSurfacePayload(packet, { ts: '2026-05-29T13:45:00.000Z', tf: '1m' });
+
+    assert.equal(first.id, second.id);
+    assert.equal(first.id, 'D-20260529T1345');
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('buildDeterministicPacketTruthFromInputs emits blocked no-trade reason instead of executable setup when packet is not ready', () => {
   const truth = __test.buildDeterministicPacketTruthFromInputs({
     inputs: runtimeInputs(),
