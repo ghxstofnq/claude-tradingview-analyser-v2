@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   providerOverrideForScheduledTurnForTests as providerOverrideForScheduledTurn,
+  shouldUseDirectScheduledTurnForTests as shouldUseDirectScheduledTurn,
   shouldRetryScheduledTurnForTests as shouldRetry,
 } from "../app/main/scheduled-turn.js";
 
@@ -25,4 +26,12 @@ test("scheduled-turn retry policy: transient first failures still retry once", (
 test("scheduled-turn provider routing: tool-requiring scheduled turns can force Claude", () => {
   assert.equal(providerOverrideForScheduledTurn({ purpose: "brief", providerOverride: "claude" }), "claude");
   assert.equal(providerOverrideForScheduledTurn({ purpose: "brief" }), null);
+});
+
+test("scheduled-turn provider routing: Codex tool-required turns use direct deterministic runner instead of forcing Claude", () => {
+  const codexToolRequired = { name: "codex", toolRequired: true, supportsToolCalling: false };
+  const claudeToolRequired = { name: "claude", toolRequired: true, supportsToolCalling: true };
+  assert.equal(shouldUseDirectScheduledTurn({ provider: codexToolRequired, directRunFn: async () => {} }), true);
+  assert.equal(shouldUseDirectScheduledTurn({ provider: claudeToolRequired, directRunFn: async () => {} }), false);
+  assert.equal(shouldUseDirectScheduledTurn({ provider: codexToolRequired }), false);
 });
