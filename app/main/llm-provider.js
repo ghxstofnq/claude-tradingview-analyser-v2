@@ -66,7 +66,7 @@ export function buildProviderSpawnEnv(env = process.env) {
   };
 }
 
-export function buildCodexInvocation({ provider, prompt, outputPath = null }) {
+export function buildCodexInvocation({ provider, prompt, outputPath = null, outputSchemaPath = null }) {
   const args = [...(provider?.args || ['exec'])];
   if (provider?.model) args.push('--model', provider.model);
 
@@ -83,10 +83,16 @@ export function buildCodexInvocation({ provider, prompt, outputPath = null }) {
     args.push('--output-last-message', outputPath);
   }
 
+  // For Codex-as-analyst flows, force schema-constrained final JSON. JS still
+  // validates it before any deterministic surface payload is modified.
+  if (args[0] === 'exec' && outputSchemaPath && !args.includes('--output-schema')) {
+    args.push('--output-schema', outputSchemaPath);
+  }
+
   // Feed the prompt through stdin instead of one huge argv item. This avoids
   // shell/argv-size edge cases and keeps multi-line system prompts unambiguous.
   args.push('-');
-  return { args, stdin: String(prompt || ''), cwd: REPO_ROOT, outputPath };
+  return { args, stdin: String(prompt || ''), cwd: REPO_ROOT, outputPath, outputSchemaPath };
 }
 
 function appendTail(prev, chunk, max = 2000) {

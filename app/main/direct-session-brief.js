@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { surfaceSessionBrief } from "./tools/surface.js";
+import { applyCodexAnalysisToBriefPayloads, runCodexStructuredAnalysis } from "./codex-structured-analysis.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -223,14 +224,29 @@ export async function analyzePairBundle({ out = LAST_ANALYZE_PATH } = {}) {
   return JSON.parse(await fs.readFile(savedTo, "utf8"));
 }
 
-export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, surfaceFn = surfaceSessionBrief, onEvent } = {}) {
+export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, codexAnalysisFn = runCodexStructuredAnalysis, surfaceFn = surfaceSessionBrief, onEvent } = {}) {
   const bundle = await analyzeFn();
-  const payloads = buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade });
+  let payloads = buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade });
   if (payloads.length === 0) throw new Error("direct session brief produced no symbol payloads");
+
+  if (codexAnalysisFn) {
+    try {
+      const codexResult = await codexAnalysisFn({ session, bundle, deterministicPayloads: payloads });
+      if (codexResult?.ok && codexResult.analysis) {
+        payloads = applyCodexAnalysisToBriefPayloads(payloads, codexResult.analysis);
+        onEvent?.({ type: "codex_analysis", status: "applied", symbols: payloads.map((p) => p.symbol) });
+      } else {
+        onEvent?.({ type: "codex_analysis", status: "rejected", errors: codexResult?.errors || ["unknown Codex analysis rejection"] });
+      }
+    } catch (err) {
+      onEvent?.({ type: "codex_analysis", status: "error", errors: [err?.message || String(err)] });
+    }
+  }
+
   for (const payload of payloads) {
     await surfaceFn(payload);
     onEvent?.({ type: "tool_call", name: "direct_surface_session_brief", payload });
   }
-  onEvent?.({ type: "chunk", text: `Direct Codex-compatible session brief surfaced for ${payloads.map((p) => p.symbol).join(", ")}.` });
+  onEvent?.({ type: "chunk", text: `Deterministic session brief surfaced for ${payloads.map((p) => p.symbol).join(", ")}; Codex analysis is commentary-only when present.` });
   return { ok: true, toolCalls: payloads.map(() => "direct_surface_session_brief") };
 }
