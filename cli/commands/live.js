@@ -8,8 +8,20 @@ import * as replay from '@tvmcp/core/replay';
 import { parseIctEngineTable, findIctEngineRows } from '../lib/ict-engine-parser.js';
 import { evaluateLiveReadiness, buildLiveDryRunRecord } from '../lib/live-readiness.js';
 
-function sessionFromOpts(opts) {
-  return opts.session || process.env.TV_SESSION || 'ny-am';
+function activeSessionFromMs(nowMs = Date.now()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date(Number(nowMs)));
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  const mins = Number(get('hour')) * 60 + Number(get('minute'));
+  if (mins >= 9 * 60 + 30 && mins < 12 * 60) return 'ny-am';
+  if (mins >= 13 * 60 && mins < 16 * 60) return 'ny-pm';
+  if (mins >= 3 * 60 && mins < 6 * 60) return 'london';
+  return 'idle';
+}
+
+function sessionFromOpts(opts = {}) {
+  return opts.session || process.env.TV_SESSION || activeSessionFromMs(opts.now ? Date.parse(opts.now) : Date.now());
 }
 
 function etDateFromMs(nowMs = Date.now()) {
@@ -78,7 +90,7 @@ async function collectLiveReadinessInputs(opts = {}) {
 register('live-check', {
   description: 'Run the fail-closed live startup checklist before MNQ/MES trading',
   options: {
-    session: { type: 'string', short: 's', description: 'Session name: ny-am, ny-pm, london (default ny-am)' },
+    session: { type: 'string', short: 's', description: 'Session name: ny-am, ny-pm, london (default active ET session)' },
     fixture: { type: 'string', short: 'f', description: 'Read a fixture JSON instead of CDP/TradingView' },
     now: { type: 'string', description: 'ISO timestamp override for tests' },
   },
@@ -91,7 +103,7 @@ register('live-check', {
 register('live-dry-run', {
   description: 'Run one manual-first live dry-run tick; blocks action when source health/readiness fails',
   options: {
-    session: { type: 'string', short: 's', description: 'Session name: ny-am, ny-pm, london (default ny-am)' },
+    session: { type: 'string', short: 's', description: 'Session name: ny-am, ny-pm, london (default active ET session)' },
     fixture: { type: 'string', short: 'f', description: 'Read a fixture JSON instead of CDP/TradingView' },
     truth: { type: 'string', short: 't', description: 'Optional deterministic-packet truth JSON to summarize' },
     out: { type: 'string', short: 'o', description: 'Append dry-run record to this JSONL file' },
@@ -112,4 +124,4 @@ register('live-dry-run', {
   },
 });
 
-export const __test = { latestBarFromOhlcv, collectLiveReadinessInputs, defaultTruthPathForSession, readTruthForDryRun };
+export const __test = { latestBarFromOhlcv, collectLiveReadinessInputs, defaultTruthPathForSession, readTruthForDryRun, sessionFromOpts, activeSessionFromMs };
