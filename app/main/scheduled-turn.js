@@ -30,12 +30,16 @@ export function shouldRetryScheduledTurnForTests({ isRetry = false, errorMessage
   return kind !== "auth";
 }
 
-function authBlockedMessage(purpose = null) {
-  const provider = resolveLlmProvider({ purpose });
+function authBlockedMessage(purpose = null, providerOverride = null) {
+  const provider = resolveLlmProvider({ purpose, providerOverride });
   if (provider.name !== "claude") return null;
   const blocked = isClaudeAuthBlocked();
   if (!blocked) return null;
   return blocked.message || "Claude Code not logged in";
+}
+
+export function providerOverrideForScheduledTurnForTests(config = {}) {
+  return config.providerOverride || null;
 }
 
 function nyParts(date = new Date()) {
@@ -113,6 +117,9 @@ function nextTrigger(triggers) {
  *   inherit userTurn's default (5 min). Briefs override to 10 min because
  *   tv_analyze_full + dual-symbol Opus 4.7 xhigh reasoning + two surface
  *   calls regularly run 3–7 min.
+ * @param {string?} config.providerOverride  force a provider for this
+ *   scheduled purpose. Use this for MCP/tool-requiring scheduled turns when
+ *   the global/chat default is Codex.
  */
 export function makeScheduledTurn(config) {
   let _send = null;
@@ -151,7 +158,8 @@ export function makeScheduledTurn(config) {
       }
     }
 
-    const authMsg = authBlockedMessage(config.purpose);
+    const providerOverride = providerOverrideForScheduledTurnForTests(config);
+    const authMsg = authBlockedMessage(config.purpose, providerOverride);
     if (authMsg) {
       const message = "Claude Code not logged in — scheduled LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.";
       _send?.(config.statusChannel, { state: "skipped", session, reason: "claude_auth_blocked", message });
@@ -174,6 +182,7 @@ export function makeScheduledTurn(config) {
       await userTurn({
         text,
         purpose: config.purpose,
+        providerOverride,
         timeoutMs: config.timeoutMs,   // undefined → userTurn default (5 min)
         onEvent: (e) => {
           if (e.type === "chunk") _send?.("chat:chunk", e);
