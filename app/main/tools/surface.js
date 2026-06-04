@@ -86,8 +86,9 @@ let _setupsInWindow = 0;
 // EntryHunt useChat hook; mode switch destroyed it.
 let _currentSetup = null;
 let _currentNoTradeReason = null;
+let _currentNoTrade = null;
 export function getCurrentSurfaceState() {
-  return { setup: _currentSetup, noTradeReason: _currentNoTradeReason };
+  return { setup: _currentSetup, noTradeReason: _currentNoTradeReason, noTrade: _currentNoTrade };
 }
 
 // ============================================================================
@@ -285,7 +286,15 @@ export async function surfaceSetup(payload) {
   return { ok: true, id };
 }
 
-export async function surfaceNoTrade({ reason }) {
+export async function surfaceNoTrade({
+  reason,
+  evaluationStatus,
+  blockers,
+  sourceHealth,
+  strategyChainStatus,
+  evidenceRefs,
+  eventTimeUtc,
+} = {}) {
   if (_currentDeterministicPacket?.status === 'executable' && _currentDeterministicPacket?.finalVerdict === 'manual_candidate') {
     throw new Error('surface_no_trade: executable deterministic packet is active. Use surface_setup with the deterministic packet values; no-trade would hide packet truth.');
   }
@@ -307,9 +316,21 @@ export async function surfaceNoTrade({ reason }) {
     });
     return { ok: true, suppressed: true };
   }
-  emitToolCall("surface_no_trade", { reason });
+  const noTradeRecord = {
+    reason,
+    ...(evaluationStatus ? { evaluationStatus } : {}),
+    ...(Array.isArray(blockers) ? { blockers } : {}),
+    ...(sourceHealth ? { sourceHealth } : {}),
+    ...(strategyChainStatus ? { strategyChainStatus } : {}),
+    ...(Array.isArray(evidenceRefs) ? { evidenceRefs } : {}),
+    ...(eventTimeUtc ? { eventTimeUtc } : {}),
+  };
+  emitToolCall("surface_no_trade", noTradeRecord);
+  const dir = await activeSessionDir();
+  await fs.appendFile(path.join(dir, "no-trades.jsonl"), JSON.stringify({ ts: new Date().toISOString(), ...noTradeRecord }) + "\n", "utf8");
   _currentSetup = null;
   _currentNoTradeReason = reason;
+  _currentNoTrade = noTradeRecord;
   return { ok: true };
 }
 
@@ -318,6 +339,7 @@ export async function surfaceNoTrade({ reason }) {
 export function clearCurrentSurfaceState() {
   _currentSetup = null;
   _currentNoTradeReason = null;
+  _currentNoTrade = null;
 }
 
 // Resolve the per-brief folder explicitly from payload.session — NOT from the
