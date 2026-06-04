@@ -53,6 +53,12 @@ test("buildDirectSessionBriefPayloads emits two valid surface_session_brief payl
     assert.equal(payload.pillar2_verdict, "good");
     assert.ok(payload.sizing_note.includes("0.75 R"));
     assert.ok(payload.chain_status.includes("direct-codex-compatible"));
+    assert.match(payload.brief, /D:BULL \/ 4H:BULL \/ 1H:BULL/);
+    assert.match(payload.brief, /Primary draw h4 bull FVG 29950-30000/);
+    assert.match(payload.brief, /Target EQH 30050/);
+    assert.match(payload.brief, /Price quality good/);
+    assert.doesNotMatch(payload.brief, /Direct Codex-compatible brief|no MCP tool-call loop|latest paired TradingView capture/);
+    assert.doesNotMatch(payload.prose_summary, /Direct Codex-compatible brief|mechanical prep context|MCP tool-calling model/);
   }
 });
 
