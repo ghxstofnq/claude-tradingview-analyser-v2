@@ -19,6 +19,7 @@ import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { computeSize, dayOfWeek } from "../../cli/lib/sizing.js";
 import { getPersistentMemory } from "./persistent-memory.js";
+import { archiveBriefArtifacts } from "./session-memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -72,9 +73,14 @@ export function activeOrImminentSession(date = new Date()) {
 }
 
 async function briefPathFor(session, date = nyParts().date) {
+  const dir = await briefDirFor(session, date);
+  return path.join(dir, "brief.json");
+}
+
+async function briefDirFor(session, date = nyParts().date) {
   const dir = path.join(REPO_ROOT, "state", "session", date, session);
   await fs.mkdir(dir, { recursive: true });
-  return path.join(dir, "brief.json");
+  return dir;
 }
 
 // Legacy single-symbol brief reader. brief.json is now the PRIMARY mirror
@@ -341,6 +347,17 @@ const _driver = makeScheduledTurn({
 });
 
 export const bootstrap = _driver.bootstrap;
-export const runManualRefresh = _driver.runManual;
+export async function runManualRefresh(options = {}) {
+  const session = activeOrImminentSession();
+  if (session) {
+    try {
+      await archiveBriefArtifacts(await briefDirFor(session));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[session-brief] failed to archive existing brief before manual refresh", err?.message || err);
+    }
+  }
+  return _driver.runManual({ force: true, ...options });
+}
 export const stopScheduler = _driver.stop;
 export const rearmScheduler = _driver.rearm;

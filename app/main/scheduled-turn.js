@@ -16,6 +16,7 @@
 //   - "skipped" status now reports a reason, surfaced in onStatus events.
 
 import { userTurn, resetSession, isClaudeAuthBlocked } from "./sdk.js";
+import { resolveLlmProvider } from "./llm-provider.js";
 import { record as recordMetric } from "./metrics.js";
 import { classifyError } from "./error-classifier.js";
 
@@ -29,7 +30,9 @@ export function shouldRetryScheduledTurnForTests({ isRetry = false, errorMessage
   return kind !== "auth";
 }
 
-function authBlockedMessage() {
+function authBlockedMessage(purpose = null) {
+  const provider = resolveLlmProvider({ purpose });
+  if (provider.name !== "claude") return null;
   const blocked = isClaudeAuthBlocked();
   if (!blocked) return null;
   return blocked.message || "Claude Code not logged in";
@@ -148,7 +151,7 @@ export function makeScheduledTurn(config) {
       }
     }
 
-    const authMsg = authBlockedMessage();
+    const authMsg = authBlockedMessage(config.purpose);
     if (authMsg) {
       const message = "Claude Code not logged in — scheduled LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.";
       _send?.(config.statusChannel, { state: "skipped", session, reason: "claude_auth_blocked", message });
@@ -250,7 +253,7 @@ export function makeScheduledTurn(config) {
     if (errored && shouldRetryScheduledTurnForTests({
       isRetry,
       errorMessage: lastErrorMsg,
-      authBlocked: !!authBlockedMessage(),
+      authBlocked: !!authBlockedMessage(config.purpose),
     })) {
       // Drop the cached session_id for this purpose so the retry starts a
       // fresh conversation. If the first attempt died mid-tool-call (e.g.

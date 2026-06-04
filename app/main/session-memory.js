@@ -31,6 +31,13 @@ const SOURCE_BUNDLE = path.join(REPO_ROOT, "state", "last-analyze.json");
 
 const DEFAULT_TAIL_BARS = 10;
 const DEFAULT_TAIL_SETUPS = 5;
+const BRIEF_ARTIFACT_NAMES = new Set([
+  "brief.json",
+  "brief-bundle.json",
+  "pillars.md",
+  "pillar1.md",
+  "pillar2.md",
+]);
 
 // Atomic write: write to <name>.tmp, then rename. POSIX rename is atomic
 // within a filesystem — readers always see either the prior version or
@@ -43,6 +50,41 @@ export async function writeAtomic(absPath, content) {
   const tmp = absPath + ".tmp";
   await fs.writeFile(tmp, content, "utf8");
   await fs.rename(tmp, absPath);
+}
+
+function archiveTimestamp(date = new Date()) {
+  return date.toISOString().replace(/:/g, "-").replace(/\./g, "-");
+}
+
+function isBriefArtifactName(name) {
+  return BRIEF_ARTIFACT_NAMES.has(name) || /^brief-.+\.json$/.test(name);
+}
+
+/**
+ * archiveBriefArtifacts — snapshot the current PREP brief artifacts before a
+ * forced refresh overwrites them. Keeps live/session-progress files (bars,
+ * setups, open-reaction, ltf-bias) in place.
+ */
+export async function archiveBriefArtifacts(dir, { now = () => new Date() } = {}) {
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  const files = entries
+    .filter((entry) => entry.isFile() && isBriefArtifactName(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+  if (!files.length) return null;
+
+  const archiveDir = path.join(dir, "archive", "brief-refresh", archiveTimestamp(now()));
+  await fs.mkdir(archiveDir, { recursive: true });
+  for (const name of files) {
+    await fs.copyFile(path.join(dir, name), path.join(archiveDir, name));
+  }
+  return { dir: archiveDir, files };
 }
 
 /**

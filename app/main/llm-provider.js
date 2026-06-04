@@ -8,9 +8,10 @@ const TOOL_REQUIRED_PURPOSES = new Set(['brief', 'bar-close', 'catch-up', 'wrap'
 const APP_MAIN_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(APP_MAIN_DIR, '..', '..');
 const EXTRA_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'];
+const DEFAULT_PROVIDER = 'codex';
 
 export function normalizeProviderName(value) {
-  const raw = String(value || 'claude').trim().toLowerCase();
+  const raw = String(value || DEFAULT_PROVIDER).trim().toLowerCase();
   if (raw === 'codex' || raw === 'openai-codex') return 'codex';
   return 'claude';
 }
@@ -22,7 +23,7 @@ export function envKeyForPurpose(purpose) {
 export function resolveLlmProvider({ purpose = 'chat', env = process.env, providerOverride = null } = {}) {
   const purposeOverride = env[envKeyForPurpose(purpose)];
   const globalProvider = env.TV_LLM_PROVIDER || env.LLM_PROVIDER || env.CLAUDE_TRADINGVIEW_LLM_PROVIDER;
-  const name = normalizeProviderName(providerOverride || purposeOverride || globalProvider || 'claude');
+  const name = normalizeProviderName(providerOverride || purposeOverride || globalProvider || DEFAULT_PROVIDER);
   if (name === 'codex') {
     return {
       name,
