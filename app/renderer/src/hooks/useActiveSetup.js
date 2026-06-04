@@ -14,30 +14,31 @@
 // re-hydrate a just-accepted/rejected setup.
 
 import { useEffect, useState } from "react";
+import { normalizeNoTradePayload } from "./useActiveSetup.helpers.js";
 
 export function useActiveSetup() {
   const [activeSetup, setActiveSetup] = useState(null);
-  const [noTradeReason, setNoTradeReason] = useState(null);
-  const [noTradeReasonTs, setNoTradeReasonTs] = useState(null);
+  const [noTrade, setNoTrade] = useState(null);
+  const noTradeReason = noTrade?.reason ?? null;
+  const noTradeReasonTs = noTrade?.receivedAtMs ?? null;
 
   useEffect(() => {
     // Rehydrate from main's mirror — survives mode flips.
     window.api?.setups?.current?.().then((res) => {
       if (!res?.ok) return;
       if (res.setup) setActiveSetup(res.setup);
-      if (res.noTradeReason) setNoTradeReason(res.noTradeReason);
+      if (res.noTrade) setNoTrade(normalizeNoTradePayload(res.noTrade, Date.now()));
+      else if (res.noTradeReason) setNoTrade(normalizeNoTradePayload({ reason: res.noTradeReason }, Date.now()));
     }).catch(() => {});
 
     // Subscribe to tool_call events for surface_setup / surface_no_trade.
     const offToolCall = window.api?.chat?.onToolCall?.((ev) => {
       if (ev?.name === "surface_setup" && ev.payload) {
         setActiveSetup(ev.payload);
-        setNoTradeReason(null);
-        setNoTradeReasonTs(null);
+        setNoTrade(null);
       } else if (ev?.name === "surface_no_trade" && ev.payload) {
         setActiveSetup(null);
-        setNoTradeReason(ev.payload.reason || "no-trade");
-        setNoTradeReasonTs(Date.now());
+        setNoTrade(normalizeNoTradePayload(ev.payload, Date.now()));
       }
     });
 
@@ -46,10 +47,9 @@ export function useActiveSetup() {
 
   function clearSetup() {
     setActiveSetup(null);
-    setNoTradeReason(null);
-    setNoTradeReasonTs(null);
+    setNoTrade(null);
     window.api?.setups?.clear?.().catch(() => {});
   }
 
-  return { activeSetup, noTradeReason, noTradeReasonTs, clearSetup };
+  return { activeSetup, noTrade, noTradeReason, noTradeReasonTs, clearSetup };
 }

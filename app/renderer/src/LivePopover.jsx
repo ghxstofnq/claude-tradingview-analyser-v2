@@ -15,6 +15,7 @@ import {
 import { stripCitations } from "./Prep.helpers.js";
 import { useTrades } from "./hooks/useTrades.js";
 import { useActiveSetup } from "./hooks/useActiveSetup.js";
+import { noTradeStatusLabel } from "./hooks/useActiveSetup.helpers.js";
 import { useOpenReaction } from "./hooks/useOpenReaction.js";
 import { useLastBar } from "./hooks/useLastBar.js";
 import { useHealth } from "./hooks/useHealth.js";
@@ -164,7 +165,7 @@ function WalkerStatusPanel({ walkers }) {
   );
 }
 
-function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat }) {
+function EntryHuntView({ activeSetup, noTrade, noTradeReason, onAccept, onReject, chat }) {
   const walkers = useWalkers();
   // Show Claude's latest read regardless of whether a setup is active —
   // when no setup, it explains *why* no-trade; when a setup is in play,
@@ -195,6 +196,39 @@ function EntryHuntView({ activeSetup, noTradeReason, onAccept, onReject, chat })
             <>
               <div className="sect-hd">NO-TRADE REASON</div>
               <div style={proseStyle}>{noTradeReason}</div>
+              {noTrade?.blockers?.length ? (
+                <>
+                  <div className="sect-hd" style={{ marginTop: 10 }}>NO-TRADE BLOCKERS</div>
+                  <div style={proseStyle}>{noTrade.blockers.join(", ")}</div>
+                </>
+              ) : null}
+              {noTrade?.sourceHealth ? (
+                <>
+                  <div className="sect-hd" style={{ marginTop: 10 }}>SOURCE HEALTH</div>
+                  <div style={proseStyle}>
+                    {noTrade.sourceHealth.status || "unknown"}
+                    {noTrade.sourceHealth.stale === true ? " · stale" : ""}
+                    {noTrade.sourceHealth.schemaSupported === false ? " · unsupported schema" : ""}
+                    {noTrade.sourceHealth.blockers?.length ? ` · ${noTrade.sourceHealth.blockers.join(", ")}` : ""}
+                  </div>
+                </>
+              ) : null}
+              {noTrade?.strategyChainStatus || noTrade?.evaluationStatus ? (
+                <>
+                  <div className="sect-hd" style={{ marginTop: 10 }}>EVALUATION STATUS</div>
+                  <div style={proseStyle}>
+                    {noTradeStatusLabel(noTrade)}
+                    {noTrade.evaluationStatus ? ` · ${noTrade.evaluationStatus}` : ""}
+                    {noTrade.strategyChainStatus ? ` · chain ${noTrade.strategyChainStatus}` : ""}
+                  </div>
+                </>
+              ) : null}
+              {noTrade?.evidenceRefs?.length ? (
+                <>
+                  <div className="sect-hd" style={{ marginTop: 10 }}>EVIDENCE REFS</div>
+                  <div style={proseStyle}>{noTrade.evidenceRefs.join(", ")}</div>
+                </>
+              ) : null}
             </>
           ) : null}
           {readHtml ? (
@@ -331,7 +365,7 @@ function LiveBody() {
   const backtest = useBacktestRunning();
   const health = useHealth();
   const { activeTrade, accept, reject } = useTrades();
-  const { activeSetup, noTradeReason } = useActiveSetup();
+  const { activeSetup, noTrade, noTradeReason } = useActiveSetup();
   const openReaction = useOpenReaction();
   const lastBar = useLastBar();
   const chat = useChat();
@@ -374,7 +408,7 @@ function LiveBody() {
   } else if (inOpenReaction) {
     body = <OpenReactionView openReaction={openReaction} brief={brief} />;
   } else {
-    body = <EntryHuntView activeSetup={activeSetup} noTradeReason={noTradeReason}
+    body = <EntryHuntView activeSetup={activeSetup} noTrade={noTrade} noTradeReason={noTradeReason}
                           onAccept={accept} onReject={(s) => reject(s.id, "")}
                           chat={chat} />;
   }
