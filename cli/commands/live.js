@@ -1,4 +1,4 @@
-import { readFileSync, mkdirSync, appendFileSync, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, appendFileSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { register } from '../router.js';
@@ -42,6 +42,33 @@ function readTruthForDryRun(opts, nowMs) {
   const truthPath = explicitPath ?? defaultTruthPathForSession({ session: sessionFromOpts(opts), nowMs });
   if (!truthPath || !existsSync(truthPath)) return { truth: null, truthPath };
   return { truth: JSON.parse(readFileSync(truthPath, 'utf8')), truthPath };
+}
+
+function persistDryRunSessionRecord({ record, sessionDir, writtenAt = new Date().toISOString() } = {}) {
+  if (!record || !sessionDir) return null;
+  mkdirSync(sessionDir, { recursive: true });
+  const deterministic = {
+    mode: record.mode ?? 'live-dry-run',
+    evaluationStatus: record.finalVerdict ?? 'cannot_evaluate_deterministic_truth',
+    finalVerdict: record.finalVerdict ?? 'cannot_evaluate_deterministic_truth',
+    eventTimeUtc: record.eventTimeUtc ?? null,
+    bestPacket: record.bestPacket ?? null,
+    blockers: Array.isArray(record.blockers) ? record.blockers : [],
+    noTradeReason: record.summary ?? null,
+    readiness: record.readiness ?? null,
+    writtenAt,
+  };
+  writeFileSync(path.join(sessionDir, 'deterministic-packet.json'), `${JSON.stringify(deterministic, null, 2)}\n`, 'utf8');
+  appendFileSync(path.join(sessionDir, 'no-trades.jsonl'), `${JSON.stringify({
+    ts: writtenAt,
+    mode: record.mode ?? 'live-dry-run',
+    finalVerdict: deterministic.finalVerdict,
+    eventTimeUtc: deterministic.eventTimeUtc,
+    reason: deterministic.noTradeReason,
+    blockers: deterministic.blockers,
+    bestPacket: null,
+  })}\n`, 'utf8');
+  return deterministic;
 }
 
 function latestBarFromOhlcv(ohlcv) {
@@ -115,6 +142,9 @@ register('live-dry-run', {
     const { truth, truthPath } = readTruthForDryRun(opts, inputs.nowMs);
     const record = buildLiveDryRunRecord({ readiness, truth, event: inputs.bar });
     const enrichedRecord = { ...record, truthPath };
+    if (!enrichedRecord.actionable) {
+      persistDryRunSessionRecord({ record: enrichedRecord, sessionDir: path.dirname(truthPath) });
+    }
     if (opts.out) {
       mkdirSync(path.dirname(opts.out), { recursive: true });
       appendFileSync(opts.out, `${JSON.stringify({ ...enrichedRecord, writtenAt: new Date().toISOString() })}\n`, 'utf8');
@@ -124,4 +154,4 @@ register('live-dry-run', {
   },
 });
 
-export const __test = { latestBarFromOhlcv, collectLiveReadinessInputs, defaultTruthPathForSession, readTruthForDryRun, sessionFromOpts, activeSessionFromMs };
+export const __test = { latestBarFromOhlcv, collectLiveReadinessInputs, defaultTruthPathForSession, readTruthForDryRun, persistDryRunSessionRecord, sessionFromOpts, activeSessionFromMs };
