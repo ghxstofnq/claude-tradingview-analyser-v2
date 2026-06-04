@@ -115,6 +115,26 @@ describe("brief flow — surface tool", () => {
       { code: "ENOENT" },
     );
   });
+
+  it("archives the previous brief artifacts before a forced manual refresh overwrites them", async () => {
+    const { writeBrief, archiveBriefArtifacts } = await import("../app/main/session-memory.js");
+    const dir = path.join(SANDBOX, "archive-before-refresh");
+    await writeBrief(dir, { ...VALID_PRIMARY_BRIEF, ts: "2026-05-25T13:00:00Z", brief: "OLD MNQ brief" });
+    await fs.writeFile(path.join(dir, "open-reaction.md"), "keep live reaction log", "utf8");
+
+    const archive = await archiveBriefArtifacts(dir, { now: () => new Date("2026-05-25T14:01:02Z") });
+    await writeBrief(dir, { ...VALID_PRIMARY_BRIEF, ts: "2026-05-25T14:02:00Z", brief: "NEW MNQ brief" });
+
+    assert.match(archive.dir, /archive\/brief-refresh\/2026-05-25T14-01-02-000Z$/);
+    const archivedBrief = JSON.parse(await fs.readFile(path.join(archive.dir, "brief.json"), "utf8"));
+    assert.equal(archivedBrief.brief, "OLD MNQ brief");
+    const currentBrief = JSON.parse(await fs.readFile(path.join(dir, "brief.json"), "utf8"));
+    assert.equal(currentBrief.brief, "NEW MNQ brief");
+    await assert.rejects(
+      fs.readFile(path.join(archive.dir, "open-reaction.md"), "utf8"),
+      { code: "ENOENT" },
+    );
+  });
 });
 
 describe("brief flow — postValidate", () => {

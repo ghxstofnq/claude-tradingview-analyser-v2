@@ -6,8 +6,15 @@ import path from 'node:path';
 import { buildCodexInvocation, buildProviderSpawnEnv, envKeyForPurpose, normalizeProviderName, resolveLlmProvider, runCodexTextTurn } from '../app/main/llm-provider.js';
 
 describe('LLM provider selection', () => {
-  test('defaults to Claude with tool calling', () => {
+  test('defaults to Codex from a clean environment', () => {
     const provider = resolveLlmProvider({ purpose: 'bar-close', env: {} });
+    assert.equal(provider.name, 'codex');
+    assert.equal(provider.supportsToolCalling, false);
+    assert.equal(provider.toolRequired, true);
+  });
+
+  test('still supports an explicit Claude override when a tool-calling purpose needs it', () => {
+    const provider = resolveLlmProvider({ purpose: 'bar-close', providerOverride: 'claude', env: {} });
     assert.equal(provider.name, 'claude');
     assert.equal(provider.supportsToolCalling, true);
     assert.equal(provider.toolRequired, true);
