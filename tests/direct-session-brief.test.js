@@ -69,10 +69,59 @@ test("runDirectSessionBrief surfaces direct payloads and emits tool-call events 
     session: "ny-am",
     sizingByGrade: { B: { r_size: 0.75 } },
     analyzeFn: async () => bundle(),
+    codexAnalysisFn: null,
     surfaceFn: async (payload) => { surfaced.push(payload); return { ok: true }; },
     onEvent: (event) => events.push(event),
   });
   assert.equal(result.ok, true);
   assert.equal(surfaced.length, 2);
   assert.equal(events.filter((e) => e.type === "tool_call" && e.name.includes("surface_session_brief")).length, 2);
+});
+
+test("runDirectSessionBrief lets Codex analyze pulled digest as commentary but JS still owns surface payloads", async () => {
+  const events = [];
+  const surfaced = [];
+  const result = await runDirectSessionBrief({
+    session: "ny-am",
+    sizingByGrade: { B: { r_size: 0.75 } },
+    analyzeFn: async () => bundle(),
+    codexAnalysisFn: async ({ deterministicPayloads }) => ({
+      ok: true,
+      analysis: {
+        schema_version: 1,
+        analyses: deterministicPayloads.map((payload) => ({
+          symbol: payload.symbol,
+          commentary: `${payload.symbol} Codex commentary is limited to a challenge of the deterministic digest.`,
+          risk_challenges: ["Pillar 3 confirmation is still pending"],
+          missed_perspectives: ["Check freshness before live handoff"],
+          confidence_note: "Commentary only; deterministic JS owns packet fields.",
+        })),
+      },
+    }),
+    surfaceFn: async (payload) => { surfaced.push(payload); return { ok: true }; },
+    onEvent: (event) => events.push(event),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(surfaced.length, 2);
+  assert.match(surfaced[0].prose_summary, /Codex check:/);
+  assert.equal(surfaced[0].codex_analysis.risk_challenges[0], "Pillar 3 confirmation is still pending");
+  assert.equal(surfaced[0].pillar_grade, "B");
+  assert.equal(events.some((e) => e.type === "codex_analysis" && e.status === "applied"), true);
+});
+
+test("runDirectSessionBrief fails open when Codex analysis is invalid so fake overrides cannot block deterministic surfacing", async () => {
+  const events = [];
+  const surfaced = [];
+  const result = await runDirectSessionBrief({
+    session: "ny-am",
+    sizingByGrade: { B: { r_size: 0.75 } },
+    analyzeFn: async () => bundle(),
+    codexAnalysisFn: async () => ({ ok: false, errors: ["forbidden key entry"] }),
+    surfaceFn: async (payload) => { surfaced.push(payload); return { ok: true }; },
+    onEvent: (event) => events.push(event),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(surfaced.length, 2);
+  assert.equal(surfaced[0].codex_analysis, undefined);
+  assert.equal(events.some((e) => e.type === "codex_analysis" && e.status === "rejected"), true);
 });
