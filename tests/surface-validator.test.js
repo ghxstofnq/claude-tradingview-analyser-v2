@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSetupAgainstCandidate, validateSetupAgainstDeterministicPacket, surfaceSetup, surfaceNoTrade, setCurrentCandidate, clearCurrentCandidate, clearCurrentSurfaceState } from '../app/main/tools/surface.js';
+import { readFile, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { validateSetupAgainstCandidate, validateSetupAgainstDeterministicPacket, surfaceSetup, surfaceNoTrade, setCurrentCandidate, clearCurrentCandidate, clearCurrentSurfaceState, getCurrentSurfaceState } from '../app/main/tools/surface.js';
+import { setBacktestSessionContext, clearBacktestSessionContext } from '../app/main/sessions.js';
 
 function validCandidate() {
   return {
@@ -108,5 +111,50 @@ test('surface_no_trade rejects missed valid setup when detector has a best_candi
   );
   clearCurrentCandidate();
   clearCurrentSurfaceState();
+});
+
+test('surface_no_trade preserves structured blockers in UI state and append-only no-trade log', async () => {
+  clearCurrentCandidate();
+  clearCurrentSurfaceState();
+  const runId = `surface-no-trade-${Date.now()}`;
+  setBacktestSessionContext({ runId, session: 'ny-am' });
+  const dir = path.resolve('state', 'backtest', runId, 'ny-am');
+  try {
+    const result = await surfaceNoTrade({
+      reason: 'cannot evaluate: strategy chain incomplete: missing_ltf_bias',
+      evaluationStatus: 'cannot_evaluate_strategy_chain',
+      blockers: ['missing_ltf_bias'],
+      sourceHealth: { status: 'fresh', schemaSupported: true, stale: false, blockers: [] },
+      strategyChainStatus: 'blocked',
+      evidenceRefs: ['ltf-bias.md'],
+      eventTimeUtc: '2026-06-03T14:31:00.000Z',
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(getCurrentSurfaceState().noTrade, {
+      reason: 'cannot evaluate: strategy chain incomplete: missing_ltf_bias',
+      evaluationStatus: 'cannot_evaluate_strategy_chain',
+      blockers: ['missing_ltf_bias'],
+      sourceHealth: { status: 'fresh', schemaSupported: true, stale: false, blockers: [] },
+      strategyChainStatus: 'blocked',
+      evidenceRefs: ['ltf-bias.md'],
+      eventTimeUtc: '2026-06-03T14:31:00.000Z',
+    });
+
+    const lines = (await readFile(path.join(dir, 'no-trades.jsonl'), 'utf8')).trim().split('\n');
+    assert.equal(lines.length, 1);
+    const record = JSON.parse(lines[0]);
+    assert.equal(record.reason, 'cannot evaluate: strategy chain incomplete: missing_ltf_bias');
+    assert.equal(record.evaluationStatus, 'cannot_evaluate_strategy_chain');
+    assert.deepEqual(record.blockers, ['missing_ltf_bias']);
+    assert.equal(record.sourceHealth.status, 'fresh');
+    assert.equal(record.strategyChainStatus, 'blocked');
+    assert.deepEqual(record.evidenceRefs, ['ltf-bias.md']);
+    assert.equal(record.eventTimeUtc, '2026-06-03T14:31:00.000Z');
+  } finally {
+    clearBacktestSessionContext();
+    clearCurrentSurfaceState();
+    await rm(path.resolve('state', 'backtest', runId), { recursive: true, force: true });
+  }
 });
 
