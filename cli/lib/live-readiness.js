@@ -4,6 +4,30 @@ const DEFAULT_SYMBOL_PATTERNS = [/MNQ/i, /MES/i];
 const DEFAULT_TIMEFRAMES = new Set(['1', '5', '15']);
 const DEFAULT_MAX_BAR_AGE_MS = 180_000;
 const TRADABLE_SESSIONS = new Set(['ny-am', 'ny-pm', 'london']);
+const SESSION_WINDOWS_ET = {
+  'ny-am': { start: 9 * 60 + 30, end: 12 * 60 },
+  'ny-pm': { start: 13 * 60, end: 16 * 60 },
+  london: { start: 3 * 60, end: 6 * 60 },
+};
+
+function etMinutesFromMs(nowMs) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(Number(nowMs)));
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+function sessionIsActive(session, nowMs) {
+  const window = SESSION_WINDOWS_ET[session];
+  if (!window) return false;
+  const mins = etMinutesFromMs(nowMs);
+  return mins >= window.start && mins < window.end;
+}
 
 function pass(details = {}) {
   return { status: 'pass', ...details };
@@ -139,7 +163,13 @@ export function evaluateLiveReadiness({
     checks.barsUpdating = pass({ ageMs: age, maxBarAgeMs });
   }
 
-  checks.session = TRADABLE_SESSIONS.has(session) ? pass({ session }) : fail('session_not_tradable', { session: session ?? 'unknown' });
+  if (!TRADABLE_SESSIONS.has(session)) {
+    checks.session = fail('session_not_tradable', { session: session ?? 'unknown' });
+  } else if (!sessionIsActive(session, nowMs)) {
+    checks.session = fail('session_not_active', { session, nowEtMinutes: etMinutesFromMs(nowMs), windowEt: SESSION_WINDOWS_ET[session] });
+  } else {
+    checks.session = pass({ session });
+  }
 
   for (const check of Object.values(checks)) {
     if (Array.isArray(check.blockers)) blockers.push(...check.blockers);
@@ -159,15 +189,17 @@ export function evaluateLiveReadiness({
 export function buildLiveDryRunRecord({ readiness, truth = null, event = null } = {}) {
   const ready = readiness?.ok === true;
   if (!ready) {
+    const readinessBlockers = readiness?.blockers?.length ? readiness.blockers : ['readiness_unknown'];
+    const sourceHealthBlocked = readiness?.checks?.ictEngine?.status === 'fail';
     return {
       mode: 'live-dry-run',
       actionable: false,
-      finalVerdict: 'cannot_evaluate_source_health',
+      finalVerdict: sourceHealthBlocked ? 'cannot_evaluate_source_health' : 'cannot_evaluate_readiness',
       readiness,
       eventTimeUtc: event?.ts ?? truth?.eventTimeUtc ?? null,
       bestPacket: null,
-      blockers: readiness?.blockers?.length ? readiness.blockers : ['source_health_unknown'],
-      summary: `Source health blocked: ${(readiness?.blockers?.length ? readiness.blockers : ['unknown']).join(', ')}`,
+      blockers: readinessBlockers,
+      summary: `${sourceHealthBlocked ? 'Source health' : 'Readiness'} blocked: ${readinessBlockers.join(', ')}`,
     };
   }
   if (!truth) {

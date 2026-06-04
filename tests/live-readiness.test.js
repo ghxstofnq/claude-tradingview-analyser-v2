@@ -45,7 +45,7 @@ test('evaluateLiveReadiness passes only when CDP, chart, engine, replay, bar fre
 });
 
 test('evaluateLiveReadiness accepts raw parsed ICT Engine V2 shape from live table collection', () => {
-  const nowMs = Date.parse('2026-06-02T22:12:40.000Z');
+  const nowMs = Date.parse('2026-06-02T17:12:40.000Z');
   const result = evaluateLiveReadiness(baseInputs({
     engine: {
       schema: 2,
@@ -59,8 +59,9 @@ test('evaluateLiveReadiness accepts raw parsed ICT Engine V2 shape from live tab
       pools: [],
       quality: { displacement: 'clean' },
     },
-    bar: { ts: '2026-06-02T22:12:00.000Z' },
+    bar: { ts: '2026-06-02T17:12:00.000Z' },
     nowMs,
+    session: 'ny-pm',
   }));
 
   assert.equal(result.ok, true);
@@ -94,6 +95,19 @@ test('evaluateLiveReadiness blocks live trading on stale or wrong source instead
   ]);
 });
 
+test('evaluateLiveReadiness blocks a named session outside its actual ET trading window', () => {
+  const result = evaluateLiveReadiness(baseInputs({
+    session: 'ny-am',
+    nowMs: Date.parse('2026-06-04T11:13:20.000Z'), // 07:13 ET, before NY-AM opens
+    bar: { ts: '2026-06-04T11:13:00.000Z' },
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.session.status, 'fail');
+  assert.deepEqual(result.checks.session.blockers, ['session_not_active']);
+  assert.equal(result.checks.session.session, 'ny-am');
+});
+
 test('classifyEvaluationAvailability differentiates source-health failure from clean evaluated no-trade', () => {
   assert.deepEqual(classifyEvaluationAvailability({ status: 'fresh', stale: false, schemaSupported: true, blockers: [] }), {
     evaluationStatus: 'evaluated',
@@ -116,6 +130,20 @@ test('buildLiveDryRunRecord never creates an actionable setup when readiness is 
   assert.equal(record.actionable, false);
   assert.equal(record.finalVerdict, 'cannot_evaluate_source_health');
   assert.match(record.summary, /Source health blocked/);
+});
+
+test('buildLiveDryRunRecord reports session/readiness blockers without mislabeling them as source-health failures', () => {
+  const readiness = evaluateLiveReadiness(baseInputs({
+    session: 'ny-am',
+    nowMs: Date.parse('2026-06-04T11:13:20.000Z'),
+    bar: { ts: '2026-06-04T11:13:00.000Z' },
+  }));
+  const record = buildLiveDryRunRecord({ readiness, truth: null });
+
+  assert.equal(record.actionable, false);
+  assert.equal(record.finalVerdict, 'cannot_evaluate_readiness');
+  assert.deepEqual(record.blockers, ['session_not_active']);
+  assert.match(record.summary, /Readiness blocked: session_not_active/);
 });
 
 test('buildLiveDryRunRecord fails explicitly when readiness is ready but deterministic truth is missing', () => {
