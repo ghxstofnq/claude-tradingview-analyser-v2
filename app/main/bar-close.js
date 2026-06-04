@@ -918,9 +918,26 @@ async function persistDeterministicTruth(dir, truth) {
   await fs.appendFile(path.join(dir, 'deterministic-packets.jsonl'), `${JSON.stringify(record)}\n`, 'utf8');
 }
 
+function deterministicSetupId(packet, ev) {
+  if (packet.walkerId ?? packet.id) {
+    const normalizedPacketId = String(packet.walkerId ?? packet.id)
+      .replace(/^w_/, '')
+      .replace(/[^0-9A-Za-z]+/g, '')
+      .slice(0, 14) || 'unknown';
+    return `D-${normalizedPacketId}`;
+  }
+  const eventMs = Date.parse(ev?.ts);
+  if (Number.isFinite(eventMs)) {
+    const eventKey = new Date(eventMs).toISOString().replace(/[-:]/g, '').slice(0, 13);
+    return `D-${eventKey}`;
+  }
+  const fallback = String(packet.entry?.evidenceRef ?? 'unknown').replace(/[^0-9A-Za-z]+/g, '').slice(0, 14) || 'unknown';
+  return `D-${fallback}`;
+}
+
 function deterministicPacketToSurfacePayload(packet, ev) {
   return {
-    id: `D-${String(packet.walkerId ?? Date.now()).replace(/^w_/, '').slice(0, 14)}`,
+    id: deterministicSetupId(packet, ev),
     model: packet.model,
     side: packet.side,
     entry: packet.entry?.price,
