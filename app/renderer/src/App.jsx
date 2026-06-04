@@ -17,6 +17,7 @@ import { SettingsPage } from "./Settings.jsx";
 import { ErrorBoundary } from "./ErrorBoundary.jsx";
 import {
   CHAT_PROVIDER_CELLS,
+  DEFAULT_CHAT_PROVIDER,
   buildProviderPopoverTitle,
   buildProviderSubmitOptions,
   getExclusiveActiveProvider,
@@ -448,7 +449,7 @@ function App() {
 
   // LLM provider state — Claude and Codex keep separate conversations while
   // the status bar exposes exactly one active provider at a time.
-  const [activeProvider, setActiveProvider] = useState("claude");
+  const [activeProvider, setActiveProvider] = useState(DEFAULT_CHAT_PROVIDER);
   const [openProvider, setOpenProvider] = useState(null);
   const claudeChat = useChat({ provider: "claude" });
   const codexChat = useChat({ provider: "codex" });
