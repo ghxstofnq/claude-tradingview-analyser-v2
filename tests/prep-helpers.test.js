@@ -2,6 +2,9 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const prepPopoverSource = readFileSync(new URL("../app/renderer/src/PrepPopover.jsx", import.meta.url), "utf8");
 
 import {
   groupLevelsByPrice,
@@ -203,12 +206,20 @@ describe("overnightHeaderRows", () => {
 });
 
 describe("scenariosMeta", () => {
-  it("returns 'claude proposed' when no sizing_note", () => {
-    assert.equal(scenariosMeta({}), "claude proposed");
+  it("returns 'deterministic prep' when no sizing_note", () => {
+    assert.equal(scenariosMeta({}), "deterministic prep");
   });
 
   it("appends sizing_note when present", () => {
-    assert.equal(scenariosMeta({ sizing_note: "sizing 2c if A+" }), "claude proposed · sizing 2c if A+");
+    assert.equal(scenariosMeta({ sizing_note: "sizing 2c if A+" }), "deterministic prep · sizing 2c if A+");
+  });
+});
+
+describe("PrepPopover deterministic labels", () => {
+  it("does not brand deterministic prep sections as Claude-authored", () => {
+    assert.match(prepPopoverSource, /Panel title="BRIEF · DETERMINISTIC"/);
+    assert.doesNotMatch(prepPopoverSource, /BRIEF · CLAUDE/);
+    assert.doesNotMatch(prepPopoverSource, /Claude will propose/);
   });
 });
 

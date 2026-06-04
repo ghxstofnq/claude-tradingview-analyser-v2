@@ -160,7 +160,7 @@ function Step3Panel({ brief }) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-// BRIEF · CLAUDE — free-form prose summary written by the brief turn
+// BRIEF · DETERMINISTIC — free-form prose summary surfaced by the prep path
 // into brief.prose_summary (added 2026-05-28). Renders nothing if absent
 // (legacy briefs that pre-date the schema field).
 function BriefProseSection({ brief }) {
@@ -171,7 +171,7 @@ function BriefProseSection({ brief }) {
   }) : null;
   const grade = brief?.pillar_grade;
   return (
-    <Panel title="BRIEF · CLAUDE">
+    <Panel title="BRIEF · DETERMINISTIC">
       <div className="brief-prose">
         {(ts || grade) && (
           <span className="ts">
@@ -192,7 +192,7 @@ function ScenariosPanel({ brief }) {
     <Panel title="SCENARIOS · IF / THEN" meta={scenariosMeta(brief)}>
       {scenarios.length === 0 ? (
         <div style={{ color: "var(--label)", padding: "8px 0", fontSize: 11 }}>
-          no scenarios yet — Claude will propose once HTF + pillars are read
+          no scenarios yet — deterministic engine will surface once HTF + pillars are read
         </div>
       ) : (
         scenarios.map((s) => <ScenarioCard key={s.id || s.condition} scenario={s} />)
