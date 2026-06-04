@@ -20,6 +20,7 @@ import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { computeSize, dayOfWeek } from "../../cli/lib/sizing.js";
 import { getPersistentMemory } from "./persistent-memory.js";
 import { archiveBriefArtifacts } from "./session-memory.js";
+import { runDirectSessionBrief } from "./direct-session-brief.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -327,6 +328,29 @@ For Step 6 (Sizing): use the <sizing_pre_computed> block above verbatim. Pick th
 The brief is what the trader sees during the open; sloppy citations or self-contradicting verdicts here directly hurt their decisions. The phase spec exists exactly to keep this turn disciplined.`;
 }
 
+async function sizingByGradeForToday() {
+  const today = dayOfWeek();
+  let memoryUserText = "";
+  try {
+    const mem = getPersistentMemory();
+    await mem.load();
+    memoryUserText = mem.formatForSystemPrompt("user") || "";
+  } catch { /* memory unavailable — pass empty string */ }
+  return {
+    "A+": computeSize({ day_of_week: today, grade: "A+", memory_overrides: memoryUserText }),
+    B: computeSize({ day_of_week: today, grade: "B", memory_overrides: memoryUserText }),
+    "no-trade": { r_size: 0, cites: ["strategy.sizing-table"] },
+  };
+}
+
+async function runDirectBrief(session, { onEvent } = {}) {
+  return runDirectSessionBrief({
+    session,
+    sizingByGrade: await sizingByGradeForToday(),
+    onEvent,
+  });
+}
+
 const _driver = makeScheduledTurn({
   name: "session-brief",
   purpose: "brief",
@@ -344,9 +368,10 @@ const _driver = makeScheduledTurn({
   // hit the 5-min default after EFFORT moved to xhigh in PR #56. 10 min
   // covers the worst case with headroom.
   timeoutMs: 600_000,
-  // Briefs require MCP surface tools (tv_analyze_full + surface_session_brief).
-  // Keep this turn on Claude even when chat/default experiments use Codex.
-  providerOverride: "claude",
+  // Codex cannot call app MCP surface tools. When the selected provider is a
+  // non-tool provider for this tool-required purpose, scheduled-turn uses this
+  // deterministic in-process path instead of forcing Claude.
+  directRunFn: runDirectBrief,
 });
 
 export const bootstrap = _driver.bootstrap;

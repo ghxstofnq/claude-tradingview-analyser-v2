@@ -42,6 +42,10 @@ export function providerOverrideForScheduledTurnForTests(config = {}) {
   return config.providerOverride || null;
 }
 
+export function shouldUseDirectScheduledTurnForTests({ provider, directRunFn } = {}) {
+  return !!directRunFn && !!provider?.toolRequired && !provider?.supportsToolCalling;
+}
+
 function nyParts(date = new Date()) {
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -178,13 +182,8 @@ export function makeScheduledTurn(config) {
     let metricRecorded = false; // guard against double-recording succeed/fail
     let usage = null;     // populated by the "usage" event when the turn succeeds
     try {
-      const text = await config.buildPromptFn(session);
-      await userTurn({
-        text,
-        purpose: config.purpose,
-        providerOverride,
-        timeoutMs: config.timeoutMs,   // undefined → userTurn default (5 min)
-        onEvent: (e) => {
+      const provider = resolveLlmProvider({ purpose: config.purpose, providerOverride });
+      const onEvent = (e) => {
           if (e.type === "chunk") _send?.("chat:chunk", e);
           else if (e.type === "tool_call") {
             if (e.name) toolCalls.push(e.name);
@@ -197,8 +196,19 @@ export function makeScheduledTurn(config) {
             lastErrorMsg = e.message || lastErrorMsg;
             _send?.("app:error", { source: config.name, message: e.message });
           }
-        },
-      });
+        };
+      if (shouldUseDirectScheduledTurnForTests({ provider, directRunFn: config.directRunFn })) {
+        await config.directRunFn(session, { onEvent });
+      } else {
+        const text = await config.buildPromptFn(session);
+        await userTurn({
+          text,
+          purpose: config.purpose,
+          providerOverride,
+          timeoutMs: config.timeoutMs,   // undefined → userTurn default (5 min)
+          onEvent,
+        });
+      }
       // Post-validate the tool calls the turn made. Lets us detect
       // "completed but produced no brief" / "only 1 of 2 dual-symbol
       // briefs landed" — both silent failures before this.
