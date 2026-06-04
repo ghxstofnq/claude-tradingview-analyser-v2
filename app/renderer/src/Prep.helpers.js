@@ -237,9 +237,9 @@ export function overnightHeaderRows(brief) {
 }
 
 // Render the SCENARIOS panel meta — sizing-if-A+ line. Reads sizing_note
-// from the brief if present.
+// from the deterministic/direct brief if present.
 export function scenariosMeta(brief) {
   const note = brief?.sizing_note;
-  if (!note) return "claude proposed";
-  return `claude proposed · ${note}`;
+  if (!note) return "deterministic prep";
+  return `deterministic prep · ${note}`;
 }
