@@ -344,6 +344,9 @@ const _driver = makeScheduledTurn({
   // hit the 5-min default after EFFORT moved to xhigh in PR #56. 10 min
   // covers the worst case with headroom.
   timeoutMs: 600_000,
+  // Briefs require MCP surface tools (tv_analyze_full + surface_session_brief).
+  // Keep this turn on Claude even when chat/default experiments use Codex.
+  providerOverride: "claude",
 });
 
 export const bootstrap = _driver.bootstrap;
