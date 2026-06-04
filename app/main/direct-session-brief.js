@@ -32,6 +32,33 @@ function formatPrice(value) {
   return Number.isFinite(value) ? String(value) : "0";
 }
 
+function compactBias(label) {
+  if (/^bull/i.test(label || "")) return "BULL";
+  if (/^bear/i.test(label || "")) return "BEAR";
+  if (/^neutral/i.test(label || "")) return "NEUTRAL";
+  return String(label || "—").toUpperCase();
+}
+
+function htfBiasLine(rows) {
+  const byTf = new Map(rows.map((row) => [row.tf, compactBias(row.bias)]));
+  return `D:${byTf.get("DAILY") || "—"} / 4H:${byTf.get("4H") || "—"} / 1H:${byTf.get("1H") || "—"}`;
+}
+
+function drawLine(draw) {
+  if (!draw) return "Primary draw unavailable";
+  return `Primary draw ${draw.tf} ${draw.dir} ${draw.kind.toUpperCase()} ${formatPrice(draw.bottom)}-${formatPrice(draw.top)} CE ${formatPrice(draw.ce)}`;
+}
+
+function buildDeterministicBriefText({ session, symbol, htf, draw, targetLevel, stopLevel, p2, pillarGrade }) {
+  const sessionLabel = String(session || "session").toUpperCase();
+  return `${symbol} ${sessionLabel} prep: ${htfBiasLine(htf)}. ${drawLine(draw)}. Target ${targetLevel.name} ${formatPrice(targetLevel.price)}; stop reference ${stopLevel.name} ${formatPrice(stopLevel.price)}. Price quality ${p2.verdict}; grade ${pillarGrade}. Wait for deterministic Pillar 3 confirmation before any entry.`;
+}
+
+function buildDeterministicProseSummary({ symbol, htf, draw, targetLevel, p2, pillarGrade }) {
+  const drawText = draw ? `${draw.tf} ${draw.dir} ${draw.kind.toUpperCase()} at ${formatPrice(draw.bottom)}-${formatPrice(draw.top)}` : "no clean primary draw";
+  return `${symbol}: ${htfBiasLine(htf)} with ${drawText}. Price quality is ${p2.verdict}, so pre-session grade is ${pillarGrade}. Main liquidity reference is ${targetLevel.name} ${formatPrice(targetLevel.price)}; no live trade is valid until the MSS/Trend/Inversion walker prints a confirmed execution packet.`;
+}
+
 function levelRows(symbol, digestSymbol) {
   const levels = digestSymbol?.pillar1?.session_levels ?? {};
   const rows = [];
@@ -129,8 +156,8 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     return {
       session,
       symbol,
-      brief: `Direct Codex-compatible brief for ${symbol}: deterministic digest surfaced from latest paired TradingView capture; no MCP tool-call loop required (brief_digest.symbols.${symbol}).`,
-      prose_summary: `Direct Codex-compatible brief for ${symbol}. The dashboard used the paired TradingView digest and deterministic grade gates instead of asking an MCP tool-calling model to surface the brief. Treat this as mechanical prep context; live executable packets still require Pillar 3 confirmation evidence.`,
+      brief: buildDeterministicBriefText({ session, symbol, htf, draw, targetLevel, stopLevel, p2, pillarGrade: pillar_grade }),
+      prose_summary: buildDeterministicProseSummary({ symbol, htf, draw, targetLevel, p2, pillarGrade: pillar_grade }),
       htf_bias: htf,
       overnight: [
         { k: "session context", v: `Levels and pools read from paired digest for ${symbol} (brief_digest.symbols.${symbol}.pillar1)`, tone: pillar_grade === "no-trade" ? "amber" : "green" },
