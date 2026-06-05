@@ -44,11 +44,15 @@ test("open-reaction bar-close requires open_reaction plus no_trade and forbids s
   );
 });
 
-test("final open-reaction bar-close requires ltf bias handoff", () => {
-  const text = "A new 1m bar just closed. Phase: open_reaction (+14m). minutes_into_phase >= 14 — also call surface_ltf_bias.";
-  assert.deepEqual(validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [OPEN, LTF, NO_TRADE] }), { ok: true });
+test("final open-reaction bar-close requires leader and ltf bias handoff", () => {
+  const text = "A new 1m bar just closed. Phase: open_reaction (+14m). minutes_into_phase >= 14 — also call surface_leader_decision and surface_ltf_bias.";
+  assert.deepEqual(validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [OPEN, LEADER, LTF, NO_TRADE] }), { ok: true });
   assert.match(
-    validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [OPEN, NO_TRADE] }).message,
+    validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [OPEN, LTF, NO_TRADE] }).message,
+    /must call surface_leader_decision/,
+  );
+  assert.match(
+    validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [OPEN, LEADER, NO_TRADE] }).message,
     /must call surface_ltf_bias/,
   );
 });
@@ -68,9 +72,18 @@ test("brief and wrap must use their dedicated one-shot surface only", () => {
 });
 
 test("catch-up must end no_trade and never setup", () => {
-  assert.deepEqual(validateTurnSurfaceContract({ purpose: "catch-up", toolCalls: [READ, LEADER, LTF, NO_TRADE] }), { ok: true });
+  const text = "CATCH-UP TURN — Pick leader + finalize LTF bias. Call surface_leader_decision and surface_ltf_bias.";
+  assert.deepEqual(validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [READ, LEADER, LTF, NO_TRADE] }), { ok: true });
   assert.match(
-    validateTurnSurfaceContract({ purpose: "catch-up", toolCalls: [LEADER, LTF] }).message,
+    validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [READ, LTF, NO_TRADE] }).message,
+    /must call surface_leader_decision/,
+  );
+  assert.match(
+    validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [READ, LEADER, NO_TRADE] }).message,
+    /must call surface_ltf_bias/,
+  );
+  assert.match(
+    validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [LEADER, LTF] }).message,
     /must end with surface_no_trade/,
   );
   assert.match(
