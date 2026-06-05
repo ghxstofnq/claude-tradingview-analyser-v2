@@ -28,10 +28,12 @@ test("scheduled-turn provider routing: tool-requiring scheduled turns can force 
   assert.equal(providerOverrideForScheduledTurn({ purpose: "brief" }), null);
 });
 
-test("scheduled-turn provider routing: Codex tool-required turns use direct deterministic runner instead of forcing Claude", () => {
-  const codexToolRequired = { name: "codex", toolRequired: true, supportsToolCalling: false };
+test("scheduled-turn provider routing: MCP-enabled Codex uses normal tool path; direct runner is fallback only", () => {
+  const codexMcpToolRequired = { name: "codex", toolRequired: true, supportsToolCalling: true };
+  const codexTextOnlyToolRequired = { name: "codex", toolRequired: true, supportsToolCalling: false };
   const claudeToolRequired = { name: "claude", toolRequired: true, supportsToolCalling: true };
-  assert.equal(shouldUseDirectScheduledTurn({ provider: codexToolRequired, directRunFn: async () => {} }), true);
+  assert.equal(shouldUseDirectScheduledTurn({ provider: codexMcpToolRequired, directRunFn: async () => {} }), false);
+  assert.equal(shouldUseDirectScheduledTurn({ provider: codexTextOnlyToolRequired, directRunFn: async () => {} }), true);
   assert.equal(shouldUseDirectScheduledTurn({ provider: claudeToolRequired, directRunFn: async () => {} }), false);
-  assert.equal(shouldUseDirectScheduledTurn({ provider: codexToolRequired }), false);
+  assert.equal(shouldUseDirectScheduledTurn({ provider: codexTextOnlyToolRequired }), false);
 });

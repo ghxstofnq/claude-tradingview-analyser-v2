@@ -25,14 +25,18 @@ export function resolveLlmProvider({ purpose = 'chat', env = process.env, provid
   const globalProvider = env.TV_LLM_PROVIDER || env.LLM_PROVIDER || env.CLAUDE_TRADINGVIEW_LLM_PROVIDER;
   const name = normalizeProviderName(providerOverride || purposeOverride || globalProvider || DEFAULT_PROVIDER);
   if (name === 'codex') {
+    const mcpEnabled = env.TV_CODEX_MCP_ENABLED !== '0';
     return {
       name,
       label: 'Codex',
-      supportsToolCalling: false,
+      supportsToolCalling: mcpEnabled,
       toolRequired: TOOL_REQUIRED_PURPOSES.has(purpose),
       command: env.CODEX_CLI_COMMAND || 'codex',
       args: parseArgs(env.CODEX_CLI_ARGS || 'exec'),
       model: env.CODEX_MODEL || null,
+      mcpEnabled,
+      mcpServerPath: env.TV_CODEX_MCP_SERVER_PATH || path.join(APP_MAIN_DIR, 'codex-tv-mcp-server.js'),
+      mcpNodeCommand: env.TV_CODEX_MCP_NODE_COMMAND || 'node',
     };
   }
   return {
@@ -51,7 +55,7 @@ function parseArgs(value) {
 export function providerAuthBlockedMessage() {
   const provider = resolveLlmProvider({ purpose: 'bar-close' });
   if (provider.name === 'codex') {
-    return 'Codex provider selected but tool-calling automated turns still require deterministic direct surface or Claude-compatible tools. Use TV_LLM_PROVIDER_CHAT=codex for text-only testing, or keep TV_LLM_PROVIDER=claude for live automation.';
+    return 'Codex provider selected but MCP/tool-calling is unavailable. Ensure TV_CODEX_MCP_ENABLED is not 0 and the app-local tv MCP server can start.';
   }
   return 'Claude Code not logged in — auto LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.';
 }
@@ -66,9 +70,24 @@ export function buildProviderSpawnEnv(env = process.env) {
   };
 }
 
-export function buildCodexInvocation({ provider, prompt, outputPath = null, outputSchemaPath = null }) {
+export function buildCodexInvocation({ provider, prompt, outputPath = null, outputSchemaPath = null, mcpCallLogPath = null }) {
   const args = [...(provider?.args || ['exec'])];
   if (provider?.model) args.push('--model', provider.model);
+
+  // When Codex is the selected provider, attach the same app-local tv MCP
+  // surface/analyze tools that Claude receives through the Anthropic SDK. We
+  // pass this as per-invocation config instead of relying on mutable
+  // ~/.codex/config.toml so the Electron app owns the tool bridge it needs.
+  if (provider?.name === 'codex' && provider?.mcpEnabled && provider?.mcpServerPath) {
+    args.push(
+      '-c', `mcp_servers.tv.command=${JSON.stringify(provider.mcpNodeCommand || 'node')}`,
+      '-c', `mcp_servers.tv.args=${JSON.stringify([provider.mcpServerPath])}`,
+      '-c', 'mcp_servers.tv.startup_timeout_sec=30',
+    );
+    if (mcpCallLogPath) {
+      args.push('-c', `mcp_servers.tv.env.CODEX_TV_MCP_CALL_LOG=${JSON.stringify(mcpCallLogPath)}`);
+    }
+  }
 
   // Make Codex run from the repo root even though `npm run dev` is launched
   // from app/. This keeps git/project discovery stable and matches CLI tests.
@@ -100,6 +119,26 @@ function appendTail(prev, chunk, max = 2000) {
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
+async function emitCodexMcpToolCallsFromLog(callLogPath, onEvent) {
+  if (!callLogPath || !onEvent) return;
+  let text = '';
+  try {
+    text = await fs.readFile(callLogPath, 'utf8');
+  } catch {
+    return;
+  }
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line);
+      if (record?.name) onEvent({ type: 'tool_call', name: `mcp__tv__${record.name}`, args: record.args || {}, id: record.ts });
+    } catch {
+      // Ignore partial/corrupt call-log lines; the MCP call already completed
+      // and Codex's own output/error handling remains authoritative.
+    }
+  }
+}
+
 export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, timeoutMs = 300_000, provider = resolveLlmProvider({ purpose }) }) {
   if (provider.toolRequired && !provider.supportsToolCalling) {
     onEvent?.({
@@ -116,7 +155,8 @@ export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, t
   const prompt = `${Array.isArray(systemPrompt) ? systemPrompt.join('\n\n') : String(systemPrompt || '')}\n\nUSER TURN:\n${text}`;
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tv-codex-chat-'));
   const outputPath = path.join(outputDir, 'last-message.md');
-  const invocation = buildCodexInvocation({ provider, prompt, outputPath });
+  const mcpCallLogPath = path.join(outputDir, 'mcp-calls.jsonl');
+  const invocation = buildCodexInvocation({ provider, prompt, outputPath, mcpCallLogPath });
 
   try {
     await new Promise((resolve) => {
@@ -149,10 +189,11 @@ export async function runCodexTextTurn({ text, systemPrompt, purpose, onEvent, t
         onEvent?.({ type: 'turn_complete', purpose, durationMs: Date.now() - startedAt });
         resolve();
       });
-      child.on('exit', async (code) => {
+      child.on("exit", async (code) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        await emitCodexMcpToolCallsFromLog(mcpCallLogPath, onEvent);
         if (code !== 0) {
           const detail = outputTail.trim() ? `: ${outputTail.trim()}` : '';
           onEvent?.({ type: 'error', message: `Codex provider exited with code ${code}${detail}`, kind: 'provider', retryable: code !== 127 });

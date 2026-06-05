@@ -6,11 +6,13 @@ import path from 'node:path';
 import { buildCodexInvocation, buildProviderSpawnEnv, envKeyForPurpose, normalizeProviderName, resolveLlmProvider, runCodexTextTurn } from '../app/main/llm-provider.js';
 
 describe('LLM provider selection', () => {
-  test('defaults to Codex from a clean environment', () => {
+  test('defaults to Codex with app-local MCP enabled from a clean environment', () => {
     const provider = resolveLlmProvider({ purpose: 'bar-close', env: {} });
     assert.equal(provider.name, 'codex');
-    assert.equal(provider.supportsToolCalling, false);
+    assert.equal(provider.supportsToolCalling, true);
     assert.equal(provider.toolRequired, true);
+    assert.equal(provider.mcpEnabled, true);
+    assert.match(provider.mcpServerPath, /codex-tv-mcp-server\.js$/);
   });
 
   test('still supports an explicit Claude override when a tool-calling purpose needs it', () => {
@@ -20,8 +22,8 @@ describe('LLM provider selection', () => {
     assert.equal(provider.toolRequired, true);
   });
 
-  test('supports Codex as text-only provider through purpose override', () => {
-    const provider = resolveLlmProvider({ purpose: 'chat', env: { TV_LLM_PROVIDER_CHAT: 'codex', CODEX_CLI_ARGS: 'exec --skip-git-repo-check' } });
+  test('can disable Codex MCP explicitly for text-only diagnostics', () => {
+    const provider = resolveLlmProvider({ purpose: 'chat', env: { TV_LLM_PROVIDER_CHAT: 'codex', TV_CODEX_MCP_ENABLED: '0', CODEX_CLI_ARGS: 'exec --skip-git-repo-check' } });
     assert.equal(provider.name, 'codex');
     assert.equal(provider.supportsToolCalling, false);
     assert.equal(provider.toolRequired, false);
@@ -31,14 +33,14 @@ describe('LLM provider selection', () => {
   test('supports an explicit provider override for side-by-side Claude/Codex chat popovers', () => {
     const provider = resolveLlmProvider({ purpose: 'chat', providerOverride: 'codex', env: { TV_LLM_PROVIDER_CHAT: 'claude' } });
     assert.equal(provider.name, 'codex');
-    assert.equal(provider.supportsToolCalling, false);
+    assert.equal(provider.supportsToolCalling, true);
     assert.equal(provider.toolRequired, false);
   });
 
   test('marks automated surface-tool purposes as requiring tools when Codex is selected', () => {
     const provider = resolveLlmProvider({ purpose: 'bar-close', env: { TV_LLM_PROVIDER: 'codex' } });
     assert.equal(provider.name, 'codex');
-    assert.equal(provider.supportsToolCalling, false);
+    assert.equal(provider.supportsToolCalling, true);
     assert.equal(provider.toolRequired, true);
   });
 
@@ -55,15 +57,66 @@ describe('LLM provider selection', () => {
     assert.ok(parts.includes('/usr/bin'));
   });
 
-  test('Codex invocation runs from repo root, captures final message, and sends prompt over stdin', () => {
+  test('Codex invocation runs from repo root, attaches tv MCP, captures final message, and sends prompt over stdin', () => {
     const provider = resolveLlmProvider({ purpose: 'chat', providerOverride: 'codex', env: {} });
-    const invocation = buildCodexInvocation({ provider, prompt: 'hello codex', outputPath: '/tmp/final.md' });
-    assert.deepEqual(invocation.args.slice(0, 3), ['exec', '-C', invocation.cwd]);
+    const invocation = buildCodexInvocation({ provider, prompt: 'hello codex', outputPath: '/tmp/final.md', mcpCallLogPath: '/tmp/mcp.jsonl' });
+    assert.equal(invocation.args[0], 'exec');
+    assert.ok(invocation.args.includes('-C'));
+    assert.equal(invocation.args[invocation.args.indexOf('-C') + 1], invocation.cwd);
+    assert.ok(invocation.args.includes('mcp_servers.tv.command="node"'));
+    assert.ok(invocation.args.some((arg) => arg.includes('mcp_servers.tv.args=') && arg.includes('codex-tv-mcp-server.js')));
+    assert.ok(invocation.args.includes(`mcp_servers.tv.env.CODEX_TV_MCP_CALL_LOG=${JSON.stringify('/tmp/mcp.jsonl')}`));
     assert.deepEqual(invocation.args.slice(-3), ['--output-last-message', '/tmp/final.md', '-']);
     assert.equal(invocation.stdin, 'hello codex');
     assert.match(invocation.cwd, /claude-tradingview-analyser-v2$/);
   });
 
+  test('Codex text turn emits MCP tool_call events recorded by the app-local tv server', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fake-codex-mcp-'));
+    const fakeCodex = path.join(dir, 'codex');
+    await fs.writeFile(fakeCodex, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const outIdx = args.indexOf('--output-last-message');
+const cfgIdx = args.findIndex((a) => a.startsWith('mcp_servers.tv.env.CODEX_TV_MCP_CALL_LOG='));
+if (cfgIdx >= 0) {
+  const logPath = JSON.parse(args[cfgIdx].split('=').slice(1).join('='));
+  fs.writeFileSync(logPath, JSON.stringify({ ts: '2026-06-04T00:00:00.000Z', name: 'surface_session_summary', args: { session: 'ny-am' } }) + '\\n');
+}
+if (outIdx >= 0) fs.writeFileSync(args[outIdx + 1], 'Wrapped through MCP.\\n');
+process.exit(0);
+`);
+    await fs.chmod(fakeCodex, 0o755);
+    const events = [];
+    const provider = {
+      name: 'codex',
+      label: 'Codex',
+      supportsToolCalling: true,
+      toolRequired: true,
+      command: fakeCodex,
+      args: ['exec'],
+      model: null,
+      mcpEnabled: true,
+      mcpServerPath: path.join(dir, 'server.js'),
+    };
+
+    try {
+      await runCodexTextTurn({
+        text: 'wrap',
+        systemPrompt: 'system prompt',
+        purpose: 'wrap',
+        provider,
+        timeoutMs: 5000,
+        onEvent: (event) => events.push(event),
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+
+    assert.equal(events.some((event) => event.type === 'tool_call' && event.name === 'mcp__tv__surface_session_summary'), true);
+    assert.deepEqual(events.filter((event) => event.type === 'chunk').map((event) => event.text), ['Wrapped through MCP.']);
+    assert.equal(events.at(-1).type, 'turn_complete');
+  });
   test('Codex text turn emits only captured final assistant message, not raw CLI transcript', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fake-codex-'));
     const fakeCodex = path.join(dir, 'codex');
