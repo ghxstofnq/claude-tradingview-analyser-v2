@@ -67,6 +67,12 @@ export function validateTurnSurfaceContract({ purpose, text = "", toolCalls = []
     if (has(calls, "mcp__tv__surface_setup")) {
       return fail("catch-up turn must not call surface_setup", calls);
     }
+    if (/surface_leader_decision|Pick leader/i.test(text) && !has(calls, "mcp__tv__surface_leader_decision")) {
+      return fail("leader catch-up turn must call surface_leader_decision", calls);
+    }
+    if (/surface_ltf_bias|finalize LTF bias|ltf-bias\.md is missing/i.test(text) && !has(calls, "mcp__tv__surface_ltf_bias")) {
+      return fail("catch-up turn must call surface_ltf_bias", calls);
+    }
     if (!has(calls, "mcp__tv__surface_no_trade")) {
       return fail("catch-up turn must end with surface_no_trade", calls);
     }
@@ -80,6 +86,9 @@ export function validateTurnSurfaceContract({ purpose, text = "", toolCalls = []
       }
       if (!has(calls, "mcp__tv__surface_open_reaction")) {
         return fail("open-reaction bar-close turn must call surface_open_reaction", calls);
+      }
+      if (/minutes_into_phase >= 14|\(\+14m\)|\(\+15m\)/.test(text) && !has(calls, "mcp__tv__surface_leader_decision")) {
+        return fail("final open-reaction turn must call surface_leader_decision", calls);
       }
       if (/minutes_into_phase >= 14|\(\+14m\)|\(\+15m\)/.test(text) && !has(calls, "mcp__tv__surface_ltf_bias")) {
         return fail("final open-reaction turn must call surface_ltf_bias", calls);
