@@ -19,6 +19,8 @@ import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { computeSize, dayOfWeek } from "../../cli/lib/sizing.js";
 import { getPersistentMemory } from "./persistent-memory.js";
+import { archiveBriefArtifacts } from "./session-memory.js";
+import { runDirectSessionBrief } from "./direct-session-brief.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -72,9 +74,14 @@ export function activeOrImminentSession(date = new Date()) {
 }
 
 async function briefPathFor(session, date = nyParts().date) {
+  const dir = await briefDirFor(session, date);
+  return path.join(dir, "brief.json");
+}
+
+async function briefDirFor(session, date = nyParts().date) {
   const dir = path.join(REPO_ROOT, "state", "session", date, session);
   await fs.mkdir(dir, { recursive: true });
-  return path.join(dir, "brief.json");
+  return dir;
 }
 
 // Legacy single-symbol brief reader. brief.json is now the PRIMARY mirror
@@ -321,6 +328,29 @@ For Step 6 (Sizing): use the <sizing_pre_computed> block above verbatim. Pick th
 The brief is what the trader sees during the open; sloppy citations or self-contradicting verdicts here directly hurt their decisions. The phase spec exists exactly to keep this turn disciplined.`;
 }
 
+async function sizingByGradeForToday() {
+  const today = dayOfWeek();
+  let memoryUserText = "";
+  try {
+    const mem = getPersistentMemory();
+    await mem.load();
+    memoryUserText = mem.formatForSystemPrompt("user") || "";
+  } catch { /* memory unavailable — pass empty string */ }
+  return {
+    "A+": computeSize({ day_of_week: today, grade: "A+", memory_overrides: memoryUserText }),
+    B: computeSize({ day_of_week: today, grade: "B", memory_overrides: memoryUserText }),
+    "no-trade": { r_size: 0, cites: ["strategy.sizing-table"] },
+  };
+}
+
+async function runDirectBrief(session, { onEvent } = {}) {
+  return runDirectSessionBrief({
+    session,
+    sizingByGrade: await sizingByGradeForToday(),
+    onEvent,
+  });
+}
+
 const _driver = makeScheduledTurn({
   name: "session-brief",
   purpose: "brief",
@@ -338,9 +368,24 @@ const _driver = makeScheduledTurn({
   // hit the 5-min default after EFFORT moved to xhigh in PR #56. 10 min
   // covers the worst case with headroom.
   timeoutMs: 600_000,
+  // Codex cannot call app MCP surface tools. When the selected provider is a
+  // non-tool provider for this tool-required purpose, scheduled-turn uses this
+  // deterministic in-process path instead of forcing Claude.
+  directRunFn: runDirectBrief,
 });
 
 export const bootstrap = _driver.bootstrap;
-export const runManualRefresh = _driver.runManual;
+export async function runManualRefresh(options = {}) {
+  const session = activeOrImminentSession();
+  if (session) {
+    try {
+      await archiveBriefArtifacts(await briefDirFor(session));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[session-brief] failed to archive existing brief before manual refresh", err?.message || err);
+    }
+  }
+  return _driver.runManual({ force: true, ...options });
+}
 export const stopScheduler = _driver.stop;
 export const rearmScheduler = _driver.rearm;

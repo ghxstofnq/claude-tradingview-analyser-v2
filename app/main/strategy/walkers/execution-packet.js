@@ -21,6 +21,22 @@ function targetPool(context, side) {
   return side === 'long' ? (targets.above ?? []) : (targets.below ?? []);
 }
 
+function normalizeModelName(model) {
+  const value = String(model ?? '').trim().toLowerCase();
+  if (value === 'mss') return 'mss';
+  if (value === 'trend') return 'trend';
+  if (value === 'inversion') return 'inversion';
+  if (value === 'undecided' || value === 'unknown' || value === 'none') return value;
+  return value;
+}
+
+function capGrade(grade, cap) {
+  const rank = { 'no-trade': 0, B: 1, 'A+': 2 };
+  const normalizedCap = cap === 'A+' || cap === 'B' || cap === 'no-trade' ? cap : 'A+';
+  if ((rank[grade] ?? 0) <= (rank[normalizedCap] ?? 2)) return grade;
+  return normalizedCap;
+}
+
 function targetIsCorrectSide(target, entry, side) {
   return side === 'long' ? target.price > entry : target.price < entry;
 }
@@ -74,9 +90,10 @@ function deriveGrade({ context, walker }) {
   const pdQuality = walker?.evidence?.pdArray?.rawPayload?.size_quality
     ?? walker?.evidence?.pdArray?.rawPayload?.sizeQuality
     ?? walker?.evidence?.pdArray?.rawPayload?.quality;
-  if (context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass' && pdQuality === 'large') return 'A+';
-  if (context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass') return 'B';
-  return 'no-trade';
+  let grade = 'no-trade';
+  if (context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass' && pdQuality === 'large') grade = 'A+';
+  else if (context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass') grade = 'B';
+  return capGrade(grade, context?.sessionChain?.gradeCap);
 }
 
 function packetEntryAudit(confirmationPayload, confirmation) {
@@ -138,6 +155,15 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const grade = deriveGrade({ context, walker });
   if (grade === 'no-trade') blockers.push('grade_blocked');
+
+  const priority = normalizeModelName(context?.sessionChain?.entryModelPriority);
+  const walkerModel = normalizeModelName(walker?.model);
+  if (priority && !['undecided', 'unknown', 'none'].includes(priority) && walkerModel && walkerModel !== priority) {
+    blockers.push('entry_model_priority_blocked');
+  }
+  if (context?.sessionChain?.htfLtfAlignment === 'divergent' && walkerModel && walkerModel !== 'mss') {
+    blockers.push('divergent_day_requires_mss');
+  }
 
   const status = blockers.length === 0 ? 'executable' : 'blocked';
   const packet = {

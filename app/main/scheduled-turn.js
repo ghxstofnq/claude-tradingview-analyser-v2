@@ -16,6 +16,7 @@
 //   - "skipped" status now reports a reason, surfaced in onStatus events.
 
 import { userTurn, resetSession, isClaudeAuthBlocked } from "./sdk.js";
+import { resolveLlmProvider } from "./llm-provider.js";
 import { record as recordMetric } from "./metrics.js";
 import { classifyError } from "./error-classifier.js";
 
@@ -29,10 +30,20 @@ export function shouldRetryScheduledTurnForTests({ isRetry = false, errorMessage
   return kind !== "auth";
 }
 
-function authBlockedMessage() {
+function authBlockedMessage(purpose = null, providerOverride = null) {
+  const provider = resolveLlmProvider({ purpose, providerOverride });
+  if (provider.name !== "claude") return null;
   const blocked = isClaudeAuthBlocked();
   if (!blocked) return null;
   return blocked.message || "Claude Code not logged in";
+}
+
+export function providerOverrideForScheduledTurnForTests(config = {}) {
+  return config.providerOverride || null;
+}
+
+export function shouldUseDirectScheduledTurnForTests({ provider, directRunFn } = {}) {
+  return !!directRunFn && !!provider?.toolRequired && !provider?.supportsToolCalling;
 }
 
 function nyParts(date = new Date()) {
@@ -110,6 +121,9 @@ function nextTrigger(triggers) {
  *   inherit userTurn's default (5 min). Briefs override to 10 min because
  *   tv_analyze_full + dual-symbol Opus 4.7 xhigh reasoning + two surface
  *   calls regularly run 3–7 min.
+ * @param {string?} config.providerOverride  force a provider for this
+ *   scheduled purpose. Use this for MCP/tool-requiring scheduled turns when
+ *   the global/chat default is Codex.
  */
 export function makeScheduledTurn(config) {
   let _send = null;
@@ -148,7 +162,8 @@ export function makeScheduledTurn(config) {
       }
     }
 
-    const authMsg = authBlockedMessage();
+    const providerOverride = providerOverrideForScheduledTurnForTests(config);
+    const authMsg = authBlockedMessage(config.purpose, providerOverride);
     if (authMsg) {
       const message = "Claude Code not logged in — scheduled LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.";
       _send?.(config.statusChannel, { state: "skipped", session, reason: "claude_auth_blocked", message });
@@ -167,12 +182,8 @@ export function makeScheduledTurn(config) {
     let metricRecorded = false; // guard against double-recording succeed/fail
     let usage = null;     // populated by the "usage" event when the turn succeeds
     try {
-      const text = await config.buildPromptFn(session);
-      await userTurn({
-        text,
-        purpose: config.purpose,
-        timeoutMs: config.timeoutMs,   // undefined → userTurn default (5 min)
-        onEvent: (e) => {
+      const provider = resolveLlmProvider({ purpose: config.purpose, providerOverride });
+      const onEvent = (e) => {
           if (e.type === "chunk") _send?.("chat:chunk", e);
           else if (e.type === "tool_call") {
             if (e.name) toolCalls.push(e.name);
@@ -185,8 +196,19 @@ export function makeScheduledTurn(config) {
             lastErrorMsg = e.message || lastErrorMsg;
             _send?.("app:error", { source: config.name, message: e.message });
           }
-        },
-      });
+        };
+      if (shouldUseDirectScheduledTurnForTests({ provider, directRunFn: config.directRunFn })) {
+        await config.directRunFn(session, { onEvent });
+      } else {
+        const text = await config.buildPromptFn(session);
+        await userTurn({
+          text,
+          purpose: config.purpose,
+          providerOverride,
+          timeoutMs: config.timeoutMs,   // undefined → userTurn default (5 min)
+          onEvent,
+        });
+      }
       // Post-validate the tool calls the turn made. Lets us detect
       // "completed but produced no brief" / "only 1 of 2 dual-symbol
       // briefs landed" — both silent failures before this.
@@ -250,7 +272,7 @@ export function makeScheduledTurn(config) {
     if (errored && shouldRetryScheduledTurnForTests({
       isRetry,
       errorMessage: lastErrorMsg,
-      authBlocked: !!authBlockedMessage(),
+      authBlocked: !!authBlockedMessage(config.purpose),
     })) {
       // Drop the cached session_id for this purpose so the retry starts a
       // fresh conversation. If the first attempt died mid-tool-call (e.g.

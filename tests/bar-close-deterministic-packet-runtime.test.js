@@ -27,6 +27,17 @@ const confirmedWalker = {
 function runtimeInputs() {
   return {
     leader: 'MNQ1!',
+    ltf_bias_context: {
+      bias: 'bullish',
+      htf_ltf_alignment: 'aligned',
+      is_retrace_day: false,
+      entry_model_priority: 'MSS',
+      grade_cap: 'A+',
+    },
+    session_state: {
+      pillar1: { status: 'pass', htfBias: 'bullish', htfDraw: 'above PDH', primaryDraw: 'PDH' },
+      pillar2: { status: 'pass', verdict: 'pass' },
+    },
     untaken_targets: { untaken_above: [{ evidenceRef: 'target.pdh', label: 'PDH', price: 21050 }], untaken_below: [] },
     bundle: {
       chart: { symbol: 'CME_MINI:MNQ1!' },
@@ -65,6 +76,30 @@ test('buildDeterministicPacketTruthFromInputs promotes confirmed walker into sur
   assert.equal(truth.events.length >= 1, true);
 });
 
+test('deterministicPacketToSurfacePayload derives fallback setup id from event time, not wall-clock time', () => {
+  const packet = {
+    model: 'MSS',
+    side: 'long',
+    entry: { price: 21000, evidenceRef: 'confirm.close' },
+    stop: { price: 20990, evidenceRef: 'stop.mss_swing_low' },
+    tp1: { price: 21050, evidenceRef: 'target.pdh', rMultiple: 5 },
+    grade: 'A+',
+  };
+
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 1111111111111;
+    const first = __test.deterministicPacketToSurfacePayload(packet, { ts: '2026-05-29T13:45:00.000Z', tf: '1m' });
+    Date.now = () => 2222222222222;
+    const second = __test.deterministicPacketToSurfacePayload(packet, { ts: '2026-05-29T13:45:00.000Z', tf: '1m' });
+
+    assert.equal(first.id, second.id);
+    assert.equal(first.id, 'D-20260529T1345');
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('buildDeterministicPacketTruthFromInputs emits blocked no-trade reason instead of executable setup when packet is not ready', () => {
   const truth = __test.buildDeterministicPacketTruthFromInputs({
     inputs: runtimeInputs(),
@@ -96,4 +131,71 @@ test('buildDeterministicPacketTruthFromInputs labels source-health failure as ca
   assert.deepEqual(truth.blockers, ['stale_source']);
   assert.match(truth.noTradeReason, /^cannot evaluate: source health failed: stale_source/);
   assert.equal(truth.bestPacket, null);
+});
+
+test('buildDeterministicPacketTruthFromInputs cannot evaluate when live chain is missing open-reaction ltf bias', () => {
+  const inputs = runtimeInputs();
+  delete inputs.ltf_bias_context;
+
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs,
+    previousWalkers: [confirmedWalker],
+    event: { ts: '2026-05-29T13:45:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+
+  assert.equal(truth.finalVerdict, 'no_trade');
+  assert.equal(truth.evaluationStatus, 'cannot_evaluate_strategy_chain');
+  assert.deepEqual(truth.blockers, ['missing_ltf_bias', 'missing_htf_ltf_alignment', 'missing_entry_model_priority', 'missing_grade_cap']);
+  assert.equal(truth.bestPacket, null);
+  assert.match(truth.noTradeReason, /strategy chain incomplete: missing_ltf_bias/);
+});
+
+test('buildDeterministicPacketTruthFromInputs cannot evaluate when prep pillar verdicts are missing', () => {
+  const inputs = runtimeInputs();
+  delete inputs.session_state;
+
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs,
+    previousWalkers: [confirmedWalker],
+    event: { ts: '2026-05-29T13:45:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+
+  assert.equal(truth.evaluationStatus, 'cannot_evaluate_strategy_chain');
+  assert.deepEqual(truth.blockers, ['missing_pillar1_state', 'missing_pillar2_state']);
+  assert.equal(truth.bestPacket, null);
+});
+
+test('buildDeterministicPacketTruthFromInputs enforces open-reaction grade cap on deterministic packet', () => {
+  const inputs = runtimeInputs();
+  inputs.ltf_bias_context.grade_cap = 'B';
+
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs,
+    previousWalkers: [confirmedWalker],
+    event: { ts: '2026-05-29T13:45:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+
+  assert.equal(truth.finalVerdict, 'manual_candidate');
+  assert.equal(truth.bestPacket.status, 'executable');
+  assert.equal(truth.bestPacket.grade, 'B');
+  assert.equal(truth.surfacePayload.grade, 'B');
+});
+
+test('buildDeterministicPacketTruthFromInputs blocks models disallowed by open-reaction priority', () => {
+  const inputs = runtimeInputs();
+  inputs.ltf_bias_context.entry_model_priority = 'Trend';
+
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs,
+    previousWalkers: [confirmedWalker],
+    event: { ts: '2026-05-29T13:45:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+
+  assert.equal(truth.finalVerdict, 'no_trade');
+  assert.equal(truth.bestPacket, null);
+  assert.match(truth.noTradeReason, /entry_model_priority_blocked/);
 });

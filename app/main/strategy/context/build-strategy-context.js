@@ -31,35 +31,44 @@ function kindOf(row) {
   return String(row?.kind ?? row?.type ?? '').toLowerCase();
 }
 
-function buildPillar1(engine, blocked) {
+function buildPillar1(engine, blocked, sessionChain = {}) {
   const p1 = engine?.pillar1 ?? {};
+  const lockedP1 = sessionChain?.pillar1 ?? {};
   const blockers = [...blocked];
-  if (!p1.htfBias) blockers.push('missing_htf_bias');
-  if (!p1.htfDraw) blockers.push('missing_htf_draw');
-  if (!p1.primaryDraw) blockers.push('missing_primary_draw');
+  const htfBias = p1.htfBias ?? lockedP1.htfBias ?? lockedP1.htf_bias;
+  const htfDraw = p1.htfDraw ?? lockedP1.htfDraw ?? lockedP1.htf_draw;
+  const primaryDraw = p1.primaryDraw ?? lockedP1.primaryDraw ?? lockedP1.primary_draw;
+  if (!htfBias) blockers.push('missing_htf_bias');
+  if (!htfDraw) blockers.push('missing_htf_draw');
+  if (!primaryDraw) blockers.push('missing_primary_draw');
   return {
-    status: blockers.length === 0 ? 'pass' : 'blocked',
-    htfBias: p1.htfBias ?? 'unknown',
-    htfDraw: p1.htfDraw ?? null,
-    primaryDraw: p1.primaryDraw ?? null,
-    untakenTargets: p1.untakenTargets ?? { above: [], below: [] },
+    status: blockers.length === 0 && (lockedP1.status == null || lockedP1.status === 'pass') ? 'pass' : 'blocked',
+    htfBias: htfBias ?? 'unknown',
+    htfDraw: htfDraw ?? null,
+    primaryDraw: primaryDraw ?? null,
+    untakenTargets: p1.untakenTargets ?? lockedP1.untakenTargets ?? { above: [], below: [] },
     blockers,
   };
 }
 
-function buildPillar2(engine, blocked) {
+function buildPillar2(engine, blocked, sessionChain = {}) {
   const p2 = engine?.pillar2 ?? {};
+  const lockedP2 = sessionChain?.pillar2 ?? {};
   const current = p2.current_tf ?? {};
-  const chop15m = p2.chop_15m === true || p2.chop15m === true || current.chop_15m === true;
+  const chop15m = p2.chop_15m === true || p2.chop15m === true || p2.chop_15m === 1 || current.chop_15m === true;
   const blockers = [...blocked];
   if (!current.candle) blockers.push('missing_candle_quality');
   if (!current.displacement) blockers.push('missing_displacement');
   if (chop15m) blockers.push('chop_15m');
+  if (['blocked', 'block', 'poor', 'no-trade', 'no_trade'].includes(String(lockedP2.status ?? lockedP2.verdict ?? '').toLowerCase())) {
+    blockers.push('pillar2_prep_blocked');
+  }
   return {
     status: blockers.length === 0 ? 'pass' : 'blocked',
     candleQuality: current.candle ?? 'unknown',
     displacement: current.displacement ?? 'unknown',
     chop15m,
+    prepVerdict: lockedP2.verdict ?? lockedP2.status ?? null,
     blockers,
   };
 }
@@ -99,6 +108,7 @@ export function buildStrategyContext(bundle = {}) {
     ? sourceHealth
     : { ...sourceHealth, status: 'blocked', blockers: [...new Set(blockers)] };
   const hardBlockers = isTradableSourceHealth(effectiveSourceHealth) ? [] : effectiveSourceHealth.blockers;
+  const sessionChain = bundle.sessionChain ?? {};
   const pillar3 = buildPillar3(engine);
   pillar3.ohlcv1m = bundle.ohlcv1m ?? bundle.bars?.m1 ?? [];
   pillar3.ohlcv5m = bundle.ohlcv5m ?? bundle.bars?.m5 ?? [];
@@ -109,8 +119,9 @@ export function buildStrategyContext(bundle = {}) {
     eventTimeUtc: bundle.eventTimeUtc ?? null,
     eventTimeEt: bundle.eventTimeEt ?? null,
     sourceHealth: effectiveSourceHealth,
-    pillar1: buildPillar1(engine, hardBlockers),
-    pillar2: buildPillar2(engine, hardBlockers),
+    sessionChain,
+    pillar1: buildPillar1(engine, hardBlockers, sessionChain),
+    pillar2: buildPillar2(engine, hardBlockers, sessionChain),
     pillar3,
     blockers: [...new Set(blockers)],
   };

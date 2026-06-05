@@ -2,18 +2,26 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CHAT_PROVIDER_CELLS,
+  DEFAULT_CHAT_PROVIDER,
   buildProviderPopoverTitle,
   buildProviderSubmitOptions,
   getExclusiveActiveProvider,
   getProviderChat,
   isProviderChatActive,
+  normalizeChatProvider,
   shouldProviderHandleEvent,
 } from '../app/renderer/src/provider-popover-contract.js';
 
 describe('provider popover contract', () => {
+  test('starts with Codex first and keeps Claude second as fallback', () => {
+    assert.equal(DEFAULT_CHAT_PROVIDER, 'codex');
+    assert.equal(normalizeChatProvider(), 'codex');
+    assert.deepEqual(CHAT_PROVIDER_CELLS.map((cell) => cell.provider), ['codex', 'claude']);
+    assert.deepEqual(CHAT_PROVIDER_CELLS.map((cell) => cell.label), ['CODEX', 'CLAUDE']);
+  });
+
   test('renders Claude and Codex as same-functionality bottom-bar cells', () => {
-    assert.deepEqual(CHAT_PROVIDER_CELLS.map((cell) => cell.provider), ['claude', 'codex']);
-    assert.deepEqual(CHAT_PROVIDER_CELLS.map((cell) => cell.label), ['CLAUDE', 'CODEX']);
+    assert.ok(CHAT_PROVIDER_CELLS.every((cell) => ['claude', 'codex'].includes(cell.provider)));
     assert.ok(CHAT_PROVIDER_CELLS.every((cell) => cell.popoverClassName === 'claude-popover'));
     assert.ok(CHAT_PROVIDER_CELLS.every((cell) => cell.feedComponent === 'ClaudeFeed'));
     assert.ok(CHAT_PROVIDER_CELLS.every((cell) => cell.placement === 'statusline'));

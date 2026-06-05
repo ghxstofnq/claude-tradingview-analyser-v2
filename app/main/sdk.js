@@ -631,7 +631,7 @@ function buildMcpServer() {
         pillar2_verdict: z.enum(["good", "marginal", "poor"]).optional().describe("Final P2 verdict for the session. Gates entry_hunt — 'poor' → stand aside."),
         no_trade_reason: z.enum(["data_gap", "engine_stale", "pillar2_poor", "htf_unclear", "session_closed"]).optional().describe("Required iff pillar_grade==='no-trade'. Drives the hard-vs-soft short-circuit downstream."),
         chain_status: z.string().optional().describe("clean | degraded:<reason> | divergent | backfilled:<phase> | stale:<minutes>"),
-        // Free-form prose rendered in the PREP popover's BRIEF · CLAUDE
+        // Free-form prose rendered in the PREP popover's BRIEF · DETERMINISTIC
         // section. 2-4 sentences in the trader's voice — HTF context, the
         // room price has, primary draw, what you're watching for. The UI
         // does its own color emphasis via `<b>` / .green / .red / .amber
