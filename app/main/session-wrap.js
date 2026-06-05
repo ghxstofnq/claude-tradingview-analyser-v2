@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { makeScheduledTurn } from "./scheduled-turn.js";
 import { readSessionMemoryFor } from "./tools/surface.js";
 import { userTurn } from "./sdk.js";
+import { runDirectSessionWrap } from "./direct-session-wrap.js";
 import { record as recordMetric } from "./metrics.js";
 import { getPersistentMemory } from "./persistent-memory.js";
 
@@ -174,8 +175,14 @@ const _driver = makeScheduledTurn({
   // Wrap emits ~30K tokens of session summary; default 5 min isn't always
   // enough on opus/medium. Match brief's 10 min override.
   timeoutMs: 600_000,
+  // Codex cannot call MCP surface_session_summary directly. For non-tool
+  // providers, wrap follows the direct-brief pattern: JS reads persisted
+  // session memory, builds the summary payload, optionally merges
+  // schema-constrained Codex commentary, then JS surfaces the summary.
+  directRunFn: runDirectSessionWrap,
 });
 
 export const bootstrap = _driver.bootstrap;
 export const stopScheduler = _driver.stop;
 export const rearmScheduler = _driver.rearm;
+export const directRunFnForTests = runDirectSessionWrap;
