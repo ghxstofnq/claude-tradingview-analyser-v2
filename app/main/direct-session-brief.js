@@ -113,6 +113,20 @@ function pillar2Status(digestSymbol) {
   return { verdict: "good", status: "pass" };
 }
 
+// HTF quality from the digest's real h4/h1 engine quality rows. The previous
+// version cited pillar2.m5/m15 (LTF) under HTF labels — when the capture hole
+// nulled h4/h1, the brief showed "na" quality with an HTF cite that pointed at
+// the wrong data, feeding the htf_unclear misdiagnosis.
+function htfQualityRow(symbol, digestSymbol, tf) {
+  const q = digestSymbol?.htf?.[tf]?.quality;
+  return {
+    range_quality: q?.range_quality ?? "unknown",
+    displacement: q?.displacement ?? "unknown",
+    candle: q?.candle ?? "unknown",
+    cite: `brief_digest.symbols.${symbol}.htf.${tf}.quality`,
+  };
+}
+
 function pickPrimaryDraw(digestSymbol) {
   for (const tf of ["h4", "h1", "daily"]) {
     const block = digestSymbol?.htf?.[tf] ?? {};
@@ -148,9 +162,20 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     const p2 = pillar2Status(ds);
     const draw = pickPrimaryDraw(ds);
     const drawStatus = draw ? "pass" : "weak";
-    const weakCount = [drawStatus, p2.status].filter((s) => s !== "pass").length;
-    const pillar_grade = weakCount === 0 ? "B" : "no-trade";
-    const no_trade_reason = pillar_grade === "no-trade" ? (p2.status === "fail" ? "pillar2_poor" : "htf_unclear") : undefined;
+    // Capture provenance (brief_digest data_status, 2026-06-11): a missing HTF
+    // capture is an instrument failure (data_gap), not a market verdict
+    // (htf_unclear). 8 of 13 June briefs died as htf_unclear when the H4/H1
+    // engine read had simply returned null.
+    const HTF_TF_KEYS = ["daily", "h4", "h1"];
+    const missingTfs = HTF_TF_KEYS.filter((tf) => ds?.htf?.[tf]?.data_status === "missing");
+    const fallbackTfs = HTF_TF_KEYS.filter((tf) => ds?.htf?.[tf]?.data_status === "fallback");
+    // Grade per CLAUDE.md constraint #9: one weaker element → B; no-trade only
+    // when the draw is absent or price quality fails outright.
+    let pillar_grade = "B";
+    let no_trade_reason;
+    if (!draw && missingTfs.length) { pillar_grade = "no-trade"; no_trade_reason = "data_gap"; }
+    else if (p2.status === "fail") { pillar_grade = "no-trade"; no_trade_reason = "pillar2_poor"; }
+    else if (!draw) { pillar_grade = "no-trade"; no_trade_reason = "htf_unclear"; }
     const targetLevel = levels.find((l) => l.state === "untaken") ?? levels[0] ?? { name: "reference", price: 0 };
     const stopLevel = [...levels].reverse().find((l) => l.price !== targetLevel.price) ?? targetLevel;
     const sizing = sizingByGrade[pillar_grade] ?? sizingByGrade.B ?? { r_size: pillar_grade === "no-trade" ? 0 : 1, override_reason: null };
@@ -193,11 +218,14 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
         path_to_destination: targetLevel.name,
       },
       htf_quality: {
-        h4: { range_quality: ds?.pillar2?.m5?.range_quality || "unknown", displacement: ds?.pillar2?.m5?.displacement || "unknown", candle: ds?.pillar2?.m5?.candle || "unknown", cite: `brief_digest.symbols.${symbol}.pillar2.m5` },
-        h1: { range_quality: ds?.pillar2?.m15?.range_quality || "unknown", displacement: ds?.pillar2?.m15?.displacement || "unknown", candle: ds?.pillar2?.m15?.candle || "unknown", cite: `brief_digest.symbols.${symbol}.pillar2.m15` },
+        h4: htfQualityRow(symbol, ds, "h4"),
+        h1: htfQualityRow(symbol, ds, "h1"),
       },
       pillar2_verdict: p2.verdict,
-      chain_status: no_trade_reason ? `degraded:${no_trade_reason}` : "clean:direct-codex-compatible",
+      chain_status: no_trade_reason ? `degraded:${no_trade_reason}`
+        : missingTfs.length ? "degraded:htf_partial"
+        : fallbackTfs.length ? "degraded:htf_fallback"
+        : "clean:direct-codex-compatible",
     };
   });
 }

@@ -125,3 +125,85 @@ test("runDirectSessionBrief fails open when Codex analysis is invalid so fake ov
   assert.equal(surfaced[0].codex_analysis, undefined);
   assert.equal(events.some((e) => e.type === "codex_analysis" && e.status === "rejected"), true);
 });
+
+// ---- grade matrix: data_gap vs htf_unclear vs constraint-#9 B (2026-06-11) ----
+
+function digestSymbolWith({ drawTf = "h4", draw = true, p2 = "good", dataStatus = {} } = {}) {
+  const ds = digestSymbol();
+  for (const tf of ["daily", "h4", "h1"]) {
+    ds.htf[tf].data_status = dataStatus[tf] ?? "fresh";
+    ds.htf[tf].top_fvgs = (draw && tf === drawTf)
+      ? [{ dir: "bull", top: 30000, bottom: 29950, ce: 29975, disp_score: 0.8, took_liq: true, state: "fresh", cite: `engine_by_tf.${tf}.fvgs[0]` }]
+      : [];
+  }
+  if (p2 === "marginal") {
+    ds.pillar2.m15 = { range_quality: "poor", displacement: "weak", candle: "doji_wick" };
+  } else if (p2 === "poor") {
+    ds.pillar2.m5 = { range_quality: "poor", displacement: "weak", candle: "doji_wick" };
+    ds.pillar2.m15 = { range_quality: "poor", displacement: "weak", candle: "doji_wick" };
+  }
+  return ds;
+}
+
+function bundleWith(ds) {
+  return { brief_digest: { symbols: { "MNQ1!": ds }, leader_evidence: {} } };
+}
+
+function buildOne(ds) {
+  return buildDirectSessionBriefPayloads({
+    session: "ny-am",
+    bundle: bundleWith(ds),
+    sizingByGrade: { B: { r_size: 0.75 } },
+    symbols: ["MNQ1!"],
+  })[0];
+}
+
+test("one weak element (p2 marginal, draw pass) grades B per constraint #9, not no-trade", () => {
+  const payload = buildOne(digestSymbolWith({ p2: "marginal" }));
+  assert.equal(payload.pillar_grade, "B");
+  assert.equal(payload.no_trade_reason, undefined);
+});
+
+test("no draw because HTF capture is missing grades no-trade with reason data_gap, not htf_unclear", () => {
+  const payload = buildOne(digestSymbolWith({ draw: false, dataStatus: { h4: "missing", h1: "missing" } }));
+  assert.equal(payload.pillar_grade, "no-trade");
+  assert.equal(payload.no_trade_reason, "data_gap");
+  assert.equal(payload.chain_status, "degraded:data_gap");
+});
+
+test("no draw on a healthy capture stays no-trade htf_unclear (real market verdict)", () => {
+  const payload = buildOne(digestSymbolWith({ draw: false }));
+  assert.equal(payload.pillar_grade, "no-trade");
+  assert.equal(payload.no_trade_reason, "htf_unclear");
+});
+
+test("pillar2 poor still grades no-trade pillar2_poor when a draw exists", () => {
+  const payload = buildOne(digestSymbolWith({ p2: "poor" }));
+  assert.equal(payload.pillar_grade, "no-trade");
+  assert.equal(payload.no_trade_reason, "pillar2_poor");
+});
+
+test("2026-06-10 regression: daily draw + missing h4/h1 + marginal p2 grades B with degraded:htf_partial", () => {
+  const payload = buildOne(digestSymbolWith({ drawTf: "daily", p2: "marginal", dataStatus: { h4: "missing", h1: "missing" } }));
+  assert.equal(payload.pillar_grade, "B");
+  assert.equal(payload.no_trade_reason, undefined);
+  assert.equal(payload.chain_status, "degraded:htf_partial");
+});
+
+test("fallback-sourced HTF marks the chain degraded:htf_fallback instead of clean", () => {
+  const payload = buildOne(digestSymbolWith({ dataStatus: { h4: "fallback" } }));
+  assert.equal(payload.pillar_grade, "B");
+  assert.equal(payload.chain_status, "degraded:htf_fallback");
+});
+
+test("htf_quality reads the digest's real h4/h1 engine quality rows, not pillar2 m5/m15", () => {
+  const ds = digestSymbolWith({});
+  ds.htf.h4.quality = { range_quality: "good", displacement: "clean", candle: "normal" };
+  ds.htf.h1.quality = { range_quality: "tight", displacement: "acceptable", candle: "doji_wick" };
+  ds.pillar2.m5 = { range_quality: "poor", displacement: "weak", candle: "doji_wick" };
+  const payload = buildOne(ds);
+  assert.equal(payload.htf_quality.h4.range_quality, "good");
+  assert.equal(payload.htf_quality.h4.cite, "brief_digest.symbols.MNQ1!.htf.h4.quality");
+  assert.equal(payload.htf_quality.h1.range_quality, "tight");
+  assert.equal(payload.htf_quality.h1.cite, "brief_digest.symbols.MNQ1!.htf.h1.quality");
+});

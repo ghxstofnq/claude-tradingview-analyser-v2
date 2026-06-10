@@ -143,3 +143,33 @@ test('cite paths use the per-TF prefix (engine_by_tf.<tf>.fvgs/bprs/structures)'
   assert.match(h4.top_bprs[0].cite, /^engine_by_tf\.h4\.bprs\[\d+\]$/);
   assert.match(h4.recent_structures[0].cite, /^engine_by_tf\.h4\.structures\[\d+\]$/);
 });
+
+test('digest.htf carries data_status from capture_health (fresh / fallback / missing)', () => {
+  const symBundle = sampleSymbolBundle();
+  symBundle.engine_by_tf.h1 = null;
+  symBundle.capture_health = {
+    ok: false,
+    missing: ['h1'],
+    fallback: ['h4'],
+    by_tf: {
+      daily: { status: 'fresh', attempts: 1, pass: 1 },
+      h4: { status: 'fallback', baseline_age_seconds: 3600, baseline_path: '/x.json' },
+      h1: { status: 'missing', attempts: 3, pass: 2 },
+    },
+  };
+  const bundle = { pair: { primary: 'MNQ1!', secondary: 'MES1!', symbols: { 'MNQ1!': symBundle, 'MES1!': sampleSymbolBundle() }, leader_evidence: {} } };
+  const htf = buildBriefDigest(bundle).symbols['MNQ1!'].htf;
+  assert.equal(htf.daily.data_status, 'fresh');
+  assert.equal(htf.h4.data_status, 'fallback');
+  assert.equal(htf.h4.baseline_age_seconds, 3600);
+  assert.equal(htf.h1.data_status, 'missing');
+});
+
+test('digest.htf data_status derives from engine presence when capture_health is absent (old bundles)', () => {
+  const symBundle = sampleSymbolBundle();
+  symBundle.engine_by_tf.h1 = null;
+  const bundle = { pair: { primary: 'MNQ1!', secondary: 'MES1!', symbols: { 'MNQ1!': symBundle, 'MES1!': sampleSymbolBundle() }, leader_evidence: {} } };
+  const htf = buildBriefDigest(bundle).symbols['MNQ1!'].htf;
+  assert.equal(htf.h4.data_status, 'fresh');
+  assert.equal(htf.h1.data_status, 'missing');
+});
