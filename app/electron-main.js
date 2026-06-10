@@ -16,6 +16,7 @@ import { flushPendingReview, fireFinalReview } from "./main/shutdown-flush.js";
 import { loadPersistedMode, setMode, getMode } from "./main/mode.js";
 import { startDetector } from "./main/bar-close.js";
 import { startTradeTickerWatchdog } from "./main/trade-ticker-watchdog.js";
+import { startSessionSupervisor } from "./main/session-supervisor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -101,6 +102,14 @@ app.whenReady().then(async () => {
   }
   // Send the renderer the current mode so its tab UI matches.
   ipc.send("mode:current", { mode: getMode() });
+  // Session supervisor: auto-arms the live loop during session windows,
+  // watchdogs the detector heartbeat, and runs the pre-open readiness
+  // check. June 2026: with the mode tabs gone, nothing flipped mode to
+  // live and the detector sat dead for days while briefs kept writing.
+  startSessionSupervisor({ send: ipc.send }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[supervisor] failed to start", err);
+  });
   try {
     await initSdk();
   } catch (err) {
