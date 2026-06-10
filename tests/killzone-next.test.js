@@ -37,11 +37,44 @@ test('after midnight, next killzone is NY AM (London Open not jumped into)', () 
   assert.equal(s.seconds_to_next_killzone, (8 * 60 + 30 - 60) * 60);
 });
 
+test('NY AM 09:45→10:00 ET is the LTF-bias lock window', () => {
+  const beforeLock = sessionAt('2026-05-20T13:44:00Z'); // 09:44 ET
+  assert.notEqual(beforeLock.phase, 'open_reaction_ny_am');
+
+  const lockStart = sessionAt('2026-05-20T13:45:00Z'); // 09:45 ET
+  assert.equal(lockStart.phase, 'open_reaction_ny_am');
+  assert.equal(lockStart.minutes_into_phase, 0);
+
+  const stillLocking = sessionAt('2026-05-20T13:59:00Z'); // 09:59 ET
+  assert.equal(stillLocking.phase, 'open_reaction_ny_am');
+  assert.equal(stillLocking.minutes_into_phase, 14);
+
+  const entryHunt = sessionAt('2026-05-20T14:00:00Z'); // 10:00 ET
+  assert.equal(entryHunt.phase, 'entry_hunt_ny_am');
+});
+
 test('NY AM entry-hunt phase points at NY PM', () => {
-  // 09:50 ET — phase already names a future killzone; unchanged.
-  const s = sessionAt('2026-05-20T13:50:00Z');
+  // 10:05 ET — after the 09:45→10:00 LTF-bias lock window.
+  const s = sessionAt('2026-05-20T14:05:00Z');
+  assert.equal(s.phase, 'entry_hunt_ny_am');
   assert.equal(s.next_killzone_label, 'NY PM');
-  assert.equal(s.seconds_to_next_killzone, (13 * 60 + 30 - (9 * 60 + 50)) * 60);
+  assert.equal(s.seconds_to_next_killzone, (13 * 60 + 30 - (10 * 60 + 5)) * 60);
+});
+
+test('NY PM 13:45→14:00 ET is the LTF-bias lock window', () => {
+  const beforeLock = sessionAt('2026-05-20T17:44:00Z'); // 13:44 ET
+  assert.notEqual(beforeLock.phase, 'open_reaction_ny_pm');
+
+  const lockStart = sessionAt('2026-05-20T17:45:00Z'); // 13:45 ET
+  assert.equal(lockStart.phase, 'open_reaction_ny_pm');
+  assert.equal(lockStart.minutes_into_phase, 0);
+
+  const stillLocking = sessionAt('2026-05-20T17:59:00Z'); // 13:59 ET
+  assert.equal(stillLocking.phase, 'open_reaction_ny_pm');
+  assert.equal(stillLocking.minutes_into_phase, 14);
+
+  const entryHunt = sessionAt('2026-05-20T18:00:00Z'); // 14:00 ET
+  assert.equal(entryHunt.phase, 'entry_hunt_ny_pm');
 });
 
 test('after NY PM start, next killzone wraps to next-day London Open', () => {
@@ -58,10 +91,10 @@ test('after NY PM start, next killzone wraps to next-day London Open', () => {
 // reason="no_fvgs_created_in_window" every time, regardless of data.
 // ─────────────────────────────────────────────────────────────────────────
 
-test('open_window bounds match NY-AM 09:30→09:45 ET during NY-AM phases', () => {
-  // 09:35 ET on 2026-05-20 (Wed, EDT) — phase open_reaction_ny_am.
+test('open_window bounds match NY-AM 09:30→09:45 ET during NY-AM pre-lock phase', () => {
+  // 09:35 ET on 2026-05-20 (Wed, EDT) — cash-open observation, before the 09:45 lock window.
   const s = sessionAt('2026-05-20T13:35:00Z');
-  assert.equal(s.phase, 'open_reaction_ny_am');
+  assert.equal(s.phase, 'pre_session_ny_am');
   const expectedStart = Date.parse('2026-05-20T13:30:00Z'); // 09:30 ET
   const expectedEnd   = Date.parse('2026-05-20T13:45:00Z'); // 09:45 ET
   assert.equal(s.open_window_start_ms, expectedStart);
@@ -78,10 +111,10 @@ test('open_window bounds still anchor to today during pre_session_ny_am', () => 
   assert.equal(s.open_window_end_ms,   expectedStart + 15 * 60 * 1000);
 });
 
-test('open_window bounds shift to NY-PM 13:30→13:45 ET during NY-PM phases', () => {
-  // 13:35 ET on 2026-05-20 — phase open_reaction_ny_pm.
+test('open_window bounds shift to NY-PM 13:30→13:45 ET during NY-PM pre-lock phase', () => {
+  // 13:35 ET on 2026-05-20 — cash-open observation, before the 13:45 lock window.
   const s = sessionAt('2026-05-20T17:35:00Z');
-  assert.equal(s.phase, 'open_reaction_ny_pm');
+  assert.equal(s.phase, 'pre_session_ny_pm');
   const expectedStart = Date.parse('2026-05-20T17:30:00Z'); // 13:30 ET
   const expectedEnd   = Date.parse('2026-05-20T17:45:00Z'); // 13:45 ET
   assert.equal(s.open_window_start_ms, expectedStart);

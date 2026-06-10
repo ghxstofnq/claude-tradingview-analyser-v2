@@ -78,7 +78,24 @@ export async function getOpenReaction(sessionArg) {
   const session = sessionArg || currentSession().session;
   if (!session || session === "idle") return { session: null, reads: [], latest: null };
   const reads = (await readJsonOrNull(path.join(dirFor(session), "open-reaction.json"))) || [];
-  return { session, reads, latest: reads[0] || null };
+  const ltfBias = await readJsonOrNull(path.join(dirFor(session), "ltf-bias.json"));
+  const lockDecision = await readJsonOrNull(path.join(dirFor(session), "lock-brief-decision.json"));
+  return { session, reads, latest: reads[0] || null, ltfBias, lockDecision };
+}
+
+export async function recordLockBriefDecision(sessionArg, action) {
+  const session = sessionArg || currentSession().session;
+  if (!session || session === "idle") throw new Error("active session required");
+  if (!["start_detector", "watch_10m_more"].includes(action)) throw new Error("invalid lock brief action");
+  const record = {
+    session,
+    action,
+    extend_minutes: action === "watch_10m_more" ? 10 : 0,
+    decided_at: new Date().toISOString(),
+  };
+  await fs.mkdir(dirFor(session), { recursive: true });
+  await fs.writeFile(path.join(dirFor(session), "lock-brief-decision.json"), JSON.stringify(record, null, 2), "utf8");
+  return record;
 }
 
 // SETUPS list — last N entries from setups.jsonl for the given session

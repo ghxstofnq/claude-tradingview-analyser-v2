@@ -15,7 +15,7 @@ import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
 import { getCurrentSurfaceState, clearCurrentSurfaceState } from "./tools/surface.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
-import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
+import { getSessionRecap, getOpenReaction, getSetupsList, recordLockBriefDecision } from "./session-views.js";
 import { listSessionFolders, getJournalFor, getLibrary, getDefaultJournal, getPriorBrief } from "./review.js";
 import { getLastBar } from "./last-bar.js";
 import { getCache as getSymbolCache } from "./symbol-cache.js";
@@ -42,11 +42,11 @@ export function registerIpc(win) {
   // LIVE HUNT could show a running detector while isLive() stayed false — no
   // bars.jsonl, scans, walkers, deterministic truth, setups, or trades.
   ipcMain.handle("detector:start", async () => {
-    try { setMode("live"); startDetector({ send }); ipc.send("mode:current", { mode: "live" }); return { ok: true }; }
+    try { setMode("live"); startDetector({ send }); send("mode:current", { mode: "live" }); return { ok: true }; }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
   ipcMain.handle("detector:stop", async () => {
-    try { stopDetector(); setMode("prep"); send("health:update", { detector: "stopped" }); ipc.send("mode:current", { mode: "prep" }); return { ok: true }; }
+    try { stopDetector(); setMode("prep"); send("health:update", { detector: "stopped" }); send("mode:current", { mode: "prep" }); return { ok: true }; }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
@@ -336,6 +336,21 @@ export function registerIpc(win) {
   ipcMain.handle("prep:open_reaction_get", async (_evt, args = {}) => {
     try {
       return { ok: true, ...(await getOpenReaction(args.session)) };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  ipcMain.handle("prep:lock_brief_action", async (_evt, args = {}) => {
+    try {
+      const decision = await recordLockBriefDecision(args.session, args.action);
+      if (args.action === "start_detector") {
+        setMode("live");
+        startDetector({ send });
+        send("mode:current", { mode: "live" });
+      }
+      send("prep:lock_brief_decision", decision);
+      return { ok: true, decision };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }

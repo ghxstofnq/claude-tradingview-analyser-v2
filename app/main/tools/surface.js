@@ -506,13 +506,15 @@ function actualPhaseForSession(session) {
   }).formatToParts(new Date());
   const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
   const m = get("hour") * 60 + get("minute");
-  // Session windows (ET):
-  //  ny-am:  pre 08:00-09:30 | open_reaction 09:30-09:45 | entry_hunt 09:45-12:00 | post 12:00+
-  //  ny-pm:  pre 12:00-13:30 | open_reaction 13:30-13:45 | entry_hunt 13:45-16:00 | post 16:00+
+  // Session windows (ET). NY cash-open observation is 09:30→09:45 / 13:30→13:45;
+  // GXNQ's LTF-bias lock window is 09:45→10:00 / 13:45→14:00. Treat both
+  // as open-reaction for persisted reads; entry hunting starts only after lock.
+  //  ny-am:  pre 08:00-09:30 | open_reaction 09:30-10:00 | entry_hunt 10:00-12:00 | post 12:00+
+  //  ny-pm:  pre 12:00-13:30 | open_reaction 13:30-14:00 | entry_hunt 14:00-16:00 | post 16:00+
   //  london: pre 01:00-03:00 | open_reaction 03:00-03:15 | entry_hunt 03:15-06:00 | post 06:00+
   const windows = {
-    ny_am:  { open: 9 * 60 + 30,  rxnEnd: 9 * 60 + 45,  postStart: 12 * 60 },
-    ny_pm:  { open: 13 * 60 + 30, rxnEnd: 13 * 60 + 45, postStart: 16 * 60 },
+    ny_am:  { open: 9 * 60 + 30,  rxnEnd: 10 * 60,       postStart: 12 * 60 },
+    ny_pm:  { open: 13 * 60 + 30, rxnEnd: 14 * 60,       postStart: 16 * 60 },
     london: { open: 3 * 60,        rxnEnd: 3 * 60 + 15,  postStart: 6 * 60 },
   };
   const w = windows[sess];

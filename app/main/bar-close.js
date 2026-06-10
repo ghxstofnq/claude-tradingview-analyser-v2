@@ -391,7 +391,7 @@ async function runClaudeTurnFor(ev, session, phase) {
   const authBlocked = isClaudeAuthBlocked();
 
   // Catch-up: if we entered entry-hunt without a pair-decision (started the
-  // system after 09:45 ET for NY AM / 13:15 for NY PM / 03:15 for London),
+  // system after the LTF-bias lock window (10:00 ET for NY AM / 14:00 for NY PM / 03:15 for London),
   // the open-reaction window has already passed and surface_leader_decision
   // never fired. Trigger a one-shot catch-up turn now to pick the leader
   // from current data so the rest of entry-hunt has the chart pinned and
@@ -449,8 +449,8 @@ async function runClaudeTurnFor(ev, session, phase) {
   if (phase === "open_reaction") {
     const finalize = mip != null && mip >= 14;
     const pairLine =
-      `Pair config: pass pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}" to tv_analyze_fast — the dual-symbol bundle is required to compute leader_evidence and to call surface_leader_decision at minute 14.`;
-    hint = `Open-reaction window (+${mip ?? "?"}m of 15). Required action: ${pairLine} Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? `minutes_into_phase >= 14 — also call surface_leader_decision with the values from pair.leader_evidence and surface_ltf_bias to finalize bias. ` : ""}End the turn with surface_no_trade — no setup card during open-reaction.`;
+      `Pair config: pass pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}" to tv_analyze_fast — the dual-symbol bundle is required to compute leader_evidence and to call surface_leader_decision near the end of the 09:45→10:00 / 13:45→14:00 LTF-bias lock window.`;
+    hint = `Open-reaction / LTF-bias lock window (+${mip ?? "?"}m of 15, counted from 09:45 ET for NY AM or 13:45 ET for NY PM). Required action: ${pairLine} Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? `minutes_into_phase >= 14 — also call surface_leader_decision with the values from pair.leader_evidence and surface_ltf_bias to finalize bias. ` : ""}End the turn with surface_no_trade — no setup card during open-reaction.`;
   } else {
     // Entry hunt — detector-driven flow (PR #62 / strategy detector).
     // The detector has already evaluated MSS / Trend / Inversion against
@@ -1352,8 +1352,8 @@ function phaseFor(session, ev) {
   const mm = Number(ny.find((p) => p.type === "minute")?.value || 0);
   const mins = hh * 60 + mm;
 
-  if (session === "ny-am") return mins < 9 * 60 + 45 ? "open_reaction" : "entry_hunt";
-  if (session === "ny-pm") return mins < 13 * 60 + 15 ? "open_reaction" : "entry_hunt";
+  if (session === "ny-am") return mins < 10 * 60 ? "open_reaction" : "entry_hunt";
+  if (session === "ny-pm") return mins < 14 * 60 ? "open_reaction" : "entry_hunt";
   if (session === "london") return mins < 3 * 60 + 15 ? "open_reaction" : "entry_hunt";
   return "off";
 }
@@ -1369,8 +1369,12 @@ function minutesIntoPhase(session, ev, phase) {
   const hh = Number(ny.find((p) => p.type === "hour")?.value || 0);
   const mm = Number(ny.find((p) => p.type === "minute")?.value || 0);
   const mins = hh * 60 + mm;
-  if (session === "ny-am") return mins - (9 * 60 + 30);
-  if (session === "ny-pm") return mins - (13 * 60);
+  // LTF-bias lock minutes are counted from GXNQ's decision window, not the
+  // cash-open observation start: NY AM 09:45→10:00 ET, NY PM 13:45→14:00 ET.
+  // Clamp pre-lock observation bars to 0 so they remain open-reaction/no-trade
+  // turns but cannot satisfy the finalize gate until the lock window matures.
+  if (session === "ny-am") return Math.max(0, mins - (9 * 60 + 45));
+  if (session === "ny-pm") return Math.max(0, mins - (13 * 60 + 45));
   if (session === "london") return mins - (3 * 60);
   return null;
 }

@@ -66,9 +66,21 @@ function LoopBanner({ status }) {
 // ── Sub-state 1: OPEN REACTION (Step 4) ──────────────────────────────
 function OpenReactionView({ openReaction, brief }) {
   const latest = openReaction?.latest;
+  const ltfBias = openReaction?.ltfBias;
+  const lockDecision = openReaction?.lockDecision;
+  const [lockBusy, setLockBusy] = useState(null);
   const windowLbl = latest?.minutes_into_phase != null
     ? `+${latest.minutes_into_phase}m`
     : "—";
+  const runLockAction = async (action) => {
+    setLockBusy(action);
+    try {
+      await window.api?.prep?.lockBriefAction?.(openReaction?.session, action);
+      openReaction?.reload?.();
+    } finally {
+      setLockBusy(null);
+    }
+  };
   const bias = latest?.bias_direction || "—";
   const outcome = brief?.pillar2_verdict === "good" ? "aligned"
                 : brief?.pillar2_verdict === "poor" ? "conflicted"
@@ -112,6 +124,30 @@ function OpenReactionView({ openReaction, brief }) {
                    v={`${lv.price} · ${lv.state || "—"}`}
                    tone={lv.state === "untaken" ? "" : "dim"} />
             ))}
+          </>
+        )}
+        {ltfBias && (
+          <>
+            <div className="sect-hd" style={{ marginTop: 12 }}>LOCK BRIEF</div>
+            <Row k="LTF bias" v={ltfBias.ltf_bias || "stand_aside"}
+                 tone={ltfBias.ltf_bias === "bullish" ? "ok" : ltfBias.ltf_bias === "bearish" ? "warn" : ""} />
+            <Row k="Leader" v={ltfBias.leader || ltfBias.primary || "—"} />
+            <Row k="Model" v={ltfBias.entry_model_priority || "undecided"} />
+            <Row k="Grade cap" v={ltfBias.grade_cap || "—"} />
+            {ltfBias.reasoning && <div style={proseStyle}>{stripCitations(ltfBias.reasoning)}</div>}
+            {lockDecision?.action && (
+              <div style={{ color: "var(--label)", fontSize: 10.5, marginTop: 8 }}>
+                Decision: {lockDecision.action === "watch_10m_more" ? "watch 10m more" : "start detector"}
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 12 }}>
+              <button className="btn amber"
+                      disabled={!!lockBusy}
+                      onClick={() => runLockAction("watch_10m_more")}>WATCH 10M MORE</button>
+              <button className="btn green"
+                      disabled={!!lockBusy}
+                      onClick={() => runLockAction("start_detector")}>START DETECTOR</button>
+            </div>
           </>
         )}
       </Panel>

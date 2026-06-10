@@ -22,9 +22,9 @@ test("per-purpose content present", async () => {
   const cases = [
     ["brief", /publish the PREP-panel SESSION BRIEF/i],
     ["bar-close", /You are in entry hunt\. A precomputed/i],
-    ["bar-close", /first 15 min of NY's reaction/i],
+    ["bar-close", /LTF bias during GXNQ's decision window/i],
     ["catch-up", /synthesize a missed `open_reaction`/i],
-    ["catch-up", /first 15 min of NY's reaction/i],
+    ["catch-up", /LTF bias during GXNQ's decision window/i],
     ["wrap", /write a one-paragraph wrap to this session/i],
     ["chat", /ALERT GUIDANCE|alert tool call/i],
     ["chat", /PERSISTENT MEMORY GUIDANCE/i],
@@ -43,7 +43,7 @@ test("chat does NOT contain analysis content", async () => {
   assert.doesNotMatch(chat, /You are in entry hunt\. A precomputed/, "chat should not have entry_hunt phase body");
   assert.doesNotMatch(chat, /publish the PREP-panel SESSION BRIEF/, "chat should not have brief phase body");
   assert.doesNotMatch(chat, /synthesize a missed `open_reaction`/, "chat should not have catch_up phase body");
-  assert.doesNotMatch(chat, /first 15 min of NY's reaction/, "chat should not have open_reaction phase body");
+  assert.doesNotMatch(chat, /LTF bias during GXNQ's decision window/, "chat should not have open_reaction phase body");
   assert.doesNotMatch(chat, /<examples>/, "chat should not have entry-model examples");
   assert.doesNotMatch(chat, /<bundle_fields>/, "chat should not have bundle_fields");
 });

@@ -136,6 +136,14 @@ contextBridge.exposeInMainWorld("api", {
     openReaction(session) {
       return ipcRenderer.invoke("prep:open_reaction_get", { session });
     },
+    lockBriefAction(session, action) {
+      return ipcRenderer.invoke("prep:lock_brief_action", { session, action });
+    },
+    onLockBriefDecision(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("prep:lock_brief_decision", listener);
+      return () => ipcRenderer.removeListener("prep:lock_brief_decision", listener);
+    },
     onUpdated(cb) {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("prep:brief_updated", listener);

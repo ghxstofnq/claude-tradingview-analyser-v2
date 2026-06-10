@@ -1,6 +1,6 @@
 <phase name="open_reaction">
 
-**Goal:** first 15 min of NY's reaction to overnight levels (09:30-09:45 ET / 13:30-13:45 ET). Read the brief's structured handoff, watch live engine, decide leader + LTF bias at **minute 14** (09:44 ET NY AM / 13:44 ET NY PM).
+**Goal:** watch NY's cash-open reaction, then lock LTF bias during GXNQ's decision window (09:45-10:00 ET / 13:45-14:00 ET). Read the brief's structured handoff, watch live engine, decide leader + LTF bias near the end of the lock window (**09:59 ET NY AM / 13:59 ET NY PM**).
 
 ### Required reads first
 
@@ -17,9 +17,9 @@ Branch on `pillar_grade` from pillar1.md:
 |---|---|---|
 | `A+` / `B` | n/a | Normal flow below |
 | `no-trade` | `data_gap` / `engine_stale` / `session_closed` | **Hard skip.** Write `open-reaction.md` with `chain_status: degraded:brief_no_trade_hard`. No `ltf-bias.md` write, no `surface_leader_decision`. Surface `surface_no_trade("brief no-trade: <reason>")`. Stop. |
-| `no-trade` | `pillar2_poor` / `htf_unclear` | **Soft observe.** Continue to the leader decision. At minute 14 write `ltf-bias.md` with `ltf_bias: stand_aside`, `chain_status: degraded:brief_no_trade_soft`. The model may flag in chat if conditions clearly recover (doji_wick → engulfing + clean displacement). |
+| `no-trade` | `pillar2_poor` / `htf_unclear` | **Soft observe.** Continue to the leader decision. Near the end of the lock window (`minutes_into_phase >= 14`) write `ltf-bias.md` with `ltf_bias: stand_aside`, `chain_status: degraded:brief_no_trade_soft`. The model may flag in chat if conditions clearly recover (doji_wick → engulfing + clean displacement). |
 
-### Minutes 0-13 — per-bar observation
+### Minutes 0-13 — lock-window observation
 
 Read `gates.engine.confirmation.last_bar`, `gates.engine.pillar1.sweeps`, `gates.engine.most_recent_structure`, `pair.leader_evidence`.
 

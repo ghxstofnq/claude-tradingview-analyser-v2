@@ -94,30 +94,30 @@ export function computeSessionGate({ quote, replayStatus }) {
   } else if (etMinutesTotal >= 3 * 60 && etMinutesTotal < 5 * 60) {
     sessionPhase = 'london_open';
     phaseStartMin = 3 * 60; nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
-  } else if (etMinutesTotal < 9 * 60 + 30) {
+  } else if (etMinutesTotal < 9 * 60 + 45) {
     sessionPhase = 'pre_session_ny_am';
     phaseStartMin = etMinutesTotal >= 5 * 60 ? 5 * 60 : 0;
     nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
-  } else if (etMinutesTotal < 9 * 60 + 45) {
+  } else if (etMinutesTotal < 10 * 60) {
     sessionPhase = 'open_reaction_ny_am';
-    phaseStartMin = 9 * 60 + 30; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+    phaseStartMin = 9 * 60 + 45; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 12 * 60) {
     sessionPhase = 'entry_hunt_ny_am';
-    phaseStartMin = 9 * 60 + 45; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+    phaseStartMin = 10 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 13 * 60) {
     sessionPhase = 'post_ny_am';
     phaseStartMin = 12 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
-  } else if (etMinutesTotal < 13 * 60 + 30) {
+  } else if (etMinutesTotal < 13 * 60 + 45) {
     sessionPhase = 'pre_session_ny_pm';
     phaseStartMin = 13 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
-  } else if (etMinutesTotal < 13 * 60 + 45) {
+  } else if (etMinutesTotal < 14 * 60) {
     sessionPhase = 'open_reaction_ny_pm';
-    phaseStartMin = 13 * 60 + 30;
+    phaseStartMin = 13 * 60 + 45;
     nextKillzoneMin = 3 * 60 + 24 * 60;  // tomorrow's London Open
     nextKillzoneLabel = 'London Open (next day)';
   } else if (etMinutesTotal < 16 * 60) {
     sessionPhase = 'entry_hunt_ny_pm';
-    phaseStartMin = 13 * 60 + 45;
+    phaseStartMin = 14 * 60;
     nextKillzoneMin = 3 * 60 + 24 * 60;
     nextKillzoneLabel = 'London Open (next day)';
   } else if (etMinutesTotal < 17 * 60) {
@@ -141,12 +141,14 @@ export function computeSessionGate({ quote, replayStatus }) {
   //
   // Anchoring logic: subtract today's ET-day offset (in ms) from the
   // quote's UTC ms to get the ms representing ET midnight today, then
-  // add the open-window start (09:30 ET = 570 min, 13:30 ET = 810 min).
+  // add the cash-open evidence-window start (09:30 ET = 570 min, 13:30 ET = 810 min).
+  // The evidence slice stays 09:30→09:45 / 13:30→13:45; the LTF-bias lock
+  // phase is later (09:45→10:00 / 13:45→14:00).
   // Picking which session's window applies:
   //   - pre_session_ny_am / open_reaction_ny_am / entry_hunt_ny_am /
-  //     post_ny_am → NY-AM window (09:30 → 09:45 ET)
+  //     post_ny_am → NY-AM evidence window (09:30 → 09:45 ET)
   //   - pre_session_ny_pm / open_reaction_ny_pm / entry_hunt_ny_pm /
-  //     post_ny_pm → NY-PM window (13:30 → 13:45 ET)
+  //     post_ny_pm → NY-PM evidence window (13:30 → 13:45 ET)
   //   - everything else (london_open, inter_session, closed) → null
   //
   // Outside NY phases, leaving the fields null means analyze.js skips
