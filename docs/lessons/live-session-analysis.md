@@ -39,3 +39,8 @@ Outcome: 0 trades — a chop day. Five candidates flagged (2× Trend, 2× MSS, 1
 
 - **Signal:** The cleanest setup of the PM (the 14:37 breakout: real displacement, range 25 / vol 3587, fresh clean FVG) still did not produce a trade — the pullback went messy.
   **Action:** A clean impulse + clean FVG is necessary but not sufficient. The *pullback* must also be orderly. A correct no-trade on a good-looking setup whose pullback degrades is discipline, not a miss.
+
+## 2026-06-11 — system (capture pipeline, not a trading session)
+
+- **Signal:** 8 of 13 June briefs graded `no-trade: htf_unclear`, and no live session ever produced a setup. The actual cause was the multi-TF sweep silently recording `engine_by_tf.h4/h1 = null` — a single fixed-delay read racing the indicator's re-render after each TF switch. A data failure was being reported in market-verdict vocabulary, and it cost a week of dead sessions before anyone noticed.
+  **Action:** Never let a data-source failure share a label with a market verdict. Verify every TF read against the engine's own `meta.tf` stamp, retry until fresh, fall back to the per-symbol baseline with provenance (`capture_health`), and grade residual gaps `data_gap` — `htf_unclear` is reserved for a healthy capture with genuinely unclear structure.
