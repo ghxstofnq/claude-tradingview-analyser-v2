@@ -8,6 +8,7 @@ import { lastBarFacts } from '../lib/last-bar.js';
 import { computeLeader } from '../lib/compute-leader.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
+import { captureMultiTfWithHealth, applyBaselineFallback } from '../lib/tf-capture.js';
 
 /**
  * tv analyze — bundles chart state, quote, multi-TF bars, and the ICT Engine
@@ -387,31 +388,70 @@ function activeSessionFolder() {
 }
 
 async function captureMultiTf(originalTf) {
-  const bars_by_tf = {};
-  const engine_by_tf = {};
-  for (const { tv, key } of HTF_LTF_TIMEFRAMES) {
-    try {
-      await chart.setTimeframe({ timeframe: tv });
-      await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
-      const [bars, tables] = await Promise.all([
-        data.getOhlcv({ summary: true }),
-        data.getPineTables(),
-      ]);
-      bars_by_tf[key] = { ...bars, tv_resolution: tv };
-      engine_by_tf[key] = parseIctEngineTable(findIctEngineRows(tables));
-    } catch (e) {
-      bars_by_tf[key] = { error: e.message, tv_resolution: tv };
-      engine_by_tf[key] = null;
+  // Verified capture (cli/lib/tf-capture.js, 2026-06-11): each TF read is
+  // accepted only when the engine table's meta.tf stamp matches the requested
+  // resolution. The previous fixed-delay single read silently recorded null
+  // (or the previous TF's table) whenever the engine re-render lagged the TF
+  // switch — the root cause of the June h4/h1 = null capture holes.
+  return captureMultiTfWithHealth({
+    tfs: HTF_LTF_TIMEFRAMES,
+    originalTf,
+    deps: {
+      setTimeframe: (args) => chart.setTimeframe(args),
+      readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
+      readBars: () => data.getOhlcv({ summary: true }),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    },
+  });
+}
+
+/**
+ * Resolve + load the fallback baseline used to fill TFs that are still
+ * missing after the retry pass. Source: an explicit --fallback-baseline
+ * path, else the per-symbol convention path the app maintains
+ * (state/baseline-<sym>.json). Returns { path, bundle } or null. Never
+ * throws — a broken fallback file just means no fallback.
+ */
+async function loadFallbackBaseline(explicitPath, bareSymbol) {
+  const { readFileSync, existsSync } = await import('node:fs');
+  const { resolve: resolvePath } = await import('node:path');
+  const candidate = explicitPath || resolvePath('state', `baseline-${bareSymbol}.json`);
+  try {
+    if (!existsSync(candidate)) return null;
+    const bundle = JSON.parse(readFileSync(candidate, 'utf8'));
+    if (!bundle.engine_by_tf) return null;
+    return { path: candidate, bundle };
+  } catch (e) {
+    process.stderr.write(`[tv analyze] fallback baseline at '${candidate}' unreadable: ${e.message}\n`);
+    return null;
+  }
+}
+
+/**
+ * Post-sweep healing + operator visibility. Mutates capture in place:
+ * fills still-missing TFs from the fallback baseline (skipped during replay —
+ * baseline data is live-market, mixing it into a replay bundle would lie),
+ * then reports any non-fresh TF on stderr so a degraded capture is loud.
+ */
+async function healAndReportCapture(capture, { bareSymbol, explicitPath, replayActive }) {
+  const health = capture.capture_health;
+  if (!health) return;
+  if (!health.ok && !replayActive) {
+    const fallback = await loadFallbackBaseline(explicitPath, bareSymbol);
+    if (fallback) {
+      applyBaselineFallback({ capture, baseline: fallback.bundle, baselinePath: fallback.path });
     }
   }
-  // Restore original timeframe explicitly, regardless of the last iterated TF.
-  try {
-    await chart.setTimeframe({ timeframe: originalTf });
-    await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
-  } catch (e) {
-    // best-effort restore; fall through
+  if (health.fallback.length) {
+    const ages = health.fallback.map((k) => `${k}(${health.by_tf[k].baseline_age_seconds}s old)`);
+    process.stderr.write(`[tv analyze] capture_health ${bareSymbol}: filled from baseline: ${ages.join(', ')}\n`);
   }
-  return { bars_by_tf, engine_by_tf };
+  if (health.missing.length) {
+    process.stderr.write(
+      `[tv analyze] capture_health ${bareSymbol}: NO engine data for ${health.missing.join(', ')} after retries — `
+      + 'downstream must treat these TFs as data_gap, not as a market verdict.\n',
+    );
+  }
 }
 
 /**
@@ -443,14 +483,20 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
   await chart.setTimeframe({ timeframe: originalTf });
   await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
 
-  let bars_by_tf, engine_by_tf;
+  let bars_by_tf, engine_by_tf, capture_health = null;
   if (baselineSecondary) {
     bars_by_tf = baselineSecondary.bars_by_tf;
     engine_by_tf = baselineSecondary.engine_by_tf;
   } else {
     const captured = await captureMultiTf(originalTf);
+    await healAndReportCapture(captured, {
+      bareSymbol: symbol,
+      explicitPath: null, // secondary always uses the per-symbol convention path
+      replayActive: replayStatus?.active === true,
+    });
     bars_by_tf = captured.bars_by_tf;
     engine_by_tf = captured.engine_by_tf;
+    capture_health = captured.capture_health;
   }
 
   const state = await chart.getState();
@@ -489,6 +535,7 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
     engine,
     engine_by_tf,
     gates,
+    ...(capture_health ? { capture_health } : {}),
   };
 }
 
@@ -502,6 +549,7 @@ register('analyze', {
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
     pair: { type: 'string', description: 'Run dual-symbol scan. Format: "<primary>,<secondary>" (e.g. "MNQ1!,MES1!"). Captures both symbols; output bundle gains a top-level `pair` block. Behavior depends on pair-decision.json state for the active session.' },
     'baseline-secondary': { type: 'string', description: 'Per-symbol baseline path for the secondary symbol when using --pair. The primary uses --baseline as today.' },
+    'fallback-baseline': { type: 'string', description: 'Baseline bundle used to fill individual TFs that still have no fresh engine table after the verified-capture retry pass (strategy §2.4 allows HTF reuse intraday). Defaults to state/baseline-<sym>.json when present. Fills are age-capped (24h), recorded in capture_health, and skipped during replay.' },
   },
   handler: async (opts) => {
     // 0. Load baseline if provided. The baseline supplies HTF context
@@ -670,7 +718,7 @@ register('analyze', {
     //    c) Default: capture fresh via captureMultiTf
     const pillar3Only = opts?.['pillar3-only'] === true;
     const skipMultiTf = pillar3Only || opts?.['current-tf-only'] === true;
-    let bars_by_tf, engine_by_tf;
+    let bars_by_tf, engine_by_tf, capture_health = null;
     if (baseline) {
       bars_by_tf = baseline.bars_by_tf;
       engine_by_tf = baseline.engine_by_tf;
@@ -679,8 +727,14 @@ register('analyze', {
       engine_by_tf = null;
     } else {
       const captured = await captureMultiTf(originalTf);
+      await healAndReportCapture(captured, {
+        bareSymbol: originalSymbol.replace(/^[A-Z_]+:/, ''),
+        explicitPath: opts?.['fallback-baseline'] || null,
+        replayActive: replayStatus.active === true,
+      });
       bars_by_tf = captured.bars_by_tf;
       engine_by_tf = captured.engine_by_tf;
+      capture_health = captured.capture_health;
     }
 
     // 3. At the (restored) original TF, fetch the current-TF data: visible
@@ -772,6 +826,7 @@ register('analyze', {
             engine,
             engine_by_tf,
             gates,
+            ...(capture_health ? { capture_health } : {}),
           },
           [pairConfig.secondary]: secondaryBundle,
         },
@@ -814,6 +869,7 @@ register('analyze', {
       engine,
       engine_by_tf,
       gates,
+      ...(capture_health ? { capture_health } : {}),
       ...(baselineMeta ? { baseline_meta: baselineMeta } : {}),
       ...(baselineSecondaryMeta ? { baseline_secondary_meta: baselineSecondaryMeta } : {}),
       ...(pair ? { pair } : {}),

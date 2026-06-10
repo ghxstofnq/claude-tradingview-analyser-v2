@@ -42,6 +42,22 @@ function recentStructures(structures, n = 2) {
     .slice(0, n);
 }
 
+/**
+ * Per-TF capture provenance for the digest. Distinguishes "no good FVG on a
+ * healthy capture" (market verdict) from "the capture never returned data"
+ * (instrument failure) — the brief grader maps the latter to data_gap, not
+ * htf_unclear. Falls back to engine presence for bundles captured before
+ * capture_health existed.
+ */
+function dataStatusFor(symBundle, tf) {
+  const entry = symBundle?.capture_health?.by_tf?.[tf];
+  if (entry?.status === 'fallback') {
+    return { data_status: 'fallback', baseline_age_seconds: entry.baseline_age_seconds ?? null };
+  }
+  if (entry?.status) return { data_status: entry.status === 'fresh' ? 'fresh' : 'missing' };
+  return { data_status: symBundle?.engine_by_tf?.[tf] ? 'fresh' : 'missing' };
+}
+
 function htfBlockForSymbol(symBundle) {
   const out = {};
   for (const tf of HTF_TFS) {
@@ -53,6 +69,7 @@ function htfBlockForSymbol(symBundle) {
     out[tf] = {
       change_pct: bars.change_pct ?? null,
       range: bars.range ?? null,
+      ...dataStatusFor(symBundle, tf),
       top_fvgs: rankedFvgs.map((f) => {
         const idx = (engineTf.fvgs || []).indexOf(f);
         return { ...f, cite: `engine_by_tf.${tf}.fvgs[${idx}]` };
