@@ -1,0 +1,1127 @@
+//@version=6
+// ICT Engine — unified evidence indicator for the ai-trading-agent.
+// Emits one machine-readable table for the backend.
+// Phases 1-5: levels, FVG/iFVG, BPR, swings, structure, quality.
+// Spec: docs/specs/2026-05-21-unified-custom-indicator-design.md
+indicator("ICT Engine V2", "ICT-V2", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+
+// ── Evidence table contract ──────────────────────────────────────────
+SCHEMA_VERSION = 2
+MAX_ROWS = 120
+TZ = "America/New_York"
+
+// Session windows (NY time) used for session highs/lows.
+// NY PM matches docs/strategy/ny-pm-session-rules.md (13:00–16:00 NY).
+SESS_ASIA   = "1800-0300"
+SESS_LONDON = "0300-0930"
+SESS_NYAM   = "0930-1200"
+SESS_NYPM   = "1300-1600"
+
+// Most-recent FVGs and BPRs kept and emitted.
+FVG_MAX = 24
+BPR_MAX = 12
+
+// Per-FVG size classification (width / ATR(14) at the bar the FVG formed).
+// Anything below TINY is noise-level (a couple of ticks on NQ); anything
+// above LARGE is the post-news-spike kind of gap that rarely retraces.
+FVG_SIZE_TINY_FRAC  = 0.5
+FVG_SIZE_LARGE_FRAC = 2.0
+
+// A BPR pairs the new FVG with an opposite FVG formed within this many bars.
+BPR_LOOKBACK_BARS = 20
+
+// Swing-pivot lookbacks (LuxAlgo SMC) and the cap on swings kept per tier.
+SWING_EXT_LEN = 50
+SWING_INT_LEN = 5
+SWING_EXT_MAX = 10
+SWING_INT_MAX = 16
+
+// Equal-high/low liquidity: tolerance (x ATR) and the cap on pools kept.
+LIQUIDITY_EQ_ATR_MULT = 0.1
+LIQUIDITY_MAX = 12
+
+// Structure-break tuning: ATR band for sweep-vs-break, displacement minimum.
+// STRUCT_MAX_PER_TIER caps each tier independently so internal-tier events
+// (5-bar pivots, fire often) can't crowd out external "swing" events.
+STRUCT_ATR_LEN = 17
+STRUCT_ATR_MULT = 0.5
+STRUCT_DISP_MIN = 0.5
+STRUCT_MAX_PER_TIER = 12
+
+// FVG/BPR reaction: a close must clear the zone edge by this x ATR to count.
+REACT_ATR_MULT = 0.5
+
+// After a level is swept (wick through), how many bars after the sweep can a
+// close-back-through still tag the sweep as "rejected". 1 bar = same-bar
+// only; 3 captures the typical ICT "next-1-or-2-bar" reversal.
+SWEEP_REJECTION_BARS = 3
+
+// Pillar-2 quality-metric tuning (v3, 2026-05-25 — doc-literal rewrite):
+//   - Range threshold: % of price, not ATR multiple, so it scales across TFs.
+//   - Displacement:    clean-bar count in a 6-bar window.
+//   - Candle anatomy:  3-bar doji/wick scan + last-bar engulfing test.
+//   - has_chop dropped — Kaufman ER conflated post-displacement consolidation
+//     with ranging and fired on perfectly fine charts.
+QUALITY_ATR_LEN     = 14       // ATR length (still used by FVG size classifier)
+QUALITY_RANGE_HOURS = 3
+QUALITY_GOOD_PCT    = 0.003    // 3h range >= 0.3% of close -> "good"
+QUALITY_DISP_BARS   = 6        // window for displacement clean-bar count
+QUALITY_DISP_CLEAN  = 3        // >=3 clean bars -> "clean"
+QUALITY_DISP_ACCEPT = 2        // >=2 clean bars -> "acceptable"
+QUALITY_CLEAN_BODY  = 0.5      // body/range >= 0.5 = clean bar
+QUALITY_CANDLE_BARS = 3        // window for doji/wick detection
+QUALITY_DOJI_BODY   = 0.25     // body/range < 25% AND...
+QUALITY_DOJI_WICK   = 0.60     // ...max wick/range > 60% -> doji_wick
+
+// Entry-model evidence tuning. The strategy waits for a 1m/5m candle-close
+// confirmation after a PD-array tap/retest, and blocks if price chops inside
+// the zone for roughly 10-15 minutes. These fields are emitted as evidence;
+// the backend still decides whether a setup is tradable.
+ENTRY_CHOP_MINUTES = 15
+ENTRY_CONFIRM_MAX_MINUTES = 10
+
+// A detected Fair Value Gap. `state` advances fresh -> ce_tapped -> filled.
+// A body close through the gap inverts it: `kind` flips fvg -> ifvg, `dir`
+// flips, and `state` -> inverted; a close back through the iFVG -> invalidated.
+// `sizeQuality` is the indicator's width-vs-ATR(14) classification, computed
+// once at creation so later ATR shifts don't reclassify historical zones.
+type Fvg
+    float top
+    float bottom
+    string dir
+    int createdMs
+    float dispScore
+    string state
+    string kind
+    bool tookLiq
+    bool entered = false
+    bool reacted = false
+    string reactionDir = "none"
+    string sizeQuality = "unknown"
+    int enteredMs = na
+    int barsInZone = 0
+    bool ceHeld = false
+    bool confirmClose = false
+    string confirmDir = "none"
+    int confirmMs = na
+    bool chop15 = false
+
+// A Balanced Price Range — the overlap of a bullish and a bearish FVG formed
+// close in time. `state` advances fresh -> tapped -> invalidated.
+type Bpr
+    float top
+    float bottom
+    string dir
+    int createdMs
+    string state
+    bool tookLiq
+    bool entered = false
+    bool reacted = false
+    string reactionDir = "none"
+    int enteredMs = na
+    int barsInZone = 0
+    bool ceHeld = false
+    bool confirmClose = false
+    string confirmDir = "none"
+    int confirmMs = na
+    bool chop15 = false
+
+// A confirmed swing point — a two-tier pivot classified vs the prior pivot of
+// its type. `swept` latches once a later bar trades through `price`.
+type Swing
+    string kind
+    float price
+    int barMs
+    string tier
+    bool isHigh
+    bool swept
+
+// A market-structure break — a close beyond a swing level. `event` is bos
+// (continuation) or mss (reversal); `validation` is break or sweep per the
+// ATR band; `displacement` marks a large-bodied breaking candle.
+type Structure
+    string event
+    string dir
+    float level
+    int brokenSwingMs
+    int confirmedMs
+    bool displacement
+    string tier
+    string validation
+
+// An equal-high / equal-low liquidity pool — two consecutive external swings
+// within tolerance. `swept` latches once price trades through `price`.
+type Liquidity
+    string kind
+    float price
+    int createdMs
+    bool swept
+
+var table evidence = table.new(position.bottom_left, 2, MAX_ROWS + 1)
+
+// Off (default): the evidence table is drawn with transparent text so it does
+// not clutter the chart. The backend reads the table data regardless.
+showEvidenceTable = input.bool(false, "Show evidence table on chart", group = "Display")
+
+// ── Visual-layer inputs ──────────────────────────────────────────────
+GRP_VIZ = "Visuals"
+showVisuals    = input.bool(true,  "Show visuals",       group = GRP_VIZ)
+showLevels     = input.bool(true,  "Levels",             group = GRP_VIZ)
+showFvgs       = input.bool(true,  "FVGs",               group = GRP_VIZ)
+showIfvgs      = input.bool(true,  "iFVGs",              group = GRP_VIZ)
+showBprs       = input.bool(true,  "BPRs",               group = GRP_VIZ)
+showSwings     = input.bool(true,  "Swings",             group = GRP_VIZ)
+showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
+showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
+showQuality    = input.bool(true,  "Quality panel",      group = GRP_VIZ)
+showInternal   = input.bool(false, "Show internal tier", group = GRP_VIZ)
+showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
+
+GRP_COL = "Colors"
+colFvgBull    = input.color(color.new(#089981, 82), "FVG bull",  group = GRP_COL, inline = "cFvg")
+colFvgBear    = input.color(color.new(#f23645, 82), "FVG bear",  group = GRP_COL, inline = "cFvg")
+colIfvgBull   = input.color(color.new(#22d3ee, 82), "iFVG bull", group = GRP_COL, inline = "cIfvg")
+colIfvgBear   = input.color(color.new(#f97316, 82), "iFVG bear", group = GRP_COL, inline = "cIfvg")
+colBprBull    = input.color(color.new(#089981, 82), "BPR bull",  group = GRP_COL, inline = "cBpr")
+colBprBear    = input.color(color.new(#f23645, 82), "BPR bear",  group = GRP_COL, inline = "cBpr")
+colStructBull = input.color(#089981, "Structure bull", group = GRP_COL, inline = "cStr")
+colStructBear = input.color(#f23645, "Structure bear", group = GRP_COL, inline = "cStr")
+colSwingBull  = input.color(#089981, "Swing bull",     group = GRP_COL, inline = "cSwg")
+colSwingBear  = input.color(#f23645, "Swing bear",     group = GRP_COL, inline = "cSwg")
+colKzAsia     = input.color(#2962ff, "KZ Asia",        group = GRP_COL, inline = "cKz")
+colKzLondon   = input.color(#9c27b0, "KZ London",      group = GRP_COL, inline = "cKz")
+colKzNyam     = input.color(#ff9800, "KZ NY AM",       group = GRP_COL, inline = "cKz")
+colLvlPd      = input.color(#787b86, "Level PD",       group = GRP_COL, inline = "cLvl")
+colLvlPw      = input.color(#b2b5be, "Level PW",       group = GRP_COL, inline = "cLvl")
+colLiquidity  = input.color(#e0b400, "Liquidity",      group = GRP_COL)
+
+// ── Session high/low tracking ────────────────────────────────────────
+// Tracks one session's running high/low. `var` storage is per call site, so
+// each session keeps its own state. Returns [high, low, highMs, lowMs, inSession].
+trackSession(string sess) =>
+    var float h = na
+    var float l = na
+    var int hMs = na
+    var int lMs = na
+    t = time(timeframe.period, sess, TZ)
+    inSess = not na(t)
+    if inSess and na(t[1])
+        h := high
+        l := low
+        hMs := time
+        lMs := time
+    else if inSess
+        if high > h
+            h := high
+            hMs := time
+        if low < l
+            l := low
+            lMs := time
+    [h, l, hMs, lMs, inSess]
+
+[asiaH, asiaL, asiaHMs, asiaLMs, inAsia] = trackSession(SESS_ASIA)
+[lonH, lonL, lonHMs, lonLMs, inLondon] = trackSession(SESS_LONDON)
+[nyamH, nyamL, nyamHMs, nyamLMs, inNyam] = trackSession(SESS_NYAM)
+// NY PM kill-zone tracker — used only to tag the current session in the
+// quality emit. Highs/lows are not tracked (no NYPM.H / NYPM.L levels).
+[_nypmH, _nypmL, _nypmHMs, _nypmLMs, inNypm] = trackSession(SESS_NYPM)
+currentSession = inAsia ? "asia" : inLondon ? "london" : inNyam ? "ny_am" : inNypm ? "ny_pm" : "off"
+
+// Prior-day and prior-week highs/lows — the only request.security use.
+// `[1]` + lookahead_on is the non-repainting higher-timeframe pattern.
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+
+// ── Sweep tracking ───────────────────────────────────────────────────
+// Watches a completed level for a liquidity sweep. A high-side level is swept
+// when price wicks above it; a low-side level when price wicks below. The
+// rejection flag is re-checked for SWEEP_REJECTION_BARS bars after the
+// initial sweep — so a wick that pierces on bar N and closes back through
+// on bar N+1 or N+2 still tags rejected = true.
+trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
+    var bool swept = false
+    var int sweptBarIndex = na
+    var int sweptMs = na
+    var bool rejected = false
+    // Reset when the tracked level is re-formed (its price changed) so the
+    // sweep latch follows the current level, not a stale one from history.
+    if levelPrice != levelPrice[1]
+        swept := false
+        sweptBarIndex := na
+        sweptMs := na
+        rejected := false
+    if levelComplete and not na(levelPrice)
+        if not swept
+            if isHighSide and high > levelPrice
+                swept := true
+                sweptBarIndex := bar_index
+                sweptMs := time
+                rejected := close < levelPrice
+            else if (not isHighSide) and low < levelPrice
+                swept := true
+                sweptBarIndex := bar_index
+                sweptMs := time
+                rejected := close > levelPrice
+        else if not rejected and not na(sweptBarIndex) and bar_index - sweptBarIndex <= SWEEP_REJECTION_BARS
+            // Post-sweep window: a close back through the level within
+            // SWEEP_REJECTION_BARS still flips rejected on. sweptMs is left
+            // alone so it always reflects the original wick, not the close.
+            if isHighSide and close < levelPrice
+                rejected := true
+            else if (not isHighSide) and close > levelPrice
+                rejected := true
+    [swept, sweptMs, rejected]
+
+[asiaHSwept, asiaHSweptMs, asiaHRej] = trackSweep(asiaH, true, not inAsia)
+[asiaLSwept, asiaLSweptMs, asiaLRej] = trackSweep(asiaL, false, not inAsia)
+[lonHSwept, lonHSweptMs, lonHRej] = trackSweep(lonH, true, not inLondon)
+[lonLSwept, lonLSweptMs, lonLRej] = trackSweep(lonL, false, not inLondon)
+[nyamHSwept, nyamHSweptMs, nyamHRej] = trackSweep(nyamH, true, not inNyam)
+[nyamLSwept, nyamLSweptMs, nyamLRej] = trackSweep(nyamL, false, not inNyam)
+[pdhSwept, pdhSweptMs, pdhRej] = trackSweep(pdh, true, true)
+[pdlSwept, pdlSweptMs, pdlRej] = trackSweep(pdl, false, true)
+[pwhSwept, pwhSweptMs, pwhRej] = trackSweep(pwh, true, true)
+[pwlSwept, pwlSweptMs, pwlRej] = trackSweep(pwl, false, true)
+
+// ── Shared ATR ───────────────────────────────────────────────────────
+// 17-period ATR — the structure break/sweep band, the FVG/BPR reaction
+// threshold, and the equal-high/low tolerance all derive from it.
+// 14-period ATR — used by the FVG size classifier and emitted in the
+// quality payload so the backend can reuse it; declared here so FVG
+// creation (below) can use it.
+atr17 = ta.atr(STRUCT_ATR_LEN)
+atr14 = ta.atr(QUALITY_ATR_LEN)
+reactThr = REACT_ATR_MULT * atr17
+
+// ── FVG detection & BPR pairing ──────────────────────────────────────
+// A Fair Value Gap is a 3-candle imbalance: bullish when candle 3's low sits
+// above candle 1's high; bearish when candle 3's high sits below candle 1's
+// low. The displacement candle (candle 2 = [1]) drives the disp score.
+// A BPR is the overlap of the new FVG with a recent opposite-direction FVG.
+var array<Fvg> fvgs = array.new<Fvg>()
+var array<Bpr> bprs = array.new<Bpr>()
+
+// Most-recent confirmed internal swing high/low, latched in the swing section
+// below — used to tag took_liq on new FVGs and BPRs.
+var float priorSwingHigh = na
+var float priorSwingLow = na
+
+// Body ratio of the displacement candle (the [1] bar).
+disp2() =>
+    rng = high[1] - low[1]
+    rng > 0 ? math.abs(close[1] - open[1]) / rng : 0.0
+
+// Classify an FVG's width vs ATR(14): "tiny" / "normal" / "large".
+// Returns "unknown" when ATR is unavailable (early bars) — keeps the field
+// type-stable instead of leaking na into the evidence payload.
+classifyFvgSize(float width, float atr) =>
+    na(atr) or atr <= 0 ? "unknown" :
+      width / atr < FVG_SIZE_TINY_FRAC ? "tiny" :
+      width / atr > FVG_SIZE_LARGE_FRAC ? "large" : "normal"
+
+currentBodyRatio() =>
+    rng = high - low
+    rng > 0 ? math.abs(close - open) / rng : 0.0
+
+currentMaxWickRatio() =>
+    rng = high - low
+    wick = math.max(high - math.max(open, close), math.min(open, close) - low)
+    rng > 0 ? wick / rng : 0.0
+
+currentCleanBody() =>
+    currentBodyRatio() >= QUALITY_CLEAN_BODY
+
+currentDojiWick() =>
+    currentBodyRatio() < QUALITY_DOJI_BODY and currentMaxWickRatio() > QUALITY_DOJI_WICK
+
+zoneMinutesSince(int startedMs) =>
+    na(startedMs) ? 0 : math.max(0, int(math.round((time - startedMs) / 60000.0)))
+
+zoneBodyOverlaps(float zoneTop, float zoneBottom) =>
+    bodyTop = math.max(open, close)
+    bodyBottom = math.min(open, close)
+    bodyBottom <= zoneTop and bodyTop >= zoneBottom
+
+meaningfulZoneTouch(float zoneTop, float zoneBottom, float ce) =>
+    zoneBodyOverlaps(zoneTop, zoneBottom) or (low <= ce and high >= ce)
+
+resetFvgEntryWindow(Fvg f) =>
+    f.entered := false
+    f.enteredMs := na
+    f.barsInZone := 0
+    f.ceHeld := false
+
+resetBprEntryWindow(Bpr b) =>
+    b.entered := false
+    b.enteredMs := na
+    b.barsInZone := 0
+    b.ceHeld := false
+
+// The BPR pairing window in milliseconds, derived from the chart timeframe.
+bprLookbackMs = BPR_LOOKBACK_BARS * timeframe.in_seconds() * 1000
+
+if barstate.isconfirmed
+    Fvg newFvg = na
+    if low > high[2]
+        tl = not na(priorSwingHigh) and high[1] > priorSwingHigh
+        newFvg := Fvg.new(low, high[2], "bull", time[1], disp2(), "fresh", "fvg", tl)
+    else if high < low[2]
+        tl = not na(priorSwingLow) and low[1] < priorSwingLow
+        newFvg := Fvg.new(low[2], high, "bear", time[1], disp2(), "fresh", "fvg", tl)
+    if not na(newFvg)
+        // Tag the size class once, using ATR at the formation bar.
+        newFvg.sizeQuality := classifyFvgSize(newFvg.top - newFvg.bottom, atr14)
+        // Pair the new FVG with the most recent opposite-direction FVG that
+        // overlaps it in price and formed within the lookback window.
+        Fvg pairFvg = na
+        for g in fvgs
+            inWindow = newFvg.createdMs - g.createdMs <= bprLookbackMs
+            overlaps = math.max(g.bottom, newFvg.bottom) < math.min(g.top, newFvg.top)
+            if g.dir != newFvg.dir and inWindow and overlaps
+                if na(pairFvg) or g.createdMs > pairFvg.createdMs
+                    pairFvg := g
+        if not na(pairFvg)
+            bprTop = math.min(pairFvg.top, newFvg.top)
+            bprBottom = math.max(pairFvg.bottom, newFvg.bottom)
+            array.push(bprs, Bpr.new(bprTop, bprBottom, newFvg.dir, newFvg.createdMs, "fresh", newFvg.tookLiq))
+            if array.size(bprs) > BPR_MAX
+                array.shift(bprs)
+        array.push(fvgs, newFvg)
+        if array.size(fvgs) > FVG_MAX
+            array.shift(fvgs)
+
+// ── FVG mitigation & inversion lifecycle ─────────────────────────────
+// Rank the states so a zone only ever advances, never moves back:
+// fresh -> ce_tapped -> filled -> inverted -> invalidated.
+fvgStateRank(string s) =>
+    s == "invalidated" ? 4 : s == "inverted" ? 3 : s == "filled" ? 2 : s == "ce_tapped" ? 1 : 0
+
+// The fill state a live FVG has reached this bar (fresh -> ce_tapped ->
+// filled). Inversion is decided separately in the mitigation loop.
+fvgFillState(Fvg f) =>
+    ce = (f.top + f.bottom) / 2
+    s = f.state
+    if f.dir == "bull"
+        if low <= f.bottom
+            s := "filled"
+        else if low <= ce
+            s := "ce_tapped"
+    else
+        if high >= f.top
+            s := "filled"
+        else if high >= ce
+            s := "ce_tapped"
+    s
+
+// A reaction is price entering the zone, then a close clearing the push edge
+// by >= reactThr. Detected inline with direct field mutation — the same
+// pattern the fill-state update above uses — so the result persists.
+if barstate.isconfirmed
+    for f in fvgs
+        bool runReaction = false
+        if f.kind == "fvg"
+            // A body close fully through the gap inverts the FVG: it flips
+            // direction and now acts as support/resistance from the far side.
+            bullBreak = f.dir == "bull" and close < f.bottom
+            bearBreak = f.dir == "bear" and close > f.top
+            if bullBreak or bearBreak
+                f.kind := "ifvg"
+                f.dir := bullBreak ? "bear" : "bull"
+                f.state := "inverted"
+                // The inverted zone starts a fresh reaction in the new direction.
+                f.entered := false
+                f.reacted := false
+                f.reactionDir := "none"
+                f.enteredMs := na
+                f.barsInZone := 0
+                f.ceHeld := false
+                f.confirmClose := false
+                f.confirmDir := "none"
+                f.confirmMs := na
+                f.chop15 := false
+            else
+                newState = fvgFillState(f)
+                if fvgStateRank(newState) > fvgStateRank(f.state)
+                    f.state := newState
+                runReaction := true
+        else
+            // An inverted zone is invalidated when a body closes back through it.
+            if (f.dir == "bull" and close < f.bottom) or (f.dir == "bear" and close > f.top)
+                f.state := "invalidated"
+            else
+                runReaction := true
+        // Reaction is skipped on the bar a zone inverts or invalidates.
+        if runReaction
+            ce = (f.top + f.bottom) / 2
+            inZone = meaningfulZoneTouch(f.top, f.bottom, ce)
+            if inZone
+                if not f.entered
+                    f.enteredMs := time
+                    f.ceHeld := true
+                f.entered := true
+                f.barsInZone += 1
+                ceOk = f.dir == "bull" ? close >= ce : close <= ce
+                if not ceOk
+                    f.ceHeld := false
+            else if f.entered and not f.confirmClose and not f.chop15
+                resetFvgEntryWindow(f)
+            zoneMinutes = zoneMinutesSince(f.enteredMs)
+            if f.entered and not f.confirmClose and zoneMinutes >= ENTRY_CHOP_MINUTES
+                f.chop15 := true
+            if f.entered and not f.reacted
+                if f.dir == "bull" and close > f.top + reactThr
+                    f.reacted := true
+                    f.reactionDir := "bull"
+                else if f.dir == "bear" and close < f.bottom - reactThr
+                    f.reacted := true
+                    f.reactionDir := "bear"
+            if f.entered and not f.confirmClose and not f.chop15 and f.ceHeld and zoneMinutes <= ENTRY_CONFIRM_MAX_MINUTES and currentCleanBody() and not currentDojiWick()
+                if f.dir == "bull" and close > f.top and close > open
+                    f.confirmClose := true
+                    f.confirmDir := "bull"
+                    f.confirmMs := time
+                else if f.dir == "bear" and close < f.bottom and close < open
+                    f.confirmClose := true
+                    f.confirmDir := "bear"
+                    f.confirmMs := time
+
+// ── BPR mitigation lifecycle ─────────────────────────────────────────
+// A balanced price range advances fresh -> tapped (price wicks back into the
+// zone) -> invalidated (a bar closes fully through it).
+bprStateRank(string s) =>
+    s == "invalidated" ? 2 : s == "tapped" ? 1 : 0
+
+if barstate.isconfirmed
+    for b in bprs
+        newState = b.state
+        if b.dir == "bull"
+            if close < b.bottom
+                newState := "invalidated"
+            else if low <= b.top
+                newState := "tapped"
+        else
+            if close > b.top
+                newState := "invalidated"
+            else if high >= b.bottom
+                newState := "tapped"
+        if bprStateRank(newState) > bprStateRank(b.state)
+            b.state := newState
+        // Reaction: entered the zone, then a close cleared the push edge.
+        ce = (b.top + b.bottom) / 2
+        inZone = meaningfulZoneTouch(b.top, b.bottom, ce)
+        if inZone
+            if not b.entered
+                b.enteredMs := time
+                b.ceHeld := true
+            b.entered := true
+            b.barsInZone += 1
+            ceOk = b.dir == "bull" ? close >= ce : close <= ce
+            if not ceOk
+                b.ceHeld := false
+        else if b.entered and not b.confirmClose and not b.chop15
+            resetBprEntryWindow(b)
+        zoneMinutes = zoneMinutesSince(b.enteredMs)
+        if b.entered and not b.confirmClose and zoneMinutes >= ENTRY_CHOP_MINUTES
+            b.chop15 := true
+        if b.entered and not b.reacted
+            if b.dir == "bull" and close > b.top + reactThr
+                b.reacted := true
+                b.reactionDir := "bull"
+            else if b.dir == "bear" and close < b.bottom - reactThr
+                b.reacted := true
+                b.reactionDir := "bear"
+        if b.entered and not b.confirmClose and not b.chop15 and b.ceHeld and zoneMinutes <= ENTRY_CONFIRM_MAX_MINUTES and currentCleanBody() and not currentDojiWick()
+            if b.dir == "bull" and close > b.top and close > open
+                b.confirmClose := true
+                b.confirmDir := "bull"
+                b.confirmMs := time
+            else if b.dir == "bear" and close < b.bottom and close < open
+                b.confirmClose := true
+                b.confirmDir := "bear"
+                b.confirmMs := time
+
+// ── Swing-point detection ────────────────────────────────────────────
+// Two pivot tiers via the LuxAlgo SMC rolling-extreme machine: external (long
+// lookback) and internal (short lookback). Each confirmed pivot is classified
+// HH/HL/LH/LL against the prior pivot of its type.
+var array<Swing> swingsExt = array.new<Swing>()
+var array<Swing> swingsInt = array.new<Swing>()
+
+// Equal-high/low liquidity pools, and the prior external pivot of each side
+// used to detect consecutive equal swings.
+var array<Liquidity> pools = array.new<Liquidity>()
+var float priorExtHigh = na
+var float priorExtLow = na
+var int priorExtHighMs = na
+var int priorExtLowMs = na
+
+// `os` is 0 after a swing high, 1 after a swing low; a transition confirms a
+// pivot `len` bars back. Returns [topPrice, btmPrice], na when no new pivot.
+trackSwings(int len) =>
+    var int os = 0
+    upper = ta.highest(len)
+    lower = ta.lowest(len)
+    os := high[len] > upper ? 0 : low[len] < lower ? 1 : os[1]
+    top = os == 0 and os[1] != 0 ? high[len] : na
+    btm = os == 1 and os[1] != 1 ? low[len] : na
+    [top, btm]
+
+// Classify each confirmed pivot vs the prior pivot of its type and push the
+// swing. `topPx`/`btmPx` are na on bars with no new pivot.
+trackTier(array<Swing> arr, string tier, int len, float topPx, float btmPx, int maxLen) =>
+    var float priorHigh = na
+    var float priorLow = na
+    if not na(topPx)
+        kind = na(priorHigh) or topPx > priorHigh ? "HH" : "LH"
+        array.push(arr, Swing.new(kind, topPx, time[len], tier, true, false))
+        priorHigh := topPx
+    if not na(btmPx)
+        kind = na(priorLow) or btmPx > priorLow ? "HL" : "LL"
+        array.push(arr, Swing.new(kind, btmPx, time[len], tier, false, false))
+        priorLow := btmPx
+    if array.size(arr) > maxLen
+        array.shift(arr)
+
+[extTop, extBtm] = trackSwings(SWING_EXT_LEN)
+[intTop, intBtm] = trackSwings(SWING_INT_LEN)
+
+if barstate.isconfirmed
+    trackTier(swingsExt, "swing", SWING_EXT_LEN, extTop, extBtm, SWING_EXT_MAX)
+    trackTier(swingsInt, "internal", SWING_INT_LEN, intTop, intBtm, SWING_INT_MAX)
+    // Latch the most recent confirmed internal swing for took_liq tagging.
+    if not na(intTop)
+        priorSwingHigh := intTop
+    if not na(intBtm)
+        priorSwingLow := intBtm
+    // A swing is swept once a later bar trades through its price.
+    for sw in swingsExt
+        if not sw.swept and (sw.isHigh ? high > sw.price : low < sw.price)
+            sw.swept := true
+    for sw in swingsInt
+        if not sw.swept and (sw.isHigh ? high > sw.price : low < sw.price)
+            sw.swept := true
+
+// ── Liquidity-pool detection ─────────────────────────────────────────
+// Two consecutive external swings within tolerance form an equal-high/low
+// pool — Pillar-1 draw-target liquidity. `swept` latches when price trades
+// through it. External tier only: the strategy's draw is external liquidity.
+addPool(string kind, float price, int createdMs, float tol) =>
+    bool exists = false
+    for p in pools
+        if p.kind == kind and math.abs(p.price - price) <= tol
+            exists := true
+    if not exists
+        array.push(pools, Liquidity.new(kind, price, createdMs, false))
+        if array.size(pools) > LIQUIDITY_MAX
+            array.shift(pools)
+
+if barstate.isconfirmed
+    eqTol = LIQUIDITY_EQ_ATR_MULT * atr17
+    if not na(extTop)
+        if not na(priorExtHigh) and not na(atr17) and math.abs(extTop - priorExtHigh) <= eqTol
+            addPool("eqh", (extTop + priorExtHigh) / 2, priorExtHighMs, eqTol)
+        priorExtHigh := extTop
+        priorExtHighMs := time[SWING_EXT_LEN]
+    if not na(extBtm)
+        if not na(priorExtLow) and not na(atr17) and math.abs(extBtm - priorExtLow) <= eqTol
+            addPool("eql", (extBtm + priorExtLow) / 2, priorExtLowMs, eqTol)
+        priorExtLow := extBtm
+        priorExtLowMs := time[SWING_EXT_LEN]
+    for p in pools
+        if not p.swept
+            if p.kind == "eqh" and high > p.price
+                p.swept := true
+            else if p.kind == "eql" and low < p.price
+                p.swept := true
+
+// ── Market-structure detection ───────────────────────────────────────
+// A close beyond an armed swing level is a break: continuation (bos) or
+// counter-trend (mss). An arm-and-consume flag fires each swing at most once.
+// Tier-separated arrays so internal events can't crowd out external ones.
+var array<Structure> structuresExt = array.new<Structure>()
+var array<Structure> structuresInt = array.new<Structure>()
+
+// Watch one tier's swing levels for a close-based break. `topPx`/`btmPx` are
+// the new pivots this bar (na when none); they re-arm the watched level. A
+// single bar can take out both the prior high AND the prior low (volatile
+// CPI / FOMC bars), so both checks fire and we return up to two events.
+trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand) =>
+    var float lastHigh = na
+    var int lastHighMs = na
+    var bool highArmed = false
+    var float lastLow = na
+    var int lastLowMs = na
+    var bool lowArmed = false
+    var bool trendUp = true
+    if not na(topPx)
+        lastHigh := topPx
+        lastHighMs := pivotMs
+        highArmed := true
+    if not na(btmPx)
+        lastLow := btmPx
+        lastLowMs := pivotMs
+        lowArmed := true
+    rng = high - low
+    disp = rng > 0 and math.abs(close - open) / rng >= STRUCT_DISP_MIN
+    events = array.new<Structure>()
+    if highArmed and not na(lastHigh) and close > lastHigh
+        valid = close >= lastHigh + atrBand ? "break" : "sweep"
+        array.push(events, Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid))
+        trendUp := true
+        highArmed := false
+    if lowArmed and not na(lastLow) and close < lastLow
+        valid = close <= lastLow - atrBand ? "break" : "sweep"
+        array.push(events, Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid))
+        trendUp := false
+        lowArmed := false
+    events
+
+if barstate.isconfirmed
+    atrBand = STRUCT_ATR_MULT * atr17
+    extEvs = trackStructure("swing", extTop, extBtm, time[SWING_EXT_LEN], atrBand)
+    for ev in extEvs
+        array.push(structuresExt, ev)
+        if array.size(structuresExt) > STRUCT_MAX_PER_TIER
+            array.shift(structuresExt)
+    intEvs = trackStructure("internal", intTop, intBtm, time[SWING_INT_LEN], atrBand)
+    for ev in intEvs
+        array.push(structuresInt, ev)
+        if array.size(structuresInt) > STRUCT_MAX_PER_TIER
+            array.shift(structuresInt)
+
+// ── Quality metrics (Pillar 2) ────────────────────────────────────────
+// docs/strategy/trading-strategy-2026.md §3 + Step 3 checklist:
+//   1. Range        — 3-hour range size, % of price (TF-independent).
+//   2. Displacement — clean-bar count over the recent N-bar window.
+//   3. Candle       — last 3 bars not doji/wick; engulfing wins.
+// 3/3 grades A+, 2/3 grades B, <2 blocks. Killzone weighting lives in the
+// backend (in_killzone gate), not here.
+qRangeBars = math.max(1, int(QUALITY_RANGE_HOURS * 3600 / timeframe.in_seconds()))
+qRange3h = ta.highest(qRangeBars) - ta.lowest(qRangeBars)
+
+qBarRng  = high - low
+qBarBody = math.abs(close - open)
+qMaxWick = math.max(high - math.max(open, close), math.min(open, close) - low)
+
+// Clean bar = decisive directional body.
+qCleanBar = qBarRng > 0 and qBarBody / qBarRng >= QUALITY_CLEAN_BODY
+
+// Doji/wick bar = small body AND dominant wick (AND, not OR — a small body
+// alone inside a trend isn't doji_wick).
+qDojiWickBar = qBarRng > 0 and qBarBody / qBarRng < QUALITY_DOJI_BODY and qMaxWick / qBarRng > QUALITY_DOJI_WICK
+
+// Recent-window counts.
+qCleanRecent    = math.sum(qCleanBar    ? 1 : 0, QUALITY_DISP_BARS)
+qDojiWickRecent = math.sum(qDojiWickBar ? 1 : 0, QUALITY_CANDLE_BARS)
+
+// Engulfing = previous closed bar's range fully covers the bar before it,
+// with a decisive body. ([1] vs [2] so a still-forming bar can't fake it.)
+qPrevRng = high[1] - low[1]
+qEngulfing = bar_index >= 2 and not na(qPrevRng) and qPrevRng > 0 and high[1] >= high[2] and low[1] <= low[2] and math.abs(close[1] - open[1]) / qPrevRng >= QUALITY_CLEAN_BODY
+
+// Verdicts.
+qRangeQuality = bar_index < qRangeBars or na(close) or close <= 0 ? "na" : qRange3h >= close * QUALITY_GOOD_PCT ? "good" : "tight"
+qDisplacement = bar_index < QUALITY_DISP_BARS ? "na" : qCleanRecent >= QUALITY_DISP_CLEAN ? "clean" : qCleanRecent >= QUALITY_DISP_ACCEPT ? "acceptable" : "weak"
+qCandle = qDojiWickRecent > 0 ? "doji_wick" : qEngulfing ? "engulfing" : "normal"
+
+// ── Emitters ─────────────────────────────────────────────────────────
+// Emit one `level` record and, when it has been swept, the matching `sweep`
+// record. Skips a level whose price is na. Returns the next free row.
+emitLevelAndSweep(int row, string name, float price, string state, int formedMs, bool isHighSide, bool swept, int sweptMs, bool rejected) =>
+    int next = row
+    if not na(price)
+        levelPayload = "name=" + name +
+                       "|price=" + str.tostring(price, format.mintick) +
+                       "|state=" + state +
+                       "|swept=" + (swept ? "1" : "0") +
+                       "|formed_ms=" + str.tostring(na(formedMs) ? 0 : formedMs)
+        table.cell(evidence, 0, next, "level")
+        table.cell(evidence, 1, next, levelPayload)
+        next := next + 1
+        if swept
+            sweepPayload = "target=" + name +
+                           "|price=" + str.tostring(price, format.mintick) +
+                           "|side=" + (isHighSide ? "buy" : "sell") +
+                           "|swept_ms=" + str.tostring(na(sweptMs) ? 0 : sweptMs) +
+                           "|rejected=" + (rejected ? "1" : "0")
+            table.cell(evidence, 0, next, "sweep")
+            table.cell(evidence, 1, next, sweepPayload)
+            next := next + 1
+    next
+
+// Emit one `fvg` record with its current kind, mitigation state, took_liq,
+// reaction, size class, and entry-confirmation evidence. Returns the next free row.
+emitFvg(int row, Fvg f) =>
+    ce = (f.top + f.bottom) / 2
+    zoneMinutes = zoneMinutesSince(f.enteredMs)
+    entryState = f.state == "invalidated" ? "invalidated" : f.chop15 ? "chop" : f.confirmClose ? "confirmed" : f.entered and not f.ceHeld ? "failed_ce" : f.entered ? "waiting" : "none"
+    payload = "kind=" + f.kind +
+              "|dir=" + f.dir +
+              "|top=" + str.tostring(f.top, format.mintick) +
+              "|bottom=" + str.tostring(f.bottom, format.mintick) +
+              "|ce=" + str.tostring(ce, format.mintick) +
+              "|created_ms=" + str.tostring(f.createdMs) +
+              "|took_liq=" + (f.tookLiq ? "1" : "0") +
+              "|disp_score=" + str.tostring(f.dispScore, "#.##") +
+              "|reacted=" + (f.reacted ? "1" : "0") +
+              "|reaction_dir=" + f.reactionDir +
+              "|state=" + f.state +
+              "|size_quality=" + f.sizeQuality +
+              "|entered_ms=" + str.tostring(na(f.enteredMs) ? 0 : f.enteredMs) +
+              "|bars_in_zone=" + str.tostring(f.barsInZone) +
+              "|minutes_in_zone=" + str.tostring(zoneMinutes) +
+              "|ce_held=" + (f.entered and f.ceHeld ? "1" : "0") +
+              "|confirm_close=" + (f.confirmClose ? "1" : "0") +
+              "|confirm_dir=" + f.confirmDir +
+              "|confirm_ms=" + str.tostring(na(f.confirmMs) ? 0 : f.confirmMs) +
+              "|chop_15m=" + (f.chop15 ? "1" : "0") +
+              "|entry_state=" + entryState
+    table.cell(evidence, 0, row, "fvg")
+    table.cell(evidence, 1, row, payload)
+    row + 1
+
+// Emit one `bpr` record with its current mitigation state, took_liq,
+// reaction, and entry-confirmation evidence. Returns the next free row.
+emitBpr(int row, Bpr b) =>
+    ce = (b.top + b.bottom) / 2
+    zoneMinutes = zoneMinutesSince(b.enteredMs)
+    entryState = b.state == "invalidated" ? "invalidated" : b.chop15 ? "chop" : b.confirmClose ? "confirmed" : b.entered and not b.ceHeld ? "failed_ce" : b.entered ? "waiting" : "none"
+    payload = "dir=" + b.dir +
+              "|top=" + str.tostring(b.top, format.mintick) +
+              "|bottom=" + str.tostring(b.bottom, format.mintick) +
+              "|created_ms=" + str.tostring(b.createdMs) +
+              "|took_liq=" + (b.tookLiq ? "1" : "0") +
+              "|reacted=" + (b.reacted ? "1" : "0") +
+              "|reaction_dir=" + b.reactionDir +
+              "|state=" + b.state +
+              "|ce=" + str.tostring(ce, format.mintick) +
+              "|entered_ms=" + str.tostring(na(b.enteredMs) ? 0 : b.enteredMs) +
+              "|bars_in_zone=" + str.tostring(b.barsInZone) +
+              "|minutes_in_zone=" + str.tostring(zoneMinutes) +
+              "|ce_held=" + (b.entered and b.ceHeld ? "1" : "0") +
+              "|confirm_close=" + (b.confirmClose ? "1" : "0") +
+              "|confirm_dir=" + b.confirmDir +
+              "|confirm_ms=" + str.tostring(na(b.confirmMs) ? 0 : b.confirmMs) +
+              "|chop_15m=" + (b.chop15 ? "1" : "0") +
+              "|entry_state=" + entryState
+    table.cell(evidence, 0, row, "bpr")
+    table.cell(evidence, 1, row, payload)
+    row + 1
+
+// Emit one `swing` record. Returns the next free row.
+emitSwing(int row, Swing sw) =>
+    payload = "kind=" + sw.kind +
+              "|price=" + str.tostring(sw.price, format.mintick) +
+              "|bar_ms=" + str.tostring(sw.barMs) +
+              "|tier=" + sw.tier +
+              "|swept=" + (sw.swept ? "1" : "0")
+    table.cell(evidence, 0, row, "swing")
+    table.cell(evidence, 1, row, payload)
+    row + 1
+
+// Emit one `structure` record. Returns the next free row.
+emitStructure(int row, Structure s) =>
+    payload = "event=" + s.event +
+              "|dir=" + s.dir +
+              "|level=" + str.tostring(s.level, format.mintick) +
+              "|broken_swing_ms=" + str.tostring(s.brokenSwingMs) +
+              "|confirmed_ms=" + str.tostring(s.confirmedMs) +
+              "|displacement=" + (s.displacement ? "1" : "0") +
+              "|tier=" + s.tier +
+              "|validation=" + s.validation
+    table.cell(evidence, 0, row, "structure")
+    table.cell(evidence, 1, row, payload)
+    row + 1
+
+// Emit one `liquidity` record. `side` is derived from kind. Returns next row.
+emitLiquidity(int row, Liquidity p) =>
+    payload = "kind=" + p.kind +
+              "|side=" + (p.kind == "eqh" ? "buy" : "sell") +
+              "|price=" + str.tostring(p.price, format.mintick) +
+              "|swept=" + (p.swept ? "1" : "0")
+    table.cell(evidence, 0, row, "liquidity")
+    table.cell(evidence, 1, row, payload)
+    row + 1
+
+// Emit the single `quality` record from the module-level metric values.
+// atr_14 / atr_17 ship with the quality block so the backend can re-use
+// the same Wilder ATR the indicator already computes for its structure
+// band, FVG reaction threshold, and Pillar-2 range check — instead of
+// running its own body-based proxy.
+// `session` is Pine's DST-aware classification of the current bar
+// (asia / london / ny_am / ny_pm / off) so the backend doesn't have to
+// rebuild session windows from millisecond timestamps.
+// Returns the next free row.
+emitQuality(int row) =>
+    payload = "range_3h=" + str.tostring(qRange3h, format.mintick) +
+              "|range_quality=" + qRangeQuality +
+              "|displacement=" + qDisplacement +
+              "|candle=" + qCandle +
+              "|atr_14=" + str.tostring(atr14, format.mintick) +
+              "|atr_17=" + str.tostring(atr17, format.mintick) +
+              "|session=" + currentSession
+    table.cell(evidence, 0, row, "quality")
+    table.cell(evidence, 1, row, payload)
+    row + 1
+
+// Write row 0 — the metadata row. `count` is the number of data rows.
+emitMeta(int count) =>
+    payload = "schema=" + str.tostring(SCHEMA_VERSION) +
+              "|count=" + str.tostring(count) +
+              "|emit_ny=" + str.format_time(timenow, "HH:mm:ss", TZ) +
+              "|emit_ms=" + str.tostring(timenow) +
+              "|tf=" + timeframe.period +
+              "|symbol=" + syminfo.ticker
+    table.cell(evidence, 0, 0, "meta")
+    table.cell(evidence, 1, 0, payload)
+
+if barstate.islast
+    asiaState = inAsia ? "forming" : "complete"
+    lonState = inLondon ? "forming" : "complete"
+    nyamState = inNyam ? "forming" : "complete"
+    int row = 1
+    row := emitLevelAndSweep(row, "AS.H", asiaH, asiaState, asiaHMs, true, asiaHSwept, asiaHSweptMs, asiaHRej)
+    row := emitLevelAndSweep(row, "AS.L", asiaL, asiaState, asiaLMs, false, asiaLSwept, asiaLSweptMs, asiaLRej)
+    row := emitLevelAndSweep(row, "LO.H", lonH, lonState, lonHMs, true, lonHSwept, lonHSweptMs, lonHRej)
+    row := emitLevelAndSweep(row, "LO.L", lonL, lonState, lonLMs, false, lonLSwept, lonLSweptMs, lonLRej)
+    row := emitLevelAndSweep(row, "NYAM.H", nyamH, nyamState, nyamHMs, true, nyamHSwept, nyamHSweptMs, nyamHRej)
+    row := emitLevelAndSweep(row, "NYAM.L", nyamL, nyamState, nyamLMs, false, nyamLSwept, nyamLSweptMs, nyamLRej)
+    row := emitLevelAndSweep(row, "PDH", pdh, "complete", na, true, pdhSwept, pdhSweptMs, pdhRej)
+    row := emitLevelAndSweep(row, "PDL", pdl, "complete", na, false, pdlSwept, pdlSweptMs, pdlRej)
+    row := emitLevelAndSweep(row, "PWH", pwh, "complete", na, true, pwhSwept, pwhSweptMs, pwhRej)
+    row := emitLevelAndSweep(row, "PWL", pwl, "complete", na, false, pwlSwept, pwlSweptMs, pwlRej)
+    for f in fvgs
+        row := emitFvg(row, f)
+    for b in bprs
+        row := emitBpr(row, b)
+    for sw in swingsExt
+        row := emitSwing(row, sw)
+    for sw in swingsInt
+        row := emitSwing(row, sw)
+    for s in structuresExt
+        row := emitStructure(row, s)
+    for s in structuresInt
+        row := emitStructure(row, s)
+    for p in pools
+        row := emitLiquidity(row, p)
+    row := emitQuality(row)
+    emitMeta(row - 1)
+    // Hide the on-chart table without dropping the data the backend reads.
+    if not showEvidenceTable
+        for r = 0 to row - 1
+            table.cell_set_text_color(evidence, 0, r, color.new(color.white, 100))
+            table.cell_set_text_color(evidence, 1, r, color.new(color.white, 100))
+
+// ── Visual layer ─────────────────────────────────────────────────────
+// Stateless redraw: on the last bar, delete the previous tick's drawings
+// and recreate them from the engine's live evidence arrays, so the chart
+// is always a pure function of current state.
+
+// Fallback width for a level line when the bar it formed on is unknown
+// (prior-day / prior-week levels). Session levels anchor at their formed bar.
+LEVEL_LINE_BARS = 30
+
+// Boxes and level lines extend this many bars past the current bar.
+RIGHT_PAD_MS = 5 * timeframe.in_seconds() * 1000
+
+var array<box> vizBoxes = array.new<box>()
+var array<line> vizLines = array.new<line>()
+var array<label> vizLabels = array.new<label>()
+var table qualityPanel = table.new(position.top_right, 2, 5, bgcolor = chart.bg_color, frame_color = chart.fg_color, frame_width = 1, border_color = chart.fg_color, border_width = 1)
+
+// Delete and forget every drawing from the previous redraw.
+clearViz() =>
+    for b in vizBoxes
+        box.delete(b)
+    for ln in vizLines
+        line.delete(ln)
+    for lb in vizLabels
+        label.delete(lb)
+    vizBoxes.clear()
+    vizLines.clear()
+    vizLabels.clear()
+
+// Create a box, register it for cleanup, and return it.
+vizBox(int left, float top, int right, float bottom, color bg, color border, string txt, color txtCol) =>
+    b = box.new(left, top, right, bottom, xloc = xloc.bar_time, bgcolor = bg, border_color = border, text = txt, text_color = txtCol, text_size = size.small)
+    vizBoxes.push(b)
+    b
+
+// Create a line, register it for cleanup, and return it.
+vizLine(int x1, float y1, int x2, float y2, color col, string style, int width) =>
+    ln = line.new(x1, y1, x2, y2, xloc = xloc.bar_time, color = col, style = style, width = width)
+    vizLines.push(ln)
+    ln
+
+// Create a label, register it for cleanup, and return it.
+vizLabel(int x, float y, string txt, color bg, color txtCol, string style, string sz) =>
+    lb = label.new(x, y, txt, xloc = xloc.bar_time, color = bg, textcolor = txtCol, style = style, size = sz)
+    vizLabels.push(lb)
+    lb
+
+// Shift a color's transparency by delta, clamped to [0, 100], so every
+// rendered color is derived from the user's input color (opacity included).
+fade(color c, int delta) =>
+    color.new(c, math.min(100, math.max(0, color.t(c) + delta)))
+
+// Draw one level line + right-side label; faded and marked when swept.
+// The line runs from the bar the level formed to just past the current bar;
+// levels with no known formed time fall back to a fixed-width stub.
+drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, color col, string name) =>
+    if not na(price)
+        lineCol = swept ? fade(col, 55) : col
+        x1 = (not na(formedMs) and formedMs > 0) ? formedMs : time - LEVEL_LINE_BARS * timeframe.in_seconds() * 1000
+        x2 = time + RIGHT_PAD_MS
+        vizLine(x1, price, x2, price, lineCol, line.style_solid, 1)
+        vizLabel(x2, price, name, color(na), lineCol, label.style_label_left, size.small)
+        if swept and not na(sweptMs) and sweptMs > 0
+            mkStyle = rejected ? label.style_diamond : label.style_xcross
+            vizLabel(sweptMs, price, "", col, color(na), mkStyle, size.tiny)
+
+renderLevels() =>
+    drawLevel(asiaH, asiaHMs, asiaHSwept, asiaHSweptMs, asiaHRej, colKzAsia, "AS.H")
+    drawLevel(asiaL, asiaLMs, asiaLSwept, asiaLSweptMs, asiaLRej, colKzAsia, "AS.L")
+    drawLevel(lonH, lonHMs, lonHSwept, lonHSweptMs, lonHRej, colKzLondon, "LO.H")
+    drawLevel(lonL, lonLMs, lonLSwept, lonLSweptMs, lonLRej, colKzLondon, "LO.L")
+    drawLevel(nyamH, nyamHMs, nyamHSwept, nyamHSweptMs, nyamHRej, colKzNyam, "NYAM.H")
+    drawLevel(nyamL, nyamLMs, nyamLSwept, nyamLSweptMs, nyamLRej, colKzNyam, "NYAM.L")
+    drawLevel(pdh, na, pdhSwept, pdhSweptMs, pdhRej, colLvlPd, "PDH")
+    drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, colLvlPd, "PDL")
+    drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, colLvlPw, "PWH")
+    drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, colLvlPw, "PWL")
+
+entryMarkerText(bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
+    confirmClose ? "OK" : chop15 ? "CHOP" : entered and not ceHeld ? "CE X" : ""
+
+entryMarkerColor(bool confirmClose, bool chop15, bool entered, bool ceHeld, color base) =>
+    confirmClose ? base : chop15 ? color.orange : entered and not ceHeld ? color.red : color(na)
+
+// Draw the FVG boxes with a dashed CE midline.
+renderFvgs() =>
+    for f in fvgs
+        if f.kind == "fvg"
+            isHist = f.state == "invalidated"
+            if not isHist or showHistorical
+                base = f.dir == "bull" ? colFvgBull : colFvgBear
+                hd = isHist ? 12 : 0
+                ce = (f.top + f.bottom) / 2
+                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 27), "FVG", fade(base, hd - 62))
+                bx.set_text_halign(text.align_right)
+                bx.set_text_valign(text.align_center)
+                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 42), line.style_dashed, 1)
+                mk = entryMarkerText(f.confirmClose, f.chop15, f.entered, f.ceHeld)
+                if mk != ""
+                    vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(f.confirmClose, f.chop15, f.entered, f.ceHeld, base), label.style_label_left, size.tiny)
+
+// Draw the inverted-FVG boxes with a dashed CE midline.
+renderIfvgs() =>
+    for f in fvgs
+        if f.kind == "ifvg"
+            isHist = f.state == "invalidated"
+            if not isHist or showHistorical
+                base = f.dir == "bull" ? colIfvgBull : colIfvgBear
+                hd = isHist ? 12 : 0
+                ce = (f.top + f.bottom) / 2
+                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 27), "iFVG", fade(base, hd - 62))
+                bx.set_text_halign(text.align_right)
+                bx.set_text_valign(text.align_center)
+                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 42), line.style_dashed, 1)
+                mk = entryMarkerText(f.confirmClose, f.chop15, f.entered, f.ceHeld)
+                if mk != ""
+                    vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(f.confirmClose, f.chop15, f.entered, f.ceHeld, base), label.style_label_left, size.tiny)
+
+// Draw the BPR boxes.
+renderBprs() =>
+    for b in bprs
+        isHist = b.state == "invalidated"
+        if not isHist or showHistorical
+            base = b.dir == "bull" ? colBprBull : colBprBear
+            hd = isHist ? 12 : 0
+            bx = vizBox(b.createdMs, b.top, time + RIGHT_PAD_MS, b.bottom, fade(base, hd), fade(base, hd - 27), "BPR", fade(base, hd - 62))
+            bx.set_text_halign(text.align_right)
+            bx.set_text_valign(text.align_center)
+            ce = (b.top + b.bottom) / 2
+            vizLine(b.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 42), line.style_dashed, 1)
+            mk = entryMarkerText(b.confirmClose, b.chop15, b.entered, b.ceHeld)
+            if mk != ""
+                vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(b.confirmClose, b.chop15, b.entered, b.ceHeld, base), label.style_label_left, size.tiny)
+
+// Draw one swing-point label, faded when the swing has been swept.
+drawSwingLabel(Swing sw) =>
+    base = (sw.kind == "HH" or sw.kind == "HL") ? colSwingBull : colSwingBear
+    txtCol = sw.swept ? fade(base, 55) : base
+    style = sw.isHigh ? label.style_label_down : label.style_label_up
+    sz = sw.tier == "swing" ? size.small : size.tiny
+    vizLabel(sw.barMs, sw.price, sw.kind, color(na), txtCol, style, sz)
+
+renderSwings() =>
+    for sw in swingsExt
+        drawSwingLabel(sw)
+    if showInternal
+        for sw in swingsInt
+            drawSwingLabel(sw)
+
+// Draw the structure-break lines and BoS/MSS labels. External-tier events
+// always render; internal-tier renders only when showInternal is on.
+drawStructure(Structure s) =>
+    base = s.dir == "bull" ? colStructBull : colStructBear
+    lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
+    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, base, lnStyle, s.displacement ? 2 : 1)
+    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.validation == "sweep" ? "·sweep" : "")
+    lblStyle = s.dir == "bull" ? label.style_label_up : label.style_label_down
+    vizLabel(s.confirmedMs, s.level, txt, color(na), base, lblStyle, size.tiny)
+
+renderStructures() =>
+    for s in structuresExt
+        drawStructure(s)
+    if showInternal
+        for s in structuresInt
+            drawStructure(s)
+
+// Draw the equal-high/low liquidity pools, anchored at the first equal swing.
+renderLiquidity() =>
+    for p in pools
+        if not p.swept or showHistorical
+            col = p.swept ? fade(colLiquidity, 55) : colLiquidity
+            x2 = time + RIGHT_PAD_MS
+            vizLine(p.createdMs, p.price, x2, p.price, col, line.style_dotted, 1)
+            vizLabel(x2, p.price, p.kind == "eqh" ? "EQH" : "EQL", color(na), col, label.style_label_left, size.tiny)
+
+// Write one quality-panel cell.
+qSet(int col, int row, string txt) =>
+    table.cell(qualityPanel, col, row, txt, text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.small)
+
+// Fill the quality panel from the engine's quality metrics.
+renderQualityPanel() =>
+    qSet(0, 0, "3h range")
+    qSet(1, 0, str.tostring(qRange3h, format.mintick))
+    qSet(0, 1, "Range")
+    qSet(1, 1, qRangeQuality)
+    qSet(0, 2, "Displacement")
+    qSet(1, 2, qDisplacement)
+    qSet(0, 3, "Candle")
+    qSet(1, 3, qCandle)
+
+// Visual-layer render dispatch — redraw everything from current state.
+if barstate.islast
+    clearViz()
+    table.clear(qualityPanel, 0, 0, 1, 3)
+    if showVisuals
+        if showLevels
+            renderLevels()
+        if showFvgs
+            renderFvgs()
+        if showIfvgs
+            renderIfvgs()
+        if showBprs
+            renderBprs()
+        if showSwings
+            renderSwings()
+        if showStructure
+            renderStructures()
+        if showLiquidity
+            renderLiquidity()
+        if showQuality
+            renderQualityPanel()
