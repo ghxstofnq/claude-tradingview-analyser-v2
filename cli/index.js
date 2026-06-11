@@ -26,6 +26,7 @@ import "./commands/dash.js";
 import "./commands/trades.js";
 import "./commands/capture-replay.js";
 import "./commands/live.js";
+import "./commands/record-tape.js";
 
 import { run } from "./router.js";
 await run(process.argv);

@@ -877,11 +877,140 @@ function evaluateStrategyChainReadiness(inputs = {}, context = {}) {
   return { ok: blockers.length === 0, blockers: [...new Set(blockers)] };
 }
 
+// Bridge the live scan bundle's engine gates (cli/lib/compute-engine-gates.js
+// output) into the evidence shapes the strategy context consumes. Discovered
+// 2026-06-12 from June 5's deterministic-packets.jsonl: every live bar was
+// blocked with missing_ict_engine_rows — the walker chain was built against a
+// rows-bearing test shape the live bundle never produced. Three derivations,
+// each only when the field is absent (hand-built test bundles and future
+// emitters that provide them directly are left untouched):
+//   rows               ← pillar3.fvgs/bprs (the parsed V2 zone lists)
+//   confirmation       ← the most recently confirmed V2 zone's lifecycle
+//                        fields + the live bar close (entry price source)
+//   structural_stops   ← swing pivots (strategy: stop at structural
+//                        invalidation; zone-edge stops are a future, separate
+//                        strategy decision — see PR notes)
+// Boundary-based zone identity: the engine re-orders its zone lists bar to
+// bar, so index-based refs give the same zone a new identity every bar —
+// walker dedup and tap-matching both need the zone itself, not its position.
+function zoneRef(row, fallback) {
+  // Explicit refs win — hand-built evidence (tests, labels) names its zones.
+  if (row?.evidenceRef) return row.evidenceRef;
+  if (row?.cite) return row.cite;
+  const top = Number(row?.top);
+  const bottom = Number(row?.bottom);
+  if (Number.isFinite(top) && Number.isFinite(bottom)) return `zone:${bottom}-${top}`;
+  return fallback;
+}
+
+function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
+  const out = { ...engine };
+  const p3 = out.pillar3 ?? {};
+
+  if (!Array.isArray(out.rows) || out.rows.length === 0) {
+    out.rows = [
+      ...(p3.fvgs ?? []).map((row, i) => ({
+        kind: 'fvg', ...row,
+        evidenceRef: zoneRef(row, `gates.engine.pillar3.fvgs[${i}]`),
+      })),
+      ...(p3.bprs ?? []).map((row, i) => ({
+        kind: 'bpr', ...row,
+        evidenceRef: zoneRef(row, `gates.engine.pillar3.bprs[${i}]`),
+      })),
+    ];
+  }
+
+  // Align the price-context zone refs to the same identities so a walker
+  // spawned from rows[] recognizes its zone in inside_fvgs[] (MSS tap).
+  const pc = out.price_context ?? {};
+  out.price_context = {
+    ...pc,
+    inside_fvgs: (pc.inside_fvgs ?? []).map((row, i) => ({
+      ...row, evidenceRef: zoneRef(row, `gates.engine.price_context.inside_fvgs[${i}]`),
+    })),
+    inside_bprs: (pc.inside_bprs ?? []).map((row, i) => ({
+      ...row, evidenceRef: zoneRef(row, `gates.engine.price_context.inside_bprs[${i}]`),
+    })),
+  };
+
+  const conf = out.confirmation ?? {};
+  if (conf.entry_state == null) {
+    const close = conf.last_bar?.close ?? lastClose;
+    // entry_state='confirmed' on an engine row is a HISTORICAL record — the
+    // table keeps completed entries around (June 9 tape: a 13:41 confirm was
+    // still 'confirmed' at 13:55 and masked the live violation). Only a
+    // confirm_ms inside the current bar is confirmation evidence for THIS
+    // bar; without a bar timestamp nothing is bridged from entry_state.
+    const barOpenMs = Number(conf.last_bar?.time) * 1000;
+    const inCurrentBar = (ms) => Number.isFinite(barOpenMs) && Number.isFinite(ms)
+      && ms >= barOpenMs && ms <= barOpenMs + 60_000;
+    const confirmed = out.rows
+      .filter((row) => row.entry_state === 'confirmed'
+        && (row.confirm_close === true || row.confirm_close === 1)
+        && inCurrentBar(Number(row.confirm_ms)))
+      .sort((a, b) => (b.confirm_ms ?? 0) - (a.confirm_ms ?? 0))[0];
+    // The engine's entry_state machinery only tracks CE-retest entries. A
+    // blast-through close that flips a zone to state=inverted IS the
+    // confirmation for the Inversion model's aggressive variant
+    // (docs/strategy/entry-models.md: "enter on the initial close that
+    // violated the FVG") — synthesize that row deterministically from the
+    // bar close vs the flipped zone. Engine-emitted confirms take precedence.
+    //
+    // The search is keyed to the CLOSING BAR's direction: old inverted zones
+    // on the wrong side stay "closed-beyond" forever (June 9 tape: a stale
+    // bull-inverted zone from the opening bounce won first-match on every
+    // later bar and masked the real bearish confirmation for six bars).
+    // The confirmation candle's direction is the strategy's own discipline —
+    // a bearish close confirms shorts, full stop. No bar direction → no
+    // synthesis (fail closed).
+    const barDir = conf.last_bar?.direction;
+    const wantDir = barDir === 'bearish' ? 'bear' : barDir === 'bullish' ? 'bull' : null;
+    const violated = (confirmed || !wantDir) ? null : out.rows.find((row) => {
+      if (row.state !== 'inverted' || !['fvg', 'ifvg'].includes(String(row.kind))) return false;
+      if (row.dir !== wantDir) return false;
+      const top = Number(row.top);
+      const bottom = Number(row.bottom);
+      if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(Number(close))) return false;
+      return wantDir === 'bear' ? Number(close) < bottom : Number(close) > top;
+    });
+    const source = confirmed ?? violated;
+    if (source) {
+      out.confirmation = {
+        ...conf,
+        entry_state: 'confirmed',
+        confirm_close: true,
+        confirm_dir: confirmed ? (confirmed.confirm_dir ?? null) : source.dir,
+        ce_held: confirmed ? confirmed.ce_held === true : true,
+        chop_15m: source.chop_15m === true,
+        confirm_ms: source.confirm_ms ?? null,
+        close,
+        evidenceRef: source.evidenceRef ?? zoneRef(source, 'gates.engine.confirmation'),
+        ...(violated ? { source: 'violation_close_bridge' } : {}),
+      };
+    }
+  }
+
+  if (!Array.isArray(p3.structural_stops) || p3.structural_stops.length === 0) {
+    const pivotStops = (tier) => ((p3.swings ?? {})[tier] ?? [])
+      .filter((s) => Number.isFinite(Number(s?.price)))
+      .map((s, i) => ({
+        kind: s.is_high ? 'swing_high' : 'swing_low',
+        price: Number(s.price),
+        tier,
+        bar_ms: s.bar_ms ?? null,
+        evidenceRef: `gates.engine.pillar3.swings.${tier}[${i}]`,
+      }));
+    out.pillar3 = { ...p3, structural_stops: [...pivotStops('swing'), ...pivotStops('internal')] };
+  }
+
+  return out;
+}
+
 function buildStrategyBundleForRuntime(inputs, ev, session) {
   const bundle = inputs.bundle ?? {};
   const leader = inputs.leader || bundle.symbol || bundle.market || ev?.symbol || 'unknown';
   const briefDigest = bundle.brief_digest ?? {};
-  const engine = { ...(bundle.gates?.engine ?? {}) };
+  const engine = bridgeEngineEvidence(bundle.gates?.engine ?? {}, { lastClose: bundle.quote?.last ?? null });
   engine.pillar1 = {
     ...(engine.pillar1 ?? {}),
     htfBias: engine.pillar1?.htfBias ?? engine.pillar1?.htf_bias ?? htfBiasFromBrief(briefDigest) ?? null,
