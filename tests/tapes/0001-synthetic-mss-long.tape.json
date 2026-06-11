@@ -1,0 +1,602 @@
+{
+  "fixture": "0001-synthetic-mss-long",
+  "date": "2026-06-11",
+  "session": "ny-am",
+  "verified": true,
+  "expected": {
+    "outcome": "trade",
+    "model": "MSS",
+    "side": "long",
+    "entry": 21000,
+    "stop": 20990,
+    "tp1": 21050,
+    "grade": "A+",
+    "first_packet_event_ts": "2026-06-11T13:48:00.000Z",
+    "max_packets": 1
+  },
+  "entries": [
+    {
+      "event": {
+        "ts": "2026-06-11T13:45:00.000Z",
+        "tf": "1m"
+      },
+      "inputs": {
+        "leader": "MNQ1!",
+        "ltf_bias_context": {
+          "bias": "bullish",
+          "htf_ltf_alignment": "aligned",
+          "is_retrace_day": false,
+          "entry_model_priority": "MSS",
+          "grade_cap": "A+"
+        },
+        "session_state": {
+          "pillar1": {
+            "status": "pass",
+            "htfBias": "bullish",
+            "htfDraw": "above PDH",
+            "primaryDraw": "PDH"
+          },
+          "pillar2": {
+            "status": "pass",
+            "verdict": "pass"
+          }
+        },
+        "untaken_targets": {
+          "untaken_above": [
+            {
+              "evidenceRef": "target.pdh",
+              "label": "PDH",
+              "price": 21050
+            }
+          ],
+          "untaken_below": []
+        },
+        "bundle": {
+          "chart": {
+            "symbol": "CME_MINI:MNQ1!"
+          },
+          "brief_digest": {
+            "htf_destination": "above PDH",
+            "primary_draw": "PDH"
+          },
+          "gates": {
+            "engine": {
+              "meta": {
+                "schema_supported": true,
+                "stale": false
+              },
+              "rows": [
+                {
+                  "evidenceRef": "pd.large.bull",
+                  "kind": "fvg",
+                  "dir": "bull",
+                  "direction": "bullish",
+                  "state": "fresh",
+                  "size_quality": "large",
+                  "top": 21000,
+                  "bottom": 20980,
+                  "ce": 20990
+                }
+              ],
+              "price_context": {
+                "inside_fvgs": [],
+                "inside_bprs": []
+              },
+              "pillar1": {
+                "sweeps": []
+              },
+              "pillar2": {
+                "current_tf": {
+                  "candle": "clean",
+                  "displacement": "clean"
+                },
+                "chop_15m": 0
+              },
+              "pillar3": {
+                "structural_stops": [
+                  {
+                    "evidenceRef": "stop.mss_swing_low",
+                    "kind": "mss_swing_low",
+                    "price": 20990
+                  }
+                ],
+                "failure_swings": []
+              },
+              "confirmation": {}
+            }
+          },
+          "bars": {
+            "last_5_bars": []
+          },
+          "bars_by_tf": {
+            "m5": {
+              "last_5_bars": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "event": {
+        "ts": "2026-06-11T13:46:00.000Z",
+        "tf": "1m"
+      },
+      "inputs": {
+        "leader": "MNQ1!",
+        "ltf_bias_context": {
+          "bias": "bullish",
+          "htf_ltf_alignment": "aligned",
+          "is_retrace_day": false,
+          "entry_model_priority": "MSS",
+          "grade_cap": "A+"
+        },
+        "session_state": {
+          "pillar1": {
+            "status": "pass",
+            "htfBias": "bullish",
+            "htfDraw": "above PDH",
+            "primaryDraw": "PDH"
+          },
+          "pillar2": {
+            "status": "pass",
+            "verdict": "pass"
+          }
+        },
+        "untaken_targets": {
+          "untaken_above": [
+            {
+              "evidenceRef": "target.pdh",
+              "label": "PDH",
+              "price": 21050
+            }
+          ],
+          "untaken_below": []
+        },
+        "bundle": {
+          "chart": {
+            "symbol": "CME_MINI:MNQ1!"
+          },
+          "brief_digest": {
+            "htf_destination": "above PDH",
+            "primary_draw": "PDH"
+          },
+          "gates": {
+            "engine": {
+              "meta": {
+                "schema_supported": true,
+                "stale": false
+              },
+              "rows": [
+                {
+                  "evidenceRef": "pd.large.bull",
+                  "kind": "fvg",
+                  "dir": "bull",
+                  "direction": "bullish",
+                  "state": "fresh",
+                  "size_quality": "large",
+                  "top": 21000,
+                  "bottom": 20980,
+                  "ce": 20990
+                }
+              ],
+              "price_context": {
+                "inside_fvgs": [],
+                "inside_bprs": []
+              },
+              "pillar1": {
+                "sweeps": [
+                  {
+                    "evidenceRef": "sweep.asl",
+                    "side": "sell",
+                    "rejected": true,
+                    "swept_ms": 1780062000000
+                  }
+                ]
+              },
+              "pillar2": {
+                "current_tf": {
+                  "candle": "clean",
+                  "displacement": "clean"
+                },
+                "chop_15m": 0
+              },
+              "pillar3": {
+                "structural_stops": [
+                  {
+                    "evidenceRef": "stop.mss_swing_low",
+                    "kind": "mss_swing_low",
+                    "price": 20990
+                  }
+                ],
+                "failure_swings": [
+                  {
+                    "evidenceRef": "fs.mss",
+                    "event": "mss",
+                    "validation": "sweep",
+                    "dir": "bull",
+                    "created_ms": 1780062180000
+                  }
+                ]
+              },
+              "confirmation": {}
+            }
+          },
+          "bars": {
+            "last_5_bars": []
+          },
+          "bars_by_tf": {
+            "m5": {
+              "last_5_bars": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "event": {
+        "ts": "2026-06-11T13:47:00.000Z",
+        "tf": "1m"
+      },
+      "inputs": {
+        "leader": "MNQ1!",
+        "ltf_bias_context": {
+          "bias": "bullish",
+          "htf_ltf_alignment": "aligned",
+          "is_retrace_day": false,
+          "entry_model_priority": "MSS",
+          "grade_cap": "A+"
+        },
+        "session_state": {
+          "pillar1": {
+            "status": "pass",
+            "htfBias": "bullish",
+            "htfDraw": "above PDH",
+            "primaryDraw": "PDH"
+          },
+          "pillar2": {
+            "status": "pass",
+            "verdict": "pass"
+          }
+        },
+        "untaken_targets": {
+          "untaken_above": [
+            {
+              "evidenceRef": "target.pdh",
+              "label": "PDH",
+              "price": 21050
+            }
+          ],
+          "untaken_below": []
+        },
+        "bundle": {
+          "chart": {
+            "symbol": "CME_MINI:MNQ1!"
+          },
+          "brief_digest": {
+            "htf_destination": "above PDH",
+            "primary_draw": "PDH"
+          },
+          "gates": {
+            "engine": {
+              "meta": {
+                "schema_supported": true,
+                "stale": false
+              },
+              "rows": [
+                {
+                  "evidenceRef": "pd.large.bull",
+                  "kind": "fvg",
+                  "dir": "bull",
+                  "direction": "bullish",
+                  "state": "fresh",
+                  "size_quality": "large",
+                  "top": 21000,
+                  "bottom": 20980,
+                  "ce": 20990
+                }
+              ],
+              "price_context": {
+                "inside_fvgs": [
+                  {
+                    "evidenceRef": "pd.large.bull",
+                    "kind": "fvg",
+                    "dir": "bull",
+                    "direction": "bullish",
+                    "state": "fresh",
+                    "size_quality": "large",
+                    "top": 21000,
+                    "bottom": 20980,
+                    "ce": 20990
+                  }
+                ],
+                "inside_bprs": []
+              },
+              "pillar1": {
+                "sweeps": [
+                  {
+                    "evidenceRef": "sweep.asl",
+                    "side": "sell",
+                    "rejected": true,
+                    "swept_ms": 1780062000000
+                  }
+                ]
+              },
+              "pillar2": {
+                "current_tf": {
+                  "candle": "clean",
+                  "displacement": "clean"
+                },
+                "chop_15m": 0
+              },
+              "pillar3": {
+                "structural_stops": [
+                  {
+                    "evidenceRef": "stop.mss_swing_low",
+                    "kind": "mss_swing_low",
+                    "price": 20990
+                  }
+                ],
+                "failure_swings": [
+                  {
+                    "evidenceRef": "fs.mss",
+                    "event": "mss",
+                    "validation": "sweep",
+                    "dir": "bull",
+                    "created_ms": 1780062180000
+                  }
+                ]
+              },
+              "confirmation": {}
+            }
+          },
+          "bars": {
+            "last_5_bars": []
+          },
+          "bars_by_tf": {
+            "m5": {
+              "last_5_bars": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "event": {
+        "ts": "2026-06-11T13:48:00.000Z",
+        "tf": "1m"
+      },
+      "inputs": {
+        "leader": "MNQ1!",
+        "ltf_bias_context": {
+          "bias": "bullish",
+          "htf_ltf_alignment": "aligned",
+          "is_retrace_day": false,
+          "entry_model_priority": "MSS",
+          "grade_cap": "A+"
+        },
+        "session_state": {
+          "pillar1": {
+            "status": "pass",
+            "htfBias": "bullish",
+            "htfDraw": "above PDH",
+            "primaryDraw": "PDH"
+          },
+          "pillar2": {
+            "status": "pass",
+            "verdict": "pass"
+          }
+        },
+        "untaken_targets": {
+          "untaken_above": [
+            {
+              "evidenceRef": "target.pdh",
+              "label": "PDH",
+              "price": 21050
+            }
+          ],
+          "untaken_below": []
+        },
+        "bundle": {
+          "chart": {
+            "symbol": "CME_MINI:MNQ1!"
+          },
+          "brief_digest": {
+            "htf_destination": "above PDH",
+            "primary_draw": "PDH"
+          },
+          "gates": {
+            "engine": {
+              "meta": {
+                "schema_supported": true,
+                "stale": false
+              },
+              "rows": [
+                {
+                  "evidenceRef": "pd.large.bull",
+                  "kind": "fvg",
+                  "dir": "bull",
+                  "direction": "bullish",
+                  "state": "fresh",
+                  "size_quality": "large",
+                  "top": 21000,
+                  "bottom": 20980,
+                  "ce": 20990
+                }
+              ],
+              "price_context": {
+                "inside_fvgs": [
+                  {
+                    "evidenceRef": "pd.large.bull",
+                    "kind": "fvg",
+                    "dir": "bull",
+                    "direction": "bullish",
+                    "state": "fresh",
+                    "size_quality": "large",
+                    "top": 21000,
+                    "bottom": 20980,
+                    "ce": 20990
+                  }
+                ],
+                "inside_bprs": []
+              },
+              "pillar1": {
+                "sweeps": [
+                  {
+                    "evidenceRef": "sweep.asl",
+                    "side": "sell",
+                    "rejected": true,
+                    "swept_ms": 1780062000000
+                  }
+                ]
+              },
+              "pillar2": {
+                "current_tf": {
+                  "candle": "clean",
+                  "displacement": "clean"
+                },
+                "chop_15m": 0
+              },
+              "pillar3": {
+                "structural_stops": [
+                  {
+                    "evidenceRef": "stop.mss_swing_low",
+                    "kind": "mss_swing_low",
+                    "price": 20990
+                  }
+                ],
+                "failure_swings": [
+                  {
+                    "evidenceRef": "fs.mss",
+                    "event": "mss",
+                    "validation": "sweep",
+                    "dir": "bull",
+                    "created_ms": 1780062180000
+                  }
+                ]
+              },
+              "confirmation": {
+                "evidenceRef": "confirm.close",
+                "close": 21000,
+                "confirm_ms": 1780062420000,
+                "entry_state": "confirmed",
+                "confirm_close": 1,
+                "ce_held": 1,
+                "chop_15m": 0,
+                "confirm_dir": "bull"
+              }
+            }
+          },
+          "bars": {
+            "last_5_bars": []
+          },
+          "bars_by_tf": {
+            "m5": {
+              "last_5_bars": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "event": {
+        "ts": "2026-06-11T13:49:00.000Z",
+        "tf": "1m"
+      },
+      "inputs": {
+        "leader": "MNQ1!",
+        "ltf_bias_context": {
+          "bias": "bullish",
+          "htf_ltf_alignment": "aligned",
+          "is_retrace_day": false,
+          "entry_model_priority": "MSS",
+          "grade_cap": "A+"
+        },
+        "session_state": {
+          "pillar1": {
+            "status": "pass",
+            "htfBias": "bullish",
+            "htfDraw": "above PDH",
+            "primaryDraw": "PDH"
+          },
+          "pillar2": {
+            "status": "pass",
+            "verdict": "pass"
+          }
+        },
+        "untaken_targets": {
+          "untaken_above": [
+            {
+              "evidenceRef": "target.pdh",
+              "label": "PDH",
+              "price": 21050
+            }
+          ],
+          "untaken_below": []
+        },
+        "bundle": {
+          "chart": {
+            "symbol": "CME_MINI:MNQ1!"
+          },
+          "brief_digest": {
+            "htf_destination": "above PDH",
+            "primary_draw": "PDH"
+          },
+          "gates": {
+            "engine": {
+              "meta": {
+                "schema_supported": true,
+                "stale": false
+              },
+              "rows": [
+                {
+                  "evidenceRef": "pd.large.bull",
+                  "kind": "fvg",
+                  "dir": "bull",
+                  "direction": "bullish",
+                  "state": "fresh",
+                  "size_quality": "large",
+                  "top": 21000,
+                  "bottom": 20980,
+                  "ce": 20990
+                }
+              ],
+              "price_context": {
+                "inside_fvgs": [],
+                "inside_bprs": []
+              },
+              "pillar1": {
+                "sweeps": []
+              },
+              "pillar2": {
+                "current_tf": {
+                  "candle": "clean",
+                  "displacement": "clean"
+                },
+                "chop_15m": 0
+              },
+              "pillar3": {
+                "structural_stops": [
+                  {
+                    "evidenceRef": "stop.mss_swing_low",
+                    "kind": "mss_swing_low",
+                    "price": 20990
+                  }
+                ],
+                "failure_swings": []
+              },
+              "confirmation": {}
+            }
+          },
+          "bars": {
+            "last_5_bars": []
+          },
+          "bars_by_tf": {
+            "m5": {
+              "last_5_bars": []
+            }
+          }
+        }
+      }
+    }
+  ]
+}
