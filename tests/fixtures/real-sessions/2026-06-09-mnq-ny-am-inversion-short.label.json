@@ -1,0 +1,122 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-06-09-mnq-ny-am-inversion-short",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "GXNQ",
+  "source_message": "GXNQ label 2026-06-11: Tuesday 09 June. HTF 1H bearish, 4H bearish, Daily mixed. Price action quality Good. A+ bearish Inversion. 5M confirmation candle close. Entry at 09:50 candle close 29,731.25, stop 29,851.50, TP1 29,302.50, TP2 28,779.00 PWL.",
+  "trade_date": "2026-06-09",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "trade",
+    "model": "Inversion",
+    "side": "short",
+    "grade": "A+",
+    "entry_time_et": "2026-06-09T09:54:00-04:00",
+    "entry": 29731.25,
+    "confirmation_tf": "5m",
+    "stop_anchor_time_et": "2026-06-09T09:49:00-04:00",
+    "stop_anchor": "high_of_09:49_candle",
+    "tp1": 29302.5,
+    "tp2": 28779.0,
+    "tp2_note": "PWL"
+  },
+  "evidence_requirements": [
+    "bundle must include 09:49 ET candle high for stop validation",
+    "bundle must include 09:54 ET confirmation candle for entry validation",
+    "bundle must prove Inversion short state: violated opposing bullish FVG with a bearish close-through before or at 09:54 ET",
+    "bundle must prove TP1 29302.50 is untaken liquidity below at entry time",
+    "bundle must prove source health fresh, schema supported, and ICT Engine rows present as-of 09:54 ET"
+  ],
+  "replay": {
+    "ready": true,
+    "bundlePath": "2026-06-09-mnq-ny-am-inversion-short.asof-0954.bundle.json",
+    "as_of_et": "2026-06-09T09:54:00-04:00",
+    "as_of_utc": "2026-06-09T13:54:00Z",
+    "capture_window_et": {
+      "context_start": "2026-06-09T09:30:00-04:00",
+      "entry_window_end": "2026-06-09T12:00:00-04:00",
+      "as_of": "2026-06-09T09:54:00-04:00"
+    },
+    "required_timeframes": {
+      "premarket_context": [
+        "D1",
+        "H4",
+        "H1",
+        "15M",
+        "5M"
+      ],
+      "entry_window": [
+        "15M",
+        "5M",
+        "1M"
+      ]
+    },
+    "required_candles": [
+      {
+        "tf": "1m",
+        "time_et": "2026-06-09T09:49:00-04:00",
+        "purpose": "stop_anchor"
+      },
+      {
+        "tf": "1m",
+        "time_et": "2026-06-09T09:54:00-04:00",
+        "purpose": "entry_confirmation"
+      }
+    ],
+    "readiness_checks": [
+      "no bars after as_of may be used for entry decision",
+      "09:49 ET candle high must define stop anchor or label stays unscored",
+      "09:54 ET candle close must define entry confirmation or label stays unscored",
+      "TP1 must cite untaken liquidity existing before/as-of entry",
+      "ICT Engine V2 rows/boxes/labels/levels must be captured with source health as-of entry",
+      "D1/H4/H1/15M/5M context from 09:30 ET must exist before 1M entry replay is trusted",
+      "15M/5M/1M entry window from 09:30 ET to 12:00 ET must be available for bar-by-bar replay"
+    ],
+    "capture_status": "captured",
+    "reason_not_ready": null,
+    "as_of_engine_evidence": {
+      "source": "gxofnq_label_plus_tradingview_replay_bars",
+      "source_tf": "m5",
+      "as_of_utc": "2026-06-09T13:54:00Z",
+      "note": "As-of ICT evidence bridge for the GXNQ-labeled 09:50 5m-close bearish Inversion: the live engine table was captured 2026-06-11, so future-mutated rows are not trusted for this decision. The violated bullish 5m FVG (candle1 09:35 H 29730.75 / candle3 09:45 L 29759.75, created at the 09:45 candle close) was inverted by the 09:50 5m candle closing 29731.25 through the full zone. Zone identity, stop anchor (high of 09:49 = 29847; GXNQ placed stop 29851.50 = anchor + discretionary buffer), entry timing convention, and trade shape CONFIRMED by GXNQ at hand-grade 2026-06-11.",
+      "quality": {
+        "range_quality": "good",
+        "displacement": "clean",
+        "candle": "clean",
+        "chop_15m": false,
+        "evidence_source": "gxofnq_label_plus_tradingview_replay_bars"
+      },
+      "fvgs": [
+        {
+          "kind": "ifvg",
+          "dir": "bear",
+          "state": "fresh",
+          "top": 29759.75,
+          "bottom": 29730.75,
+          "ce": 29745.25,
+          "created_ms": 1781013000000,
+          "entered_ms": 1781013240000,
+          "bars_in_zone": 1,
+          "minutes_in_zone": 0,
+          "ce_held": true,
+          "confirm_close": true,
+          "confirm_ms": 1781013240000,
+          "chop_15m": false,
+          "size_quality": "medium",
+          "disp_score": 0.8,
+          "evidence_note": "Bearish iFVG for the labeled short; stop anchor is the 09:49 ET m1 high (29847), confirmation is the 09:50 5m candle close (= 09:54 m1 close, 29731.25)."
+        }
+      ]
+    }
+  },
+  "notes": [
+    "Second GXNQ-labeled real-session target; first SHORT.",
+    "GXNQ's placed stop was 29851.50 = 4.5 points above the structural 09:49 high (29847). The machine asserts the structural anchor high; the buffer is discretionary sizing, not structure.",
+    "HTF context per GXNQ: 1H bearish, 4H bearish, Daily mixed. Pillar 2 quality Good.",
+    "Do not use later candles to repair the 09:54 decision.",
+    "Hand-graded and confirmed by GXNQ on 2026-06-11: zone 29730.75-29759.75, structural stop anchor 29847, entry 29731.25, TP1 29302.50. Frozen."
+  ]
+}

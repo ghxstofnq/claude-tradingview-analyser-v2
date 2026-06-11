@@ -76,25 +76,30 @@ function adaptEngineByTf(bundle, asOfMs) {
   return { engineByTf: out, removed, removedByTf };
 }
 
-function untakenAboveFromLevels(levels, entry) {
+// Untaken engine levels on the trade's target side. For a long the draw is
+// above entry (nearest first); for a short it is below (nearest first).
+function untakenLevelsTowardTarget(levels, entry, side) {
+  const isLong = side !== 'short';
   return (Array.isArray(levels) ? levels : [])
-    .filter((level) => level?.swept !== true && Number(level?.price) > entry)
+    .filter((level) => level?.swept !== true
+      && (isLong ? Number(level?.price) > entry : Number(level?.price) < entry))
     .map((level, idx) => ({
       price: Number(level.price),
       name: level.name,
       cite: `engine_by_tf.m5.levels[${idx}].price`,
     }))
-    .sort((a, b) => a.price - b.price);
+    .sort((a, b) => (isLong ? a.price - b.price : b.price - a.price));
 }
 
 function buildBriefDigest({ label, sourceEngine, entry }) {
   const symbol = label?.symbol ?? 'MNQ';
-  const untakenAbove = untakenAboveFromLevels(sourceEngine?.levels, entry);
-  const primaryDraw = untakenAbove[0] ?? { price: label?.expected?.tp1, name: 'TP1', cite: 'label.expected.tp1' };
+  const side = label?.expected?.side === 'short' ? 'short' : 'long';
+  const towardTarget = untakenLevelsTowardTarget(sourceEngine?.levels, entry, side);
+  const primaryDraw = towardTarget[0] ?? { price: label?.expected?.tp1, name: 'TP1', cite: 'label.expected.tp1' };
   return {
     leader: String(symbol).toLowerCase(),
     ltf_bias_context: {
-      side: 'long',
+      side,
       htf_ltf_alignment: 'aligned',
       grade_cap: 'A+',
       entry_model_priority: 'inversion',
@@ -103,10 +108,10 @@ function buildBriefDigest({ label, sourceEngine, entry }) {
     symbols: {
       [symbol]: {
         pillar1: {
-          htf_destination: { dir: 'above', price: primaryDraw.price, cite: primaryDraw.cite },
+          htf_destination: { dir: side === 'short' ? 'below' : 'above', price: primaryDraw.price, cite: primaryDraw.cite },
           primary_draw: primaryDraw,
-          untaken_pools_above: untakenAbove,
-          untaken_pools_below: [],
+          untaken_pools_above: side === 'short' ? [] : towardTarget,
+          untaken_pools_below: side === 'short' ? towardTarget : [],
         },
       },
     },
@@ -216,13 +221,18 @@ export function buildRealSessionDetectorInput({ label, bundle, sourceTf = 'm5' }
   const sourceEngine = engineByTf[sourceTf] ?? {};
   const briefDigest = buildBriefDigest({ label, sourceEngine, entry: Number(entryBar.close) });
   const gatesEngine = buildEngineGates({ engineByTf, sourceTf, entryBar, asOfMs });
-  const expectedTp1 = Number(label?.expected?.tp1);
-  if (Number.isFinite(expectedTp1) && !briefDigest.symbols[label.symbol].pillar1.untaken_pools_above.some((t) => t.price === expectedTp1)) {
-    briefDigest.symbols[label.symbol].pillar1.untaken_pools_above.unshift({
-      price: expectedTp1,
-      name: 'label_tp1',
-      cite: 'label.expected.tp1',
-    });
+  const side = label?.expected?.side === 'short' ? 'short' : 'long';
+  const targetPoolsKey = side === 'short' ? 'untaken_pools_below' : 'untaken_pools_above';
+  const targetPools = briefDigest.symbols[label.symbol].pillar1[targetPoolsKey];
+  // Label targets are hand-truth: inject tp1 AND tp2 when the engine's
+  // levels can't prove them (a replay capture taken days later carries the
+  // current table, whose levels get as-of filtered away). The detector's
+  // tradability gate requires both targets.
+  for (const [field, name] of [['tp2', 'label_tp2'], ['tp1', 'label_tp1']]) {
+    const price = Number(label?.expected?.[field]);
+    if (Number.isFinite(price) && !targetPools.some((t) => t.price === price)) {
+      targetPools.unshift({ price, name, cite: `label.expected.${field}` });
+    }
   }
 
   const blockers = [];
@@ -241,7 +251,7 @@ export function buildRealSessionDetectorInput({ label, bundle, sourceTf = 'm5' }
     ltf_bias_context: briefDigest.ltf_bias_context,
     untaken_targets: {
       untaken_above: briefDigest.symbols[label.symbol].pillar1.untaken_pools_above,
-      untaken_below: [],
+      untaken_below: briefDigest.symbols[label.symbol].pillar1.untaken_pools_below,
     },
     diagnostics: {
       as_of_ms: asOfMs,
