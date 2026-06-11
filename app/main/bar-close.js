@@ -1000,7 +1000,22 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
         bar_ms: s.bar_ms ?? null,
         evidenceRef: `gates.engine.pillar3.swings.${tier}[${i}]`,
       }));
-    out.pillar3 = { ...p3, structural_stops: [...pivotStops('swing'), ...pivotStops('internal')] };
+    // Session levels (NYAM.H, LO.H, PDH, ...) are structural highs/lows the
+    // engine tracks LIVE — pivot confirmation lags several bars (June 9: the
+    // 29847 high printed 09:49, became a confirmed pivot only at 09:56,
+    // while NYAM.H carried it from 09:50). Tagged with their own kinds so
+    // the generic stop pool can exclude them; only the Inversion stop rule
+    // consumes them (GXNQ ruling 2026-06-12: stop above the structural high).
+    const levelStops = Object.entries(engine.pillar1?.session_levels ?? {})
+      .filter(([, lv]) => Number.isFinite(Number(lv?.price)))
+      .map(([key, lv]) => {
+        const name = String(lv?.name ?? key);
+        if (name.endsWith('H')) return { kind: 'session_level_high', price: Number(lv.price), name, evidenceRef: `gates.engine.pillar1.session_levels.${key}` };
+        if (name.endsWith('L')) return { kind: 'session_level_low', price: Number(lv.price), name, evidenceRef: `gates.engine.pillar1.session_levels.${key}` };
+        return null;
+      })
+      .filter(Boolean);
+    out.pillar3 = { ...p3, structural_stops: [...pivotStops('swing'), ...pivotStops('internal'), ...levelStops] };
   }
 
   return out;

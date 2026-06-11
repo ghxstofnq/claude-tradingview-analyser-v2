@@ -55,6 +55,13 @@ function stopCandidatesWithAudit(context, side, entry) {
     const price = numberOrNull(stop?.price ?? stop?.level);
     const normalized = { ...stop, price };
     const evidenceRef = refOf(stop);
+    // Session-level candidates exist for the Inversion structural-stop rule
+    // only — in the generic nearest-stop pool they would silently change
+    // MSS/Trend stop selection.
+    if (String(stop?.kind ?? '').startsWith('session_level_')) {
+      rejected.push({ evidenceRef, reason: 'session_level_not_generic_stop', price, rawPayload: stop });
+      continue;
+    }
     if (price == null) {
       rejected.push({ evidenceRef, reason: 'invalid_price', rawPayload: stop });
       continue;
@@ -76,24 +83,50 @@ function selectStructuralStop(context, side, entry) {
   return stopCandidatesWithAudit(context, side, entry).selected;
 }
 
-// Inversion stops are model-specific per docs/strategy/entry-models.md:
-// "Stop: Below the inversion FVG low or below the candle that closed
-// through it" (mirrored for shorts: above the zone high). The walker
-// tracks its zone, so the edge is its own evidence — the generic pivot
-// pool can offer a meaningless micro swing as "nearest" (June 9 tape:
-// a 2.75-point internal pivot stop).
-function inversionZoneStop(walker, side, entry) {
+// Inversion stops are model-specific. Precedence per GXNQ's 2026-06-12
+// ruling on the June 9 tape, grounded in the strategy docs:
+//   1. The structural swing beyond the violated zone — trading-strategy-
+//      2026.md §6: "stops at structural invalidation (low/high of PD array
+//      or swing)". Pivots BETWEEN entry and the zone sit inside the violated
+//      structure and are noise (June 9: a 2.75-point micro-pivot stop).
+//   2. The violating candle's extreme — entry-models.md Inversion §5:
+//      "below the candle that closed through it".
+//   3. The zone edge itself — entry-models.md Inversion §5: "below the
+//      inversion FVG low" (mirrored for shorts).
+function inversionStructuralStop(walker, side, entry, context) {
   if (normalizeModelName(walker?.model) !== 'inversion') return null;
   const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
-  const price = side === 'short' ? numberOrNull(pd.top) : numberOrNull(pd.bottom);
-  if (price == null) return null;
-  const correctSide = side === 'long' ? price < entry : price > entry;
-  if (!correctSide) return null;
-  return {
-    kind: side === 'short' ? 'inversion_zone_top' : 'inversion_zone_bottom',
-    price,
-    evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? null),
-  };
+  const zoneTop = numberOrNull(pd.top);
+  const zoneBottom = numberOrNull(pd.bottom);
+  const correctSide = (price) => (side === 'long' ? price < entry : price > entry);
+
+  const beyondZone = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
+    .map((s) => ({ ...s, price: numberOrNull(s?.price ?? s?.level) }))
+    .filter((s) => s.price != null && correctSide(s.price) && (side === 'short'
+      ? String(s.kind ?? '').endsWith('_high') && zoneTop != null && s.price > zoneTop
+      : String(s.kind ?? '').endsWith('_low') && zoneBottom != null && s.price < zoneBottom));
+  const structural = side === 'short'
+    ? beyondZone.sort((a, b) => a.price - b.price)[0]
+    : beyondZone.sort((a, b) => b.price - a.price)[0];
+  if (structural) {
+    return { kind: 'inversion_structural_swing', price: structural.price, evidenceRef: refOf(structural) };
+  }
+
+  const candle = walker?.evidence?.confirmation?.rawPayload?.last_bar ?? {};
+  const candleExtreme = side === 'short' ? numberOrNull(candle.high) : numberOrNull(candle.low);
+  if (candleExtreme != null && correctSide(candleExtreme)) {
+    return { kind: 'inversion_violating_candle', price: candleExtreme, evidenceRef: 'gates.engine.confirmation.last_bar' };
+  }
+
+  const edge = side === 'short' ? zoneTop : zoneBottom;
+  if (edge != null && correctSide(edge)) {
+    return {
+      kind: side === 'short' ? 'inversion_zone_top' : 'inversion_zone_bottom',
+      price: edge,
+      evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? null),
+    };
+  }
+  return null;
 }
 
 function selectTp1(context, side, entry, stop) {
@@ -166,7 +199,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const side = walker?.side;
   const stopAudit = entryPrice == null ? { selected: null, rejected: [] } : stopCandidatesWithAudit(context, side, entryPrice);
-  const stopCandidate = (entryPrice == null ? null : inversionZoneStop(walker, side, entryPrice)) ?? stopAudit.selected;
+  const stopCandidate = (entryPrice == null ? null : inversionStructuralStop(walker, side, entryPrice, context)) ?? stopAudit.selected;
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
   const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);

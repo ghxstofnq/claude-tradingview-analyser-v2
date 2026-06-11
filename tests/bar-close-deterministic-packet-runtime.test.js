@@ -304,9 +304,11 @@ test('live-shaped bundle: V2 confirmed zone bridges a confirmation row and the p
   assert.equal(truth.surfacePayload.side, 'short');
   assert.equal(truth.surfacePayload.model, 'Inversion');
   assert.equal(truth.surfacePayload.entry, 29718.5);
-  // entry-models.md Inversion stop: above the violated zone high, not the
-  // generic nearest pivot.
-  assert.equal(truth.surfacePayload.stop, 29759.75);
+  // GXNQ ruling 2026-06-12 + trading-strategy-2026.md §6 ("structural
+  // invalidation — low/high of PD array or swing"): the Inversion stop is
+  // the structural swing high beyond the violated zone (29847), not the
+  // zone top and not the nearest micro pivot.
+  assert.equal(truth.surfacePayload.stop, 29847);
   assert.equal(truth.surfacePayload.tp1, 29302.5);
 });
 
@@ -376,10 +378,10 @@ test("bridge: a close through an inverted zone synthesizes the confirmation row 
   assert.ok(truth.bestPacket, `no packet: blockers=${JSON.stringify(truth.blockers)} walkers=${JSON.stringify(truth.walkers.map((w) => `${w.model}:${w.side}:${w.stage}`))}`);
   assert.equal(truth.surfacePayload.side, 'short');
   assert.equal(truth.surfacePayload.entry, 29718.5);
-  // Inversion stop per docs/strategy/entry-models.md: above the inversion
-  // zone high (short) — from the walker's own tracked zone, not the
-  // nearest generic pivot (which can be a meaningless micro swing).
-  assert.equal(truth.surfacePayload.stop, 29759.75);
+  // GXNQ ruling 2026-06-12 + trading-strategy-2026.md §6: the Inversion
+  // stop is the structural swing high beyond the violated zone — here the
+  // 29847 pivot, matching the hand-verified June 9 snapshot case.
+  assert.equal(truth.surfacePayload.stop, 29847);
 });
 
 test("bridge: a stale opposite-direction inverted zone cannot mask the bar's real confirmation", () => {
@@ -455,4 +457,56 @@ test("bridge: a stale engine-confirmed row from an earlier bar never bridges thi
   assert.ok(truth.bestPacket, `stale bull confirm masked the violation: ${JSON.stringify(truth.blockers)}`);
   assert.equal(truth.surfacePayload.side, 'short');
   assert.equal(truth.surfacePayload.entry, 29718.5);
+});
+
+test("bridge: inversion stop ignores micro pivots inside the violated structure and falls back to the zone edge when no swing exists beyond it", () => {
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_fallback', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  // Only a micro pivot BETWEEN entry and the zone top — inside the violated
+  // structure, structurally meaningless. No swing beyond the zone.
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: liveShapedInputs({
+      fvgRow: bearInverted,
+      swings: { swing: [], internal: [{ kind: 'LH', price: 29722, is_high: true, bar_ms: 1781013000000 }] },
+      lastBarClose: 29718.5,
+    }),
+    previousWalkers: [walker],
+    event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.ok(truth.bestPacket, `no packet: ${JSON.stringify(truth.blockers)}`);
+  // micro pivot 29722 is below the entry side requirement anyway; zone top
+  // is the documented fallback (entry-models.md Inversion §5)
+  assert.equal(truth.surfacePayload.stop, 29759.75);
+});
+
+test("bridge: session-level high (NYAM.H) anchors the inversion stop when pivot confirmation lags", () => {
+  // June 9 at the 09:52 confirmation: the 29847 swing pivot wasn't engine-
+  // confirmed until 09:56, but NYAM.H already carried 29847 — the session
+  // high is the structural high a trader sees instantly (GXNQ ruling:
+  // "stop above the structural high").
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_level', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  const inputs = liveShapedInputs({ fvgRow: bearInverted, lastBarClose: 29718.5 }); // no swings
+  inputs.bundle.gates.engine.pillar1.session_levels = {
+    NYAM_H: { name: 'NYAM.H', price: 29847, state: 'untaken', swept: false },
+    NYAM_L: { name: 'NYAM.L', price: 29633.25, state: 'untaken', swept: false },
+    PWH: { name: 'PWH', price: 30807.75, state: 'untaken', swept: false },
+  };
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs, previousWalkers: [walker], event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.ok(truth.bestPacket, `no packet: ${JSON.stringify(truth.blockers)}`);
+  // nearest structural high beyond the zone: NYAM.H 29847, not PWH 30807.75,
+  // and never NYAM.L
+  assert.equal(truth.surfacePayload.stop, 29847);
 });
