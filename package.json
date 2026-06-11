@@ -16,9 +16,12 @@
     "review:real": "node ./scripts/real-review.js",
     "verify:grading": "node ./scripts/real-review.js --verify-grading",
     "test": "npm run test:unit",
-    "test:unit": "node --test tests/*.test.js tests/walker/*.test.js tests/strategy/context/*.test.js tests/strategy/walkers/*.test.js"
+    "test:unit": "node --test tests/*.test.js tests/walker/*.test.js tests/strategy/context/*.test.js tests/strategy/walkers/*.test.js",
+    "tapes": "node ./scripts/tape-runner.js"
   },
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
     "@tvmcp/core": "*",
     "chrome-remote-interface": "^0.33.2"

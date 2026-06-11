@@ -29,6 +29,7 @@ import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
+import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // #65 Trade ticking + session-end audit live in trade-ticker now,
 // so this file is closer to pure orchestration.
 import { setTickerSink, tickOpenTrades, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
@@ -738,6 +739,14 @@ function normalizePassStatus(value) {
 async function runDeterministicPacketTruthForBar(ev, session) {
   const inputs = await buildDetectorInputs();
   const dir = await activeSessionDir();
+  // Day-tape recording (fix #4): freeze this bar's exact detector inputs so
+  // any session can later be promoted into a replayable regression tape
+  // (scripts/promote-day-tape.js). Fire-and-forget — recording must never
+  // block or fail the live turn.
+  if (inputs?.bundle) {
+    const record = buildWalkerInputsRecord({ event: ev, session, inputs });
+    fs.appendFile(path.join(dir, "walker-inputs.jsonl"), `${JSON.stringify(record)}\n`).catch(() => {});
+  }
   if (!inputs?.bundle?.gates) {
     const truth = { finalVerdict: 'no_trade', packets: [], bestPacket: null, blockers: ['missing_scan_bundle'], eventTimeUtc: ev?.ts ?? null };
     await persistDeterministicTruth(dir, truth);
