@@ -5,7 +5,7 @@
 import React, { useState } from "react";
 import { useBacktest } from "./hooks/useBacktest.js";
 import {
-  aggregateRuns, filterRuns, formatRunForRow, estimateCost,
+  aggregateRuns, filterRuns, formatRunForRow, estimateRun,
 } from "./Backtest.helpers.js";
 
 export function BacktestCell() {
@@ -139,7 +139,7 @@ function IdleBody({ state, actions }) {
   const [date, setDate] = useState(todayIsoUtc());
   const [session, setSession] = useState("ny-am");
   const [mode, setMode] = useState("auto");
-  const est = estimateCost({ session, mode });
+  const est = estimateRun({ session });
   const agg = aggregateRuns(state.library.runs);
   const recent = state.library.runs.slice(0, 5);
 
@@ -148,7 +148,7 @@ function IdleBody({ state, actions }) {
       <div className="section">
         <div className="sect-hd">
           <span>NEW RUN</span>
-          <span className="meta">EST. ${est.toFixed(2)}</span>
+          <span className="meta">EST. ~{est.minutes} MIN · $0</span>
         </div>
         <div className="form-row">
           <span className="k">DATE</span>

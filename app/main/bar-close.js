@@ -764,7 +764,7 @@ function normalizePassStatus(value) {
 // TradingView bundle used by the detector, runs the PR #3 strategy walker,
 // persists packet truth, and surfaces only the deterministic packet verdict.
 async function runDeterministicPacketTruthForBar(ev, session) {
-  const inputs = await buildDetectorInputs();
+  const inputs = await buildDetectorInputs(session);
   const dir = await activeSessionDir();
   // Day-tape recording (fix #4): freeze this bar's exact detector inputs so
   // any session can later be promoted into a replayable regression tape
@@ -1171,7 +1171,12 @@ async function readBriefJson(session, leader = null) {
   throw lastErr;
 }
 
-async function buildDetectorInputs() {
+async function buildDetectorInputs(session) {
+  // `session` was previously read as a bare module-scope variable that
+  // doesn't exist — readBriefJson(session, ...) threw ReferenceError on
+  // every live bar, the try/catch swallowed it, brief stayed null, and
+  // untaken_targets came back empty so every packet would have blocked on
+  // missing_side_consistent_tp1. Parameterized 2026-06-12.
   const dir = await activeSessionDir();
 
   // Load bundle: slim first, full as fallback.

@@ -7,7 +7,7 @@ import {
   aggregateRuns,
   filterRuns,
   formatRunForRow,
-  estimateCost,
+  estimateRun,
 } from "../app/renderer/src/Backtest.helpers.js";
 
 test("nextState — IDLE + START → AUTO_RUNNING", () => {
@@ -108,14 +108,17 @@ test("formatRunForRow — shortens session label", () => {
   assert.equal(row.session_short_for, "ny-am");
 });
 
-test("estimateCost — auto cheaper than pause; in sane range", () => {
-  const a = estimateCost({ session: "ny-am", mode: "auto" });
-  const b = estimateCost({ session: "ny-am", mode: "pause" });
-  assert.ok(b > a, "pause should be more expensive than auto");
-  assert.ok(a >= 1 && a <= 50, `auto estimate out of range: ${a}`);
+test("estimateRun — deterministic engine is free; wall-time estimate sane", () => {
+  const a = estimateRun({ session: "ny-am" });
+  const b = estimateRun({ session: "ny-pm" });
+  assert.equal(a.cost, 0);
+  assert.equal(b.cost, 0);
+  assert.ok(a.minutes >= 5 && a.minutes <= 30, `minutes estimate out of range: ${a.minutes}`);
+  assert.ok(b.bars >= a.bars);
 });
 
-test("estimateCost — unknown session falls back to default bars", () => {
-  const v = estimateCost({ session: "unknown", mode: "auto" });
-  assert.ok(v > 0);
+test("estimateRun — unknown session falls back to default bars", () => {
+  const v = estimateRun({ session: "unknown" });
+  assert.ok(v.bars > 0);
+  assert.equal(v.cost, 0);
 });
