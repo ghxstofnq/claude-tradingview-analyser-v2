@@ -1,12 +1,28 @@
 {
-  "fixture": "2026-05-29-mnq-ny-am-inversion-long-detector-driven",
-  "mode": "real_session_detector",
-  "labelPath": "real-sessions/2026-05-29-mnq-ny-am-inversion-long.label.json",
-  "bundlePath": "real-sessions/2026-05-29-mnq-ny-am-inversion-long.asof-1048.bundle.json",
-  "expected": {
-    "outcome": "trade",
-    "model": "Inversion",
-    "side": "long",
-    "grade": "A+"
-  }
+  "cases": [
+    {
+      "fixture": "2026-05-29-mnq-ny-am-inversion-long-detector-driven",
+      "mode": "real_session_detector",
+      "labelPath": "real-sessions/2026-05-29-mnq-ny-am-inversion-long.label.json",
+      "bundlePath": "real-sessions/2026-05-29-mnq-ny-am-inversion-long.asof-1048.bundle.json",
+      "expected": {
+        "outcome": "trade",
+        "model": "Inversion",
+        "side": "long",
+        "grade": "A+"
+      }
+    },
+    {
+      "fixture": "2026-06-09-mnq-ny-am-inversion-short-detector-driven",
+      "mode": "real_session_detector",
+      "labelPath": "real-sessions/2026-06-09-mnq-ny-am-inversion-short.label.json",
+      "bundlePath": "real-sessions/2026-06-09-mnq-ny-am-inversion-short.asof-0954.bundle.json",
+      "expected": {
+        "outcome": "trade",
+        "model": "Inversion",
+        "side": "short",
+        "grade": "A+"
+      }
+    }
+  ]
 }
