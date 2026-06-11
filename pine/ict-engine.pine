@@ -169,9 +169,6 @@ type Liquidity
 
 var table evidence = table.new(position.bottom_left, 2, MAX_ROWS + 1)
 
-// Off (default): the evidence table is drawn with transparent text so it does
-// not clutter the chart. The backend reads the table data regardless.
-showEvidenceTable = input.bool(false, "Show evidence table on chart", group = "Display")
 
 // ── Visual-layer inputs ──────────────────────────────────────────────
 GRP_VIZ = "Visuals"
@@ -192,24 +189,24 @@ showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
 hideTinyZones  = input.bool(true,  "Hide tiny zones (visual only)", group = GRP_VIZ)
 
 GRP_COL = "Colors"
-colFvgBull    = input.color(color.new(#089981, 82), "FVG bull",  group = GRP_COL, inline = "cFvg")
-colFvgBear    = input.color(color.new(#f23645, 82), "FVG bear",  group = GRP_COL, inline = "cFvg")
-colIfvgBull   = input.color(color.new(#22d3ee, 82), "iFVG bull", group = GRP_COL, inline = "cIfvg")
-colIfvgBear   = input.color(color.new(#f97316, 82), "iFVG bear", group = GRP_COL, inline = "cIfvg")
-colBprBull    = input.color(color.new(#089981, 82), "BPR bull",  group = GRP_COL, inline = "cBpr")
-colBprBear    = input.color(color.new(#f23645, 82), "BPR bear",  group = GRP_COL, inline = "cBpr")
+colFvgBull    = input.color(color.new(#089981, 88), "FVG bull",  group = GRP_COL, inline = "cFvg")
+colFvgBear    = input.color(color.new(#f23645, 88), "FVG bear",  group = GRP_COL, inline = "cFvg")
+colIfvgBull   = input.color(color.new(#56b6c2, 85), "iFVG bull", group = GRP_COL, inline = "cIfvg")
+colIfvgBear   = input.color(color.new(#e5825e, 85), "iFVG bear", group = GRP_COL, inline = "cIfvg")
+colBprBull    = input.color(color.new(#089981, 88), "BPR bull",  group = GRP_COL, inline = "cBpr")
+colBprBear    = input.color(color.new(#f23645, 88), "BPR bear",  group = GRP_COL, inline = "cBpr")
 colStructBull = input.color(#089981, "Structure bull", group = GRP_COL, inline = "cStr")
 colStructBear = input.color(#f23645, "Structure bear", group = GRP_COL, inline = "cStr")
 colSwingBull  = input.color(#089981, "Swing bull",     group = GRP_COL, inline = "cSwg")
 colSwingBear  = input.color(#f23645, "Swing bear",     group = GRP_COL, inline = "cSwg")
-colKzAsia     = input.color(#2962ff, "KZ Asia",        group = GRP_COL, inline = "cKz")
-colKzLondon   = input.color(#9c27b0, "KZ London",      group = GRP_COL, inline = "cKz")
-colKzNyam     = input.color(#ff9800, "KZ NY AM",       group = GRP_COL, inline = "cKz")
-colKzNypm     = input.color(#e91e63, "KZ NY PM",       group = GRP_COL, inline = "cKz")
-colLeg        = input.color(#787b86, "Leg extremes",   group = GRP_COL)
-colLvlPd      = input.color(#787b86, "Level PD",       group = GRP_COL, inline = "cLvl")
-colLvlPw      = input.color(#b2b5be, "Level PW",       group = GRP_COL, inline = "cLvl")
-colLiquidity  = input.color(#e0b400, "Liquidity",      group = GRP_COL)
+colKzAsia     = input.color(#6e7ff3, "KZ Asia",        group = GRP_COL, inline = "cKz")
+colKzLondon   = input.color(#a685c4, "KZ London",      group = GRP_COL, inline = "cKz")
+colKzNyam     = input.color(#d9b54a, "KZ NY AM",       group = GRP_COL, inline = "cKz")
+colKzNypm     = input.color(#c77d9e, "KZ NY PM",       group = GRP_COL, inline = "cKz")
+colLeg        = input.color(#8b93a1, "Leg extremes",   group = GRP_COL)
+colLvlPd      = input.color(#6b7280, "Level PD",       group = GRP_COL, inline = "cLvl")
+colLvlPw      = input.color(#98a1b3, "Level PW",       group = GRP_COL, inline = "cLvl")
+colLiquidity  = input.color(#c9a227, "Liquidity",      group = GRP_COL)
 
 // ── Session high/low tracking ────────────────────────────────────────
 // Tracks one session's running high/low. `var` storage is per call site, so
@@ -956,11 +953,16 @@ if barstate.islast
         row := emitLiquidity(row, p)
     row := emitQuality(row)
     emitMeta(row - 1)
-    // Hide the on-chart table without dropping the data the backend reads.
-    if not showEvidenceTable
-        for r = 0 to row - 1
-            table.cell_set_text_color(evidence, 0, r, color.new(color.white, 100))
-            table.cell_set_text_color(evidence, 1, r, color.new(color.white, 100))
+    // The evidence table is a backend-only channel. A Pine table must exist
+    // on the chart for the CLI to read it over CDP, but it renders zero
+    // pixels: every cell's text is fully transparent and shrunk to the
+    // smallest layout size. (Reading transparent cells has been the proven
+    // path since V1 — visibility and readability are independent.)
+    for r = 0 to row - 1
+        table.cell_set_text_color(evidence, 0, r, color.new(color.white, 100))
+        table.cell_set_text_color(evidence, 1, r, color.new(color.white, 100))
+        table.cell_set_text_size(evidence, 0, r, size.tiny)
+        table.cell_set_text_size(evidence, 1, r, size.tiny)
 
 // ── Visual layer ─────────────────────────────────────────────────────
 // Stateless redraw: on the last bar, delete the previous tick's drawings
@@ -977,7 +979,9 @@ RIGHT_PAD_MS = 5 * timeframe.in_seconds() * 1000
 var array<box> vizBoxes = array.new<box>()
 var array<line> vizLines = array.new<line>()
 var array<label> vizLabels = array.new<label>()
-var table qualityPanel = table.new(position.top_right, 2, 5, bgcolor = chart.bg_color, frame_color = chart.fg_color, frame_width = 1, border_color = chart.fg_color, border_width = 1)
+// Slim status card: translucent chart-bg fill, one hairline frame, no
+// inner grid — the verdict colors do the talking.
+var table qualityPanel = table.new(position.top_right, 2, 5, bgcolor = color.new(chart.bg_color, 18), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
 
 // Delete and forget every drawing from the previous redraw.
 clearViz() =>
@@ -993,7 +997,7 @@ clearViz() =>
 
 // Create a box, register it for cleanup, and return it.
 vizBox(int left, float top, int right, float bottom, color bg, color border, string txt, color txtCol, string borderStyle = line.style_solid) =>
-    b = box.new(left, top, right, bottom, xloc = xloc.bar_time, bgcolor = bg, border_color = border, text = txt, text_color = txtCol, text_size = size.small, border_style = borderStyle)
+    b = box.new(left, top, right, bottom, xloc = xloc.bar_time, bgcolor = bg, border_color = border, text = txt, text_color = txtCol, text_size = size.tiny, border_style = borderStyle, text_font_family = font.family_monospace)
     vizBoxes.push(b)
     b
 
@@ -1018,7 +1022,7 @@ vizLine(int x1, float y1, int x2, float y2, color col, string style, int width) 
 
 // Create a label, register it for cleanup, and return it.
 vizLabel(int x, float y, string txt, color bg, color txtCol, string style, string sz) =>
-    lb = label.new(x, y, txt, xloc = xloc.bar_time, color = bg, textcolor = txtCol, style = style, size = sz)
+    lb = label.new(x, y, txt, xloc = xloc.bar_time, color = bg, textcolor = txtCol, style = style, size = sz, text_font_family = font.family_monospace)
     vizLabels.push(lb)
     lb
 
@@ -1030,11 +1034,14 @@ fade(color c, int delta) =>
 // Draw one level line + right-side label; faded and marked when swept.
 // The line runs from the bar the level formed to just past the current bar;
 // levels with no known formed time fall back to a fixed-width stub.
-drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, color col, string name, bool forming = false) =>
+drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, color col, string name, bool forming = false, int labelCol = 0) =>
     if not na(price)
         lineCol = swept ? fade(col, 55) : col
         x1 = (not na(formedMs) and formedMs > 0) ? formedMs : time - LEVEL_LINE_BARS * timeframe.in_seconds() * 1000
-        x2 = time + RIGHT_PAD_MS
+        // Long-horizon levels (PD/PW) park their labels in further-right
+        // columns so a PDH sitting on a session high doesn't render two
+        // labels on top of each other.
+        x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
         // Forming session = dashed (still moving); swept = faded, name only.
         // Untaken completed levels carry their price — those are the
         // actionable draws the trader scans for.
@@ -1042,8 +1049,9 @@ drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, col
         lbl = swept or forming ? name : name + "  " + str.tostring(price, format.mintick)
         vizLabel(x2, price, lbl, color(na), lineCol, label.style_label_left, size.small)
         if swept and not na(sweptMs) and sweptMs > 0
-            mkStyle = rejected ? label.style_diamond : label.style_xcross
-            vizLabel(sweptMs, price, "", col, color(na), mkStyle, size.tiny)
+            // Small monospace glyphs instead of shape markers — "✕" marks the
+            // sweep wick, "◆" a sweep that closed back through (rejected).
+            vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(col, 15), label.style_label_center, size.tiny)
 
 renderLevels() =>
     drawLevel(asiaH, asiaHMs, asiaHSwept, asiaHSweptMs, asiaHRej, colKzAsia, "AS.H", inAsia)
@@ -1054,10 +1062,10 @@ renderLevels() =>
     drawLevel(nyamL, nyamLMs, nyamLSwept, nyamLSweptMs, nyamLRej, colKzNyam, "NYAM.L", inNyam)
     drawLevel(nypmH, nypmHMs, nypmHSwept, nypmHSweptMs, nypmHRej, colKzNypm, "NYPM.H", inNypm)
     drawLevel(nypmL, nypmLMs, nypmLSwept, nypmLSweptMs, nypmLRej, colKzNypm, "NYPM.L", inNypm)
-    drawLevel(pdh, na, pdhSwept, pdhSweptMs, pdhRej, colLvlPd, "PDH")
-    drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, colLvlPd, "PDL")
-    drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, colLvlPw, "PWH")
-    drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, colLvlPw, "PWL")
+    drawLevel(pdh, na, pdhSwept, pdhSweptMs, pdhRej, colLvlPd, "PDH", false, 1)
+    drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, colLvlPd, "PDL", false, 1)
+    drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, colLvlPw, "PWH", false, 2)
+    drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, colLvlPw, "PWL", false, 2)
 
 // The current leg's running extremes — the live structural invalidation
 // anchors (strategy §6). Dashed, neutral, deliberately quiet.
@@ -1087,10 +1095,10 @@ renderFvgs() =>
                 base = f.dir == "bull" ? colFvgBull : colFvgBear
                 hd = zoneFadeDelta(f.state)
                 ce = (f.top + f.bottom) / 2
-                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 27), zoneLabelText("FVG", f.sizeQuality), fade(base, hd - 62), zoneBorderStyle(f.state))
+                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 20), zoneLabelText("FVG", f.sizeQuality), fade(base, hd - 62), zoneBorderStyle(f.state))
                 bx.set_text_halign(text.align_right)
                 bx.set_text_valign(text.align_center)
-                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 42), line.style_dashed, 1)
+                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 35), line.style_dashed, 1)
                 mk = entryMarkerText(f.confirmClose, f.chop15, f.entered, f.ceHeld)
                 if mk != ""
                     vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(f.confirmClose, f.chop15, f.entered, f.ceHeld, base), label.style_label_left, size.tiny)
@@ -1105,10 +1113,10 @@ renderIfvgs() =>
                 base = f.dir == "bull" ? colIfvgBull : colIfvgBear
                 hd = zoneFadeDelta(f.state)
                 ce = (f.top + f.bottom) / 2
-                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 27), zoneLabelText("iFVG", f.sizeQuality), fade(base, hd - 62), zoneBorderStyle(f.state))
+                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 20), zoneLabelText("iFVG", f.sizeQuality), fade(base, hd - 62), zoneBorderStyle(f.state))
                 bx.set_text_halign(text.align_right)
                 bx.set_text_valign(text.align_center)
-                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 42), line.style_dashed, 1)
+                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 35), line.style_dashed, 1)
                 mk = entryMarkerText(f.confirmClose, f.chop15, f.entered, f.ceHeld)
                 if mk != ""
                     vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(f.confirmClose, f.chop15, f.entered, f.ceHeld, base), label.style_label_left, size.tiny)
@@ -1120,11 +1128,11 @@ renderBprs() =>
         if not isHist or showHistorical
             base = b.dir == "bull" ? colBprBull : colBprBear
             hd = zoneFadeDelta(b.state)
-            bx = vizBox(b.createdMs, b.top, time + RIGHT_PAD_MS, b.bottom, fade(base, hd), fade(base, hd - 27), "BPR", fade(base, hd - 62), zoneBorderStyle(b.state))
+            bx = vizBox(b.createdMs, b.top, time + RIGHT_PAD_MS, b.bottom, fade(base, hd), fade(base, hd - 20), "BPR", fade(base, hd - 62), zoneBorderStyle(b.state))
             bx.set_text_halign(text.align_right)
             bx.set_text_valign(text.align_center)
             ce = (b.top + b.bottom) / 2
-            vizLine(b.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 42), line.style_dashed, 1)
+            vizLine(b.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 35), line.style_dashed, 1)
             mk = entryMarkerText(b.confirmClose, b.chop15, b.entered, b.ceHeld)
             if mk != ""
                 vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(b.confirmClose, b.chop15, b.entered, b.ceHeld, base), label.style_label_left, size.tiny)
@@ -1172,8 +1180,10 @@ renderLiquidity() =>
             vizLabel(x2, p.price, p.kind == "eqh" ? "EQH" : "EQL", color(na), col, label.style_label_left, size.tiny)
 
 // Write one quality-panel cell, optionally tinting the value by verdict.
+// Column 0 (labels) renders muted; column 1 carries the verdict color.
 qSet(int col, int row, string txt, color tint = na) =>
-    table.cell(qualityPanel, col, row, txt, text_color = na(tint) ? chart.fg_color : tint, bgcolor = chart.bg_color, text_size = size.small)
+    baseCol = col == 0 ? color.new(chart.fg_color, 42) : chart.fg_color
+    table.cell(qualityPanel, col, row, txt, text_color = na(tint) ? baseCol : tint, text_size = size.tiny, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_left : text.align_right)
 
 // Verdict tint: green = strategy-pass vocabulary, red = stand-aside, the
 // rest stays neutral. Mirrors Pillar 2's good/clean reading at a glance.
