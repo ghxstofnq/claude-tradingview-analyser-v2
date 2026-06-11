@@ -11,11 +11,16 @@ import { buildCodexInvocation, buildProviderSpawnEnv, envKeyForPurpose, normaliz
 const EXPECTED_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('LLM provider selection', () => {
-  test('defaults to Codex with app-local MCP enabled from a clean environment', () => {
+  test('defaults to Claude from a clean environment; Codex is env opt-in', () => {
     const provider = resolveLlmProvider({ purpose: 'bar-close', env: {} });
-    assert.equal(provider.name, 'codex');
+    assert.equal(provider.name, 'claude');
     assert.equal(provider.supportsToolCalling, true);
     assert.equal(provider.toolRequired, true);
+  });
+
+  test('TV_LLM_PROVIDER=codex opts the whole app into Codex with MCP enabled', () => {
+    const provider = resolveLlmProvider({ purpose: 'bar-close', env: { TV_LLM_PROVIDER: 'codex' } });
+    assert.equal(provider.name, 'codex');
     assert.equal(provider.mcpEnabled, true);
     assert.match(provider.mcpServerPath, /codex-tv-mcp-server\.js$/);
   });

@@ -43,7 +43,14 @@ export function providerOverrideForScheduledTurnForTests(config = {}) {
 }
 
 export function shouldUseDirectScheduledTurnForTests({ provider, directRunFn } = {}) {
-  return !!directRunFn && !!provider?.toolRequired && !provider?.supportsToolCalling;
+  // Deterministic-first (2026-06-12): when a purpose has a direct in-process
+  // runner, it IS the path — provider-independent. The brief rode the Codex
+  // MCP turn in production (600s timeouts, June 11) while the reliable
+  // deterministic builder sat as fallback-only. Source:
+  // docs/research/ai-trading-analysis.md — deterministic extraction → LLM
+  // synthesis; the LLM must not gate the brief landing.
+  void provider;
+  return !!directRunFn;
 }
 
 function nyParts(date = new Date()) {

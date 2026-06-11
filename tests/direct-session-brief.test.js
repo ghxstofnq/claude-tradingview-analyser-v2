@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDirectSessionBriefPayloads, runDirectSessionBrief } from "../app/main/direct-session-brief.js";
+import { buildDirectSessionBriefPayloads, runDirectSessionBrief, codexBriefAnalysisEnabled } from "../app/main/direct-session-brief.js";
 
 function digestSymbol() {
   return {
@@ -206,4 +206,11 @@ test("htf_quality reads the digest's real h4/h1 engine quality rows, not pillar2
   assert.equal(payload.htf_quality.h4.cite, "brief_digest.symbols.MNQ1!.htf.h4.quality");
   assert.equal(payload.htf_quality.h1.range_quality, "tight");
   assert.equal(payload.htf_quality.h1.cite, "brief_digest.symbols.MNQ1!.htf.h1.quality");
+});
+
+
+test("codexBriefAnalysisEnabled — Codex brief commentary is env opt-in, default off", () => {
+  assert.equal(codexBriefAnalysisEnabled({}), false);
+  assert.equal(codexBriefAnalysisEnabled({ TV_CODEX_BRIEF_ANALYSIS: "1" }), true);
+  assert.equal(codexBriefAnalysisEnabled({ TV_CODEX_BRIEF_ANALYSIS: "0" }), false);
 });
