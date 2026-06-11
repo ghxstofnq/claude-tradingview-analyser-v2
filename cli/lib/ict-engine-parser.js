@@ -12,7 +12,7 @@
 
 /** Engine table schemas this parser understands. Guard on meta.schema. */
 export const ENGINE_SCHEMA = 1;
-export const SUPPORTED_SCHEMAS = new Set([1, 2]);
+export const SUPPORTED_SCHEMAS = new Set([1, 2, 3]);
 
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
@@ -26,7 +26,8 @@ export const SUPPORTED_SCHEMAS = new Set([1, 2]);
 // because the parser didn't know to coerce them — Pine ships these so the
 // backend can re-use Wilder ATR instead of running its own proxy.
 const ROW_FIELD_TYPES = {
-  meta: { schema: 'num', count: 'num', emit_ms: 'num' },
+  // V3 adds bar_ms (open time of the bar the emit reflects) + bar_closed.
+  meta: { schema: 'num', count: 'num', emit_ms: 'num', bar_ms: 'num', bar_closed: 'bool' },
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },
   sweep: { price: 'num', swept_ms: 'num', rejected: 'bool' },
   // V2 (schema=2) added per-zone lifecycle fields (entered_ms..entry_state) on
@@ -38,6 +39,7 @@ const ROW_FIELD_TYPES = {
     took_liq: 'bool', disp_score: 'num', reacted: 'bool',
     entered_ms: 'num', bars_in_zone: 'num', minutes_in_zone: 'num',
     ce_held: 'bool', confirm_close: 'bool', confirm_ms: 'num', chop_15m: 'bool',
+    inverted_ms: 'num', // V3: when the FVG flipped to iFVG (violating close)
   },
   bpr: {
     top: 'num', bottom: 'num', ce: 'num', created_ms: 'num',
@@ -51,7 +53,8 @@ const ROW_FIELD_TYPES = {
   },
   liquidity: { price: 'num', swept: 'bool' },
   // V2 dropped has_chop, added session (str default). atr_14/17 stay num.
-  quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num' },
+  // V3 adds the current leg's running extremes (stop-anchor evidence).
+  quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num', leg_high: 'num', leg_low: 'num', leg_high_ms: 'num', leg_low_ms: 'num' },
 };
 
 /** Coerce one payload value. 'num' → finite Number or null; 'bool' → v==='1'. */

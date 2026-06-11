@@ -177,3 +177,24 @@ test('parseIctEngineTable handles V2 quality row (no has_chop, adds session)', (
   assert.equal(t.quality.session, 'ny_am');
   assert.equal(t.quality.has_chop, undefined); // V2 dropped this field
 });
+
+test('parseIctEngineTable accepts schema=3 and coerces the V3 additive fields', () => {
+  const rows = [
+    'meta | schema=3|count=3|emit_ny=11:33:44|emit_ms=1781300000000|tf=1|symbol=MNQ1!|bar_ms=1781299940000|bar_closed=1',
+    'fvg | kind=ifvg|dir=bear|top=29800|bottom=29770|ce=29785|created_ms=1781200000000|took_liq=1|disp_score=0.8|reacted=0|reaction_dir=none|state=inverted|size_quality=normal|entered_ms=0|bars_in_zone=0|minutes_in_zone=0|ce_held=0|confirm_close=0|confirm_dir=none|confirm_ms=0|chop_15m=0|entry_state=none|inverted_ms=1781299880000',
+    'level | name=NYPM.H|price=29910.25|state=complete|swept=0|formed_ms=1781280000000',
+    'quality | range_3h=120.5|range_quality=good|displacement=clean|candle=normal|atr_14=12.25|atr_17=13.5|session=ny_pm|leg_high=29920.5|leg_low=29744.25|leg_high_ms=1781290000000|leg_low_ms=1781295000000',
+  ];
+  const parsed = parseIctEngineTable(rows);
+  assert.equal(parsed.schema, 3);
+  assert.equal(parsed.schema_supported, true);
+  assert.equal(parsed.meta.bar_ms, 1781299940000);
+  assert.equal(parsed.meta.bar_closed, true);
+  assert.equal(parsed.fvgs[0].inverted_ms, 1781299880000);
+  assert.equal(parsed.levels[0].name, 'NYPM.H');
+  assert.equal(parsed.levels[0].price, 29910.25);
+  assert.equal(parsed.quality.leg_high, 29920.5);
+  assert.equal(parsed.quality.leg_low, 29744.25);
+  assert.equal(parsed.quality.leg_high_ms, 1781290000000);
+  assert.equal(parsed.quality.leg_low_ms, 1781295000000);
+});
