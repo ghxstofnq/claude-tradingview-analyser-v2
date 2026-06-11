@@ -115,6 +115,7 @@ type Fvg
     int confirmMs = na
     bool chop15 = false
     int invertedMs = na
+    int mitigatedMs = na
 
 // A Balanced Price Range — the overlap of a bullish and a bearish FVG formed
 // close in time. `state` advances fresh -> tapped -> invalidated.
@@ -135,6 +136,7 @@ type Bpr
     string confirmDir = "none"
     int confirmMs = na
     bool chop15 = false
+    int mitigatedMs = na
 
 // A confirmed swing point — a two-tier pivot classified vs the prior pivot of
 // its type. `swept` latches once a later bar trades through `price`.
@@ -166,6 +168,7 @@ type Liquidity
     float price
     int createdMs
     bool swept
+    int sweptMs = na
 
 var table evidence = table.new(position.bottom_left, 2, MAX_ROWS + 1)
 
@@ -187,26 +190,20 @@ showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
 // Visual-only filter: tiny zones (width < 0.5x ATR14 at creation) stay in
 // the evidence table but stop cluttering the chart.
 hideTinyZones  = input.bool(true,  "Hide tiny zones (visual only)", group = GRP_VIZ)
+// Draw caps — the evidence table keeps everything; the chart shows only
+// the most recent picture (premium toolkits default to ~5 visible zones).
+maxZonesDrawn  = input.int(8, "Max zones drawn per type", minval = 2, maxval = 24, group = GRP_VIZ)
+maxStructDrawn = input.int(6, "Max structure events drawn", minval = 2, maxval = 12, group = GRP_VIZ)
 
 GRP_COL = "Colors"
-colFvgBull    = input.color(color.new(#089981, 88), "FVG bull",  group = GRP_COL, inline = "cFvg")
-colFvgBear    = input.color(color.new(#f23645, 88), "FVG bear",  group = GRP_COL, inline = "cFvg")
-colIfvgBull   = input.color(color.new(#56b6c2, 85), "iFVG bull", group = GRP_COL, inline = "cIfvg")
-colIfvgBear   = input.color(color.new(#e5825e, 85), "iFVG bear", group = GRP_COL, inline = "cIfvg")
-colBprBull    = input.color(color.new(#089981, 88), "BPR bull",  group = GRP_COL, inline = "cBpr")
-colBprBear    = input.color(color.new(#f23645, 88), "BPR bear",  group = GRP_COL, inline = "cBpr")
-colStructBull = input.color(#089981, "Structure bull", group = GRP_COL, inline = "cStr")
-colStructBear = input.color(#f23645, "Structure bear", group = GRP_COL, inline = "cStr")
-colSwingBull  = input.color(#089981, "Swing bull",     group = GRP_COL, inline = "cSwg")
-colSwingBear  = input.color(#f23645, "Swing bear",     group = GRP_COL, inline = "cSwg")
-colKzAsia     = input.color(#6e7ff3, "KZ Asia",        group = GRP_COL, inline = "cKz")
-colKzLondon   = input.color(#a685c4, "KZ London",      group = GRP_COL, inline = "cKz")
-colKzNyam     = input.color(#d9b54a, "KZ NY AM",       group = GRP_COL, inline = "cKz")
-colKzNypm     = input.color(#c77d9e, "KZ NY PM",       group = GRP_COL, inline = "cKz")
-colLeg        = input.color(#8b93a1, "Leg extremes",   group = GRP_COL)
-colLvlPd      = input.color(#6b7280, "Level PD",       group = GRP_COL, inline = "cLvl")
-colLvlPw      = input.color(#98a1b3, "Level PW",       group = GRP_COL, inline = "cLvl")
-colLiquidity  = input.color(#c9a227, "Liquidity",      group = GRP_COL)
+// Two-accent system (premium-toolkit convention): every visual element
+// derives its shade from these four inputs, so the chart is consistent by
+// construction. Bull/bear color zones and structure; neutral carries
+// levels, swings and leg extremes; liquidity gold marks draw targets.
+colBull    = input.color(#26a69a, "Bull accent",  group = GRP_COL, inline = "cAcc")
+colBear    = input.color(#ef5350, "Bear accent",  group = GRP_COL, inline = "cAcc")
+colNeutral = input.color(#9598a1, "Neutral",      group = GRP_COL, inline = "cNeu")
+colLiq     = input.color(#d4a017, "Liquidity",    group = GRP_COL, inline = "cNeu")
 
 // ── Session high/low tracking ────────────────────────────────────────
 // Tracks one session's running high/low. `var` storage is per call site, so
@@ -461,11 +458,14 @@ if barstate.isconfirmed
                 newState = fvgFillState(f)
                 if fvgStateRank(newState) > fvgStateRank(f.state)
                     f.state := newState
+                    if newState == "filled" and na(f.mitigatedMs)
+                        f.mitigatedMs := time
                 runReaction := true
         else
             // An inverted zone is invalidated when a body closes back through it.
             if (f.dir == "bull" and close < f.bottom) or (f.dir == "bear" and close > f.top)
                 f.state := "invalidated"
+                f.mitigatedMs := time
             else
                 runReaction := true
         // Reaction is skipped on the bar a zone inverts or invalidates.
@@ -524,6 +524,8 @@ if barstate.isconfirmed
                 newState := "tapped"
         if bprStateRank(newState) > bprStateRank(b.state)
             b.state := newState
+            if newState == "invalidated" and na(b.mitigatedMs)
+                b.mitigatedMs := time
         // Reaction: entered the zone, then a close cleared the push edge.
         ce = (b.top + b.bottom) / 2
         inZone = meaningfulZoneTouch(b.top, b.bottom, ce)
@@ -649,8 +651,10 @@ if barstate.isconfirmed
         if not p.swept
             if p.kind == "eqh" and high > p.price
                 p.swept := true
+                p.sweptMs := time
             else if p.kind == "eql" and low < p.price
                 p.swept := true
+                p.sweptMs := time
 
 // ── Market-structure detection ───────────────────────────────────────
 // A close beyond an armed swing level is a break: continuation (bos) or
@@ -965,25 +969,30 @@ if barstate.islast
         table.cell_set_text_size(evidence, 1, r, size.tiny)
 
 // ── Visual layer ─────────────────────────────────────────────────────
-// Stateless redraw: on the last bar, delete the previous tick's drawings
-// and recreate them from the engine's live evidence arrays, so the chart
-// is always a pure function of current state.
+// Redesigned 2026-06-12 around premium-toolkit conventions (LuxAlgo
+// PAC/SMC mitigation handling, TTrades-style level treatment):
+//   - History truncates IN PLACE: a mitigated zone closes at the bar that
+//     killed it and fades to neutral; a swept level stops at its sweep.
+//     Only the active picture extends to the right of price.
+//   - iFVGs re-anchor at the inversion bar in the flipped accent with a
+//     dashed border; the dead FVG span stays behind as a neutral ghost
+//     (visible with "Show historical").
+//   - Structure labels float centered on their line with an ATR offset —
+//     never sitting on the line. Swing tier solid, internal dashed.
+//   - Two-accent palette: every shade derives from 4 color inputs.
+//   - Draw caps: only the most recent N zones / events render; the
+//     evidence table still carries everything for the backend.
+// Stateless redraw: on the last bar, delete and rebuild from state.
 
-// Fallback width for a level line when the bar it formed on is unknown
-// (prior-day / prior-week levels). Session levels anchor at their formed bar.
 LEVEL_LINE_BARS = 30
-
-// Boxes and level lines extend this many bars past the current bar.
 RIGHT_PAD_MS = 5 * timeframe.in_seconds() * 1000
 
 var array<box> vizBoxes = array.new<box>()
 var array<line> vizLines = array.new<line>()
 var array<label> vizLabels = array.new<label>()
-// Slim status card: translucent chart-bg fill, one hairline frame, no
-// inner grid — the verdict colors do the talking.
-var table qualityPanel = table.new(position.top_right, 2, 5, bgcolor = color.new(chart.bg_color, 18), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
+// 2 cols × 7 rows: merged title + session/range/displacement/candle/structure/leg.
+var table qualityPanel = table.new(position.top_right, 2, 7, bgcolor = color.new(chart.bg_color, 18), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
 
-// Delete and forget every drawing from the previous redraw.
 clearViz() =>
     for b in vizBoxes
         box.delete(b)
@@ -995,155 +1004,163 @@ clearViz() =>
     vizLines.clear()
     vizLabels.clear()
 
-// Create a box, register it for cleanup, and return it.
 vizBox(int left, float top, int right, float bottom, color bg, color border, string txt, color txtCol, string borderStyle = line.style_solid) =>
-    b = box.new(left, top, right, bottom, xloc = xloc.bar_time, bgcolor = bg, border_color = border, text = txt, text_color = txtCol, text_size = size.tiny, border_style = borderStyle, text_font_family = font.family_monospace)
+    b = box.new(left, top, right, bottom, xloc = xloc.bar_time, bgcolor = bg, border_color = border, text = txt, text_color = txtCol, text_size = size.tiny, border_style = borderStyle, text_font_family = font.family_monospace, text_halign = text.align_right, text_valign = text.align_center)
     vizBoxes.push(b)
     b
 
-// Extra transparency by mitigation state, so "which zones still matter" is
-// readable at a glance: fresh zones pop, tapped zones recede, filled zones
-// are ghosts. Invalidated zones only render with showHistorical.
-zoneFadeDelta(string state) =>
-    state == "invalidated" ? 16 : state == "filled" ? 14 : (state == "ce_tapped" or state == "tapped") ? 7 : 0
-
-zoneBorderStyle(string state) =>
-    state == "filled" or state == "invalidated" ? line.style_dashed : line.style_solid
-
-// Zone label: large zones get a "+" tag, tiny zones drop their text.
-zoneLabelText(string base, string sizeQuality) =>
-    sizeQuality == "large" ? base + "+" : sizeQuality == "tiny" ? "" : base
-
-// Create a line, register it for cleanup, and return it.
 vizLine(int x1, float y1, int x2, float y2, color col, string style, int width) =>
     ln = line.new(x1, y1, x2, y2, xloc = xloc.bar_time, color = col, style = style, width = width)
     vizLines.push(ln)
     ln
 
-// Create a label, register it for cleanup, and return it.
 vizLabel(int x, float y, string txt, color bg, color txtCol, string style, string sz) =>
     lb = label.new(x, y, txt, xloc = xloc.bar_time, color = bg, textcolor = txtCol, style = style, size = sz, text_font_family = font.family_monospace)
     vizLabels.push(lb)
     lb
 
-// Shift a color's transparency by delta, clamped to [0, 100], so every
-// rendered color is derived from the user's input color (opacity included).
+// Shift a color's transparency by delta, clamped to [0, 100].
 fade(color c, int delta) =>
     color.new(c, math.min(100, math.max(0, color.t(c) + delta)))
 
-// Draw one level line + right-side label; faded and marked when swept.
-// The line runs from the bar the level formed to just past the current bar;
-// levels with no known formed time fall back to a fixed-width stub.
-drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, color col, string name, bool forming = false, int labelCol = 0) =>
+// ── Derived palette ──────────────────────────────────────────────────
+// One place defines every shade. Zones are airy fills with hairline
+// borders; mitigated anything collapses to the neutral ghost pair.
+accentOf(string dir) =>
+    dir == "bull" ? colBull : colBear
+
+zoneFill(color accent) => color.new(accent, 90)
+zoneBorder(color accent) => color.new(accent, 72)
+zoneText(color accent) => color.new(accent, 35)
+zoneCe(color accent) => color.new(accent, 80)
+GHOST_FILL() => color.new(colNeutral, 92)
+GHOST_BORDER() => color.new(colNeutral, 78)
+
+// Label offset so text never sits on its reference line (ATR-scaled —
+// readable at any zoom on any instrument).
+labelOff() =>
+    na(atr14) ? syminfo.mintick * 10 : atr14 * 0.3
+
+// ── Levels ───────────────────────────────────────────────────────────
+// Untaken levels are the actionable draws: solid neutral line extending
+// right, name + price at the end. Swept levels TRUNCATE at the sweep bar
+// (premium convention: consumed liquidity stops mattering) with a small
+// glyph — ✕ sweep, ◆ sweep that closed back through (rejected).
+// `labelCol` staggers long-horizon labels (PD/PW) into their own columns
+// so same-price levels never overlap.
+drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, string name, bool forming = false, int labelCol = 0) =>
     if not na(price)
-        lineCol = swept ? fade(col, 55) : col
         x1 = (not na(formedMs) and formedMs > 0) ? formedMs : time - LEVEL_LINE_BARS * timeframe.in_seconds() * 1000
-        // Long-horizon levels (PD/PW) park their labels in further-right
-        // columns so a PDH sitting on a session high doesn't render two
-        // labels on top of each other.
-        x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
-        // Forming session = dashed (still moving); swept = faded, name only.
-        // Untaken completed levels carry their price — those are the
-        // actionable draws the trader scans for.
-        vizLine(x1, price, x2, price, lineCol, forming ? line.style_dashed : line.style_solid, 1)
-        lbl = swept or forming ? name : name + "  " + str.tostring(price, format.mintick)
-        vizLabel(x2, price, lbl, color(na), lineCol, label.style_label_left, size.small)
         if swept and not na(sweptMs) and sweptMs > 0
-            // Small monospace glyphs instead of shape markers — "✕" marks the
-            // sweep wick, "◆" a sweep that closed back through (rejected).
-            vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(col, 15), label.style_label_center, size.tiny)
+            faded = fade(colNeutral, 45)
+            vizLine(x1, price, sweptMs, price, faded, line.style_solid, 1)
+            vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
+            vizLabel(sweptMs, price + labelOff() * 0.6, name, color(na), faded, label.style_none, size.tiny)
+        else
+            x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
+            vizLine(x1, price, x2, price, colNeutral, forming ? line.style_dashed : line.style_solid, 1)
+            lbl = forming ? name : name + "  " + str.tostring(price, format.mintick)
+            vizLabel(x2, price, lbl, color(na), colNeutral, label.style_label_left, size.small)
 
 renderLevels() =>
-    drawLevel(asiaH, asiaHMs, asiaHSwept, asiaHSweptMs, asiaHRej, colKzAsia, "AS.H", inAsia)
-    drawLevel(asiaL, asiaLMs, asiaLSwept, asiaLSweptMs, asiaLRej, colKzAsia, "AS.L", inAsia)
-    drawLevel(lonH, lonHMs, lonHSwept, lonHSweptMs, lonHRej, colKzLondon, "LO.H", inLondon)
-    drawLevel(lonL, lonLMs, lonLSwept, lonLSweptMs, lonLRej, colKzLondon, "LO.L", inLondon)
-    drawLevel(nyamH, nyamHMs, nyamHSwept, nyamHSweptMs, nyamHRej, colKzNyam, "NYAM.H", inNyam)
-    drawLevel(nyamL, nyamLMs, nyamLSwept, nyamLSweptMs, nyamLRej, colKzNyam, "NYAM.L", inNyam)
-    drawLevel(nypmH, nypmHMs, nypmHSwept, nypmHSweptMs, nypmHRej, colKzNypm, "NYPM.H", inNypm)
-    drawLevel(nypmL, nypmLMs, nypmLSwept, nypmLSweptMs, nypmLRej, colKzNypm, "NYPM.L", inNypm)
-    drawLevel(pdh, na, pdhSwept, pdhSweptMs, pdhRej, colLvlPd, "PDH", false, 1)
-    drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, colLvlPd, "PDL", false, 1)
-    drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, colLvlPw, "PWH", false, 2)
-    drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, colLvlPw, "PWL", false, 2)
+    drawLevel(asiaH, asiaHMs, asiaHSwept, asiaHSweptMs, asiaHRej, "AS.H", inAsia)
+    drawLevel(asiaL, asiaLMs, asiaLSwept, asiaLSweptMs, asiaLRej, "AS.L", inAsia)
+    drawLevel(lonH, lonHMs, lonHSwept, lonHSweptMs, lonHRej, "LO.H", inLondon)
+    drawLevel(lonL, lonLMs, lonLSwept, lonLSweptMs, lonLRej, "LO.L", inLondon)
+    drawLevel(nyamH, nyamHMs, nyamHSwept, nyamHSweptMs, nyamHRej, "NYAM.H", inNyam)
+    drawLevel(nyamL, nyamLMs, nyamLSwept, nyamLSweptMs, nyamLRej, "NYAM.L", inNyam)
+    drawLevel(nypmH, nypmHMs, nypmHSwept, nypmHSweptMs, nypmHRej, "NYPM.H", inNypm)
+    drawLevel(nypmL, nypmLMs, nypmLSwept, nypmLSweptMs, nypmLRej, "NYPM.L", inNypm)
+    drawLevel(pdh, na, pdhSwept, pdhSweptMs, pdhRej, "PDH", false, 1)
+    drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, "PDL", false, 1)
+    drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, "PWH", false, 2)
+    drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, "PWL", false, 2)
 
-// The current leg's running extremes — the live structural invalidation
-// anchors (strategy §6). Dashed, neutral, deliberately quiet.
+// The current leg's running extremes — quiet dotted guides for the live
+// structural invalidation anchors (strategy §6).
 renderLeg() =>
     if not na(legHigh) and not na(legHighMs)
         x2 = time + RIGHT_PAD_MS
-        vizLine(legHighMs, legHigh, x2, legHigh, colLeg, line.style_dashed, 1)
-        vizLabel(x2, legHigh, "LEG.H", color(na), colLeg, label.style_label_left, size.tiny)
+        vizLine(legHighMs, legHigh, x2, legHigh, fade(colNeutral, 30), line.style_dotted, 1)
+        vizLabel(x2, legHigh, "·H", color(na), fade(colNeutral, 30), label.style_label_left, size.tiny)
     if not na(legLow) and not na(legLowMs)
         x2 = time + RIGHT_PAD_MS
-        vizLine(legLowMs, legLow, x2, legLow, colLeg, line.style_dashed, 1)
-        vizLabel(x2, legLow, "LEG.L", color(na), colLeg, label.style_label_left, size.tiny)
+        vizLine(legLowMs, legLow, x2, legLow, fade(colNeutral, 30), line.style_dotted, 1)
+        vizLabel(x2, legLow, "·L", color(na), fade(colNeutral, 30), label.style_label_left, size.tiny)
 
+// ── Zones ────────────────────────────────────────────────────────────
 entryMarkerText(bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
     confirmClose ? "✓ entry" : chop15 ? "CHOP" : entered and not ceHeld ? "✗ CE" : ""
 
-entryMarkerColor(bool confirmClose, bool chop15, bool entered, bool ceHeld, color base) =>
-    confirmClose ? base : chop15 ? color.orange : entered and not ceHeld ? color.red : color(na)
+entryMarkerColor(bool confirmClose, bool chop15, bool entered, bool ceHeld, color accent) =>
+    confirmClose ? accent : chop15 ? colLiq : entered and not ceHeld ? colBear : color(na)
 
-// Draw the FVG boxes with a dashed CE midline.
-renderFvgs() =>
-    for f in fvgs
-        if f.kind == "fvg"
-            isHist = f.state == "invalidated"
+zoneTag(string base, string sizeQuality) =>
+    sizeQuality == "large" ? base + "+" : sizeQuality == "tiny" ? "" : base
+
+// One ACTIVE zone: airy accent fill, hairline border, dotted CE midline,
+// entry marker at the right edge. iFVGs draw dashed (the inversion is the
+// strategy's zone — visually distinct from a virgin gap).
+drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
+    accent = accentOf(dir)
+    x2 = time + RIGHT_PAD_MS
+    ce = (top + bottom) / 2
+    vizBox(leftMs, top, x2, bottom, zoneFill(accent), zoneBorder(accent), tag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+    vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
+    mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
+    if mk != ""
+        vizLabel(x2, ce, mk, color(na), entryMarkerColor(confirmClose, chop15, entered, ceHeld, accent), label.style_label_left, size.tiny)
+
+// One DEAD zone: truncated at its mitigation bar, neutral ghost, no text.
+drawGhostZone(int leftMs, float top, float bottom, int deadMs) =>
+    rightMs = math.max(deadMs, leftMs + timeframe.in_seconds() * 1000)
+    vizBox(leftMs, top, rightMs, bottom, GHOST_FILL(), GHOST_BORDER(), "", color(na), line.style_dotted)
+
+// FVGs + iFVGs from one pass over the engine array, newest first, capped.
+renderZones() =>
+    drawn = 0
+    ghosts = 0
+    if array.size(fvgs) > 0
+        for i = array.size(fvgs) - 1 to 0
+            f = array.get(fvgs, i)
+            isIfvg = f.kind == "ifvg"
+            wantKind = isIfvg ? showIfvgs : showFvgs
             skipTiny = hideTinyZones and f.sizeQuality == "tiny"
-            if (not isHist or showHistorical) and not skipTiny
-                base = f.dir == "bull" ? colFvgBull : colFvgBear
-                hd = zoneFadeDelta(f.state)
-                ce = (f.top + f.bottom) / 2
-                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 20), zoneLabelText("FVG", f.sizeQuality), fade(base, hd - 62), zoneBorderStyle(f.state))
-                bx.set_text_halign(text.align_right)
-                bx.set_text_valign(text.align_center)
-                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 35), line.style_dashed, 1)
-                mk = entryMarkerText(f.confirmClose, f.chop15, f.entered, f.ceHeld)
-                if mk != ""
-                    vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(f.confirmClose, f.chop15, f.entered, f.ceHeld, base), label.style_label_left, size.tiny)
+            isDead = f.state == "invalidated" or f.state == "filled"
+            if wantKind and not skipTiny and isDead and showHistorical and ghosts < maxZonesDrawn
+                // Dead: ghost from creation (or inversion) to mitigation.
+                gLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
+                gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
+                drawGhostZone(gLeft, f.top, f.bottom, gDead)
+                ghosts += 1
+            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn
+                // Active. An iFVG re-anchors at its inversion bar; its
+                // pre-inversion life shows as a ghost behind it.
+                zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
+                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality), isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld)
+                if isIfvg and showHistorical and not na(f.invertedMs)
+                    drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
+                drawn += 1
 
-// Draw the inverted-FVG boxes with a dashed CE midline.
-renderIfvgs() =>
-    for f in fvgs
-        if f.kind == "ifvg"
-            isHist = f.state == "invalidated"
-            skipTiny = hideTinyZones and f.sizeQuality == "tiny"
-            if (not isHist or showHistorical) and not skipTiny
-                base = f.dir == "bull" ? colIfvgBull : colIfvgBear
-                hd = zoneFadeDelta(f.state)
-                ce = (f.top + f.bottom) / 2
-                bx = vizBox(f.createdMs, f.top, time + RIGHT_PAD_MS, f.bottom, fade(base, hd), fade(base, hd - 20), zoneLabelText("iFVG", f.sizeQuality), fade(base, hd - 62), zoneBorderStyle(f.state))
-                bx.set_text_halign(text.align_right)
-                bx.set_text_valign(text.align_center)
-                vizLine(f.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 35), line.style_dashed, 1)
-                mk = entryMarkerText(f.confirmClose, f.chop15, f.entered, f.ceHeld)
-                if mk != ""
-                    vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(f.confirmClose, f.chop15, f.entered, f.ceHeld, base), label.style_label_left, size.tiny)
-
-// Draw the BPR boxes.
 renderBprs() =>
-    for b in bprs
-        isHist = b.state == "invalidated"
-        if not isHist or showHistorical
-            base = b.dir == "bull" ? colBprBull : colBprBear
-            hd = zoneFadeDelta(b.state)
-            bx = vizBox(b.createdMs, b.top, time + RIGHT_PAD_MS, b.bottom, fade(base, hd), fade(base, hd - 20), "BPR", fade(base, hd - 62), zoneBorderStyle(b.state))
-            bx.set_text_halign(text.align_right)
-            bx.set_text_valign(text.align_center)
-            ce = (b.top + b.bottom) / 2
-            vizLine(b.createdMs, ce, time + RIGHT_PAD_MS, ce, fade(base, hd - 35), line.style_dashed, 1)
-            mk = entryMarkerText(b.confirmClose, b.chop15, b.entered, b.ceHeld)
-            if mk != ""
-                vizLabel(time + RIGHT_PAD_MS, ce, mk, color(na), entryMarkerColor(b.confirmClose, b.chop15, b.entered, b.ceHeld, base), label.style_label_left, size.tiny)
+    drawn = 0
+    if array.size(bprs) > 0
+        for i = array.size(bprs) - 1 to 0
+            b = array.get(bprs, i)
+            bDead = b.state == "invalidated"
+            if bDead and showHistorical
+                drawGhostZone(b.createdMs, b.top, b.bottom, not na(b.mitigatedMs) ? b.mitigatedMs : time)
+            if not bDead and drawn < maxZonesDrawn
+                drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmClose, b.chop15, b.entered, b.ceHeld)
+                drawn += 1
 
-// Draw one swing-point label, faded when the swing has been swept.
+// ── Swings ───────────────────────────────────────────────────────────
+// Plain floating monospace tags (no balloon pointers), ATR-offset from the
+// pivot, neutral by design — structure carries the directional color.
 drawSwingLabel(Swing sw) =>
-    base = (sw.kind == "HH" or sw.kind == "HL") ? colSwingBull : colSwingBear
-    txtCol = sw.swept ? fade(base, 55) : base
-    style = sw.isHigh ? label.style_label_down : label.style_label_up
-    sz = sw.tier == "swing" ? size.small : size.tiny
-    vizLabel(sw.barMs, sw.price, sw.kind, color(na), txtCol, style, sz)
+    txtCol = sw.swept ? fade(colNeutral, 45) : fade(colNeutral, 15)
+    y = sw.isHigh ? sw.price + labelOff() : sw.price - labelOff()
+    vizLabel(sw.barMs, y, sw.kind, color(na), txtCol, label.style_none, sw.tier == "swing" ? size.small : size.tiny)
 
 renderSwings() =>
     for sw in swingsExt
@@ -1152,72 +1169,97 @@ renderSwings() =>
         for sw in swingsInt
             drawSwingLabel(sw)
 
-// Draw the structure-break lines and BoS/MSS labels. External-tier events
-// always render; internal-tier renders only when showInternal is on.
+// ── Structure ────────────────────────────────────────────────────────
+// Premium convention: the label floats CENTERED on the break line, offset
+// by a fraction of ATR so it never overlaps the line. Swing tier draws
+// solid; internal dashed. MSS reads bigger than BoS.
 drawStructure(Structure s) =>
-    base = s.dir == "bull" ? colStructBull : colStructBear
+    accent = accentOf(s.dir)
     lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
-    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, base, lnStyle, s.displacement ? 2 : 1)
-    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.validation == "sweep" ? "·sweep" : "")
-    lblStyle = s.dir == "bull" ? label.style_label_up : label.style_label_down
-    // MSS is the strategy's reversal signal — it reads bigger than BoS.
-    vizLabel(s.confirmedMs, s.level, txt, color(na), base, lblStyle, s.event == "mss" ? size.small : size.tiny)
+    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 20), lnStyle, s.displacement ? 2 : 1)
+    midMs = s.brokenSwingMs + (s.confirmedMs - s.brokenSwingMs) / 2
+    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.validation == "sweep" ? "·s" : "")
+    y = s.dir == "bull" ? s.level + labelOff() * 0.7 : s.level - labelOff() * 0.7
+    vizLabel(midMs, y, txt, color(na), accent, label.style_none, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
-    for s in structuresExt
-        drawStructure(s)
+    drawn = 0
+    if array.size(structuresExt) > 0
+        for i = array.size(structuresExt) - 1 to 0
+            if drawn < maxStructDrawn
+                drawStructure(array.get(structuresExt, i))
+                drawn += 1
     if showInternal
-        for s in structuresInt
-            drawStructure(s)
+        drawnInt = 0
+        if array.size(structuresInt) > 0
+            for i = array.size(structuresInt) - 1 to 0
+                if drawnInt < maxStructDrawn
+                    drawStructure(array.get(structuresInt, i))
+                    drawnInt += 1
 
-// Draw the equal-high/low liquidity pools, anchored at the first equal swing.
+// ── Liquidity pools ──────────────────────────────────────────────────
+// Draw targets in the liquidity accent. Unswept pools extend right with
+// an EQH/EQL tag; swept pools truncate at the sweep with a glyph.
 renderLiquidity() =>
-    for p in pools
-        if not p.swept or showHistorical
-            col = p.swept ? fade(colLiquidity, 55) : colLiquidity
+    for pl in pools
+        if pl.swept
+            if showHistorical and not na(pl.sweptMs)
+                vizLine(pl.createdMs, pl.price, pl.sweptMs, pl.price, fade(colLiq, 45), line.style_dotted, 1)
+                vizLabel(pl.sweptMs, pl.price, "✕", color(na), fade(colLiq, 30), label.style_label_center, size.tiny)
+        else
             x2 = time + RIGHT_PAD_MS
-            vizLine(p.createdMs, p.price, x2, p.price, col, line.style_dotted, 1)
-            vizLabel(x2, p.price, p.kind == "eqh" ? "EQH" : "EQL", color(na), col, label.style_label_left, size.tiny)
+            vizLine(pl.createdMs, pl.price, x2, pl.price, colLiq, line.style_dotted, 1)
+            vizLabel(x2, pl.price, pl.kind == "eqh" ? "EQH" : "EQL", color(na), colLiq, label.style_label_left, size.tiny)
 
-// Write one quality-panel cell, optionally tinting the value by verdict.
-// Column 0 (labels) renders muted; column 1 carries the verdict color.
+// ── Dashboard ────────────────────────────────────────────────────────
 qSet(int col, int row, string txt, color tint = na) =>
     baseCol = col == 0 ? color.new(chart.fg_color, 42) : chart.fg_color
     table.cell(qualityPanel, col, row, txt, text_color = na(tint) ? baseCol : tint, text_size = size.tiny, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_left : text.align_right)
 
-// Verdict tint: green = strategy-pass vocabulary, red = stand-aside, the
-// rest stays neutral. Mirrors Pillar 2's good/clean reading at a glance.
 qTone(string verdict) =>
-    verdict == "good" or verdict == "clean" or verdict == "engulfing" ? color.new(#089981, 0) :
-      verdict == "tight" or verdict == "weak" or verdict == "doji_wick" ? color.new(#f23645, 0) :
-      verdict == "acceptable" ? color.new(#ff9800, 0) : color(na)
+    verdict == "good" or verdict == "clean" or verdict == "engulfing" ? colBull :
+      verdict == "tight" or verdict == "weak" or verdict == "doji_wick" ? colBear :
+      verdict == "acceptable" ? colLiq : color(na)
 
-// Fill the quality panel from the engine's quality metrics.
+// Last external structure event, summarized for the card.
+structSummary() =>
+    string txt = "—"
+    color tint = na
+    n = array.size(structuresExt)
+    if n > 0
+        st = array.get(structuresExt, n - 1)
+        txt := (st.event == "mss" ? "MSS " : "BoS ") + (st.dir == "bull" ? "↑" : "↓") + (st.validation == "sweep" ? " ·s" : "")
+        tint := accentOf(st.dir)
+    [txt, tint]
+
 renderQualityPanel() =>
-    qSet(0, 0, "3h range")
-    qSet(1, 0, str.tostring(qRange3h, format.mintick))
-    qSet(0, 1, "Range")
-    qSet(1, 1, qRangeQuality, qTone(qRangeQuality))
-    qSet(0, 2, "Displacement")
-    qSet(1, 2, qDisplacement, qTone(qDisplacement))
-    qSet(0, 3, "Candle")
-    qSet(1, 3, qCandle, qTone(qCandle))
-    qSet(0, 4, "Session")
-    qSet(1, 4, currentSession)
+    table.cell(qualityPanel, 0, 0, "ICT ENGINE", text_color = color.new(chart.fg_color, 25), text_size = size.tiny, text_font_family = font.family_monospace, text_halign = text.align_center)
+    table.merge_cells(qualityPanel, 0, 0, 1, 0)
+    qSet(0, 1, "Session")
+    qSet(1, 1, currentSession)
+    qSet(0, 2, "Range 3h")
+    qSet(1, 2, str.tostring(qRange3h, format.mintick) + " · " + qRangeQuality, qTone(qRangeQuality))
+    qSet(0, 3, "Displacement")
+    qSet(1, 3, qDisplacement, qTone(qDisplacement))
+    qSet(0, 4, "Candle")
+    qSet(1, 4, qCandle, qTone(qCandle))
+    [stTxt, stCol] = structSummary()
+    qSet(0, 5, "Structure")
+    qSet(1, 5, stTxt, stCol)
+    qSet(0, 6, "Leg")
+    qSet(1, 6, na(legLow) or na(legHigh) ? "—" : str.tostring(legLow, format.mintick) + "–" + str.tostring(legHigh, format.mintick))
 
-// Visual-layer render dispatch — redraw everything from current state.
+// ── Render dispatch ──────────────────────────────────────────────────
 if barstate.islast
     clearViz()
-    table.clear(qualityPanel, 0, 0, 1, 4)
+    table.clear(qualityPanel, 0, 0, 1, 6)
     if showVisuals
         if showLevels
             renderLevels()
         if showLeg
             renderLeg()
-        if showFvgs
-            renderFvgs()
-        if showIfvgs
-            renderIfvgs()
+        if showFvgs or showIfvgs
+            renderZones()
         if showBprs
             renderBprs()
         if showSwings
