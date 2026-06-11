@@ -1,11 +1,16 @@
 // app/main/ipc-backtest.js
-// IPC layer for the Backtest popover. Wraps the engine in start/stop/decision
-// handlers + provides list/get/delete against the on-disk store. Broadcasts
-// every "backtest:event" emitted by the engine to all browser windows so the
-// renderer's useBacktest hook can react.
+// IPC layer for the Backtest popover. Wraps the deterministic engine in
+// start/stop/decision handlers + provides list/get/delete against the
+// on-disk store. Broadcasts every "backtest:event" emitted by the engine to
+// all browser windows so the renderer's useBacktest hook can react.
+//
+// Production deps (2026-06-12 deterministic rewrite): the engine records a
+// replay-stepped tape via packages/core CDP calls, folds it through the
+// REAL walker chain (bar-close __test truth fn), and grades outcomes from
+// the recorded bars. No LLM anywhere in the loop — cost is $0.
 //
 // Only one run can be in flight at a time (the TV chart is shared). The
-// `currentBus` + `currentRun` module-locals enforce that.
+// `currentBus` + `currentRunPromise` module-locals enforce that.
 
 import { ipcMain } from "electron";
 import { EventEmitter } from "node:events";
@@ -15,94 +20,79 @@ import { fileURLToPath } from "node:url";
 
 import { runBacktest } from "./backtest-engine.js";
 import { readIndex, reconcileAbortedRuns, resolveRunDir } from "./backtest-store.js";
-import { userTurn } from "./sdk.js";
-import { tvAnalyzeFast } from "./tools/tv-analyze.js";
+import { loadDayContext, contextFromBriefPayloads } from "./backtest-context.js";
+import { analyzePairBundle, buildDirectSessionBriefPayloads } from "./direct-session-brief.js";
+import { gradeOpenTrade } from "./backtest-grader.js";
+import { __test as barCloseTruth } from "./bar-close.js";
+import { recordEntries } from "../../cli/lib/tape-recorder.js";
+import { parseIctEngineTable, findIctEngineRows } from "../../cli/lib/ict-engine-parser.js";
 import * as replay from "../../packages/core/replay.js";
+import * as chart from "../../packages/core/chart.js";
+import * as data from "../../packages/core/data.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const STATE_DIR = path.join(REPO_ROOT, "state");
+const SYMBOL_SETTLE_MS = 600;
 
-// Production injectors: wrap the live module exports into the shape the
-// engine expects so engine code stays test-friendly. The engine speaks
-// `tv.replay.start/step/stop` and `tv.analyzePillar3()`.
-const PROD_TV = {
-  replay: {
-    start: (opts) => replay.start(opts),
-    step: () => replay.step(),
-    stop: () => replay.stop(),
-  },
-  analyzePillar3: async () => tvAnalyzeFast({}),
+const REPLAY_ANCHORS = { "ny-am": "09:30", "ny-pm": "13:00", london: "03:00" };
+
+async function pinChart(leader) {
+  if (!leader) return;
+  const state = await chart.getState();
+  if (state.symbol.replace(/^[A-Z_]+:/, "") !== leader.replace(/^[A-Z_]+:/, "")) {
+    await chart.setSymbol({ symbol: leader });
+    await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+  }
+  if (state.resolution !== "1") {
+    await chart.setTimeframe({ timeframe: "1" });
+    await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+  }
+}
+
+const CDP_RECORDER_DEPS = {
+  startReplay: (args) => replay.start(args),
+  stepReplay: () => replay.step(),
+  stopReplay: () => replay.stop(),
+  readBars: () => data.getOhlcv({ summary: true }),
+  readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 };
 
-// Engine calls sdk.userTurn — adapter so the production userTurn signature
-// (text, purpose, onEvent, timeoutMs, backtestContext) matches what the
-// engine wants. We supply a placeholder `text` derived from the purpose;
-// the LLM gets the analysis bundle via its own `tvAnalyzeFast` tool call,
-// not via the prompt.
-const PROD_SDK = {
-  async userTurn({ purpose, backtestContext, bundle }) {
-    void bundle;  // not consumed in production — LLM fetches via tool
-    const text = textForPurpose(purpose);
-    let cost = 0;
-    let surfacedSetup = null;
-    await userTurn({
-      purpose,
-      text,
-      backtestContext,
-      onEvent: (ev) => {
-        if (ev.type === "turn_complete" && ev.usage?.total_cost_usd != null) {
-          cost = ev.usage.total_cost_usd;
-        }
-        if (ev.type === "tool_call" && ev.name === "surface_setup") {
-          // The surface_setup args are the setup object
-          surfacedSetup = normalizeSurfacedSetup(ev.args);
-        }
-      },
+const PROD_DEPS = {
+  loadDayContext: ({ date, session }) => loadDayContext({ date, session }),
+
+  // No day state: capture a pair bundle with the chart anchored at the
+  // session open of the historic date (replay shows HTF as-of that date),
+  // build the deterministic brief payloads, synthesize a grade-capped
+  // context. Payloads are persisted in the run dir for audit.
+  async runDirectBrief({ runId, session, date }) {
+    const runDir = resolveRunDir({ stateDir: STATE_DIR, runId });
+    let bundle = null;
+    try {
+      await replay.start({ date, time: REPLAY_ANCHORS[session] ?? "09:30" });
+      bundle = await analyzePairBundle({ out: path.join(runDir, "brief-bundle.json") });
+    } finally {
+      try { await replay.stop(); } catch { /* best-effort */ }
+    }
+    if (!bundle) return null;
+    const payloads = buildDirectSessionBriefPayloads({ session, bundle });
+    fs.writeFileSync(path.join(runDir, "brief-payloads.json"), JSON.stringify(payloads, null, 2));
+    return contextFromBriefPayloads({ session, payloads });
+  },
+
+  async recordEntries({ context, date, fromEt, toEt, onBar, isStopped }) {
+    await pinChart(context?.leader);
+    return recordEntries({
+      context, date, fromEt, toEt,
+      deps: CDP_RECORDER_DEPS,
+      onBar, isStopped,
     });
-    return { cost, surfacedSetup };
   },
+
+  truthFn: barCloseTruth.buildDeterministicPacketTruthFromInputs,
+  gradeFn: gradeOpenTrade,
 };
-
-function textForPurpose(purpose) {
-  switch (purpose) {
-    case "brief": return "Run the session brief for today.";
-    case "bar-close": return "1m bar closed. Analyze and surface a setup if one is in play.";
-    case "catch-up": return "Backfill the open-reaction window for the current session.";
-    case "wrap": return "Wrap the session — emit the summary.";
-    default: return `Run ${purpose} turn.`;
-  }
-}
-
-function normalizeSurfacedSetup(args) {
-  // Pull just the fields the engine + grader need. Tolerant of slight
-  // shape differences between the surface_setup tool args and what the
-  // engine consumes (id, side, entry, stop, tp1, grade, model).
-  if (!args || typeof args !== "object") return null;
-  const id = args.id ?? args.setup_id ?? `setup-${Date.now()}`;
-  const side = (args.side ?? "").toLowerCase();
-  const entry = numericish(args.entry);
-  const stop = numericish(args.stop);
-  const tp1 = numericish(args.tp1 ?? args.target ?? args.tp);
-  if (!side || entry == null || stop == null || tp1 == null) return null;
-  return {
-    id, side, entry, stop, tp1,
-    tp2: numericish(args.tp2),
-    grade: args.grade ?? null,
-    model: args.model ?? args.entry_model ?? null,
-    rationale: args.rationale ?? args.why ?? null,
-    ts: args.ts ?? new Date().toISOString(),
-  };
-}
-
-function numericish(v) {
-  if (typeof v === "number") return v;
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Singleton run state — enforces exclusive mode.
@@ -114,7 +104,7 @@ export function isBacktestRunning() {
   return currentRunPromise !== null;
 }
 
-export function registerBacktestIpc(win, { tv = PROD_TV, sdk = PROD_SDK } = {}) {
+export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
   const send = (channel, payload) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
@@ -128,7 +118,7 @@ export function registerBacktestIpc(win, { tv = PROD_TV, sdk = PROD_SDK } = {}) 
 
     currentRunPromise = (async () => {
       try {
-        return await runBacktest({ date, session, mode, tv, sdk, bus: currentBus, stateDir: STATE_DIR });
+        return await runBacktest({ date, session, mode, bus: currentBus, stateDir: STATE_DIR, deps });
       } finally {
         currentBus = null;
         currentRunPromise = null;

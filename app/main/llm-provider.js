@@ -8,7 +8,12 @@ const TOOL_REQUIRED_PURPOSES = new Set(['brief', 'bar-close', 'catch-up', 'wrap'
 const APP_MAIN_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(APP_MAIN_DIR, '..', '..');
 const EXTRA_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'];
-const DEFAULT_PROVIDER = 'codex';
+// Default flipped codex → claude 2026-06-12: production metrics (June 10-11)
+// showed Codex turns timing out at the full 600s on brief and wrap, and the
+// whole prompt architecture (kernel split, partials, cache breakpoints,
+// session resume) only runs on the Claude SDK path. Codex stays one env var
+// away: TV_LLM_PROVIDER=codex or per-purpose TV_LLM_PROVIDER_<PURPOSE>.
+const DEFAULT_PROVIDER = 'claude';
 
 export function normalizeProviderName(value) {
   const raw = String(value || DEFAULT_PROVIDER).trim().toLowerCase();

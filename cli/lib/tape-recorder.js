@@ -145,30 +145,36 @@ function etToEpochSeconds(dateStr, timeStr) {
  * previous step (the indicator recomputed) AND meta.tf is the 1m chart.
  * A step that never re-emits is captured anyway with a warning — the fold's
  * source-health gate judges it; silence is the one thing not allowed.
+ *
+ * recordEntries is the context-independent loop (the backtest engine passes
+ * a context built from the day's brief/ltf-bias instead of a hand label);
+ * recordTape keeps the label-driven CLI surface on top of it.
  */
-export async function recordTape({
-  label,
+export async function recordEntries({
+  context,
+  date,
   fromEt = '09:30',
   toEt = '12:00',
   deps,
   pollIntervalMs = 400,
   stepDeadlineMs = 8000,
+  onBar = null,
+  isStopped = null,
 }) {
-  const context = contextFromLabel(label);
   const nowMs = deps.nowMs ?? Date.now;
-  const toEpoch = etToEpochSeconds(label.trade_date, toEt);
+  const toEpoch = etToEpochSeconds(date, toEt);
   const entries = [];
   const warnings = [];
 
-  await deps.startReplay({ date: label.trade_date, time: fromEt });
+  await deps.startReplay({ date, time: fromEt });
   try {
     let prevEmit = null;
     let prevBarTime = null;
     // Hard cap: minutes in window + slack. Guards against a replay that
     // stops advancing (e.g. data gap) looping forever.
-    const maxSteps = Math.ceil((toEpoch - etToEpochSeconds(label.trade_date, fromEt)) / 60) + 10;
+    const maxSteps = Math.ceil((toEpoch - etToEpochSeconds(date, fromEt)) / 60) + 10;
 
-    for (let i = 0; i < maxSteps; i += 1) {
+    for (let i = 0; i < maxSteps && !(isStopped?.()); i += 1) {
       // Poll until this step's bar + engine emit are visible.
       const deadline = Math.max(1, Math.ceil(stepDeadlineMs / pollIntervalMs));
       let bars = null;
@@ -200,6 +206,7 @@ export async function recordTape({
       prevBarTime = Number(lastBar.time);
 
       entries.push(buildTapeEntry({ engine, bars, context, captureNowMs: nowMs() }));
+      onBar?.({ bar: entries.length, total: maxSteps - 10 });
 
       const barClose = Number(lastBar.time) + 60;
       if (barClose >= toEpoch) break;
@@ -210,6 +217,18 @@ export async function recordTape({
   }
 
   return { entries, warnings, context };
+}
+
+export async function recordTape({
+  label,
+  fromEt = '09:30',
+  toEt = '12:00',
+  deps,
+  pollIntervalMs = 400,
+  stepDeadlineMs = 8000,
+}) {
+  const context = contextFromLabel(label);
+  return recordEntries({ context, date: label.trade_date, fromEt, toEt, deps, pollIntervalMs, stepDeadlineMs });
 }
 
 /** Assemble the tape file. Lands unverified — hand-grading freezes it. */

@@ -21,7 +21,7 @@ test("per-purpose content present", async () => {
   // a routing hint, so we use body-specific phrases instead).
   const cases = [
     ["brief", /publish the PREP-panel SESSION BRIEF/i],
-    ["bar-close", /You are in entry hunt\. A precomputed/i],
+    ["bar-close", /You are in entry hunt\. The deterministic walker chain/i],
     ["bar-close", /first 15 min of NY's reaction/i],
     ["catch-up", /synthesize a missed `open_reaction`/i],
     ["catch-up", /first 15 min of NY's reaction/i],
@@ -40,7 +40,7 @@ test("per-purpose content present", async () => {
 
 test("chat does NOT contain analysis content", async () => {
   const chat = joinSystemPrompt(await loadSystemPrompt("chat"));
-  assert.doesNotMatch(chat, /You are in entry hunt\. A precomputed/, "chat should not have entry_hunt phase body");
+  assert.doesNotMatch(chat, /You are in entry hunt\. The deterministic walker chain/, "chat should not have entry_hunt phase body");
   assert.doesNotMatch(chat, /publish the PREP-panel SESSION BRIEF/, "chat should not have brief phase body");
   assert.doesNotMatch(chat, /synthesize a missed `open_reaction`/, "chat should not have catch_up phase body");
   assert.doesNotMatch(chat, /first 15 min of NY's reaction/, "chat should not have open_reaction phase body");
@@ -50,7 +50,7 @@ test("chat does NOT contain analysis content", async () => {
 
 test("review does NOT contain analysis content", async () => {
   const review = joinSystemPrompt(await loadSystemPrompt("review"));
-  assert.doesNotMatch(review, /You are in entry hunt\. A precomputed/, "review should not have entry_hunt phase body");
+  assert.doesNotMatch(review, /You are in entry hunt\. The deterministic walker chain/, "review should not have entry_hunt phase body");
   assert.doesNotMatch(review, /publish the PREP-panel SESSION BRIEF/, "review should not have brief phase body");
   assert.doesNotMatch(review, /<examples>/, "review should not have entry-model examples");
   assert.doesNotMatch(review, /<bundle_fields>/, "review should not have bundle_fields");
@@ -58,7 +58,7 @@ test("review does NOT contain analysis content", async () => {
 
 test("wrap does NOT contain entry-hunt or brief content", async () => {
   const wrap = joinSystemPrompt(await loadSystemPrompt("wrap"));
-  assert.doesNotMatch(wrap, /You are in entry hunt\. A precomputed/, "wrap should not have entry_hunt phase body");
+  assert.doesNotMatch(wrap, /You are in entry hunt\. The deterministic walker chain/, "wrap should not have entry_hunt phase body");
   assert.doesNotMatch(wrap, /publish the PREP-panel SESSION BRIEF/, "wrap should not have brief phase body");
   assert.doesNotMatch(wrap, /<examples>/, "wrap should not have entry-model examples");
 });

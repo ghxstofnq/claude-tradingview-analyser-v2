@@ -228,6 +228,16 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("calendar:update", listener);
     },
   },
+  version: {
+    get() {
+      return ipcRenderer.invoke("version:get");
+    },
+    onUpdate(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("version:status", listener);
+      return () => ipcRenderer.removeListener("version:status", listener);
+    },
+  },
   backtest: {
     start(cfg) {
       return ipcRenderer.invoke("backtest:start", cfg);

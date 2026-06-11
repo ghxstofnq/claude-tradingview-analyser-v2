@@ -12,7 +12,8 @@
     "stop": 29847,
     "tp1": 29302.5,
     "first_packet_event_ts": "2026-06-09T13:52:00.000Z",
-    "max_packets": 1
+    "max_packets": 1,
+    "grade": "A+"
   },
   "entries": [
     {
@@ -87792,7 +87793,7 @@
     "notes": [
       "Confirmation may be 1m or 5m (GXNQ used the cleaner 5m close at 09:55; the machine's 1m aggressive confirm at 09:52 is accepted).",
       "Stop is the structural high beyond the violated zone (NYAM.H 29847), per trading-strategy-2026.md \u00a76 \u2014 not the zone top, not micro pivots.",
-      "Grade intentionally not asserted: packet grades B (zone size_quality), GXNQ graded the session A+ \u2014 open question on the grading rule."
+      "Grade frozen A+ 2026-06-12: deriveGrade now mirrors constraint #9's six-element alignment (pillars pass + ltf-bias handoff aligned + model + confirmation) instead of zone size_quality \u2014 machine grade matches GXNQ's session grade."
     ]
   }
 }

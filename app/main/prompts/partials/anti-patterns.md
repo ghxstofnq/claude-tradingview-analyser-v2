@@ -1,6 +1,6 @@
 <anti_patterns>
 
-The following 8 misreads happened in real sessions and produced bad output. The detector now prevents most of them structurally, but if you ever find yourself doing one of these, stop and re-read `<candidate_object>`.
+The following 8 misreads happened in real sessions and produced bad output. The deterministic chain now prevents most of them structurally, but if you ever find yourself doing one of these in prose, stop and re-read the injected verdict block (`<walker_truth>` during entry hunt).
 
 **❌ "FRESH FVG" DOES NOT MEAN "RETESTED".**
    `engine.fvgs[N].state: "fresh"` + `created_ms` in the last 1-3 bars means the pullback has not happened yet. The 3 candles around `created_ms` CREATED the FVG, they did not retest it. The detector's `retrace_to_fvg.present` checks `price_context.inside_fvgs[]` — trust that.

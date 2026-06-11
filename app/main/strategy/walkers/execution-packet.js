@@ -139,14 +139,24 @@ function selectTp1(context, side, entry, stop) {
   return candidates[0] ?? null;
 }
 
+// Grade per constraint #9 / trading-strategy-2026.md §7 step 7 — A+ only
+// when ALL six elements align: HTF bias + draw (pillar1 pass), overnight
+// context (inside pillar1), NY reaction confirming the read (ltf-bias
+// handoff present AND htf_ltf_alignment aligned), price quality good
+// (pillar2 pass), entry model identified, confirmation confirmed. The last
+// two are structural givens at packet time — only confirmed walkers with a
+// known model reach here — so the live differentiators are the pillars and
+// the open-reaction handoff. Zone size_quality is deliberately NOT a
+// grading element: the 2026-06-09 hand-graded A+ Inversion rode a medium
+// zone (GXNQ ruling 2026-06-12); the strategy grades alignment, not zone
+// size.
 function deriveGrade({ context, walker }) {
-  const pdQuality = walker?.evidence?.pdArray?.rawPayload?.size_quality
-    ?? walker?.evidence?.pdArray?.rawPayload?.sizeQuality
-    ?? walker?.evidence?.pdArray?.rawPayload?.quality;
-  let grade = 'no-trade';
-  if (context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass' && pdQuality === 'large') grade = 'A+';
-  else if (context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass') grade = 'B';
-  return capGrade(grade, context?.sessionChain?.gradeCap);
+  const chain = context?.sessionChain ?? {};
+  const pillarsPass = context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass';
+  if (!pillarsPass) return capGrade('no-trade', chain.gradeCap);
+  const modelKnown = ['mss', 'trend', 'inversion'].includes(normalizeModelName(walker?.model));
+  const reactionConfirmed = Boolean(chain.ltfBias) && chain.htfLtfAlignment === 'aligned';
+  return capGrade(modelKnown && reactionConfirmed ? 'A+' : 'B', chain.gradeCap);
 }
 
 function packetEntryAudit(confirmationPayload, confirmation) {

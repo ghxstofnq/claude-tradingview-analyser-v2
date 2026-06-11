@@ -252,7 +252,14 @@ export async function analyzePairBundle({ out = LAST_ANALYZE_PATH } = {}) {
   return JSON.parse(await fs.readFile(savedTo, "utf8"));
 }
 
-export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, codexAnalysisFn = runCodexStructuredAnalysis, surfaceFn = surfaceSessionBrief, onEvent } = {}) {
+// Codex structured commentary is opt-in (2026-06-12): it spawns the codex
+// CLI and a hang there delays brief.json past the scheduler timeout — the
+// deterministic payloads are the substance, commentary only decorates.
+export function codexBriefAnalysisEnabled(env = process.env) {
+  return env.TV_CODEX_BRIEF_ANALYSIS === '1';
+}
+
+export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, codexAnalysisFn = (codexBriefAnalysisEnabled() ? runCodexStructuredAnalysis : null), surfaceFn = surfaceSessionBrief, onEvent } = {}) {
   const bundle = await analyzeFn();
   let payloads = buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade });
   if (payloads.length === 0) throw new Error("direct session brief produced no symbol payloads");

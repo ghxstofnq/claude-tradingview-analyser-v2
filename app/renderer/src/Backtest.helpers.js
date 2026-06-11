@@ -2,8 +2,7 @@
 // Pure helpers consumed by BacktestPopover.jsx — extracted so they're
 // testable via `node --test` (renderer has no Vitest in this project).
 
-const SESSION_BARS = { "ny-am": 180, "ny-pm": 180, london: 180 };
-const AVG_TURN_COST_USD = { auto: 0.12, pause: 0.15 };
+const SESSION_BARS = { "ny-am": 150, "ny-pm": 180, london: 180 };
 const SESSION_SHORT = { "ny-am": "AM", "ny-pm": "PM", london: "LON" };
 
 export function nextState(state, event) {
@@ -81,8 +80,9 @@ export function formatRunForRow(run) {
   };
 }
 
-export function estimateCost({ session, mode }) {
-  const turns = SESSION_BARS[session] ?? 180;
-  const cost = AVG_TURN_COST_USD[mode] ?? AVG_TURN_COST_USD.auto;
-  return Math.round(turns * cost * 100) / 100;
+// Deterministic engine (2026-06-12): no LLM in the loop, so cost is $0.
+// The estimate that matters is wall time — replay stepping runs ~4s/bar.
+export function estimateRun({ session }) {
+  const bars = SESSION_BARS[session] ?? 180;
+  return { bars, cost: 0, minutes: Math.round((bars * 4) / 60) };
 }

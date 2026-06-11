@@ -1,4 +1,4 @@
-import { app, BrowserWindow, powerMonitor } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { initSdk } from "./main/sdk.js";
@@ -17,6 +17,7 @@ import { loadPersistedMode, setMode, getMode } from "./main/mode.js";
 import { startDetector } from "./main/bar-close.js";
 import { startTradeTickerWatchdog } from "./main/trade-ticker-watchdog.js";
 import { startSessionSupervisor } from "./main/session-supervisor.js";
+import { createVersionPoll } from "./main/version-status.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -133,6 +134,13 @@ app.whenReady().then(async () => {
     // eslint-disable-next-line no-console
     console.error("[calendar] bootstrap failed", err);
   });
+
+  // Version visibility: poll git for "code on disk moved past what this
+  // process booted with" (restart needed) and "origin/main is ahead of the
+  // local checkout" (pull needed). June 2026: six merged PRs never ran
+  // because nothing surfaced that the app was on week-old code.
+  const versionPoll = createVersionPoll({ send: ipc.send }).start();
+  ipcMain.handle("version:get", () => versionPoll.get());
 
   // Retention sweep: delete state/session/<date>/ folders older than 30
   // days. Runs once on boot AND every 24h afterward — long-running apps

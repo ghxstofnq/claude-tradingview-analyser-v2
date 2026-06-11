@@ -28,12 +28,17 @@ test("scheduled-turn provider routing: tool-requiring scheduled turns can force 
   assert.equal(providerOverrideForScheduledTurn({ purpose: "brief" }), null);
 });
 
-test("scheduled-turn provider routing: MCP-enabled Codex uses normal tool path; direct runner is fallback only", () => {
+test("scheduled-turn provider routing: deterministic-first — a direct runner always wins over the LLM path", () => {
+  // 2026-06-12: production briefs were riding the Codex MCP turn (600s
+  // timeouts, two failures on June 11 alone) while a reliable deterministic
+  // path sat as fallback-only. Deterministic extraction is the architecture
+  // (docs/research/ai-trading-analysis.md); the LLM decorates, it does not
+  // gate the brief landing.
   const codexMcpToolRequired = { name: "codex", toolRequired: true, supportsToolCalling: true };
   const codexTextOnlyToolRequired = { name: "codex", toolRequired: true, supportsToolCalling: false };
   const claudeToolRequired = { name: "claude", toolRequired: true, supportsToolCalling: true };
-  assert.equal(shouldUseDirectScheduledTurn({ provider: codexMcpToolRequired, directRunFn: async () => {} }), false);
+  assert.equal(shouldUseDirectScheduledTurn({ provider: codexMcpToolRequired, directRunFn: async () => {} }), true);
   assert.equal(shouldUseDirectScheduledTurn({ provider: codexTextOnlyToolRequired, directRunFn: async () => {} }), true);
-  assert.equal(shouldUseDirectScheduledTurn({ provider: claudeToolRequired, directRunFn: async () => {} }), false);
+  assert.equal(shouldUseDirectScheduledTurn({ provider: claudeToolRequired, directRunFn: async () => {} }), true);
   assert.equal(shouldUseDirectScheduledTurn({ provider: codexTextOnlyToolRequired }), false);
 });
