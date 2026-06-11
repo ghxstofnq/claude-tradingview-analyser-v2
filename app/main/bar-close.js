@@ -156,7 +156,7 @@ export function stopDetector() {
 // silently lose tracking. Instead, the runClaudeTurnFor function gates
 // Claude turns on mode (only fires when mode === live), but the detector
 // keeps emitting and tickOpenTrades keeps running.
-async function hasOpenTrades() {
+export async function hasOpenTrades() {
   try {
     const dir = await activeSessionDir();
     const txt = await fs.readFile(path.join(dir, "trades.jsonl"), "utf8");

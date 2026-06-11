@@ -11,6 +11,7 @@ import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { startAlertPolling, stopAlertPolling } from "./alerts.js";
 import { setMode } from "./mode.js";
+import { noteManualStop, noteManualStart } from "./session-supervisor.js";
 import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
 import { getCurrentSurfaceState, clearCurrentSurfaceState } from "./tools/surface.js";
@@ -42,11 +43,13 @@ export function registerIpc(win) {
   // LIVE HUNT could show a running detector while isLive() stayed false — no
   // bars.jsonl, scans, walkers, deterministic truth, setups, or trades.
   ipcMain.handle("detector:start", async () => {
-    try { setMode("live"); startDetector({ send }); ipc.send("mode:current", { mode: "live" }); return { ok: true }; }
+    try { noteManualStart(); setMode("live"); startDetector({ send }); ipc.send("mode:current", { mode: "live" }); return { ok: true }; }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
   ipcMain.handle("detector:stop", async () => {
-    try { stopDetector(); setMode("prep"); send("health:update", { detector: "stopped" }); ipc.send("mode:current", { mode: "prep" }); return { ok: true }; }
+    // noteManualStop tells the session supervisor not to auto-re-arm for the
+    // remainder of this session — a deliberate stop must stay stopped.
+    try { noteManualStop(); stopDetector(); setMode("prep"); send("health:update", { detector: "stopped" }); ipc.send("mode:current", { mode: "prep" }); return { ok: true }; }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
