@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clearCurrentCandidate,
+  clearTurnAuditState,
   setCurrentDeterministicPacket,
   surfaceNoTrade,
   validateSetupAgainstDeterministicPacket,
@@ -9,13 +9,13 @@ import {
 
 describe('deterministic packet surface lock', () => {
   test('surface_no_trade rejects when executable deterministic packet is active', async () => {
-    clearCurrentCandidate();
+    clearTurnAuditState();
     setCurrentDeterministicPacket({ status: 'executable', finalVerdict: 'manual_candidate' });
     await assert.rejects(
       () => surfaceNoTrade({ reason: 'model disagrees' }),
       /executable deterministic packet is active/,
     );
-    clearCurrentCandidate();
+    clearTurnAuditState();
   });
 
   test('surface_setup payload must match deterministic packet prices and metadata', () => {
