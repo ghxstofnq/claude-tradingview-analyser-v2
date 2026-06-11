@@ -3,11 +3,16 @@
   "date": "2026-06-09",
   "session": "ny-am",
   "source": "tv-replay-stepping",
-  "verified": false,
+  "verified": true,
   "expected": {
     "outcome": "trade",
     "model": "Inversion",
-    "side": "short"
+    "side": "short",
+    "entry": 29792,
+    "stop": 29847,
+    "tp1": 29302.5,
+    "first_packet_event_ts": "2026-06-09T13:52:00.000Z",
+    "max_packets": 1
   },
   "entries": [
     {
@@ -87780,5 +87785,14 @@
         }
       }
     }
-  ]
+  ],
+  "hand_grade": {
+    "by": "GXNQ",
+    "on": "2026-06-12",
+    "notes": [
+      "Confirmation may be 1m or 5m (GXNQ used the cleaner 5m close at 09:55; the machine's 1m aggressive confirm at 09:52 is accepted).",
+      "Stop is the structural high beyond the violated zone (NYAM.H 29847), per trading-strategy-2026.md \u00a76 \u2014 not the zone top, not micro pivots.",
+      "Grade intentionally not asserted: packet grades B (zone size_quality), GXNQ graded the session A+ \u2014 open question on the grading rule."
+    ]
+  }
 }
