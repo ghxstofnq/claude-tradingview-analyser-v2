@@ -64,3 +64,41 @@ test('real_session_detector replay mode turns the 2026-05-29 label into a detect
   assert.equal(candidate.components.confirmation.present, true);
   assert.deepEqual(result.diagnostics.blockers, []);
 });
+
+// ---- short side (2026-06-09 bearish Inversion is the first short label) ----
+
+const shortLabel = readJson('./fixtures/real-sessions/2026-06-09-mnq-ny-am-inversion-short.label.json');
+const shortBundle = readJson('./fixtures/real-sessions/2026-06-09-mnq-ny-am-inversion-short.asof-0954.bundle.json');
+
+test('buildRealSessionDetectorInput mirrors the digest for short labels (destination below, pools below)', () => {
+  const adapted = buildRealSessionDetectorInput({ label: shortLabel, bundle: shortBundle });
+
+  assert.equal(adapted.ltf_bias_context.side, 'short');
+  assert.equal(adapted.bundle.quote.last, 29731.25);
+  assert.equal(adapted.bundle.brief_digest.symbols.MNQ.pillar1.htf_destination.dir, 'below');
+  assert.ok(adapted.untaken_targets.untaken_below.some((t) => t.price === 29302.5),
+    `label tp1 must land in untaken_below: ${JSON.stringify(adapted.untaken_targets.untaken_below)}`);
+  assert.deepEqual(adapted.untaken_targets.untaken_above, []);
+  // every pool below must actually sit below the entry
+  for (const pool of adapted.untaken_targets.untaken_below) {
+    assert.ok(pool.price < 29731.25, `pool ${pool.price} is not below entry`);
+  }
+  // bridged bearish iFVG present as-of, no future rows
+  assert.equal(adapted.bundle.engine_by_tf.m5.fvgs.some((f) => f.kind === 'ifvg' && f.dir === 'bear'), true);
+  assert.deepEqual(adapted.diagnostics.blockers, []);
+});
+
+test('real_session_detector replay mode turns the 2026-06-09 label into a detector-driven short Inversion packet', () => {
+  const result = runReplayCase({
+    fixture: 'gx-real-detector-short',
+    mode: 'real_session_detector',
+    label: shortLabel,
+    bundle: shortBundle,
+    expected: { outcome: 'trade', model: 'Inversion', side: 'short' },
+  }, new URL('./fixtures', import.meta.url).pathname);
+
+  const candidate = result.actual.best_candidate;
+  assert.ok(candidate, `no best_candidate; rejections: ${JSON.stringify(result.actual.rejections ?? result.actual.rejection_summary)}`);
+  assert.equal(candidate.model, 'Inversion');
+  assert.equal(candidate.side, 'short');
+});
