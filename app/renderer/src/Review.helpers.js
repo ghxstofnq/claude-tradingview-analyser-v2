@@ -98,3 +98,28 @@ export function buildLedger(setups = [], trades = []) {
   });
   return rows;
 }
+
+// degradedChainStages — flatten a wrap's chain_audit into the stages that
+// actually failed. Enum per CLAUDE.md rule 8: clean / degraded:<reason> /
+// backfilled:<phase> / divergent / stale:<min>. Only degraded:* and stale:*
+// are failures worth a red strip — divergent is a market verdict and
+// backfilled means the chain recovered on its own.
+export function degradedChainStages(chainAudit) {
+  if (!chainAudit || typeof chainAudit !== "object") return [];
+  const out = [];
+  const visit = (node, prefix) => {
+    if (!node || typeof node !== "object") return;
+    const status = node.chain_status;
+    if (typeof status === "string") {
+      if (status.startsWith("degraded") || status.startsWith("stale")) {
+        out.push({ stage: prefix, status });
+      }
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      visit(child, prefix ? `${prefix}.${key}` : key);
+    }
+  };
+  visit(chainAudit, "");
+  return out;
+}

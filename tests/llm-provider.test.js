@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildCodexInvocation, buildProviderSpawnEnv, envKeyForPurpose, normalizeProviderName, resolveLlmProvider, runCodexTextTurn } from '../app/main/llm-provider.js';
+
+// Repo root resolved the same way llm-provider.js resolves it (relative to
+// the module file) — a basename assertion breaks inside git worktrees.
+const EXPECTED_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('LLM provider selection', () => {
   test('defaults to Codex with app-local MCP enabled from a clean environment', () => {
@@ -68,7 +73,7 @@ describe('LLM provider selection', () => {
     assert.ok(invocation.args.includes(`mcp_servers.tv.env.CODEX_TV_MCP_CALL_LOG=${JSON.stringify('/tmp/mcp.jsonl')}`));
     assert.deepEqual(invocation.args.slice(-3), ['--output-last-message', '/tmp/final.md', '-']);
     assert.equal(invocation.stdin, 'hello codex');
-    assert.match(invocation.cwd, /claude-tradingview-analyser-v2$/);
+    assert.equal(invocation.cwd, EXPECTED_REPO_ROOT);
   });
 
   test('Codex text turn emits MCP tool_call events recorded by the app-local tv server', async () => {

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
+  degradedChainStages,
   deriveLedgerState,
   deriveLedgerReason,
   formatGradeShort,
@@ -32,8 +33,15 @@ function SessionJournalPanel({ journal, onExport }) {
       <span className="pill interactive" onClick={onExport}>EXPORT JSON</span>
     </span>
   );
+  const degraded = degradedChainStages(journal.summary?.chain_audit);
   return (
     <Panel title={`SESSION JOURNAL · ${(journal.session || "").toUpperCase()} · ${journal.date}`} right={meta}>
+      {degraded.length > 0 && (
+        <div style={{ color: "var(--red)", fontSize: 11, lineHeight: 1.5,
+                       borderLeft: "2px solid var(--red)", paddingLeft: 6, margin: "6px 0" }}>
+          {`CHAIN DEGRADED — ${degraded.map((d) => `${d.stage}: ${d.status}`).join(" · ")}`}
+        </div>
+      )}
       <div style={{ color: "var(--prose)", fontSize: 12, lineHeight: 1.6,
                      whiteSpace: "pre-wrap", padding: "6px 0" }}>
         {journal.summary?.bias_picture || journal.brief?.brief || "no summary yet"}

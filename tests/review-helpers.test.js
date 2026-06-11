@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  degradedChainStages,
   formatGradeShort,
   deriveLedgerState,
   deriveLedgerReason,
@@ -190,5 +191,41 @@ describe("buildLedger", () => {
     const rows = buildLedger(noTs, []);
     assert.equal(rows[0].setup.id, "a");
     assert.equal(rows[1].setup.id, "b");
+  });
+});
+
+describe("degradedChainStages", () => {
+  const audit = {
+    brief: {
+      mnq: { chain_status: "clean" },
+      mes: { chain_status: "degraded:htf_partial" },
+    },
+    open_reaction: { chain_status: "degraded:missing_ltf_bias" },
+    entry_hunt: { chain_status: "degraded:missing_setups" },
+    outcome: { chain_status: "clean" },
+  };
+
+  it("collects degraded stages from nested and flat chain_audit entries", () => {
+    const rows = degradedChainStages(audit);
+    assert.deepEqual(rows, [
+      { stage: "brief.mes", status: "degraded:htf_partial" },
+      { stage: "open_reaction", status: "degraded:missing_ltf_bias" },
+      { stage: "entry_hunt", status: "degraded:missing_setups" },
+    ]);
+  });
+
+  it("flags stale:* but not clean / divergent / backfilled / n-a", () => {
+    const rows = degradedChainStages({
+      a: { chain_status: "stale:12" },
+      b: { chain_status: "divergent" },
+      c: { chain_status: "backfilled:open_reaction" },
+      d: { chain_status: "n/a" },
+    });
+    assert.deepEqual(rows, [{ stage: "a", status: "stale:12" }]);
+  });
+
+  it("null/missing audit returns empty array", () => {
+    assert.deepEqual(degradedChainStages(null), []);
+    assert.deepEqual(degradedChainStages({}), []);
   });
 });

@@ -26,6 +26,7 @@ import {
 } from "./provider-popover-contract.js";
 
 import { useHealth } from "./hooks/useHealth.js";
+import { useVersion } from "./hooks/useVersion.js";
 import { useAlertFiredListener, useAlertStateListener } from "./hooks/useAlerts.js";
 import { useClock } from "./hooks/useClock.js";
 import { useLastBar } from "./hooks/useLastBar.js";
@@ -260,6 +261,28 @@ function AlertToast({ alert, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// VersionCell — running-code visibility. Red RESTART when the code on disk
+// moved past what this process booted with; amber PULL when origin/main is
+// ahead of the local checkout; dim short SHA otherwise. June 2026: six
+// merged PRs never ran because nothing surfaced that the app was stale.
+function VersionCell() {
+  const v = useVersion();
+  if (!v?.sha) return null;
+  const cls = v.restart_needed ? " red" : v.pull_needed ? " amber" : "";
+  const label = v.restart_needed ? "RESTART" : v.pull_needed ? `PULL −${v.behind}` : v.sha;
+  const title = v.restart_needed
+    ? `Code on disk is ${v.sha} but this app booted on ${v.boot_sha} — restart the app to run it`
+    : v.pull_needed
+      ? `origin/main is ${v.behind} commit(s) ahead of the local checkout — git pull, then restart`
+      : `running ${v.sha} (up to date with origin/main)`;
+  return (
+    <div className="cell" title={title}>
+      <span className="k">VER</span>
+      <span className={"v" + cls}>{label}</span>
+    </div>
+  );
+}
+
 function TopBar({ symbol, setSymbol, theme, setTheme,
                   clock,
                   news, newsOpen, setNewsOpen, newsImminent,
@@ -271,6 +294,7 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
     <header className="topbar">
       <div className="id" />
       <div className="status">
+        <VersionCell />
         <div className={"cell pop-cell" + (alertCount > 0 ? " has-alerts" : "")}
              onClick={() => setAlertsOpen((o) => !o)}>
           <span className="k">ALERTS</span>
