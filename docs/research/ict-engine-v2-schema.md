@@ -95,3 +95,24 @@ Three changes needed in `cli/lib/ict-engine-parser.js`:
 - All gate paths that V1 consumers cite continue to resolve under V2.
 - Smoke fixtures' `expected.md` citations remain valid (the V1 fields they cite all still exist in V2).
 - No new row types means no new dispatch branches in `parseIctEngineTable`.
+
+## V3 additions (2026-06-12) — additive, schema marker stays 2
+
+The indicator title moved to "ICT Engine V3" but `meta.schema` stays `2`:
+every change is additive and the parser tolerates unknown fields, while the
+deployed app rejects unknown schema numbers as a safety gate — bumping the
+marker would brick the running parser until the next deploy. The schema
+number marks breaking shape changes only.
+
+| Addition | Where | Meaning |
+|---|---|---|
+| `bar_ms` (num), `bar_closed` (bool) | `meta` | Open time of the bar the emit reflects + whether it is confirmed. Exact freshness checks for the detector and the tape recorder (no more wall-clock heuristics). |
+| `inverted_ms` (num) | `fvg` | When the violating close flipped the FVG to an iFVG. First-class evidence for the Inversion aggressive-entry confirmation the bridge previously synthesized from price-vs-zone math. |
+| `NYPM.H` / `NYPM.L` | `level` (+`sweep`) | NY-PM session levels — previously tracked internally and thrown away. Ride the name-driven session_levels pipeline, including PR #15's structural-stop anchors. |
+| `leg_high`, `leg_low`, `leg_high_ms`, `leg_low_ms` | `quality` | Running extremes of the CURRENT leg (reset on each external structure event). Live the bar they print — zero pivot-confirmation lag. The bridge feeds them into the structural stop pool (kinds `leg_high`/`leg_low`). Omitted (not zero) when unavailable. |
+| `MAX_ROWS` 120 → 140 | emit table | Worst case was already 119 rows; the 6 new rows would have hit the table-cell cap (runtime error). |
+
+Parser: `SUPPORTED_SCHEMAS` widened to `{1, 2, 3}` (forward compat) and
+`ROW_FIELD_TYPES` types the new numerics/bools. Visual layer changes
+(state-aware fading, tiny-zone hiding, MSS emphasis, priced level labels,
+color-coded quality panel + session row, leg lines) have no schema impact.
