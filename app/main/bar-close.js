@@ -1045,7 +1045,20 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
         return null;
       })
       .filter(Boolean);
-    out.pillar3 = { ...p3, structural_stops: [...pivotStops('swing'), ...pivotStops('internal'), ...levelStops] };
+    // V3 leg extremes — the running high/low of the CURRENT leg (since the
+    // last external structure break), emitted live on the quality row. No
+    // pivot-confirmation lag at all: the bar that prints the extreme carries
+    // it. The tightest honest "structural invalidation" anchor (§6) when it
+    // sits beyond the violated zone.
+    const q = engine.pillar2?.current_tf ?? {};
+    const legStops = [];
+    if (Number.isFinite(Number(q.leg_high))) {
+      legStops.push({ kind: 'leg_high', price: Number(q.leg_high), timeMs: q.leg_high_ms ?? null, evidenceRef: 'gates.engine.pillar2.current_tf.leg_high' });
+    }
+    if (Number.isFinite(Number(q.leg_low))) {
+      legStops.push({ kind: 'leg_low', price: Number(q.leg_low), timeMs: q.leg_low_ms ?? null, evidenceRef: 'gates.engine.pillar2.current_tf.leg_low' });
+    }
+    out.pillar3 = { ...p3, structural_stops: [...pivotStops('swing'), ...pivotStops('internal'), ...levelStops, ...legStops] };
   }
 
   return out;

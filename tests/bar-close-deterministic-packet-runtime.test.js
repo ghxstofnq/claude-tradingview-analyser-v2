@@ -510,3 +510,33 @@ test("bridge: session-level high (NYAM.H) anchors the inversion stop when pivot 
   // and never NYAM.L
   assert.equal(truth.surfacePayload.stop, 29847);
 });
+
+test("bridge: V3 leg_high (running extreme since last structure break) joins the structural stop pool", () => {
+  // The engine's V3 quality row carries the current leg's live extremes —
+  // available the bar they print, no pivot-confirmation lag at all. A
+  // leg_high beyond the violated zone and NEARER than the session high is
+  // the tightest honest structural stop (strategy §6: structural
+  // invalidation).
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_leg', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  const inputs = liveShapedInputs({ fvgRow: bearInverted, lastBarClose: 29718.5 }); // no swings
+  inputs.bundle.gates.engine.pillar1.session_levels = {
+    NYAM_H: { name: 'NYAM.H', price: 29847, state: 'untaken', swept: false },
+  };
+  inputs.bundle.gates.engine.pillar2.current_tf = {
+    ...inputs.bundle.gates.engine.pillar2.current_tf,
+    leg_high: 29820, leg_low: 29610.5, leg_high_ms: 1781300000000, leg_low_ms: 1781290000000,
+  };
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs, previousWalkers: [walker], event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.ok(truth.bestPacket, `no packet: ${JSON.stringify(truth.blockers)}`);
+  // leg_high 29820 beats NYAM.H 29847 (nearer beyond-zone structural high)
+  // and never the zone top fallback 29759.75
+  assert.equal(truth.surfacePayload.stop, 29820);
+});
