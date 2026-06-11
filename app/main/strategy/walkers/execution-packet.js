@@ -76,6 +76,26 @@ function selectStructuralStop(context, side, entry) {
   return stopCandidatesWithAudit(context, side, entry).selected;
 }
 
+// Inversion stops are model-specific per docs/strategy/entry-models.md:
+// "Stop: Below the inversion FVG low or below the candle that closed
+// through it" (mirrored for shorts: above the zone high). The walker
+// tracks its zone, so the edge is its own evidence — the generic pivot
+// pool can offer a meaningless micro swing as "nearest" (June 9 tape:
+// a 2.75-point internal pivot stop).
+function inversionZoneStop(walker, side, entry) {
+  if (normalizeModelName(walker?.model) !== 'inversion') return null;
+  const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+  const price = side === 'short' ? numberOrNull(pd.top) : numberOrNull(pd.bottom);
+  if (price == null) return null;
+  const correctSide = side === 'long' ? price < entry : price > entry;
+  if (!correctSide) return null;
+  return {
+    kind: side === 'short' ? 'inversion_zone_top' : 'inversion_zone_bottom',
+    price,
+    evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? null),
+  };
+}
+
 function selectTp1(context, side, entry, stop) {
   const candidates = targetPool(context, side)
     .map((target) => ({ ...target, price: numberOrNull(target?.price ?? target?.level) }))
@@ -146,7 +166,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const side = walker?.side;
   const stopAudit = entryPrice == null ? { selected: null, rejected: [] } : stopCandidatesWithAudit(context, side, entryPrice);
-  const stopCandidate = stopAudit.selected;
+  const stopCandidate = (entryPrice == null ? null : inversionZoneStop(walker, side, entryPrice)) ?? stopAudit.selected;
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
   const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);

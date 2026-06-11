@@ -199,3 +199,260 @@ test('buildDeterministicPacketTruthFromInputs blocks models disallowed by open-r
   assert.equal(truth.bestPacket, null);
   assert.match(truth.noTradeReason, /entry_model_priority_blocked/);
 });
+
+// ---- live-bundle evidence bridge (2026-06-12) -------------------------------
+// June 5's deterministic-packets.jsonl shows every live bar blocked with
+// missing_ict_engine_rows: computeEngineGates never emitted gates.engine.rows,
+// the V2 entry-state confirmation row, or pillar3.structural_stops — the three
+// shapes the strategy context consumes. These tests feed the runtime a bundle
+// shaped exactly like the live scan (cli/lib/compute-engine-gates.js output)
+// and require the runtime to bridge the evidence instead of failing closed.
+
+function liveShapedInputs({ fvgRow, swings = { swing: [], internal: [] }, lastBarClose = 29718.5 } = {}) {
+  return {
+    leader: 'MNQ1!',
+    ltf_bias_context: {
+      bias: 'bearish', htf_ltf_alignment: 'aligned', is_retrace_day: false,
+      entry_model_priority: 'Inversion', grade_cap: 'A+',
+    },
+    session_state: {
+      pillar1: { status: 'pass', htfBias: 'bearish', htfDraw: 'below PDL', primaryDraw: 'PDL' },
+      pillar2: { status: 'pass', verdict: 'pass' },
+    },
+    untaken_targets: {
+      untaken_above: [],
+      untaken_below: [
+        { price: 29302.5, name: 'label_tp1', cite: 'label.expected.tp1' },
+        { price: 28779, name: 'label_tp2', cite: 'label.expected.tp2' },
+      ],
+    },
+    bundle: {
+      chart: { symbol: 'CME_MINI:MNQ1!' },
+      quote: { last: lastBarClose, time: 1781013240 },
+      bars: { last_5_bars: [] },
+      bars_by_tf: { m5: { last_5_bars: [] } },
+      gates: {
+        engine: {
+          // exactly what computeEngineGates emits: no rows, no entry-state
+          // confirmation, no structural_stops
+          meta: { schema: 2, schema_supported: true, stale: false, tf: '1' },
+          price_context: { last: lastBarClose, inside_fvgs: fvgRow ? [fvgRow] : [], inside_bprs: [] },
+          pillar1: { sweeps: [{ target: 'NYAM_H', price: 29847, side: 'buy', rejected: true, swept_ms: 1781012940000 }] },
+          pillar2: { current_tf: { range_3h: 213.75, range_quality: 'good', displacement: 'clean', candle: 'clean' } },
+          pillar3: {
+            fvgs: fvgRow ? [fvgRow] : [],
+            bprs: [],
+            swings,
+            failure_swings: [],
+            most_recent_structure: null,
+            fvg_summary: { size_quality: fvgRow?.size_quality ?? null },
+          },
+          confirmation: {
+            last_bar: { time: 1781013240, close: lastBarClose, direction: 'bearish', body_ratio: 0.8 },
+            last_bar_age_seconds: 4,
+            m5_last_bar: null,
+            m15_last_bar: null,
+          },
+        },
+      },
+    },
+  };
+}
+
+const bullZone = {
+  kind: 'fvg', dir: 'bull', state: 'fresh', size_quality: 'medium',
+  top: 29759.75, bottom: 29730.75, ce: 29745.25, created_ms: 1781013000000,
+};
+
+test('live-shaped bundle: rows bridged from pillar3 zones — walkers spawn instead of missing_ict_engine_rows', () => {
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: liveShapedInputs({ fvgRow: bullZone }),
+    previousWalkers: [],
+    event: { ts: '2026-06-09T13:51:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+  assert.ok(!truth.blockers?.includes('missing_ict_engine_rows'),
+    `rows not bridged: ${JSON.stringify(truth.blockers)}`);
+  assert.equal(truth.sourceHealth.status, 'fresh');
+  const inversionShort = truth.walkers.find((w) => w.model === 'Inversion' && w.side === 'short');
+  assert.ok(inversionShort, `no Inversion short walker spawned: ${JSON.stringify(truth.walkers.map((w) => `${w.model}:${w.side}:${w.stage}`))}`);
+});
+
+test('live-shaped bundle: V2 confirmed zone bridges a confirmation row and the packet fires with swing-high stop', () => {
+  const confirmedZone = {
+    ...bullZone,
+    entry_state: 'confirmed', confirm_close: true, confirm_dir: 'bear',
+    confirm_ms: 1781013240000, ce_held: true, chop_15m: false,
+  };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_zone', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'tap_seen', chain: 'Inversion_standard',
+    pdArrayRef: 'gates.engine.rows[0]',
+    evidence: { pdArray: { evidenceRef: 'gates.engine.rows[0]', rawPayload: bullZone } },
+  };
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: liveShapedInputs({
+      fvgRow: confirmedZone,
+      swings: { swing: [{ kind: 'LH', price: 29847, is_high: true, bar_ms: 1781012940000 }], internal: [] },
+      lastBarClose: 29718.5, // full close through the zone bottom 29730.75
+    }),
+    previousWalkers: [walker],
+    event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+  assert.ok(truth.bestPacket, `no packet: blockers=${JSON.stringify(truth.blockers)} walkers=${JSON.stringify(truth.walkers.map((w) => `${w.model}:${w.side}:${w.stage}`))}`);
+  assert.equal(truth.surfacePayload.side, 'short');
+  assert.equal(truth.surfacePayload.model, 'Inversion');
+  assert.equal(truth.surfacePayload.entry, 29718.5);
+  // entry-models.md Inversion stop: above the violated zone high, not the
+  // generic nearest pivot.
+  assert.equal(truth.surfacePayload.stop, 29759.75);
+  assert.equal(truth.surfacePayload.tp1, 29302.5);
+});
+
+test('live-shaped bundle: bar-facts confirmation block alone never fakes a confirmed entry', () => {
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_zone2', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'tap_seen', chain: 'Inversion_standard',
+    pdArrayRef: 'gates.engine.rows[0]',
+    evidence: { pdArray: { evidenceRef: 'gates.engine.rows[0]', rawPayload: bullZone } },
+  };
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: liveShapedInputs({ fvgRow: bullZone }), // zone present, NOT confirmed
+    previousWalkers: [walker],
+    event: { ts: '2026-06-09T13:52:00.000Z', tf: '1m' },
+    session: 'ny-am',
+  });
+  assert.equal(truth.bestPacket, null);
+  const still = truth.walkers.find((w) => w.id === walker.id);
+  assert.ok(still && still.stage !== 'confirmed', `walker must not confirm on bar-facts: ${JSON.stringify(still?.stage)}`);
+});
+
+// ---- stable zone identity + violation-close confirmation (2026-06-12) ------
+// The real June 9 replay tape showed two more live gaps: (1) bridged rows used
+// array-index evidence refs, so the same zone got a new walker identity every
+// bar (50+ duplicate walkers, taps never matched); (2) the engine flips a
+// violated zone to state=inverted but only emits entry_state=confirmed for
+// CE-retest entries — a blast-through close (entry-models.md Inversion,
+// aggressive variant: "enter on the initial close that violated the FVG")
+// never produces a confirmation row. Both fixed in bridgeEngineEvidence.
+
+test("bridge: zone evidence refs are boundary-based, so re-indexed zone lists do not spawn duplicate walkers", () => {
+  const otherZone = { kind: 'fvg', dir: 'bull', state: 'fresh', size_quality: 'small', top: 29900, bottom: 29890, ce: 29895, created_ms: 1781012000000 };
+  const bar1 = liveShapedInputs({ fvgRow: bullZone });
+  bar1.bundle.gates.engine.pillar3.fvgs = [otherZone, bullZone]; // bullZone at index 1
+  const truth1 = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: bar1, previousWalkers: [], event: { ts: '2026-06-09T13:51:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  const bar2 = liveShapedInputs({ fvgRow: bullZone });
+  bar2.bundle.gates.engine.pillar3.fvgs = [bullZone, otherZone]; // re-indexed: bullZone now 0
+  const truth2 = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: bar2, previousWalkers: truth1.walkers, event: { ts: '2026-06-09T13:52:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  const shortsFor = (walkers) => walkers.filter((w) => w.model === 'Inversion' && w.side === 'short');
+  assert.equal(shortsFor(truth2.walkers).length, shortsFor(truth1.walkers).length,
+    `re-indexing spawned duplicates: ${JSON.stringify(truth2.walkers.map((w) => w.id))}`);
+});
+
+test("bridge: a close through an inverted zone synthesizes the confirmation row and fires the packet", () => {
+  const invertedZone = {
+    ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted',
+    entry_state: 'none', confirm_close: false, confirm_dir: 'none',
+  };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_zone297307529759-75', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  const inputs = liveShapedInputs({
+    fvgRow: invertedZone,
+    swings: { swing: [{ kind: 'LH', price: 29847, is_high: true, bar_ms: 1781012940000 }], internal: [] },
+    lastBarClose: 29718.5, // closes below the zone bottom 29730.75
+  });
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs, previousWalkers: [walker], event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.ok(truth.bestPacket, `no packet: blockers=${JSON.stringify(truth.blockers)} walkers=${JSON.stringify(truth.walkers.map((w) => `${w.model}:${w.side}:${w.stage}`))}`);
+  assert.equal(truth.surfacePayload.side, 'short');
+  assert.equal(truth.surfacePayload.entry, 29718.5);
+  // Inversion stop per docs/strategy/entry-models.md: above the inversion
+  // zone high (short) — from the walker's own tracked zone, not the
+  // nearest generic pivot (which can be a meaningless micro swing).
+  assert.equal(truth.surfacePayload.stop, 29759.75);
+});
+
+test("bridge: a stale opposite-direction inverted zone cannot mask the bar's real confirmation", () => {
+  // Reproduces the June 9 tape failure: an old bull-inverted zone from the
+  // opening bounce satisfied close>top on every later bar, so first-match
+  // synthesis emitted confirm_dir=bull and shorts never confirmed. The
+  // bar's own direction must key the search.
+  const staleBullInverted = {
+    kind: 'ifvg', dir: 'bull', state: 'inverted', size_quality: 'small',
+    top: 29661, bottom: 29660.75, ce: 29660.9, created_ms: 1781011900000,
+  };
+  const bearInverted = {
+    ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none',
+  };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_zone3', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  const inputs = liveShapedInputs({ fvgRow: bearInverted, lastBarClose: 29718.5 });
+  // stale bull zone FIRST in row order — used to win the find()
+  inputs.bundle.gates.engine.pillar3.fvgs = [staleBullInverted, bearInverted];
+  inputs.bundle.gates.engine.confirmation.last_bar.direction = 'bearish';
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs, previousWalkers: [walker], event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.ok(truth.bestPacket, `short must confirm despite stale bull zone: ${JSON.stringify(truth.blockers)}`);
+  assert.equal(truth.surfacePayload.side, 'short');
+});
+
+test("bridge: a close still INSIDE an inverted zone synthesizes nothing — no early entry", () => {
+  const invertedZone = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_inside', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: liveShapedInputs({ fvgRow: invertedZone, lastBarClose: 29740 }), // inside the zone
+    previousWalkers: [walker],
+    event: { ts: '2026-06-09T13:54:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.equal(truth.bestPacket, null);
+});
+
+test("bridge: a stale engine-confirmed row from an earlier bar never bridges this bar's confirmation", () => {
+  // The engine table is a historical record: entry_state stays 'confirmed'
+  // long after the confirming bar (June 9 tape: a 13:41 bull confirm masked
+  // the 13:55 bearish violation). Only confirm_ms inside the current bar
+  // counts as confirmation evidence.
+  const staleConfirmed = {
+    ...bullZone,
+    entry_state: 'confirmed', confirm_close: true, confirm_dir: 'bull',
+    confirm_ms: 1781012460000, // 13:41Z — fourteen bars earlier
+    ce_held: true, chop_15m: false,
+  };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_stale', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  // The same bar ALSO carries a genuinely violated bear zone — the stale
+  // bull confirm must not preempt the violation synthesis.
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const inputs = liveShapedInputs({ fvgRow: bearInverted, lastBarClose: 29718.5 });
+  inputs.bundle.gates.engine.pillar3.fvgs = [staleConfirmed, bearInverted];
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs, previousWalkers: [walker], event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.ok(truth.bestPacket, `stale bull confirm masked the violation: ${JSON.stringify(truth.blockers)}`);
+  assert.equal(truth.surfacePayload.side, 'short');
+  assert.equal(truth.surfacePayload.entry, 29718.5);
+});
