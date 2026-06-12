@@ -248,3 +248,24 @@ test("post-freeze swing MSS against the bias realigns the fold context", async (
   assert.equal(summary.open_reaction.htf_ltf_alignment, "aligned");
   assert.equal(summary.open_reaction.interaction, "mss_realignment");
 });
+
+// User ruling 2026-06-12 (§2.3 "never marries a bias"): a quiet open leaves
+// the LTF bias pending — the first post-window swing-tier structure earns
+// the day its direction at B cap (neutral overnight = one weaker element).
+test("unclear open: post-window swing structure earns the fold its direction at B", async () => {
+  const structMs = Date.parse(isoAtEt("10:40"));
+  const lateBar = entryAt("10:45");
+  lateBar.inputs.bundle.gates.engine.pillar3.structures_by_tier = {
+    swing: [{ event: "bos", dir: "bear", tier: "swing", confirmed_ms: structMs }],
+  };
+  const entries = [entryAt("09:46"), lateBar, (() => { const e = entryAt("10:50"); e.inputs.bundle.gates.engine.pillar3.structures_by_tier = { swing: [{ event: "bos", dir: "bear", tier: "swing", confirmed_ms: structMs }] }; return e; })()];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  assert.equal(capture[0].htf_ltf_alignment, "unclear");  // quiet open
+  assert.equal(capture[1].bias, "bearish");               // earned on the structure bar
+  assert.equal(capture[1].htf_ltf_alignment, "aligned");  // brief draw is bearish
+  assert.equal(capture[1].grade_cap, "B");                // neutral overnight stays B
+  assert.equal(capture[2].bias, "bearish");
+  assert.equal(summary.open_reaction.interaction, "late_direction");
+});
