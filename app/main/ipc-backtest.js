@@ -16,83 +16,10 @@ import { ipcMain } from "electron";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { runBacktest } from "./backtest-engine.js";
 import { readIndex, reconcileAbortedRuns, resolveRunDir } from "./backtest-store.js";
-import { loadDayContext, contextFromBriefPayloads } from "./backtest-context.js";
-import { analyzePairBundle, buildDirectSessionBriefPayloads } from "./direct-session-brief.js";
-import { gradeOpenTrade } from "./backtest-grader.js";
-import { __test as barCloseTruth } from "./bar-close.js";
-import { recordEntries } from "../../cli/lib/tape-recorder.js";
-import { parseIctEngineTable, findIctEngineRows } from "../../cli/lib/ict-engine-parser.js";
-import * as replay from "../../packages/core/replay.js";
-import * as chart from "../../packages/core/chart.js";
-import * as data from "../../packages/core/data.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, "../..");
-const STATE_DIR = path.join(REPO_ROOT, "state");
-const SYMBOL_SETTLE_MS = 600;
-
-const REPLAY_ANCHORS = { "ny-am": "09:30", "ny-pm": "13:00", london: "03:00" };
-
-async function pinChart(leader) {
-  if (!leader) return;
-  const state = await chart.getState();
-  if (state.symbol.replace(/^[A-Z_]+:/, "") !== leader.replace(/^[A-Z_]+:/, "")) {
-    await chart.setSymbol({ symbol: leader });
-    await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
-  }
-  if (state.resolution !== "1") {
-    await chart.setTimeframe({ timeframe: "1" });
-    await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
-  }
-}
-
-const CDP_RECORDER_DEPS = {
-  startReplay: (args) => replay.start(args),
-  stepReplay: () => replay.step(),
-  stopReplay: () => replay.stop(),
-  readBars: () => data.getOhlcv({ summary: true }),
-  readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
-  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-};
-
-const PROD_DEPS = {
-  loadDayContext: ({ date, session }) => loadDayContext({ date, session }),
-
-  // No day state: capture a pair bundle with the chart anchored at the
-  // session open of the historic date (replay shows HTF as-of that date),
-  // build the deterministic brief payloads, synthesize a grade-capped
-  // context. Payloads are persisted in the run dir for audit.
-  async runDirectBrief({ runId, session, date }) {
-    const runDir = resolveRunDir({ stateDir: STATE_DIR, runId });
-    let bundle = null;
-    try {
-      await replay.start({ date, time: REPLAY_ANCHORS[session] ?? "09:30" });
-      bundle = await analyzePairBundle({ out: path.join(runDir, "brief-bundle.json") });
-    } finally {
-      try { await replay.stop(); } catch { /* best-effort */ }
-    }
-    if (!bundle) return null;
-    const payloads = buildDirectSessionBriefPayloads({ session, bundle });
-    fs.writeFileSync(path.join(runDir, "brief-payloads.json"), JSON.stringify(payloads, null, 2));
-    return contextFromBriefPayloads({ session, payloads });
-  },
-
-  async recordEntries({ context, date, fromEt, toEt, onBar, isStopped }) {
-    await pinChart(context?.leader);
-    return recordEntries({
-      context, date, fromEt, toEt,
-      deps: CDP_RECORDER_DEPS,
-      onBar, isStopped,
-    });
-  },
-
-  truthFn: barCloseTruth.buildDeterministicPacketTruthFromInputs,
-  gradeFn: gradeOpenTrade,
-};
+import { PROD_DEPS, STATE_DIR } from "./backtest-deps.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Singleton run state — enforces exclusive mode.
@@ -124,7 +51,10 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
         currentRunPromise = null;
       }
     })().catch((err) => {
-      // Surface but don't crash the main process
+      // Surface but don't crash the main process. The engine already
+      // persisted an error summary; this line puts it in the main log too.
+      // eslint-disable-next-line no-console
+      console.error("[backtest] run failed:", err.message);
       send("backtest:event", { type: "error", message: err.message });
       return null;
     });

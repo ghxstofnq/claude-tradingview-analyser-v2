@@ -46,11 +46,30 @@ function drawPrice(draw) {
   return null;
 }
 
+/**
+ * HTF bias from the primary draw zone. Precedence (strategy authority:
+ * docs/strategy/trading-strategy-2026.md):
+ *   1. Observed reaction off the zone — §2.1 step 3: "Use reactions off
+ *      those HTF PD arrays to set bias."
+ *   2. Fresh zone that took liquidity in its creation — §2.1 step 1: the
+ *      creation displacement (the zone's own direction) is the bias.
+ *   3. Otherwise the zone is a destination — §2.3: today's path points
+ *      toward it (zone below price → bearish path, above → bullish).
+ *   4. Legacy fallback: the zone's direction.
+ */
 function biasFromDraw(draw) {
-  const dir = String(draw?.dir ?? "").toLowerCase();
-  if (dir.startsWith("bear")) return "bearish";
-  if (dir.startsWith("bull")) return "bullish";
-  return null;
+  if (!draw) return null;
+  const asBias = (d) => {
+    const s = String(d ?? "").toLowerCase();
+    if (s.startsWith("bear")) return "bearish";
+    if (s.startsWith("bull")) return "bullish";
+    return null;
+  };
+  if (draw.reacted && asBias(draw.reaction_dir)) return asBias(draw.reaction_dir);
+  if (draw.state === "fresh" && draw.took_liq && asBias(draw.dir)) return asBias(draw.dir);
+  if (draw.position === "below_price") return "bearish";
+  if (draw.position === "above_price") return "bullish";
+  return asBias(draw.dir);
 }
 
 function buildContext({ session, leader, brief, ltf }) {
@@ -73,7 +92,10 @@ function buildContext({ session, leader, brief, ltf }) {
         primaryDraw: draw ?? null,
       },
       pillar2: {
-        status: String(brief?.pillar2_verdict ?? "pass").toLowerCase() === "fail" ? "fail" : "pass",
+        // Deterministic verdict enum is good|marginal|poor ('fail' kept for
+        // legacy LLM briefs). 'poor' must fail the fold's pillar gate —
+        // otherwise pillar2_poor no-trade days trade right through it.
+        status: /^(fail|poor)$/i.test(String(brief?.pillar2_verdict ?? "pass")) ? "fail" : "pass",
         verdict: brief?.pillar2_verdict ?? null,
       },
     },
@@ -148,13 +170,17 @@ export function contextFromBriefPayloads({ session, payloads = [] }) {
     session,
     leader: lead.symbol ?? null,
     brief: lead,
+    // Strategy §2.3: LTF bias is DECIDED by the NY open reaction — before
+    // the open window completes there is no LTF bias, only the HTF draw
+    // (kept in session_state.pillar1.htfBias). The backtest engine resolves
+    // the open-reaction leg deterministically at the minute-15 boundary
+    // (cli/lib/open-reaction-resolver.js) and upgrades this context; until
+    // then alignment is honestly unclear and the grade caps at B.
     ltf: {
-      bias: biasFromDraw(lead.primary_draw),
-      htf_ltf_alignment: "aligned",
+      bias: null,
+      htf_ltf_alignment: "unclear",
       is_retrace_day: false,
       entry_model_priority: "undecided",
-      // The open-reaction leg never ran for this day — cap at B, same as
-      // the live catch_up backfill rule.
       grade_cap: "B",
     },
   });

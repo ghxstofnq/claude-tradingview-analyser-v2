@@ -83,8 +83,13 @@ describe("contextFromBriefPayloads", () => {
   test("synthesizes a grade-capped context from deterministic brief payloads", () => {
     const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [BRIEF] });
     assert.equal(ctx.leader, "MNQ1!");
-    assert.equal(ctx.ltf_bias_context.bias, "bearish"); // primary_draw dir bear
-    assert.equal(ctx.ltf_bias_context.grade_cap, "B");  // backfilled context caps at B
+    // §2.3: LTF bias is decided by the NY open reaction — pre-open it does
+    // not exist yet. The HTF draw direction lives in pillar1.htfBias; the
+    // engine's open-reaction leg upgrades the ltf context at minute 15.
+    assert.equal(ctx.ltf_bias_context.bias, null);
+    assert.equal(ctx.ltf_bias_context.htf_ltf_alignment, "unclear");
+    assert.equal(ctx.session_state.pillar1.htfBias, "bearish"); // primary_draw dir bear
+    assert.equal(ctx.ltf_bias_context.grade_cap, "B");  // pre-open caps at B
     assert.equal(ctx.ltf_bias_context.entry_model_priority, "undecided");
     assert.equal(ctx.session_state.pillar2.status, "pass");
     assert.deepEqual(ctx.untaken_targets.untaken_above.map((t) => t.price), [29900]);
@@ -102,5 +107,60 @@ describe("contextFromBriefPayloads", () => {
     const mes = { ...BRIEF, symbol: "MES1!", primary_draw: undefined };
     const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [mes, BRIEF] });
     assert.equal(ctx.leader, "MNQ1!");
+  });
+});
+
+describe("bias + pillar2 derivation from brief payloads", () => {
+  function payloadWith(draw, extra = {}) {
+    return {
+      symbol: "MNQ1!",
+      pillar_grade: "B",
+      pillar2_verdict: "good",
+      primary_draw: { tf: "h4", kind: "fvg", top: 30062, bottom: 29942, ce: 30002, cite: "engine_by_tf.h4.fvgs[17]", ...draw },
+      overnight_block: { untaken_above: [], untaken_below: [] },
+      ...extra,
+    };
+  }
+
+  // §2.1 step 3: "Use reactions off those HTF PD arrays to set bias."
+  test("observed reaction off the draw zone wins", () => {
+    const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [payloadWith({ dir: "bull", reacted: true, reaction_dir: "bear" })] });
+    assert.equal(ctx.session_state.pillar1.htfBias, "bearish");
+  });
+
+  // §2.1 step 1: priority to imbalances that "took liquidity in their
+  // creation ... before displacing" — the creation displacement IS the bias.
+  test("fresh zone that took liquidity carries its displacement direction", () => {
+    const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [payloadWith({ dir: "bear", state: "fresh", took_liq: true, position: "above_price" })] });
+    assert.equal(ctx.session_state.pillar1.htfBias, "bearish");
+  });
+
+  // §2.3: the draw is the destination; today's path points toward it.
+  test("otherwise the zone is a destination — path toward it by position", () => {
+    const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [payloadWith({ dir: "bull", state: "tapped", took_liq: false, position: "below_price" })] });
+    assert.equal(ctx.session_state.pillar1.htfBias, "bearish");
+  });
+
+  test("legacy fallback: zone dir when no reaction/freshness/position evidence", () => {
+    const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [payloadWith({ dir: "bull", state: "tapped", took_liq: false })] });
+    assert.equal(ctx.session_state.pillar1.htfBias, "bullish");
+  });
+
+  // pillar2 verdict enum is good|marginal|poor — 'poor' must fail the fold's
+  // pillar gate (deriveGrade), otherwise pillar2_poor no-trade days trade.
+  test("pillar2 verdict 'poor' folds as status fail", () => {
+    const ctx = contextFromBriefPayloads({
+      session: "ny-am",
+      payloads: [payloadWith({ dir: "bear" }, { pillar2_verdict: "poor", pillar_grade: "no-trade", no_trade_reason: "pillar2_poor" })],
+    });
+    assert.equal(ctx.session_state.pillar2.status, "fail");
+  });
+
+  test("pillar2 verdict 'marginal' still passes (downsized, not blocked)", () => {
+    const ctx = contextFromBriefPayloads({
+      session: "ny-am",
+      payloads: [payloadWith({ dir: "bear" }, { pillar2_verdict: "marginal" })],
+    });
+    assert.equal(ctx.session_state.pillar2.status, "pass");
   });
 });

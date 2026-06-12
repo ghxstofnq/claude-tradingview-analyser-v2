@@ -155,8 +155,18 @@ function deriveGrade({ context, walker }) {
   const pillarsPass = context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass';
   if (!pillarsPass) return capGrade('no-trade', chain.gradeCap);
   const modelKnown = ['mss', 'trend', 'inversion'].includes(normalizeModelName(walker?.model));
-  const reactionConfirmed = Boolean(chain.ltfBias) && chain.htfLtfAlignment === 'aligned';
-  return capGrade(modelKnown && reactionConfirmed ? 'A+' : 'B', chain.gradeCap);
+  // A+ requires the packet to BE the aligned trade: bias present, HTF/LTF
+  // aligned, and the side in the bias direction (§2.4 / constraint #9).
+  const sideAligned =
+    (walker?.side === 'long' && chain.ltfBias === 'bullish') ||
+    (walker?.side === 'short' && chain.ltfBias === 'bearish');
+  const reactionConfirmed = Boolean(chain.ltfBias) && chain.htfLtfAlignment === 'aligned' && sideAligned;
+  // Constraint #9: A+ needs price quality GOOD at confirmation time. The
+  // engine's displacement enum draws the line at weak — clean/acceptable
+  // keep A+; weak/na is the one-weaker-element → B (June 9 'acceptable'
+  // hand-graded A+; June 10 'weak' was the documented tradable-B day).
+  const qualityOk = ['clean', 'acceptable'].includes(context?.pillar2?.displacement);
+  return capGrade(modelKnown && reactionConfirmed && qualityOk ? 'A+' : 'B', chain.gradeCap);
 }
 
 function packetEntryAudit(confirmationPayload, confirmation) {
@@ -219,13 +229,21 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const grade = deriveGrade({ context, walker });
   if (grade === 'no-trade') blockers.push('grade_blocked');
 
-  const priority = normalizeModelName(context?.sessionChain?.entryModelPriority);
+  // entry_model_priority is a SELECTION preference (resolver spec §3.4:
+  // "which model to walk first"), applied in deterministic-strategy's
+  // packet sort — never a hard gate. §7 Step 5 keeps all three models
+  // playable; June 9 replay proved the hard block discards valid setups.
   const walkerModel = normalizeModelName(walker?.model);
-  if (priority && !['undecided', 'unknown', 'none'].includes(priority) && walkerModel && walkerModel !== priority) {
-    blockers.push('entry_model_priority_blocked');
-  }
   if (context?.sessionChain?.htfLtfAlignment === 'divergent' && walkerModel && walkerModel !== 'mss') {
     blockers.push('divergent_day_requires_mss');
+  }
+  // §7 Step 5 + §2.3: models are chosen in the bias direction — a packet
+  // whose side contradicts a non-null LTF bias is not in the playbook.
+  // Null bias (pre-open / unclear) leaves both sides walkable at B cap.
+  const ltfBias = context?.sessionChain?.ltfBias;
+  if (ltfBias && side &&
+      !((side === 'long' && ltfBias === 'bullish') || (side === 'short' && ltfBias === 'bearish'))) {
+    blockers.push('side_contradicts_ltf_bias');
   }
 
   const status = blockers.length === 0 ? 'executable' : 'blocked';
