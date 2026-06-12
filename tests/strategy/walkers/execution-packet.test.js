@@ -247,3 +247,22 @@ test('grade: acceptable displacement still allows A+', () => {
   });
   assert.equal(packet.grade, 'A+');
 });
+
+// §2.4: on a divergent/retrace day "he will still trade [the LTF direction],
+// but with slightly lower conviction/size" — lower conviction is the B cap,
+// not a model ban. The MSS-only divergent gate was the resolver's PRIORITY
+// mapping hardened into a blocker (same defect class as
+// entry_model_priority_blocked): live 2026-06-12 it auto-blocked every
+// Trend continuation long on a day whose LTF turn had confirmed at swing
+// tier (MSS bull 09:50, BOS bull 11:10) and price rallied 450pts.
+test('divergent day: a Trend packet in the LTF direction is playable at B, not blocked', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ htfLtfAlignment: 'divergent', ltfBias: 'bullish', gradeCap: 'B' }),
+    }),
+    walker: { ...confirmedMssWalker(), model: 'Trend' }, // side long
+  });
+  assert.ok(!packet.blockers.includes('divergent_day_requires_mss'), `blockers: ${packet.blockers}`);
+  assert.equal(packet.status, 'executable');
+  assert.equal(packet.grade, 'B'); // divergent never grades A+
+});
