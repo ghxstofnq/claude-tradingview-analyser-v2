@@ -275,13 +275,11 @@ test('trend confirm: a bar that blasts THROUGH the zone is not a tap', () => {
   );
 });
 
-test('trend confirm: after the CE tap, the first non-doji close away confirms (June 9 trade 4 @ 11:01)', () => {
-  // GXNQ 2026-06-13: "Trade 4 should have been confirmed at candle close
-  // 11:01." The retrace tagged the zone's CE at 10:59 (engine state →
-  // ce_tapped); the 11:01 candle closed back below the bottom with a 0.51
-  // body. Post-CE-tap the 0.6 single-candle body bar is relaxed to the
-  // §3 non-doji floor (> 0.3) — entry-models.md Trend §4: pull back
-  // "ideally the consequent encroachment / mid-point".
+test('trend confirm: a sub-0.6 body close-away never confirms — even after the CE tap (June 9 re-grade)', () => {
+  // GXNQ 2026-06-13 second pass: the 11:01 post-CE-tap candle (0.51 body)
+  // was NOT the entry — the 11:04 candle (0.89 body, wick in + strong close
+  // away) was the one correct trade. The lone-candle §3 "good" body (>= 0.6)
+  // is the only Trend confirmation; zone state never relaxes it.
   const bearTrendPd = {
     evidenceRef: 'zone:29222.25-29260.25', kind: 'fvg', dir: 'bear', state: 'fresh',
     size_quality: 'normal', top: 29260.25, bottom: 29222.25, created_ms: 1781016360000,
@@ -297,9 +295,32 @@ test('trend confirm: after the CE tap, the first non-doji close away confirms (J
       }],
     },
   });
+  assert.deepEqual(
+    buildTrendWalkerAdvanceRequests(ceTappedContext, [{ ...walker, stage: 'pd_identified' }])
+      .filter((r) => r.stage === 'confirmed'),
+    [],
+  );
+});
+
+test('trend confirm: the strong candle on a ce_tapped zone still confirms (June 9, the 11:04 candle)', () => {
+  const bearTrendPd = {
+    evidenceRef: 'zone:29222.25-29260.25', kind: 'fvg', dir: 'bear', state: 'fresh',
+    size_quality: 'normal', top: 29260.25, bottom: 29222.25, created_ms: 1781016360000,
+  };
+  const walker = createWalker({ context: freshContext(), model: 'Trend', side: 'short', pdArray: bearTrendPd });
+  const ceTappedContext = freshContext({
+    pillar3: {
+      pdArrays: [{ ...bearTrendPd, state: 'ce_tapped' }],
+      insidePdArrays: [],
+      confirmationRows: [{
+        evidenceRef: 'gates.engine.confirmation',
+        last_bar: { time: 1781017440, open: 29223.25, high: 29226.5, low: 29182.25, close: 29184, direction: 'bearish', body_ratio: 0.89 },
+      }],
+    },
+  });
   const confirm = buildTrendWalkerAdvanceRequests(ceTappedContext, [{ ...walker, stage: 'pd_identified' }])
     .find((r) => r.stage === 'confirmed');
-  assert.ok(confirm, 'post-CE-tap non-doji close-away must confirm');
+  assert.ok(confirm, 'strong candle on a tapped zone must confirm');
 });
 
 test('trend confirm: a sub-0.6 body close-away BEFORE the CE tap does not confirm (the 10:58 candle)', () => {
