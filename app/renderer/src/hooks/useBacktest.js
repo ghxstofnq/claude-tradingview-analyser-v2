@@ -20,7 +20,7 @@ const INITIAL = {
   detail: null,        // populated when DETAIL view loads run data
 };
 
-function reducer(s, action) {
+export function reducer(s, action) {
   switch (action.type) {
     case "LIBRARY_LOADED":
       return { ...s, library: { runs: action.runs, loading: false } };
@@ -39,11 +39,15 @@ function reducer(s, action) {
 
     case "ENGINE_EVENT": {
       const e = action.event;
+      // The engine's own events drive the UI state — a run may have been
+      // started outside the form (preload API, app restart mid-run), so
+      // start/progress recover AUTO_RUNNING from IDLE/DONE on their own.
+      const followEngine = (s.ui === "IDLE" || s.ui === "DONE") ? "AUTO_RUNNING" : s.ui;
       if (e.type === "start") {
-        return { ...s, currentRun: { ...(s.currentRun ?? {}), runId: e.runId, date: e.date, session: e.session, mode: e.mode } };
+        return { ...s, ui: followEngine, currentRun: { ...(s.currentRun ?? {}), runId: e.runId, date: e.date, session: e.session, mode: e.mode } };
       }
       if (e.type === "progress") {
-        return { ...s, currentRun: { ...(s.currentRun ?? {}), progress: { bar: e.bar, total: e.total, cost: e.cost, phase: e.phase } } };
+        return { ...s, ui: followEngine, currentRun: { ...(s.currentRun ?? {}), progress: { bar: e.bar, total: e.total, cost: e.cost, phase: e.phase } } };
       }
       if (e.type === "setup_surfaced" || e.type === "setup_accepted") {
         const existing = s.currentRun?.setups ?? [];
