@@ -9,13 +9,22 @@ import {
   refOf,
   rowBottom,
   rowTop,
+  sideForPdDirection,
   stateIsTradable,
 } from './lifecycle-utils.js';
+
+// The engine FLIPS dir when a zone inverts (pine/ict-engine.pine: "kind
+// flips fvg -> ifvg, dir flips"). A fresh fvg fails AGAINST its dir; an
+// ifvg's dir already IS the post-failure trade direction. June 9 trades
+// 4-6 shorted bull iFVGs (support) because both kinds used the opposite map.
+function inversionSideFor(pdArray) {
+  return kindOf(pdArray) === 'ifvg' ? sideForPdDirection(pdArray) : oppositeSideForPdDirection(pdArray);
+}
 
 function findOpposingPdArrays(context) {
   return allPdArrays(context).filter((pdArray) => {
     const kind = kindOf(pdArray);
-    return ['fvg', 'ifvg'].includes(kind) && stateIsTradable(pdArray) && oppositeSideForPdDirection(pdArray);
+    return ['fvg', 'ifvg'].includes(kind) && stateIsTradable(pdArray) && inversionSideFor(pdArray);
   });
 }
 
@@ -26,6 +35,16 @@ function fullCloseThrough(row, walker) {
   const top = rowTop(pd);
   const bottom = rowBottom(pd);
   if (!Number.isFinite(top) || !Number.isFinite(bottom)) return false;
+  // Zone identity: a confirmation carrying another zone's bounds is not
+  // this walker's violation (June 9 trade 4: zone A's flip confirmed a
+  // walker holding zone B because the close sat below both). Bound-less
+  // rows (hand-built fixtures) keep the legacy close-beyond behavior.
+  const rTop = Number(row?.zone_top ?? row?.top);
+  const rBottom = Number(row?.zone_bottom ?? row?.bottom);
+  if (Number.isFinite(rTop) && Number.isFinite(rBottom)) {
+    const near = (a, b) => Math.abs(a - b) < 0.26;
+    if (!near(rTop, top) || !near(rBottom, bottom)) return false;
+  }
   if (walker.side === 'long') return close > top;
   if (walker.side === 'short') return close < bottom;
   return false;
@@ -39,7 +58,7 @@ export function buildInversionWalkerSpawnRequests(context) {
 
   return findOpposingPdArrays(context).map((pdArray) => ({
     model: 'Inversion',
-    side: oppositeSideForPdDirection(pdArray),
+    side: inversionSideFor(pdArray),
     pdArray,
     setupEvidence: {
       opposingPdArray: { evidenceRef: refOf(pdArray, 'pillar3.pdArrays.inversion'), rawPayload: pdArray },
