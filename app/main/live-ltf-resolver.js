@@ -11,7 +11,7 @@
 // Pre-window bars return null — the chain stays honestly blocked until the
 // minute-15 boundary, mirroring live ltf-bias.md timing and the backtest.
 
-import { resolveOpenReaction } from "../../cli/lib/open-reaction-resolver.js";
+import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/open-reaction-resolver.js";
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { openReactionWindowMs } from "./backtest-engine.js";
 import { biasFromDraw } from "./backtest-context.js";
@@ -34,7 +34,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   if (!date || !session) return null;
   const window = openReactionWindowMs({ date, session });
   const ms = Date.parse(eventTs);
-  if (!Number.isFinite(ms) || ms < window.endMs) return null;
+  if (!Number.isFinite(ms) || ms < window.resolveMs) return null;
 
   const htfBias = biasFromDraw(brief?.primary_draw) ?? null;
   if (!htfBias) return null;
@@ -50,6 +50,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
     sweeps: gates?.pillar1?.sweeps ?? [],
     swing_structure: swingStructure,
     window,
+    overnight_targets: overnightTargetsForSession(session),
   });
   const p3 = gates?.pillar3 ?? {};
   const priority = computeEntryModelPriority({
