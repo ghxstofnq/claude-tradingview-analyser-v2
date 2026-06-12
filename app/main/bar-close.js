@@ -21,6 +21,7 @@ import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
+import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
 import { activeSessionDir } from "./sessions.js";
@@ -1199,6 +1200,12 @@ async function readBriefJson(session, leader = null) {
   throw lastErr;
 }
 
+// Full bundle first — the slim projection is the LLM's view, not the chain's.
+const DETECTOR_SCAN_CANDIDATES = [
+  path.join(REPO_ROOT, "state", "last-scan.json"),
+  path.join(REPO_ROOT, "state", "last-scan.slim.json"),
+];
+
 async function buildDetectorInputs(session) {
   // `session` was previously read as a bare module-scope variable that
   // doesn't exist — readBriefJson(session, ...) threw ReferenceError on
@@ -1207,22 +1214,42 @@ async function buildDetectorInputs(session) {
   // missing_side_consistent_tp1. Parameterized 2026-06-12.
   const dir = await activeSessionDir();
 
-  // Load bundle: slim first, full as fallback.
+  // Load bundle: FULL first, slim as fallback. The slim projection exists
+  // for the LLM's Read budget and strips gates.engine.pillar3 + bars —
+  // exactly what the walker chain needs (rows bridge, failure swings,
+  // structural stops, confirmation bars). Preferring slim here starved the
+  // chain live: every 2026-06-12 London bar blocked missing_ict_engine_rows
+  // while last-scan.json sat next to it with 24 fvgs.
   let bundle = null;
-  for (const candidatePath of [
-    path.join(REPO_ROOT, "state", "last-scan.slim.json"),
-    path.join(REPO_ROOT, "state", "last-scan.json"),
-  ]) {
+  for (const candidatePath of DETECTOR_SCAN_CANDIDATES) {
     try { bundle = JSON.parse(await fs.readFile(candidatePath, "utf8")); break; } catch {}
   }
   if (!bundle) return null;
 
   // Brief on disk has htf_destination + primary_draw + overnight_block.
-  const leader = await readPairDecisionLeader();
+  // Leader: the minute-14 pair decision when it exists, else the configured
+  // primary — the chain must not block a whole session on a missing LLM
+  // leader call (missing_pair_decision blocked every 2026-06-12 London bar).
+  const leader = (await readPairDecisionLeader()) ?? PAIR_PRIMARY;
   let brief = null;
   try { brief = await readBriefJson(session, leader); } catch {}
 
-  const ltf_bias_context = await readLtfBiasFrontmatter();
+  let ltf_bias_context = await readLtfBiasFrontmatter();
+  // Deterministic open-reaction fallback (§2.3 / §7 Step 4): when no
+  // ltf-bias.md exists past the minute-15 boundary — the LLM open-reaction/
+  // catch-up turn didn't run (2026-06-12 London: auth-blocked) — derive the
+  // verdict from the engine's own sweep + swing-structure evidence, the
+  // same resolver the backtest engine uses. An LLM-written ltf-bias.md
+  // always wins; the fallback only fills absence.
+  if (!ltf_bias_context?.bias) {
+    try {
+      const derived = deriveLtfBiasContext({
+        bundle, brief, session,
+        eventTs: bundle?.quote?.time ? new Date(bundle.quote.time * 1000).toISOString() : new Date().toISOString(),
+      });
+      if (derived) ltf_bias_context = derived;
+    } catch { /* fallback is best-effort; the chain blocks honestly without it */ }
+  }
   const session_state = await readSessionStrategyState(brief).catch(() => ({}));
 
   // Synthesize brief_digest fields the detector reads — see

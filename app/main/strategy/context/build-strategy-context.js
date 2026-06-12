@@ -1,7 +1,7 @@
 import { evaluateSourceHealth, getIctEngineRows, isTradableSourceHealth } from './source-health.js';
 
 const VALID_MARKETS = new Set(['MNQ1!', 'MES1!', 'CME_MINI:MNQ1!', 'CME_MINI:MES1!']);
-const VALID_SESSIONS = new Set(['ny-am', 'ny-pm']);
+const VALID_SESSIONS = new Set(['ny-am', 'ny-pm', 'london']);
 
 function normalizeDirection(dir) {
   if (dir === 'bull' || dir === 'bullish' || dir === 'up') return 'bullish';
