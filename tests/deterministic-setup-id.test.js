@@ -52,3 +52,15 @@ test("london is a valid strategy session", async () => {
   const all = [...(ctx.sourceHealth?.blockers ?? []), ...(ctx.blockers ?? [])];
   assert.ok(!all.includes("unknown_session"), `unexpected unknown_session in ${all}`);
 });
+
+// One deterministic fold per underlying bar: the queue synthesizes a
+// 5m-tagged copy of the same minute event at 5m boundaries; both copies
+// must resolve to the SAME cache key so the second drain reuses the first
+// fold's truth (live 2026-06-12 London: duplicate truth records + double
+// walker advancement every 5th minute).
+test("5m-tagged copy of a bar keys to the same truth cache entry", () => {
+  const base = { ts: "2026-06-12T09:00:00.000Z", tf: "1m", bar_close_time: 1781254800, is_5m_close: true };
+  const fiveM = { ...base, tf: "5m" };
+  assert.equal(__test.truthCacheKeyFor(base), __test.truthCacheKeyFor(fiveM));
+  assert.notEqual(__test.truthCacheKeyFor(base), __test.truthCacheKeyFor({ ...base, bar_close_time: 1781254860 }));
+});
