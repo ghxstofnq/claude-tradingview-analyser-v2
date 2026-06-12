@@ -16,9 +16,26 @@ function refOf(item, fallback = null) {
   return fallback;
 }
 
+// §6 / §7 Step 7: "Take profits first at intraday liquidity (internal
+// swings, session highs/lows), second at or toward the HTF draw." The pool
+// merges the brief's untaken levels with intraday pivots from the bridge's
+// structural pool — swing highs + the running leg high for longs (mirror
+// for shorts). Before 2026-06-12 only session LEVELS were in the pool: the
+// first live setup got the weekly high as TP1 at 9.2R.
+const INTRADAY_TARGET_KINDS = {
+  long: new Set(['swing_high', 'leg_high']),
+  short: new Set(['swing_low', 'leg_low']),
+};
+
 function targetPool(context, side) {
   const targets = context?.pillar1?.untakenTargets ?? {};
-  return side === 'long' ? (targets.above ?? []) : (targets.below ?? []);
+  const levels = (side === 'long' ? (targets.above ?? []) : (targets.below ?? []))
+    .map((t) => ({ ...t, target_class: 'level' }));
+  const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
+  const pivots = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
+    .filter((s) => kinds.has(String(s?.kind ?? '')))
+    .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday' }));
+  return [...levels, ...pivots];
 }
 
 function normalizeModelName(model) {
@@ -129,14 +146,31 @@ function inversionStructuralStop(walker, side, entry, context) {
   return null;
 }
 
-function selectTp1(context, side, entry, stop) {
-  const candidates = targetPool(context, side)
+function validTargets(context, side, entry, stop) {
+  return targetPool(context, side)
     .map((target) => ({ ...target, price: numberOrNull(target?.price ?? target?.level) }))
     .filter((target) => target.price != null && targetIsCorrectSide(target, entry, side))
     .map((target) => ({ ...target, rMultiple: computeRMultiple({ entry, stop, target: target.price }) }))
     .filter((target) => target.rMultiple != null)
     .sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
-  return candidates[0] ?? null;
+}
+
+// TP1 = the NEAREST target that satisfies the 1.5R discipline — nearer
+// intraday pivots that fail R are skipped, not blocking. When nothing
+// clears 1.5R, return the nearest so the packet still reports
+// tp1_below_1_5r (rather than missing_side_consistent_tp1).
+function selectTp1(context, side, entry, stop) {
+  const candidates = validTargets(context, side, entry, stop);
+  return candidates.find((t) => t.rMultiple >= 1.5) ?? candidates[0] ?? null;
+}
+
+// TP2 = the next target beyond TP1 toward the HTF draw (§6: "second at or
+// toward the HTF draw") — session levels preferred over further pivots.
+function selectTp2(context, side, entry, stop, tp1Price) {
+  if (tp1Price == null) return null;
+  const beyond = validTargets(context, side, entry, stop)
+    .filter((t) => Math.abs(t.price - entry) > Math.abs(tp1Price - entry));
+  return beyond.find((t) => t.target_class === 'level') ?? beyond[0] ?? null;
 }
 
 // Grade per constraint #9 / trading-strategy-2026.md §7 step 7 — A+ only
@@ -225,6 +259,9 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
   if (tp1Candidate && tp1Candidate.rMultiple < 1.5) blockers.push('tp1_below_1_5r');
+  const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
+    ? null
+    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate.price);
 
   const grade = deriveGrade({ context, walker });
   if (grade === 'no-trade') blockers.push('grade_blocked');
@@ -272,6 +309,13 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
       evidenceRef: refOf(tp1Candidate),
       rMultiple: tp1Candidate.rMultiple,
       rawPayload: tp1Candidate,
+    } : null,
+    tp2: tp2Candidate ? {
+      price: roundTick(tp2Candidate.price),
+      label: tp2Candidate.label ?? tp2Candidate.name ?? null,
+      evidenceRef: refOf(tp2Candidate),
+      rMultiple: tp2Candidate.rMultiple,
+      rawPayload: tp2Candidate,
     } : null,
     evidence: {
       pdArray: walker?.evidence?.pdArray ?? null,

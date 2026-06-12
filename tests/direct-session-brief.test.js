@@ -237,3 +237,36 @@ test("primary_draw position derives from the paired symbol quote when present", 
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(payloads[0].primary_draw.position, "below_price"); // ce 29975 < last 30100
 });
+
+// §2.1: "Primary charts: Daily and 4H (sometimes 1H)" — when 4H has no
+// usable zone, DAILY outranks 1H. (Audit 2026-06-12: the picker searched
+// h4 → h1 → daily, putting 1H above Daily, backwards from the doc.)
+test("primary draw prefers daily over h1 when h4 is empty", () => {
+  const b = bundle();
+  const ds = b.brief_digest.symbols["MNQ1!"];
+  ds.htf.h4.top_fvgs = [];
+  ds.htf.h1.top_fvgs = [{ dir: "bull", top: 29500, bottom: 29450, ce: 29475, disp_score: 0.9, took_liq: true, state: "fresh", cite: "engine_by_tf.h1.fvgs[0]" }];
+  ds.htf.daily.top_fvgs = [{ dir: "bear", top: 30000, bottom: 29900, ce: 29950, disp_score: 0.7, took_liq: true, state: "fresh", cite: "engine_by_tf.daily.fvgs[0]" }];
+  const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(payloads[0].primary_draw.tf, "daily");
+});
+
+// §7 Step 2: "Decide if overnight is: Extending HTF move, or Consolidating"
+// — the verdict must be computed from sweep evidence, not hardcoded.
+test("overnight_verdict computes extending/retracing/consolidating from sweeps", () => {
+  const b = bundle();
+  const ds = b.brief_digest.symbols["MNQ1!"];
+  // bearish draw + overnight swept a LOW without rejection → extending
+  ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30000, bottom: 29950, ce: 29975, disp_score: 0.9, took_liq: true, state: "fresh", cite: "engine_by_tf.h4.fvgs[0]" }];
+  ds.pillar1.sweeps = [{ target: "PWL", price: 29300, side: "sell", swept_ms: 1, rejected: false }];
+  let p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(p[0].overnight_block.overnight_verdict, "extending_htf");
+  // overnight swept a HIGH (against the bearish draw) without rejection → retracing
+  ds.pillar1.sweeps = [{ target: "PDH", price: 30100, side: "buy", swept_ms: 1, rejected: false }];
+  p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(p[0].overnight_block.overnight_verdict, "retracing_htf");
+  // no sweeps → consolidating
+  ds.pillar1.sweeps = [];
+  p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(p[0].overnight_block.overnight_verdict, "consolidating");
+});

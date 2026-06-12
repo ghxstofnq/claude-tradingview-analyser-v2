@@ -18,12 +18,19 @@
 const HTF_TFS = ['daily', 'h4', 'h1'];
 const TOP_N = 3;
 
-/** Rank FVGs by (state=fresh DESC, took_liq DESC, disp_score DESC). */
+/**
+ * Rank FVGs by (state=fresh DESC, took_liq DESC, size DESC, disp DESC).
+ * §2.1 step 1 prioritizes EXTENSIVE imbalances (large gaps, strong
+ * displacement) that took liquidity — size_quality joins as a tiebreaker
+ * above raw displacement (below took_liq, preserving the hand-verified
+ * June 9 draw pick).
+ */
 function rankFvgs(fvgs) {
+  const sizeRank = (f) => (f.size_quality === 'large' ? 2 : f.size_quality === 'tiny' ? 0 : 1);
   const score = (f) => {
     const freshBit = f.state === 'fresh' ? 2 : (f.state === 'ce_tapped' || f.state === 'inverted' ? 1 : 0);
     const liqBit = f.took_liq ? 1 : 0;
-    return freshBit * 100 + liqBit * 10 + (typeof f.disp_score === 'number' ? f.disp_score : 0);
+    return freshBit * 1000 + liqBit * 100 + sizeRank(f) * 10 + (typeof f.disp_score === 'number' ? f.disp_score : 0);
   };
   return (fvgs || []).slice().sort((a, b) => score(b) - score(a));
 }
