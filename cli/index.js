@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * tv — CLI for TradingView Desktop on CDP port 9223.
+ * tv — CLI for TradingView Desktop on CDP port 9225.
  * Outputs JSON to stdout. Errors to stderr.
  * Exit codes: 0 success, 1 error, 2 connection failure.
  */
