@@ -97,3 +97,47 @@ test("a swing BOS (not MSS) never flips the bias", () => {
   });
   assert.equal(r.bias, "bullish"); // failed_break override applies? no — bos agrees? bos bear opposes bullish continuation…
 });
+
+// §2.3 "never marries a bias" + user ruling 2026-06-12: a quiet open leaves
+// the LTF bias PENDING, not the day untradeable. The first swing-tier
+// structure event after the window EARNS the day its direction (B cap —
+// §7 Step 7 "neutral overnight" stays one weaker element, even aligned).
+test("unclear open: the first post-window swing structure earns the LTF bias at B cap", () => {
+  const swing = { event: "bos", dir: "bear", tier: "swing", confirmed_ms: W.endMs + 50 * 60_000 };
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ swing }),
+    brief: BRIEF, session: SESSION,
+    eventTs: new Date(W.endMs + 55 * 60_000).toISOString(),
+  });
+  assert.equal(r.bias, "bearish");
+  assert.equal(r.htf_ltf_alignment, "aligned"); // BRIEF draw is bearish
+  assert.equal(r.grade_cap, "B");               // neutral overnight caps at B
+  assert.equal(r.interaction, "late_direction");
+  assert.equal(r.source, "deterministic-resolver:late-direction");
+});
+
+test("unclear open with no post-window structure stays pending", () => {
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith(),
+    brief: BRIEF, session: SESSION,
+    eventTs: new Date(W.endMs + 55 * 60_000).toISOString(),
+  });
+  assert.equal(r.bias, null);
+  assert.equal(r.htf_ltf_alignment, "unclear");
+});
+
+test("late-earned direction can still be flipped by a later opposing swing MSS", () => {
+  // structure earns bullish at +40min, then a swing MSS bear at +90min flips it
+  const swings = [
+    { event: "bos", dir: "bull", tier: "swing", confirmed_ms: W.endMs + 40 * 60_000 },
+    { event: "mss", dir: "bear", tier: "swing", confirmed_ms: W.endMs + 90 * 60_000 },
+  ];
+  const b = bundleWith();
+  b.gates.engine.pillar3.structures_by_tier = { swing: swings };
+  const r = deriveLtfBiasContext({
+    bundle: b, brief: BRIEF, session: SESSION,
+    eventTs: new Date(W.endMs + 95 * 60_000).toISOString(),
+  });
+  assert.equal(r.bias, "bearish");
+  assert.equal(r.htf_ltf_alignment, "aligned");
+});

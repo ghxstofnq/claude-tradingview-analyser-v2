@@ -250,6 +250,42 @@ export async function runBacktest({
           });
         }
       }
+      // §2.3 + user ruling 2026-06-12: a quiet open leaves the LTF bias
+      // PENDING — the first swing-tier structure event after the window
+      // earns the fold its direction at B cap (§7 Step 7: neutral
+      // overnight stays one weaker element). Mirrors the live resolver.
+      if (synthesizedContext && openReaction && Number.isFinite(entryMs) && entryMs > orWindow.endMs && !openReaction.ltf_bias) {
+        const swings = entry?.inputs?.bundle?.gates?.engine?.pillar3?.structures_by_tier?.swing ?? [];
+        const struct = swings
+          .filter((s) => (s?.confirmed_ms ?? 0) > orWindow.endMs && (s?.confirmed_ms ?? 0) <= entryMs)
+          .reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);
+        const structBias = struct?.dir === "bear" ? "bearish" : struct?.dir === "bull" ? "bullish" : null;
+        if (structBias) {
+          const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
+          const aligned = structBias === htfBias;
+          openReaction = {
+            ...openReaction,
+            interaction: "late_direction",
+            ltf_bias: structBias,
+            htf_ltf_alignment: aligned ? "aligned" : "divergent",
+            is_retrace_day: !aligned,
+            grade_cap: "B",
+            cite: "gates.engine.pillar3.structures_by_tier.swing[latest]",
+            resolved_at_ts: entry.event?.ts ?? null,
+            chainStatus: aligned ? "clean" : "divergent",
+            ltf_bias_context: {
+              ...openReaction.ltf_bias_context,
+              bias: structBias,
+              htf_ltf_alignment: aligned ? "aligned" : "divergent",
+              is_retrace_day: !aligned,
+              grade_cap: "B",
+            },
+          };
+          chainStatus = openReaction.chainStatus;
+          lastRealignMs = struct.confirmed_ms;
+          appendActivity({ kind: "late_direction", bias: structBias, alignment: openReaction.htf_ltf_alignment, cite: openReaction.cite });
+        }
+      }
       // §2.3 "never marries a bias" + §7 Step 5: after the open window, a
       // SWING-tier MSS confirming against the current bias realigns the
       // fold to the structure's direction (mirrors the live resolver).

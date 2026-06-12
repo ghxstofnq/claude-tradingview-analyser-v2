@@ -55,6 +55,32 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
     window,
     overnight_targets: overnightTargetsForSession(session),
   });
+  // §2.3 + user ruling 2026-06-12: a quiet open leaves the LTF bias
+  // PENDING, not the day untradeable — the first swing-tier structure
+  // event after the window EARNS the day its direction. Cap stays B:
+  // §7 Step 7 counts a neutral overnight as one weaker element even when
+  // the late direction aligns with HTF. Stateless per-bar recompute means
+  // the LATEST post-window swing structure naturally wins.
+  let lateDirection = false;
+  if (!verdict.ltf_bias) {
+    const postWindowStruct = latestOf(swingStructs.filter((s) =>
+      (s?.confirmed_ms ?? 0) > window.endMs && (s?.confirmed_ms ?? 0) <= ms));
+    const structBias = postWindowStruct?.dir === "bear" ? "bearish"
+      : postWindowStruct?.dir === "bull" ? "bullish" : null;
+    if (structBias) {
+      const aligned = structBias === htfBias;
+      verdict = {
+        ...verdict,
+        interaction: "late_direction",
+        ltf_bias: structBias,
+        htf_ltf_alignment: aligned ? "aligned" : "divergent",
+        is_retrace_day: !aligned,
+        grade_cap: "B",
+        cite: "gates.engine.pillar3.structures_by_tier.swing[latest]",
+      };
+      lateDirection = true;
+    }
+  }
   // §2.3 "never marries a bias" + §7 Step 5 (MSS = the LTF turning): a
   // SWING-tier MSS confirming AFTER the open window, against the current
   // bias, realigns the day to the structure's direction.
@@ -93,7 +119,9 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
     is_retrace_day: verdict.is_retrace_day,
     entry_model_priority: priority.priority,
     grade_cap: verdict.grade_cap,
-    source: realigned ? "deterministic-resolver:realigned" : "deterministic-resolver",
+    source: realigned ? "deterministic-resolver:realigned"
+      : lateDirection ? "deterministic-resolver:late-direction"
+      : "deterministic-resolver",
     cite: verdict.cite,
     interaction: verdict.interaction,
     level: verdict.level,
