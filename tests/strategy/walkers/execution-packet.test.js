@@ -386,10 +386,6 @@ test('inversion stop: the violating candle extreme outranks the beyond-zone swin
   assert.equal(packet.stop.price, 20992);
 });
 
-// The violating candle is the bar stamped by the zone's inverted_ms — often
-// EARLIER than the retest confirmation bar (June 9 trade 2: hand stop
-// 29714.25 = the violating candle high; the confirmation bar high was
-// 29686). When that bar is visible in ohlcv1m, its extreme is the stop.
 test('trend stop: the tap candle extreme, then the zone far edge (entry-models.md Trend §6)', () => {
   // June 9 trade 7 (GXNQ: "A+ confirmed Trend continuation"): short off the
   // bear FVG 28965-29000.75; the 11:53 tap candle's high 28971.75 is the
