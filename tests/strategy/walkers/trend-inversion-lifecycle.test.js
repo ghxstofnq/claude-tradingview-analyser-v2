@@ -274,3 +274,64 @@ test('trend confirm: a bar that blasts THROUGH the zone is not a tap', () => {
     [],
   );
 });
+
+test('trend confirm: after the CE tap, the first non-doji close away confirms (June 9 trade 4 @ 11:01)', () => {
+  // GXNQ 2026-06-13: "Trade 4 should have been confirmed at candle close
+  // 11:01." The retrace tagged the zone's CE at 10:59 (engine state →
+  // ce_tapped); the 11:01 candle closed back below the bottom with a 0.51
+  // body. Post-CE-tap the 0.6 single-candle body bar is relaxed to the
+  // §3 non-doji floor (> 0.3) — entry-models.md Trend §4: pull back
+  // "ideally the consequent encroachment / mid-point".
+  const bearTrendPd = {
+    evidenceRef: 'zone:29222.25-29260.25', kind: 'fvg', dir: 'bear', state: 'fresh',
+    size_quality: 'normal', top: 29260.25, bottom: 29222.25, created_ms: 1781016360000,
+  };
+  const walker = createWalker({ context: freshContext(), model: 'Trend', side: 'short', pdArray: bearTrendPd });
+  const ceTappedContext = freshContext({
+    pillar3: {
+      pdArrays: [{ ...bearTrendPd, state: 'ce_tapped' }],
+      insidePdArrays: [],
+      confirmationRows: [{
+        evidenceRef: 'gates.engine.confirmation',
+        last_bar: { time: 1781017260, open: 29233, high: 29240.25, low: 29192, close: 29208.25, direction: 'bearish', body_ratio: 0.51 },
+      }],
+    },
+  });
+  const confirm = buildTrendWalkerAdvanceRequests(ceTappedContext, [{ ...walker, stage: 'pd_identified' }])
+    .find((r) => r.stage === 'confirmed');
+  assert.ok(confirm, 'post-CE-tap non-doji close-away must confirm');
+});
+
+test('trend confirm: a sub-0.6 body close-away BEFORE the CE tap does not confirm (the 10:58 candle)', () => {
+  const bearTrendPd = {
+    evidenceRef: 'zone:29222.25-29260.25', kind: 'fvg', dir: 'bear', state: 'fresh',
+    size_quality: 'normal', top: 29260.25, bottom: 29222.25, created_ms: 1781016360000,
+  };
+  const walker = createWalker({ context: freshContext(), model: 'Trend', side: 'short', pdArray: bearTrendPd });
+  const freshZoneContext = freshContext({
+    pillar3: {
+      pdArrays: [bearTrendPd],
+      insidePdArrays: [],
+      confirmationRows: [{
+        evidenceRef: 'gates.engine.confirmation',
+        last_bar: { time: 1781017080, open: 29186, high: 29232.25, low: 29184.5, close: 29211.25, direction: 'bullish', body_ratio: 0.53 },
+      }],
+    },
+  });
+  assert.deepEqual(
+    buildTrendWalkerAdvanceRequests(freshZoneContext, [{ ...walker, stage: 'pd_identified' }])
+      .filter((r) => r.stage === 'confirmed'),
+    [],
+  );
+});
+
+test('trend spawn: tiny zones never spawn Trend walkers (June 9 trade 5 ruling: "the fvg it tapped into was too small")', () => {
+  const tinyBearPd = {
+    evidenceRef: 'zone:28940.75-28954', kind: 'fvg', dir: 'bear', state: 'fresh',
+    size_quality: 'tiny', top: 28954, bottom: 28940.75, created_ms: 1781018820000,
+  };
+  const context = freshContext({
+    pillar3: { pdArrays: [tinyBearPd], fvgs: [tinyBearPd], insidePdArrays: [], confirmationRows: [] },
+  });
+  assert.deepEqual(buildTrendWalkerSpawnRequests(context), []);
+});
