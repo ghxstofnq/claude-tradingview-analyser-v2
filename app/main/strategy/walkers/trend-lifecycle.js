@@ -52,15 +52,12 @@ function wickTapConfirm(walker, context) {
   const createdMs = Number(pd.created_ms);
   const barMs = Number(bar.time) * 1000;
   if (Number.isFinite(createdMs) && Number.isFinite(barMs) && barMs <= createdMs) return null;
-  // Body discipline: a lone candle must carry a §3 "good" body (≥ 0.6 —
-  // June 9 trade 7's 0.68). Once the retrace has tagged the zone's CE
-  // (engine state ce_tapped; entry-models.md Trend §4 "ideally the
-  // consequent encroachment"), the tap is already proven and the close-away
-  // only needs a non-doji body (> 0.3 — June 9 trade 4's 11:01 candle,
-  // 0.51, per the hand grade; the pre-CE 10:58 candle at 0.53 stays out).
+  // Body discipline: the confirming candle must carry a §3 "good" body
+  // (>= 0.6) regardless of zone state — GXNQ's June 9 re-grade withdrew the
+  // post-CE-tap relaxation (the 0.51-body 11:01 candle was NOT the entry;
+  // the 0.89-body 11:04 candle was the one correct trade).
   const body = Number(bar.body_ratio);
-  const bodyFloor = String(current.state ?? '') === 'ce_tapped' ? 0.3 : 0.6;
-  if (!Number.isFinite(body) || body < bodyFloor || body <= 0.3) return null;
+  if (!Number.isFinite(body) || body < 0.6) return null;
   const close = Number(bar.close);
   // "A quick tap" stays inside the zone — a wick through the far edge is a
   // violation (the engine inverts those), not a retrace entry.
