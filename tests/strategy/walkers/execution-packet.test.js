@@ -300,3 +300,24 @@ test('tp1 falls back to session levels when no swing target exists (old behavior
   });
   assert.equal(packet.tp1.price, 21040);
 });
+
+// User correction 2026-06-12: a SWEPT swing holds no resting liquidity —
+// it is not a target. (The June 9 doc-faithful TP1 had selected 29692.25,
+// an already-swept low.) Targets draw on UNSWEPT internal swings only;
+// the same rule the system already enforces for session levels.
+test('swept swings are not targets; the nearest UNSWEPT swing wins', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      pillar3: {
+        structuralStops: [
+          { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
+          { kind: 'swing_high', price: 21036, swept: true, evidenceRef: 'p3.swings.swept' },   // dead liquidity
+          { kind: 'swing_high', price: 21038, swept: false, evidenceRef: 'p3.swings.live' },   // TP1
+        ],
+      },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.tp1.price, 21038);
+});

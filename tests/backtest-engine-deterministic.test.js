@@ -80,9 +80,11 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   }
   assert.equal(surfaced[0].setup.entry, 29792);
   assert.equal(surfaced[0].setup.stop, 29847);
-  // §6 TP1 = next internal swing (29692.25). The prior 29302.5 was the
-  // session-level target — kept in the tape's note pending re-sign-off.
-  assert.equal(surfaced[0].setup.tp1, 29692.25);
+  // §6 TP1 = next UNSWEPT internal swing (user ruling: swept swings hold
+  // no liquidity). With dead pivots excluded, the chain surfaces at the
+  // hand-graded bar: entry 29792 @ 09:52. TP1 question (swing vs session
+  // level) remains parked for sign-off.
+  assert.equal(surfaced[0].setup.tp1, 29659.25);
 
   // Single-position discipline: opens are SEQUENTIAL (a new one only after
   // the prior closed — the in-window TP1 frees the slot); every surfaced
