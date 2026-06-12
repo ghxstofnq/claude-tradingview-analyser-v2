@@ -23,8 +23,8 @@ function refOf(item, fallback = null) {
 // for shorts). Before 2026-06-12 only session LEVELS were in the pool: the
 // first live setup got the weekly high as TP1 at 9.2R.
 const INTRADAY_TARGET_KINDS = {
-  long: new Set(['swing_high', 'leg_high']),
-  short: new Set(['swing_low', 'leg_low']),
+  long: new Set(['swing_high']),
+  short: new Set(['swing_low']),
 };
 
 function targetPool(context, side) {
@@ -32,8 +32,12 @@ function targetPool(context, side) {
   const levels = (side === 'long' ? (targets.above ?? []) : (targets.below ?? []))
     .map((t) => ({ ...t, target_class: 'level' }));
   const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
+  // UNSWEPT swings only — a swept swing holds no resting liquidity and is
+  // not a target (user ruling 2026-06-12; same rule the untaken-levels
+  // injection already enforces for session levels). Leg extremes carry no
+  // swept flag, so they stay out of the target pool entirely.
   const pivots = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
-    .filter((s) => kinds.has(String(s?.kind ?? '')))
+    .filter((s) => kinds.has(String(s?.kind ?? '')) && s?.swept !== true)
     .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday' }));
   return [...levels, ...pivots];
 }

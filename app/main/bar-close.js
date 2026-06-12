@@ -1068,6 +1068,9 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
         price: Number(s.price),
         tier,
         bar_ms: s.bar_ms ?? null,
+        // swept-ness disqualifies a pivot as a TARGET (no resting liquidity)
+        // — carried through so the target pool can filter; stops ignore it.
+        swept: s.swept === true,
         evidenceRef: `gates.engine.pillar3.swings.${tier}[${i}]`,
       }));
     // Session levels (NYAM.H, LO.H, PDH, ...) are structural highs/lows the

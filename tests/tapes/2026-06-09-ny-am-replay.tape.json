@@ -10,7 +10,7 @@
     "side": "short",
     "entry": 29792,
     "stop": 29847,
-    "tp1": 29692.25,
+    "tp1": 29659.25,
     "first_packet_event_ts": "2026-06-09T13:52:00.000Z",
     "max_packets": 1,
     "grade": "A+"
@@ -87796,5 +87796,5 @@
       "Grade frozen A+ 2026-06-12: deriveGrade now mirrors constraint #9's six-element alignment (pillars pass + ltf-bias handoff aligned + model + confirmation) instead of zone size_quality \u2014 machine grade matches GXNQ's session grade."
     ]
   },
-  "note": "tp1 updated 2026-06-12: \u00a76/'MSS model' TP1 = next internal swing (29692.25). The hand-verified 29302.5 was the session-level target (now TP2 territory). verified flipped false pending user re-sign-off of the target rule."
+  "note": "tp1 updated 2026-06-12 (2x): \u00a76 TP1 = next UNSWEPT internal swing (29659.25) after user ruling that swept swings are not targets \u2014 this change also made the chain surface at the hand-graded entry bar (29792 @ 09:52) exactly. The hand-verified 29302.5 session-level target remains the open TP1-choice question. verified:false pending sign-off."
 }
