@@ -233,10 +233,10 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   // "which model to walk first"), applied in deterministic-strategy's
   // packet sort — never a hard gate. §7 Step 5 keeps all three models
   // playable; June 9 replay proved the hard block discards valid setups.
-  const walkerModel = normalizeModelName(walker?.model);
-  if (context?.sessionChain?.htfLtfAlignment === 'divergent' && walkerModel && walkerModel !== 'mss') {
-    blockers.push('divergent_day_requires_mss');
-  }
+  // The old divergent_day_requires_mss blocker was the same defect: §2.4
+  // says divergent days still trade the LTF direction at lower conviction
+  // — that's the B cap + side gate below, not a model ban (live 2026-06-12
+  // it auto-blocked every Trend continuation on a confirmed-turn rally).
   // §7 Step 5 + §2.3: models are chosen in the bias direction — a packet
   // whose side contradicts a non-null LTF bias is not in the playbook.
   // Null bias (pre-open / unclear) leaves both sides walkable at B cap.
