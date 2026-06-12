@@ -57,7 +57,7 @@ function drawPrice(draw) {
  *      toward it (zone below price → bearish path, above → bullish).
  *   4. Legacy fallback: the zone's direction.
  */
-function biasFromDraw(draw) {
+export function biasFromDraw(draw) {
   if (!draw) return null;
   const asBias = (d) => {
     const s = String(d ?? "").toLowerCase();

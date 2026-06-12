@@ -41,3 +41,14 @@ test("the same walker keeps the same setup id across bars", () => {
   const b = deterministicPacketToSurfacePayload(packet(w), { ts: "2026-06-09T14:05:00.000Z" });
   assert.equal(a.id, b.id);
 });
+
+// 2026-06-12 London live session: every bar blocked 'unknown_session' —
+// the strategy context only accepted ny-am/ny-pm. London is a first-class
+// session (briefs fire for it, the supervisor arms for it, §2.2 names its
+// levels); the chain must walk it.
+test("london is a valid strategy session", async () => {
+  const { buildStrategyContext } = await import("../app/main/strategy/context/build-strategy-context.js");
+  const ctx = buildStrategyContext({ market: "MNQ1!", session: "london", gates: { engine: {} } });
+  const all = [...(ctx.sourceHealth?.blockers ?? []), ...(ctx.blockers ?? [])];
+  assert.ok(!all.includes("unknown_session"), `unexpected unknown_session in ${all}`);
+});
