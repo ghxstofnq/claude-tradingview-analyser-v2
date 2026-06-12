@@ -53,3 +53,47 @@ test("no brief draw → null (HTF bias underivable)", () => {
   const r = deriveLtfBiasContext({ bundle: bundleWith(), brief: {}, session: SESSION, eventTs: tsAt(20) });
   assert.equal(r, null);
 });
+
+// §2.3 "never marries a bias" + §7 Step 5 (MSS = the LTF turning): after the
+// open window, a SWING-tier MSS confirming against the current bias realigns
+// it — the day's direction is allowed to change mid-session on real
+// structure (2026-06-12 NY-AM read bullish-divergent at 09:47 and was frozen
+// there while the question stood all morning).
+test("post-window swing-tier MSS against the bias realigns it", () => {
+  const sweeps = [{ target: "LO.H", price: 29700, side: "buy", swept_ms: W.startMs + 8 * 60_000, rejected: false }];
+  const mssBear = { event: "mss", dir: "bear", tier: "swing", confirmed_ms: W.endMs + 40 * 60_000 };
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps, swing: mssBear }),
+    brief: BRIEF, session: SESSION,
+    eventTs: new Date(W.endMs + 45 * 60_000).toISOString(),
+  });
+  // continuation up over LO.H read bullish-divergent vs the bearish draw;
+  // the later swing MSS bear realigns the day bearish-aligned
+  assert.equal(r.bias, "bearish");
+  assert.equal(r.htf_ltf_alignment, "aligned");
+  assert.equal(r.source, "deterministic-resolver:realigned");
+  assert.match(r.cite, /structure/);
+});
+
+test("post-window swing MSS agreeing with the bias does not change it", () => {
+  const sweeps = [{ target: "AS.H", price: 29600, side: "buy", swept_ms: W.startMs + 8 * 60_000, rejected: true }];
+  const mssBear = { event: "mss", dir: "bear", tier: "swing", confirmed_ms: W.endMs + 40 * 60_000 };
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps, swing: mssBear }),
+    brief: BRIEF, session: SESSION,
+    eventTs: new Date(W.endMs + 45 * 60_000).toISOString(),
+  });
+  assert.equal(r.bias, "bearish");
+  assert.equal(r.source, "deterministic-resolver");
+});
+
+test("a swing BOS (not MSS) never flips the bias", () => {
+  const sweeps = [{ target: "LO.H", price: 29700, side: "buy", swept_ms: W.startMs + 8 * 60_000, rejected: false }];
+  const bosBear = { event: "bos", dir: "bear", tier: "swing", confirmed_ms: W.endMs + 40 * 60_000 };
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps, swing: bosBear }),
+    brief: BRIEF, session: SESSION,
+    eventTs: new Date(W.endMs + 45 * 60_000).toISOString(),
+  });
+  assert.equal(r.bias, "bullish"); // failed_break override applies? no — bos agrees? bos bear opposes bullish continuation…
+});

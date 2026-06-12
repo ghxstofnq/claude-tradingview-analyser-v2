@@ -76,9 +76,12 @@ export function openReactionWindowMs({ date, session }) {
 function resolveOpenReactionLeg({ entry, context, window, session }) {
   const gates = entry?.inputs?.bundle?.gates?.engine ?? {};
   const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
-  // Standing swing-tier structure as of this bar (engine's real-vs-internal
-  // separation) — lets the resolver detect failed breaks (§7 Step 4).
-  const swingStructs = gates?.pillar3?.structures_by_tier?.swing ?? [];
+  // Standing swing-tier structure AS OF the open window (engine's real-vs-
+  // internal separation) — lets the resolver detect failed breaks (§7 Step
+  // 4). Post-window structures must not rewrite the open read; they drive
+  // mss realignment instead (see the fold loop).
+  const swingStructs = (gates?.pillar3?.structures_by_tier?.swing ?? [])
+    .filter((s) => (s?.confirmed_ms ?? 0) <= window.endMs);
   const swingStructure = swingStructs.reduce(
     (a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a),
     null,
@@ -222,6 +225,7 @@ export async function runBacktest({
     // close back through the level. Frozen after endMs.
     const synthesizedContext = contextSource === "direct_brief";
     let walkers = [];
+    let lastRealignMs = 0;
     const seenPacketIds = new Set();
     for (let i = 0; i < entries.length && !stopped; i += 1) {
       const entry = entries[i];
@@ -244,6 +248,42 @@ export async function runBacktest({
             alignment: next.htf_ltf_alignment,
             cite: next.cite,
           });
+        }
+      }
+      // §2.3 "never marries a bias" + §7 Step 5: after the open window, a
+      // SWING-tier MSS confirming against the current bias realigns the
+      // fold to the structure's direction (mirrors the live resolver).
+      if (synthesizedContext && openReaction && Number.isFinite(entryMs) && entryMs > orWindow.endMs && openReaction.ltf_bias) {
+        const swings = entry?.inputs?.bundle?.gates?.engine?.pillar3?.structures_by_tier?.swing ?? [];
+        const mss = swings
+          .filter((s) => s?.event === "mss" && (s?.confirmed_ms ?? 0) > orWindow.endMs &&
+            (s?.confirmed_ms ?? 0) > lastRealignMs && (s?.confirmed_ms ?? 0) <= entryMs)
+          .reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);
+        const structBias = mss?.dir === "bear" ? "bearish" : mss?.dir === "bull" ? "bullish" : null;
+        if (structBias && structBias !== openReaction.ltf_bias) {
+          const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
+          const aligned = structBias === htfBias;
+          openReaction = {
+            ...openReaction,
+            interaction: "mss_realignment",
+            ltf_bias: structBias,
+            htf_ltf_alignment: aligned ? "aligned" : "divergent",
+            is_retrace_day: !aligned,
+            grade_cap: aligned ? "A+" : "B",
+            cite: "gates.engine.pillar3.structures_by_tier.swing[latest mss]",
+            resolved_at_ts: entry.event?.ts ?? null,
+            chainStatus: aligned ? "clean" : "divergent",
+            ltf_bias_context: {
+              ...openReaction.ltf_bias_context,
+              bias: structBias,
+              htf_ltf_alignment: aligned ? "aligned" : "divergent",
+              is_retrace_day: !aligned,
+              grade_cap: aligned ? "A+" : "B",
+            },
+          };
+          chainStatus = openReaction.chainStatus;
+          lastRealignMs = mss.confirmed_ms;
+          appendActivity({ kind: "mss_realignment", bias: structBias, alignment: openReaction.htf_ltf_alignment, cite: openReaction.cite });
         }
       }
       if (synthesizedContext && openReaction) {

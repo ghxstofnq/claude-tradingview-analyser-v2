@@ -221,3 +221,30 @@ test("open-reaction verdict freezes after minute 30", async () => {
   assert.equal(summary.open_reaction.interaction, "continuation");
   assert.equal(summary.chain_status, "divergent");
 });
+
+// §2.3 "never marries a bias": after the open window freezes, a SWING-tier
+// MSS confirming against the current bias realigns the fold's context —
+// mirroring the live resolver (live/replay parity).
+test("post-freeze swing MSS against the bias realigns the fold context", async () => {
+  const cont = sweepAt("09:40", { target: "LO.H", rejected: false }); // bullish divergent open
+  const mssBearMs = Date.parse(isoAtEt("10:40"));
+  const lateBar = entryAt("10:45", { sweeps: [cont] });
+  lateBar.inputs.bundle.gates.engine.pillar3.structures_by_tier = {
+    swing: [{ event: "mss", dir: "bear", tier: "swing", confirmed_ms: mssBearMs }],
+  };
+  const after = entryAt("10:50", { sweeps: [cont] });
+  after.inputs.bundle.gates.engine.pillar3.structures_by_tier = {
+    swing: [{ event: "mss", dir: "bear", tier: "swing", confirmed_ms: mssBearMs }],
+  };
+  const entries = [entryAt("09:46", { sweeps: [cont] }), lateBar, after];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  assert.equal(capture[0].htf_ltf_alignment, "divergent"); // open read
+  assert.equal(capture[1].htf_ltf_alignment, "aligned");   // realigned on the MSS bar
+  assert.equal(capture[1].bias, "bearish");
+  assert.equal(capture[2].htf_ltf_alignment, "aligned");
+  assert.equal(summary.chain_status, "clean");
+  assert.equal(summary.open_reaction.htf_ltf_alignment, "aligned");
+  assert.equal(summary.open_reaction.interaction, "mss_realignment");
+});
