@@ -177,3 +177,73 @@ test('grade: pillar2 fail is no-trade, packet blocked', () => {
   assert.equal(packet.status, 'blocked');
   assert.ok(packet.blockers.includes('grade_blocked'));
 });
+
+// §7 Step 5 + §2.3: the entry model is chosen in the bias direction — a
+// packet whose side contradicts a NON-null LTF bias is not in the playbook.
+// (June 9 replay: with bias bearish-aligned, an MSS long surfaced and graded
+// A+ while the hand-graded Inversion short sat behind it in selection.)
+test('packet side contradicting ltf bias is blocked', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain({ ltfBias: 'bearish' }) }),
+    walker: confirmedMssWalker(), // side long
+  });
+  assert.equal(packet.status, 'blocked');
+  assert.ok(packet.blockers.includes('side_contradicts_ltf_bias'));
+});
+
+test('packet side matching ltf bias passes the side gate', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain({ ltfBias: 'bullish' }) }),
+    walker: confirmedMssWalker(),
+  });
+  assert.ok(!packet.blockers.includes('side_contradicts_ltf_bias'));
+});
+
+test('null ltf bias (pre-open) does not side-block packets', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain({ ltfBias: null }) }),
+    walker: confirmedMssWalker(),
+  });
+  assert.ok(!packet.blockers.includes('side_contradicts_ltf_bias'));
+});
+
+// Priority prefers, never blocks: with two executable packets the priority
+// model wins selection; the other stays available.
+test('packet selection prefers the priority model among executables', async () => {
+  const { runDeterministicWalkerStrategy } = await import('../../../app/main/strategy/walkers/deterministic-strategy.js');
+  const mss = confirmedMssWalker();
+  const trend = { ...confirmedMssWalker(), id: 'w-trend', model: 'Trend' };
+  const context = executableContext({
+    sessionChain: alignedChain({ entryModelPriority: 'Trend' }),
+  });
+  const result = runDeterministicWalkerStrategy({ context, walkers: [mss, trend] });
+  const executable = result.packets.filter((p) => p.status === 'executable');
+  assert.equal(executable.length, 2);
+  assert.equal(result.bestPacket.model, 'Trend');
+});
+
+// Constraint #9: A+ requires price quality GOOD. The engine's displacement
+// enum (clean|acceptable|weak|na) draws the line at weak: June 9's A+ entry
+// bar read 'acceptable' (A+ stands); June 10's read 'weak' — the documented
+// "tradable B day". Weak displacement is the one-weaker-element → B.
+test('grade: weak displacement at confirmation caps an aligned packet at B', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      pillar2: { status: 'pass', displacement: 'weak', blockers: [] },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.grade, 'B');
+});
+
+test('grade: acceptable displacement still allows A+', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      pillar2: { status: 'pass', displacement: 'acceptable', blockers: [] },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.grade, 'A+');
+});

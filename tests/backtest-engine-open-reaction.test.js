@@ -1,0 +1,217 @@
+// Backtest engine — deterministic open-reaction leg (§2.3 / §7 Step 4).
+//
+// With a direct-brief (synthesized) context, the engine must fold the open
+// window with an honest "unclear" LTF context, then resolve the open
+// reaction from the engine's sweep rows at the minute-15 boundary and apply
+// the resolved context to every later bar. Day-state contexts (the day ran
+// live) are never overridden.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { EventEmitter } from "node:events";
+import { runBacktest, openReactionWindowMs } from "../app/main/backtest-engine.js";
+import { contextFromBriefPayloads } from "../app/main/backtest-context.js";
+
+const DATE = "2026-06-09";
+const SESSION = "ny-am";
+
+function isoAtEt(hhmm) {
+  const { startMs } = openReactionWindowMs({ date: DATE, session: SESSION });
+  const [h, m] = hhmm.split(":").map(Number);
+  const offsetMin = (h - 9) * 60 + (m - 30);
+  return new Date(startMs + offsetMin * 60_000).toISOString();
+}
+
+function entryAt(hhmm, { sweeps = [] } = {}) {
+  const ts = isoAtEt(hhmm);
+  const closeSec = Date.parse(ts) / 1000;
+  return {
+    event: { ts, tf: "1m" },
+    inputs: {
+      bundle: {
+        chart: { symbol: "MNQ1!" },
+        quote: { symbol: "MNQ1!", last: 100, time: closeSec },
+        bars: { last_5_bars: [{ time: closeSec - 60, open: 99, high: 101, low: 98, close: 100 }] },
+        engine: {},
+        gates: {
+          engine: {
+            pillar1: { sweeps },
+            pillar3: { failure_swings: [], most_recent_structure: null, fvgs: [] },
+          },
+        },
+      },
+      leader: "MNQ1!",
+      // recorder embeds the static context; the engine overrides in the fold
+      ltf_bias_context: null,
+      session_state: null,
+      untaken_targets: null,
+    },
+  };
+}
+
+function sweepAt(hhmm, { target, rejected }) {
+  return { target, price: 100, side: "x", swept_ms: Date.parse(isoAtEt(hhmm)), rejected };
+}
+
+function makeDeps({ entries, capture }) {
+  return {
+    recordEntries: async ({ context }) => {
+      for (const e of entries) {
+        e.inputs.ltf_bias_context = context.ltf_bias_context;
+        e.inputs.session_state = context.session_state;
+        e.inputs.untaken_targets = context.untaken_targets;
+      }
+      return { entries, warnings: [] };
+    },
+    loadDayContext: async () => null,
+    runDirectBrief: async () =>
+      contextFromBriefPayloads({
+        session: SESSION,
+        payloads: [{
+          symbol: "MNQ1!",
+          pillar_grade: "B",
+          pillar2_verdict: "marginal",
+          primary_draw: { tf: "h4", kind: "fvg", dir: "bear", top: 95, bottom: 90, ce: 92.5, cite: "engine_by_tf.h4.fvgs[0]" },
+          overnight_block: { untaken_above: [], untaken_below: [{ name: "PDL", price: 90 }] },
+        }],
+      }),
+    truthFn: async ({ inputs }) => {
+      capture.push(JSON.parse(JSON.stringify(inputs.ltf_bias_context)));
+      return { walkers: [], bestPacket: null, surfacePayload: null };
+    },
+    gradeFn: () => ({ outcome: "pending" }),
+  };
+}
+
+async function run({ entries, capture }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-or-"));
+  const bus = new EventEmitter();
+  const result = await runBacktest({
+    date: DATE, session: SESSION, mode: "auto",
+    bus, stateDir: dir, deps: makeDeps({ entries, capture }),
+  });
+  return result;
+}
+
+test("openReactionWindowMs spans the first 15 minutes of the session", () => {
+  const w = openReactionWindowMs({ date: DATE, session: SESSION });
+  assert.equal(w.endMs - w.startMs, 15 * 60_000);
+});
+
+test("direct-brief fold: unclear before the boundary, aligned after a rejection in draw direction", async () => {
+  const rejection = sweepAt("09:43", { target: "LO.H", rejected: true });
+  const entries = [
+    entryAt("09:35"),
+    entryAt("09:44", { sweeps: [rejection] }),
+    entryAt("09:46", { sweeps: [rejection] }),
+    entryAt("09:50", { sweeps: [rejection] }),
+  ];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  // pre-boundary bars: honest unknown — mirrors live (no ltf-bias.md yet)
+  assert.equal(capture[0].htf_ltf_alignment, "unclear");
+  assert.equal(capture[0].bias, null);
+  assert.equal(capture[0].grade_cap, "B");
+  assert.equal(capture[1].htf_ltf_alignment, "unclear");
+
+  // post-boundary bars: resolved from the sweep evidence
+  assert.equal(capture[2].htf_ltf_alignment, "aligned");
+  assert.equal(capture[2].bias, "bearish");
+  assert.equal(capture[2].grade_cap, "A+");
+  assert.equal(capture[3].htf_ltf_alignment, "aligned");
+
+  assert.equal(summary.chain_status, "clean");
+  assert.equal(summary.open_reaction.interaction, "rejection");
+  assert.equal(summary.open_reaction.level, "LO.H");
+});
+
+test("direct-brief fold: continuation against the draw marks the run divergent", async () => {
+  const cont = sweepAt("09:40", { target: "LO.H", rejected: false });
+  const entries = [entryAt("09:44", { sweeps: [cont] }), entryAt("09:50", { sweeps: [cont] })];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  assert.equal(capture[1].htf_ltf_alignment, "divergent");
+  assert.equal(capture[1].bias, "bullish");
+  assert.equal(capture[1].is_retrace_day, true);
+  assert.equal(capture[1].grade_cap, "B");
+  assert.equal(summary.chain_status, "divergent");
+});
+
+test("direct-brief fold: quiet open degrades the chain, keeps B cap", async () => {
+  const entries = [entryAt("09:44"), entryAt("09:50")];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  assert.equal(capture[1].htf_ltf_alignment, "unclear");
+  assert.equal(capture[1].grade_cap, "B");
+  assert.equal(summary.chain_status, "degraded:open_unclear");
+});
+
+test("day-state context is never overridden by the resolver", async () => {
+  const rejection = sweepAt("09:43", { target: "LO.H", rejected: true });
+  const entries = [entryAt("09:50", { sweeps: [rejection] })];
+  const capture = [];
+  const recorded = {
+    session: SESSION,
+    leader: "MNQ1!",
+    ltf_bias_context: { bias: "bullish", htf_ltf_alignment: "divergent", is_retrace_day: true, entry_model_priority: "MSS", grade_cap: "B" },
+    session_state: { pillar1: { status: "pass", htfBias: "bullish" }, pillar2: { status: "pass", verdict: "good" } },
+    untaken_targets: { untaken_above: [], untaken_below: [] },
+    brief_digest: { htf_destination: {}, primary_draw: {} },
+  };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-or-"));
+  const bus = new EventEmitter();
+  const deps = makeDeps({ entries, capture });
+  deps.loadDayContext = async () => recorded;
+  const { summary } = await runBacktest({ date: DATE, session: SESSION, mode: "auto", bus, stateDir: dir, deps });
+
+  assert.equal(capture[0].htf_ltf_alignment, "divergent");
+  assert.equal(capture[0].bias, "bullish");
+  assert.equal(summary.chain_status, "clean");
+  assert.equal(summary.open_reaction ?? null, null);
+});
+
+// §7 Step 4: "Wait for first 15–30 minutes." The engine's sweep `rejected`
+// flag matures as later bars close back through the level — a continuation
+// read at minute 15 can become a rejection by minute 22 (observed June 9:
+// LO.H break at 09:43 read as continuation at 09:45; the rejection that
+// defined the A+ short printed by 09:52). The resolver re-evaluates each
+// bar until minute 30, then freezes.
+test("open-reaction verdict matures: rejected flag flips within minute 15-30 window", async () => {
+  const contAt43 = sweepAt("09:43", { target: "LO.H", rejected: false });
+  const rejAt43 = sweepAt("09:43", { target: "LO.H", rejected: true });
+  const entries = [
+    entryAt("09:46", { sweeps: [contAt43] }),  // minute-15 read: continuation
+    entryAt("09:52", { sweeps: [rejAt43] }),   // same sweep, now rejected
+    entryAt("10:05", { sweeps: [rejAt43] }),
+  ];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  assert.equal(capture[0].htf_ltf_alignment, "divergent");  // first read
+  assert.equal(capture[1].htf_ltf_alignment, "aligned");    // matured
+  assert.equal(capture[1].bias, "bearish");
+  assert.equal(capture[2].htf_ltf_alignment, "aligned");
+  assert.equal(summary.open_reaction.interaction, "rejection");
+  assert.equal(summary.chain_status, "clean");
+});
+
+test("open-reaction verdict freezes after minute 30", async () => {
+  const cont = sweepAt("09:43", { target: "LO.H", rejected: false });
+  const lateRej = sweepAt("09:43", { target: "LO.H", rejected: true });
+  const entries = [
+    entryAt("09:46", { sweeps: [cont] }),
+    entryAt("10:05", { sweeps: [lateRej] }),  // past minute 30 — ignored
+  ];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  assert.equal(capture[1].htf_ltf_alignment, "divergent");
+  assert.equal(summary.open_reaction.interaction, "continuation");
+  assert.equal(summary.chain_status, "divergent");
+});

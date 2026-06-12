@@ -184,7 +184,12 @@ test('buildDeterministicPacketTruthFromInputs enforces open-reaction grade cap o
   assert.equal(truth.surfacePayload.grade, 'B');
 });
 
-test('buildDeterministicPacketTruthFromInputs blocks models disallowed by open-reaction priority', () => {
+// entry_model_priority is a SELECTION preference, not a hard gate — the
+// resolver spec (strategy-chain design §3.4) defines it as "which model to
+// walk first" and §7 Step 5 keeps all three models playable. June 9 replay:
+// the hard block discarded the hand-verified A+ Inversion short because
+// in-window failure swings pointed the resolver at MSS.
+test('non-priority model still surfaces when it is the only executable packet', () => {
   const inputs = runtimeInputs();
   inputs.ltf_bias_context.entry_model_priority = 'Trend';
 
@@ -195,9 +200,9 @@ test('buildDeterministicPacketTruthFromInputs blocks models disallowed by open-r
     session: 'ny-am',
   });
 
-  assert.equal(truth.finalVerdict, 'no_trade');
-  assert.equal(truth.bestPacket, null);
-  assert.match(truth.noTradeReason, /entry_model_priority_blocked/);
+  assert.equal(truth.finalVerdict, 'manual_candidate');
+  assert.equal(truth.bestPacket.model, 'MSS');
+  assert.ok(!truth.bestPacket.blockers?.includes?.('entry_model_priority_blocked'));
 });
 
 // ---- live-bundle evidence bridge (2026-06-12) -------------------------------

@@ -128,7 +128,7 @@ export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = 
   };
 }
 
-function etToEpochSeconds(dateStr, timeStr) {
+export function etToEpochSeconds(dateStr, timeStr) {
   // Reuses the EDT/EST trial logic semantics from packages/core/replay.js.
   const [y, mo, d] = String(dateStr).split('-').map(Number);
   const [hh, mm = 0] = String(timeStr).split(':').map(Number);

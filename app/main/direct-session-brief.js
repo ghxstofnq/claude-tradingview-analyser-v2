@@ -127,7 +127,7 @@ function htfQualityRow(symbol, digestSymbol, tf) {
   };
 }
 
-function pickPrimaryDraw(digestSymbol) {
+function pickPrimaryDraw(digestSymbol, { price = null } = {}) {
   for (const tf of ["h4", "h1", "daily"]) {
     const block = digestSymbol?.htf?.[tf] ?? {};
     const candidates = [...(block.top_fvgs ?? []), ...(block.top_bprs ?? [])];
@@ -135,21 +135,35 @@ function pickPrimaryDraw(digestSymbol) {
     if (found) {
       const kind = /bprs/.test(found.cite) ? "bpr" : "fvg";
       const dir = /bear/i.test(found.direction ?? found.dir ?? "") ? "bear" : "bull";
+      const ce = Number.isFinite(found.ce) ? found.ce : (found.top + found.bottom) / 2;
       return {
         tf,
         kind,
         dir,
         top: found.top,
         bottom: found.bottom,
-        ce: Number.isFinite(found.ce) ? found.ce : (found.top + found.bottom) / 2,
+        ce,
         disp_score: Number.isFinite(found.disp_score) ? found.disp_score : 0,
         took_liq: !!found.took_liq,
         state: found.state || "fresh",
+        // Reaction + position evidence for downstream bias derivation
+        // (strategy §2.1 step 3: reactions off the PD array set bias;
+        // §2.3: an unreacted zone is a destination — path toward it).
+        reacted: !!found.reacted,
+        ...(found.reaction_dir ? { reaction_dir: found.reaction_dir } : {}),
+        ...(Number.isFinite(price) ? { position: ce > price ? "above_price" : "below_price" } : {}),
         cite: found.cite,
       };
     }
   }
   return null;
+}
+
+function symbolQuote(bundle, symbol) {
+  const paired = bundle?.pair?.symbols?.[symbol]?.quote?.last;
+  if (Number.isFinite(paired)) return paired;
+  const single = bundle?.quote?.last;
+  return Number.isFinite(single) ? single : null;
 }
 
 export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade = {}, symbols = [PAIR_PRIMARY, PAIR_SECONDARY] } = {}) {
@@ -160,7 +174,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     const levels = levelRows(symbol, ds);
     const htf = htfBiasRows(symbol, ds);
     const p2 = pillar2Status(ds);
-    const draw = pickPrimaryDraw(ds);
+    const draw = pickPrimaryDraw(ds, { price: symbolQuote(bundle, symbol) });
     const drawStatus = draw ? "pass" : "weak";
     // Capture provenance (brief_digest data_status, 2026-06-11): a missing HTF
     // capture is an instrument failure (data_gap), not a market verdict
@@ -230,8 +244,15 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
   });
 }
 
-export async function analyzePairBundle({ out = LAST_ANALYZE_PATH } = {}) {
-  const args = [path.join(REPO_ROOT, "cli", "index.js"), "analyze", "--pair", PAIR_DEFAULT, "--out", out];
+export async function analyzePairBundle({ out = LAST_ANALYZE_PATH, pair = PAIR_DEFAULT } = {}) {
+  // pair=null → single-symbol capture on the chart's current symbol. Used by
+  // the backtest anchor brief: symbol switches under active replay reload the
+  // whole chart per TF and the second symbol's capture flakes (2026-06-12).
+  const args = [
+    path.join(REPO_ROOT, "cli", "index.js"), "analyze",
+    ...(pair ? ["--pair", pair] : []),
+    "--out", out,
+  ];
   const output = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, { cwd: REPO_ROOT, env: process.env });
     let stdout = "";

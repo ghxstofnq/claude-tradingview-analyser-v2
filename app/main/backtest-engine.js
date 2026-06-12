@@ -32,6 +32,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.js";
+import { resolveOpenReaction } from "../../cli/lib/open-reaction-resolver.js";
+import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
+import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
 
 const SESSION_WINDOWS = {
   "ny-am": { from: "09:30", to: "12:00" },
@@ -39,11 +42,68 @@ const SESSION_WINDOWS = {
   london: { from: "03:00", to: "06:00" },
 };
 
+const OPEN_REACTION_MINUTES = 15; // strategy §2.3 / §7 Step 4: first 15–30 min
+
 function round2(n) { return Math.round(n * 100) / 100; }
 
 function lastClosedBarOf(entry) {
   const bars = entry?.inputs?.bundle?.bars?.last_5_bars ?? [];
   return bars[bars.length - 1] ?? null;
+}
+
+/** First 15 minutes of the session window, in epoch ms. */
+export function openReactionWindowMs({ date, session }) {
+  const window = SESSION_WINDOWS[session] ?? SESSION_WINDOWS["ny-am"];
+  const startMs = etToEpochSeconds(date, window.from) * 1000;
+  return { startMs, endMs: startMs + OPEN_REACTION_MINUTES * 60_000 };
+}
+
+/**
+ * Deterministic open-reaction leg (§2.3 / §7 Step 4) for synthesized
+ * contexts: resolve the NY-open verdict from the engine's sweep rows at the
+ * minute-15 boundary and return the upgraded ltf context + chain status.
+ */
+function resolveOpenReactionLeg({ entry, context, window }) {
+  const gates = entry?.inputs?.bundle?.gates?.engine ?? {};
+  const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
+  // Standing swing-tier structure as of this bar (engine's real-vs-internal
+  // separation) — lets the resolver detect failed breaks (§7 Step 4).
+  const swingStructs = gates?.pillar3?.structures_by_tier?.swing ?? [];
+  const swingStructure = swingStructs.reduce(
+    (a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a),
+    null,
+  );
+  const verdict = resolveOpenReaction({
+    htf_bias: htfBias,
+    sweeps: gates?.pillar1?.sweeps ?? [],
+    swing_structure: swingStructure,
+    window,
+  });
+  const p3 = gates?.pillar3 ?? {};
+  const priority = computeEntryModelPriority({
+    pillar2_verdict: context?.session_state?.pillar2?.verdict ?? null,
+    htf_ltf_alignment: verdict.htf_ltf_alignment,
+    ltf_bias: verdict.ltf_bias,
+    failure_swings: p3.failure_swings ?? [],
+    most_recent_structure: p3.most_recent_structure ?? null,
+    inverted_fvg_present: (p3.fvgs ?? []).some((f) => f?.state === "inverted"),
+  });
+  const chainStatus = verdict.htf_ltf_alignment === "aligned" ? "clean"
+    : verdict.htf_ltf_alignment === "divergent" ? "divergent"
+    : "degraded:open_unclear";
+  return {
+    ...verdict,
+    entry_model_priority: priority.priority,
+    resolved_at_ts: entry?.event?.ts ?? null,
+    chainStatus,
+    ltf_bias_context: {
+      bias: verdict.ltf_bias,
+      htf_ltf_alignment: verdict.htf_ltf_alignment,
+      is_retrace_day: verdict.is_retrace_day,
+      entry_model_priority: priority.priority,
+      grade_cap: verdict.grade_cap,
+    },
+  };
 }
 
 export async function runBacktest({
@@ -79,6 +139,7 @@ export async function runBacktest({
   const closedTrades = [];
   let contextSource = "none";
   let chainStatus = "clean";
+  let openReaction = null;
   let errorMessage = null;
   let entries = [];
   let warnings = [];
@@ -106,10 +167,10 @@ export async function runBacktest({
         runId, date, session, mode, startedAt,
         surfaced: [], closedTrades: [], openTrades: [], chainStatus, contextSource,
       });
-      fs.writeFileSync(path.join(sessionDir, "summary.json"), JSON.stringify(summary, null, 2));
-      writeIndexEntry({ stateDir, entry: summary });
+      persistSummary({ sessionDir, stateDir, summary });
       bus.emit("backtest:event", { type: "done", runId, summary });
       bus.off("backtest:command", stopHandler);
+      await runCleanup(deps, runId);
       return { runId, summary };
     }
     appendActivity({ kind: "context", source: contextSource });
@@ -139,10 +200,44 @@ export async function runBacktest({
 
     // 3. Fold: the real chain, walker state carried bar to bar (same
     //    semantics as cli/lib/day-tape.js#foldTape).
+    //    For synthesized (direct-brief) contexts the open-reaction leg
+    //    resolves deterministically at the minute-15 boundary (§2.3 /
+    //    §7 Step 4) and upgrades every later bar's ltf context. Day-state
+    //    contexts carry the live-recorded verdict and are never overridden.
+    const orWindow = openReactionWindowMs({ date, session });
+    // §7 Step 4 gives the open reaction "15–30 minutes": resolve at minute
+    // 15, then re-evaluate each bar until minute 30 — the sweep `rejected`
+    // flag matures as later bars close back through the level. Frozen after.
+    const orFreezeMs = orWindow.endMs + OPEN_REACTION_MINUTES * 60_000;
+    const synthesizedContext = contextSource === "direct_brief";
     let walkers = [];
     const seenPacketIds = new Set();
     for (let i = 0; i < entries.length && !stopped; i += 1) {
       const entry = entries[i];
+      const entryMs = Date.parse(entry?.event?.ts ?? "");
+      const inResolveSpan = Number.isFinite(entryMs) && entryMs >= orWindow.endMs &&
+        (!openReaction || entryMs <= orFreezeMs);
+      if (synthesizedContext && inResolveSpan) {
+        const next = resolveOpenReactionLeg({ entry, context, window: orWindow });
+        const changed = !openReaction ||
+          next.interaction !== openReaction.interaction ||
+          next.level !== openReaction.level ||
+          next.htf_ltf_alignment !== openReaction.htf_ltf_alignment;
+        if (changed) {
+          openReaction = next;
+          chainStatus = next.chainStatus;
+          appendActivity({
+            kind: "open_reaction",
+            interaction: next.interaction,
+            level: next.level,
+            alignment: next.htf_ltf_alignment,
+            cite: next.cite,
+          });
+        }
+      }
+      if (synthesizedContext && openReaction) {
+        entry.inputs.ltf_bias_context = openReaction.ltf_bias_context;
+      }
       const truth = await deps.truthFn({
         inputs: entry.inputs,
         previousWalkers: walkers,
@@ -223,8 +318,23 @@ export async function runBacktest({
   } catch (e) {
     errorMessage = e.message;
     chainStatus = `error:${e.message}`;
+    // eslint-disable-next-line no-console
+    console.error(`[backtest] run ${runId} failed:`, e.message);
+    // Persist the failure — a crashed run must be reconstructable from disk
+    // (2026-06-12: a popover run died with the error visible only in the
+    // renderer event stream; nothing on disk, nothing in the log).
+    try {
+      const summary = buildSummary({
+        runId, date, session, mode, startedAt,
+        surfaced, closedTrades, openTrades, chainStatus, contextSource,
+        warnings: warnings.length, bars: entries.length, errorMessage,
+        openReaction,
+      });
+      persistSummary({ sessionDir, stateDir, summary });
+    } catch { /* persistence is best-effort on the failure path */ }
     bus.emit("backtest:event", { type: "error", runId, message: e.message });
     bus.off("backtest:command", stopHandler);
+    await runCleanup(deps, runId);
     throw e;
   }
 
@@ -233,14 +343,71 @@ export async function runBacktest({
     runId, date, session, mode, startedAt,
     surfaced, closedTrades, openTrades, chainStatus, contextSource,
     warnings: warnings.length, bars: entries.length, errorMessage,
+    openReaction,
   });
-  fs.writeFileSync(path.join(sessionDir, "summary.json"), JSON.stringify(summary, null, 2));
-  writeIndexEntry({ stateDir, entry: summary });
+  persistSummary({ sessionDir, stateDir, summary });
   bus.emit("backtest:event", { type: "done", runId, summary });
+  await runCleanup(deps, runId);
   return { runId, summary };
 }
 
-function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], closedTrades, openTrades, chainStatus, contextSource, warnings = 0, bars = 0, errorMessage = null }) {
+// summary.json (machine) + summary.md (the replayed day's wrap — chain_audit
+// frontmatter mirroring the live wrap, rendered by the popover DETAIL view)
+// + index entry.
+function persistSummary({ sessionDir, stateDir, summary }) {
+  fs.writeFileSync(path.join(sessionDir, "summary.json"), JSON.stringify(summary, null, 2));
+  fs.writeFileSync(path.join(sessionDir, "summary.md"), summaryMarkdown(summary));
+  writeIndexEntry({ stateDir, entry: summary });
+}
+
+function summaryMarkdown(s) {
+  const or = s.open_reaction;
+  return [
+    "---",
+    `chain_status: "${s.chain_status}"`,
+    `context_source: "${s.context_source}"`,
+    `setups: ${s.setups}`,
+    `wins: ${s.wins}`,
+    `losses: ${s.losses}`,
+    `total_r: ${s.total_r}`,
+    ...(or ? [
+      `open_reaction_alignment: "${or.htf_ltf_alignment}"`,
+      `open_reaction_level: "${or.level ?? ""}"`,
+    ] : []),
+    "---",
+    "",
+    `# Backtest ${s.date} ${s.session}`,
+    "",
+    `- engine: ${s.engine}`,
+    `- mode: ${s.mode} · bars: ${s.bars} · cost: $${s.cost_usd}`,
+    `- chain: ${s.chain_status} (context: ${s.context_source})`,
+    `- setups: ${s.setups} · wins ${s.wins} · losses ${s.losses} · total R ${s.total_r}`,
+    ...(or ? [
+      "",
+      "## Open reaction",
+      `- ${or.interaction} at ${or.level ?? "n/a"} → ${or.htf_ltf_alignment}` +
+        `${or.is_retrace_day ? " (retrace day)" : ""} · cap ${or.grade_cap} · model priority ${or.entry_model_priority}`,
+      `- cite: ${or.cite}`,
+    ] : []),
+    "",
+  ].join("\n");
+}
+
+// Always-on teardown (production: stop TV replay so the shared chart never
+// stays stranded in replay mode — a stranded replay poisons the next live
+// capture). Failures are logged, never thrown: cleanup must not mask the
+// run result.
+async function runCleanup(deps, runId) {
+  if (!deps.cleanup) return;
+  try {
+    await deps.cleanup();
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[backtest] cleanup failed for ${runId}:`, e.message);
+  }
+}
+
+function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], closedTrades, openTrades, chainStatus, contextSource, warnings = 0, bars = 0, errorMessage = null, openReaction = null }) {
   // `setups` counts what the chain SURFACED — a rejected setup still
   // happened; only acceptance routes it into the outcome walk.
   const totalSetups = surfaced.length;
@@ -284,6 +451,19 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
     wins_by_grade,
     your_agreement: { agreed: 0, disagreed: 0, ungraded: totalSetups },
     chain_status: errorMessage ? `error:${errorMessage}` : chainStatus,
+    ...(openReaction ? {
+      open_reaction: {
+        interaction: openReaction.interaction,
+        level: openReaction.level,
+        ltf_bias: openReaction.ltf_bias,
+        htf_ltf_alignment: openReaction.htf_ltf_alignment,
+        is_retrace_day: openReaction.is_retrace_day,
+        grade_cap: openReaction.grade_cap,
+        entry_model_priority: openReaction.entry_model_priority,
+        cite: openReaction.cite,
+        resolved_at_ts: openReaction.resolved_at_ts,
+      },
+    } : {}),
   };
 }
 

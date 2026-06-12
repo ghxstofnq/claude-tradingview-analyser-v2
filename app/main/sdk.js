@@ -611,6 +611,11 @@ function buildMcpServer() {
           disp_score: z.number().finite(),
           took_liq: z.boolean(),
           state: z.enum(["fresh", "ce_tapped", "filled", "inverted", "invalidated"]),
+          // Reaction + position evidence for bias derivation (strategy §2.1
+          // step 3 / §2.3). Optional — emitted by the deterministic brief.
+          reacted: z.boolean().optional(),
+          reaction_dir: z.enum(["bull", "bear", "none"]).optional(),
+          position: z.enum(["above_price", "below_price"]).optional(),
           cite: z.string().refine((s) => /engine_by_tf\.(daily|h4|h1)\.(fvgs|bprs)/.test(s), {
             message: "primary_draw.cite must point at engine_by_tf.<tf>.fvgs[N] or .bprs[N]",
           }),

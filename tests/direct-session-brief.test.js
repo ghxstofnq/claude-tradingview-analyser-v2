@@ -214,3 +214,26 @@ test("codexBriefAnalysisEnabled — Codex brief commentary is env opt-in, defaul
   assert.equal(codexBriefAnalysisEnabled({ TV_CODEX_BRIEF_ANALYSIS: "1" }), true);
   assert.equal(codexBriefAnalysisEnabled({ TV_CODEX_BRIEF_ANALYSIS: "0" }), false);
 });
+
+test("primary_draw carries reaction + position evidence for bias derivation", () => {
+  const b = bundle();
+  // zone above price, observed bearish reaction off it
+  b.brief_digest.symbols["MNQ1!"].htf.h4.top_fvgs[0] = {
+    dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91,
+    took_liq: true, state: "fresh", reacted: true, reaction_dir: "bear",
+    cite: "engine_by_tf.h4.fvgs[17]",
+  };
+  b.quote = { last: 29800 };
+  const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  const draw = payloads[0].primary_draw;
+  assert.equal(draw.reacted, true);
+  assert.equal(draw.reaction_dir, "bear");
+  assert.equal(draw.position, "above_price"); // zone ce 30002 > last 29800
+});
+
+test("primary_draw position derives from the paired symbol quote when present", () => {
+  const b = bundle();
+  b.pair = { symbols: { "MNQ1!": { quote: { last: 30100 } } } };
+  const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(payloads[0].primary_draw.position, "below_price"); // ce 29975 < last 30100
+});

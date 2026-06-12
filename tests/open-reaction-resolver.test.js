@@ -1,0 +1,186 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { resolveOpenReaction } from '../cli/lib/open-reaction-resolver.js';
+
+// Window: 09:30:00–09:45:00 ET on an arbitrary day (pure ms comparisons).
+const W = { startMs: 1_000_000, endMs: 1_900_000 };
+const inWindow = (offset = 0) => W.startMs + 60_000 + offset;
+
+function sweep({ target, rejected, ms = inWindow() }) {
+  return { target, price: 100, side: 'x', swept_ms: ms, rejected };
+}
+
+// §7 Step 4: "Break + rejection in direction of HTF draw → LTF aligns with
+// HTF (A+ potential)." §2.4 A+ example: NY breaks London high, rejects hard.
+test('rejection at LO.H with bearish HTF draw → aligned, A+ cap', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'LO.H', rejected: true })],
+    window: W,
+  });
+  assert.equal(r.interaction, 'rejection');
+  assert.equal(r.level, 'LO.H');
+  assert.equal(r.ltf_bias, 'bearish');
+  assert.equal(r.htf_ltf_alignment, 'aligned');
+  assert.equal(r.is_retrace_day, false);
+  assert.equal(r.grade_cap, 'A+');
+});
+
+// §2.3: extension day — overnight extends the HTF move and NY continues
+// through the overnight low toward the draw. HTF and LTF point the same way
+// (§2.4 A+ definition), so alignment holds.
+test('continuation through AS.L with bearish HTF draw → aligned extension', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'AS.L', rejected: false })],
+    window: W,
+  });
+  assert.equal(r.interaction, 'continuation');
+  assert.equal(r.ltf_bias, 'bearish');
+  assert.equal(r.htf_ltf_alignment, 'aligned');
+  assert.equal(r.is_retrace_day, false);
+  assert.equal(r.grade_cap, 'A+');
+});
+
+// §7 Step 4: "Break + continuation against HTF draw → consider today a
+// retrace day." §2.4: "Conviction trade but not A+" → cap B.
+test('continuation through LO.H against bearish HTF draw → divergent retrace day, B cap', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'LO.H', rejected: false })],
+    window: W,
+  });
+  assert.equal(r.interaction, 'continuation');
+  assert.equal(r.ltf_bias, 'bullish');
+  assert.equal(r.htf_ltf_alignment, 'divergent');
+  assert.equal(r.is_retrace_day, true);
+  assert.equal(r.grade_cap, 'B');
+});
+
+// Rejection direction counters the break side: a rejected low-break points
+// UP. Against a bearish draw that is divergence (§2.3 second example).
+test('rejection at AS.L with bearish HTF draw → divergent (rejection points up)', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'AS.L', rejected: true })],
+    window: W,
+  });
+  assert.equal(r.ltf_bias, 'bullish');
+  assert.equal(r.htf_ltf_alignment, 'divergent');
+  assert.equal(r.is_retrace_day, true);
+  assert.equal(r.grade_cap, 'B');
+});
+
+// §7 Step 7: "B = One element weaker (… neutral overnight …)" — a quiet open
+// with no overnight-level interaction caps at B and leaves bias unset.
+test('no overnight interaction in window → unclear, B cap, null bias', () => {
+  const r = resolveOpenReaction({ htf_bias: 'bearish', sweeps: [], window: W });
+  assert.equal(r.interaction, 'none');
+  assert.equal(r.level, null);
+  assert.equal(r.ltf_bias, null);
+  assert.equal(r.htf_ltf_alignment, 'unclear');
+  assert.equal(r.is_retrace_day, false);
+  assert.equal(r.grade_cap, 'B');
+});
+
+test('sweeps outside the window are ignored', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [
+      sweep({ target: 'LO.H', rejected: true, ms: W.startMs - 1 }),
+      sweep({ target: 'AS.L', rejected: false, ms: W.endMs }),
+    ],
+    window: W,
+  });
+  assert.equal(r.interaction, 'none');
+});
+
+// §2.3: "let NY open reaction confirm or challenge it" — the latest
+// interaction in the window is the verdict.
+test('multiple interactions → latest in window wins', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [
+      sweep({ target: 'LO.H', rejected: false, ms: inWindow(0) }),   // bullish continuation first
+      sweep({ target: 'LO.H', rejected: true, ms: inWindow(60_000) }), // then hard rejection
+    ],
+    window: W,
+  });
+  assert.equal(r.interaction, 'rejection');
+  assert.equal(r.ltf_bias, 'bearish');
+  assert.equal(r.htf_ltf_alignment, 'aligned');
+});
+
+// §7 Step 4 is about the overnight (Asia/London) high/low specifically;
+// other level sweeps do not resolve the open reaction by default.
+test('non-overnight targets (PDH) are ignored by default', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'PDH', rejected: true })],
+    window: W,
+  });
+  assert.equal(r.interaction, 'none');
+  assert.equal(r.htf_ltf_alignment, 'unclear');
+});
+
+test('bullish HTF mirror: rejection at AS.L aligns long', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bullish',
+    sweeps: [sweep({ target: 'AS.L', rejected: true })],
+    window: W,
+  });
+  assert.equal(r.ltf_bias, 'bullish');
+  assert.equal(r.htf_ltf_alignment, 'aligned');
+  assert.equal(r.grade_cap, 'A+');
+});
+
+test('result carries a citable source path', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'LO.H', rejected: true })],
+    window: W,
+  });
+  assert.match(r.cite, /sweeps/);
+});
+
+// §7 Step 4: "More importantly: What is the reaction after that break?"
+// The engine separates swing-tier structure (real) from internal (noise).
+// A level break whose direction opposes the standing swing-tier structure
+// is a FAILED break — the reaction, not the break, sets the bias.
+// (June 9: LO.H broke up at 09:43, but the swing-tier MSS bear confirmed
+// 09:34 stood — the push failed at 29811 and sell-side delivered all day.)
+test('continuation against standing swing-tier structure → failed break, structure direction wins', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'LO.H', rejected: false })],
+    swing_structure: { event: 'mss', dir: 'bear', tier: 'swing', confirmed_ms: inWindow(-30_000) },
+    window: W,
+  });
+  assert.equal(r.interaction, 'failed_break');
+  assert.equal(r.ltf_bias, 'bearish');
+  assert.equal(r.htf_ltf_alignment, 'aligned');
+  assert.equal(r.grade_cap, 'A+');
+  assert.match(r.cite, /structure/);
+});
+
+test('continuation agreeing with swing-tier structure stays a continuation', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'LO.H', rejected: false })],
+    swing_structure: { event: 'bos', dir: 'bull', tier: 'swing', confirmed_ms: inWindow(-30_000) },
+    window: W,
+  });
+  assert.equal(r.interaction, 'continuation');
+  assert.equal(r.ltf_bias, 'bullish');
+});
+
+test('explicit sweep rejection is not overridden by swing structure', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'LO.H', rejected: true })],
+    swing_structure: { event: 'mss', dir: 'bull', tier: 'swing', confirmed_ms: inWindow(-30_000) },
+    window: W,
+  });
+  assert.equal(r.interaction, 'rejection');
+  assert.equal(r.ltf_bias, 'bearish');
+});

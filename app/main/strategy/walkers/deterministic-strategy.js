@@ -4,9 +4,18 @@ import { runTrendWalkerLifecycle } from './trend-lifecycle.js';
 import { runInversionWalkerLifecycle } from './inversion-lifecycle.js';
 import { runWalkerEngine } from './walker-engine.js';
 
-function packetSort(a, b) {
+// Grade first, then the open-reaction model priority (a preference, not a
+// gate — resolver spec §3.4 "which model to walk first").
+function makePacketSort(context) {
   const gradeRank = { 'A+': 0, B: 1, 'no-trade': 9 };
-  return (gradeRank[a.grade] ?? 8) - (gradeRank[b.grade] ?? 8);
+  const priority = String(context?.sessionChain?.entryModelPriority ?? '').toLowerCase();
+  const priorityRank = (p) =>
+    priority && !['undecided', 'unknown', 'none', ''].includes(priority)
+      ? (String(p.model ?? '').toLowerCase() === priority ? 0 : 1)
+      : 0;
+  return (a, b) =>
+    ((gradeRank[a.grade] ?? 8) - (gradeRank[b.grade] ?? 8)) ||
+    (priorityRank(a) - priorityRank(b));
 }
 
 function finalizeConfirmedWalkers({ context, walkers }) {
@@ -47,7 +56,7 @@ export function runDeterministicWalkerStrategy({ context, walkers = [] } = {}) {
   const trend = runTrendWalkerLifecycle({ context, walkers: mss.walkers });
   const inversion = runInversionWalkerLifecycle({ context, walkers: trend.walkers });
   const finalized = finalizeConfirmedWalkers({ context, walkers: inversion.walkers });
-  const executablePackets = finalized.packets.filter((packet) => packet.status === 'executable').sort(packetSort);
+  const executablePackets = finalized.packets.filter((packet) => packet.status === 'executable').sort(makePacketSort(context));
 
   return {
     walkers: finalized.walkers,
