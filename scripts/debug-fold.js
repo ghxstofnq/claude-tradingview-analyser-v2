@@ -22,7 +22,7 @@ const payloads = JSON.parse(fs.readFileSync(path.join(runDir, "brief-payloads.js
 const context = contextFromBriefPayloads({ session, payloads });
 
 const w = openReactionWindowMs({ date: tape.date, session });
-const freezeMs = w.endMs + 15 * 60_000;
+const freezeMs = w.endMs;
 const et = (iso) => {
   const d = new Date(iso);
   return `${String((d.getUTCHours() + 20) % 24).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
@@ -36,7 +36,7 @@ let walkers = [];
 let openReaction = null;
 for (const entry of tape.entries) {
   const ms = Date.parse(entry.event.ts);
-  if (ms >= w.endMs && (!openReaction || ms <= freezeMs)) {
+  if (ms >= w.resolveMs && (!openReaction || ms <= freezeMs)) {
     const gates = entry.inputs.bundle.gates.engine;
     const swings = gates?.pillar3?.structures_by_tier?.swing ?? [];
     const swing = swings.reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);

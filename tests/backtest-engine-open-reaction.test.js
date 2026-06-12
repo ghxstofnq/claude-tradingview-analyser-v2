@@ -96,9 +96,15 @@ async function run({ entries, capture }) {
   return result;
 }
 
-test("openReactionWindowMs spans the first 15 minutes of the session", () => {
+// §7 Step 4 gives the open reaction "15–30 minutes": interactions count
+// through minute 30 (endMs), the verdict first resolves at minute 15
+// (resolveMs) and re-evaluates until minute 30. (June 11 ny-pm: the NYAM.H
+// break printed at minute 29 — a legitimate open-reaction event the old
+// 15-minute interaction window discarded.)
+test("openReactionWindowMs: interactions span 30 minutes, resolution starts at 15", () => {
   const w = openReactionWindowMs({ date: DATE, session: SESSION });
-  assert.equal(w.endMs - w.startMs, 15 * 60_000);
+  assert.equal(w.resolveMs - w.startMs, 15 * 60_000);
+  assert.equal(w.endMs - w.startMs, 30 * 60_000);
 });
 
 test("direct-brief fold: unclear before the boundary, aligned after a rejection in draw direction", async () => {

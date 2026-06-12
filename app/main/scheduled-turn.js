@@ -38,6 +38,12 @@ function authBlockedMessage(purpose = null, providerOverride = null) {
   return blocked.message || "Claude Code not logged in";
 }
 
+// Pure: deterministic-first purposes (directRunFn present) never gate on
+// LLM auth; LLM-only purposes skip when the provider's auth is blocked.
+export function shouldSkipForAuth({ authMsg, hasDirectRun } = {}) {
+  return Boolean(authMsg) && !hasDirectRun;
+}
+
 export function providerOverrideForScheduledTurnForTests(config = {}) {
   return config.providerOverride || null;
 }
@@ -171,7 +177,11 @@ export function makeScheduledTurn(config) {
 
     const providerOverride = providerOverrideForScheduledTurnForTests(config);
     const authMsg = authBlockedMessage(config.purpose, providerOverride);
-    if (authMsg) {
+    // Purposes with a directRunFn are deterministic-first and need no LLM
+    // auth at all — the 2026-06-12 London wrap was skipped claude_auth_blocked
+    // even though runDirectSessionWrap would have written summary.md without
+    // touching Claude. Only LLM-only purposes gate on auth.
+    if (shouldSkipForAuth({ authMsg, hasDirectRun: !!config.directRunFn })) {
       const message = "Claude Code not logged in — scheduled LLM turns paused. Run `claude /login` (or set ANTHROPIC_API_KEY) and restart the dashboard.";
       _send?.(config.statusChannel, { state: "skipped", session, reason: "claude_auth_blocked", message });
       _send?.("app:error", { source: config.name, level: "warn", message });

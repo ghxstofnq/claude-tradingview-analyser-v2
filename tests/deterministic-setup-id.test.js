@@ -64,3 +64,13 @@ test("5m-tagged copy of a bar keys to the same truth cache entry", () => {
   assert.equal(__test.truthCacheKeyFor(base), __test.truthCacheKeyFor(fiveM));
   assert.notEqual(__test.truthCacheKeyFor(base), __test.truthCacheKeyFor({ ...base, bar_close_time: 1781254860 }));
 });
+
+// The per-bar LLM gate must be provider-aware: a Claude login failure must
+// not suppress turns when the purpose resolves to Codex (2026-06-12: Claude
+// 401 muted narration even though Codex was authenticated and selected).
+test("bar-close LLM gate only blocks when the resolved provider is claude", () => {
+  const { llmTurnAuthBlocked } = __test;
+  assert.equal(llmTurnAuthBlocked({ providerName: "claude", claudeBlocked: true }), true);
+  assert.equal(llmTurnAuthBlocked({ providerName: "claude", claudeBlocked: false }), false);
+  assert.equal(llmTurnAuthBlocked({ providerName: "codex", claudeBlocked: true }), false);
+});

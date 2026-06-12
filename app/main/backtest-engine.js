@@ -32,7 +32,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.js";
-import { resolveOpenReaction } from "../../cli/lib/open-reaction-resolver.js";
+import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/open-reaction-resolver.js";
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
 
@@ -42,7 +42,8 @@ const SESSION_WINDOWS = {
   london: { from: "03:00", to: "06:00" },
 };
 
-const OPEN_REACTION_MINUTES = 15; // strategy §2.3 / §7 Step 4: first 15–30 min
+const OPEN_REACTION_RESOLVE_MIN = 15; // §2.3 / §7 Step 4: verdict from minute 15…
+const OPEN_REACTION_END_MIN = 30;     // …interactions count through minute 30
 
 function round2(n) { return Math.round(n * 100) / 100; }
 
@@ -51,11 +52,20 @@ function lastClosedBarOf(entry) {
   return bars[bars.length - 1] ?? null;
 }
 
-/** First 15 minutes of the session window, in epoch ms. */
+/**
+ * Open-reaction timing for a session (§7 Step 4 "first 15–30 minutes"):
+ * level interactions count within [startMs, endMs) (30 minutes); the
+ * verdict first resolves at resolveMs (minute 15) and re-evaluates each
+ * bar until endMs, then freezes.
+ */
 export function openReactionWindowMs({ date, session }) {
   const window = SESSION_WINDOWS[session] ?? SESSION_WINDOWS["ny-am"];
   const startMs = etToEpochSeconds(date, window.from) * 1000;
-  return { startMs, endMs: startMs + OPEN_REACTION_MINUTES * 60_000 };
+  return {
+    startMs,
+    resolveMs: startMs + OPEN_REACTION_RESOLVE_MIN * 60_000,
+    endMs: startMs + OPEN_REACTION_END_MIN * 60_000,
+  };
 }
 
 /**
@@ -63,7 +73,7 @@ export function openReactionWindowMs({ date, session }) {
  * contexts: resolve the NY-open verdict from the engine's sweep rows at the
  * minute-15 boundary and return the upgraded ltf context + chain status.
  */
-function resolveOpenReactionLeg({ entry, context, window }) {
+function resolveOpenReactionLeg({ entry, context, window, session }) {
   const gates = entry?.inputs?.bundle?.gates?.engine ?? {};
   const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
   // Standing swing-tier structure as of this bar (engine's real-vs-internal
@@ -78,6 +88,7 @@ function resolveOpenReactionLeg({ entry, context, window }) {
     sweeps: gates?.pillar1?.sweeps ?? [],
     swing_structure: swingStructure,
     window,
+    overnight_targets: overnightTargetsForSession(session),
   });
   const p3 = gates?.pillar3 ?? {};
   const priority = computeEntryModelPriority({
@@ -206,19 +217,19 @@ export async function runBacktest({
     //    contexts carry the live-recorded verdict and are never overridden.
     const orWindow = openReactionWindowMs({ date, session });
     // §7 Step 4 gives the open reaction "15–30 minutes": resolve at minute
-    // 15, then re-evaluate each bar until minute 30 — the sweep `rejected`
-    // flag matures as later bars close back through the level. Frozen after.
-    const orFreezeMs = orWindow.endMs + OPEN_REACTION_MINUTES * 60_000;
+    // 15 (resolveMs), then re-evaluate each bar until minute 30 (endMs) —
+    // late breaks count and the sweep `rejected` flag matures as later bars
+    // close back through the level. Frozen after endMs.
     const synthesizedContext = contextSource === "direct_brief";
     let walkers = [];
     const seenPacketIds = new Set();
     for (let i = 0; i < entries.length && !stopped; i += 1) {
       const entry = entries[i];
       const entryMs = Date.parse(entry?.event?.ts ?? "");
-      const inResolveSpan = Number.isFinite(entryMs) && entryMs >= orWindow.endMs &&
-        (!openReaction || entryMs <= orFreezeMs);
+      const inResolveSpan = Number.isFinite(entryMs) && entryMs >= orWindow.resolveMs &&
+        (!openReaction || entryMs <= orWindow.endMs);
       if (synthesizedContext && inResolveSpan) {
-        const next = resolveOpenReactionLeg({ entry, context, window: orWindow });
+        const next = resolveOpenReactionLeg({ entry, context, window: orWindow, session });
         const changed = !openReaction ||
           next.interaction !== openReaction.interaction ||
           next.level !== openReaction.level ||

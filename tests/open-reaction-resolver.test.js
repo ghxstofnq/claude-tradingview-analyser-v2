@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveOpenReaction } from '../cli/lib/open-reaction-resolver.js';
+import { resolveOpenReaction, overnightTargetsForSession } from '../cli/lib/open-reaction-resolver.js';
 
 // Window: 09:30:00–09:45:00 ET on an arbitrary day (pure ms comparisons).
 const W = { startMs: 1_000_000, endMs: 1_900_000 };
@@ -183,4 +183,28 @@ test('explicit sweep rejection is not overridden by swing structure', () => {
   });
   assert.equal(r.interaction, 'rejection');
   assert.equal(r.ltf_bias, 'bearish');
+});
+
+// §2.2: "One session creates liquidity, another delivers into it." The PM
+// open reacts to the MORNING session's high/low — NYAM.H/L are first-class
+// open-reaction targets for ny-pm (the engine emits them; June 11 ny-pm
+// replay resolved 'unclear' while the 13:02 NYAM.L sweep sat in the table).
+test('session-aware targets: NYAM levels resolve the ny-pm open', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'NYAM.L', rejected: false })],
+    window: W,
+    overnight_targets: overnightTargetsForSession('ny-pm'),
+  });
+  assert.equal(r.interaction, 'continuation');
+  assert.equal(r.ltf_bias, 'bearish');
+  assert.equal(r.htf_ltf_alignment, 'aligned');
+});
+
+test('session-aware targets: ny-am keeps the overnight set without NYAM', () => {
+  const am = overnightTargetsForSession('ny-am');
+  assert.ok(am.has('AS.H') && am.has('LO.L'));
+  assert.ok(!am.has('NYAM.H'));
+  const pm = overnightTargetsForSession('ny-pm');
+  assert.ok(pm.has('NYAM.H') && pm.has('NYAM.L') && pm.has('AS.H'));
 });

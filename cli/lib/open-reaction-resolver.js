@@ -16,6 +16,18 @@
 
 const OVERNIGHT_TARGETS = new Set(['AS.H', 'AS.L', 'LO.H', 'LO.L']);
 
+/**
+ * §2.2: "One session creates liquidity, another delivers into it." The PM
+ * open reacts to the MORNING session's high/low, so NYAM.H/L join the
+ * target set for ny-pm. ny-am / london read the overnight set.
+ */
+export function overnightTargetsForSession(session) {
+  if (session === 'ny-pm') {
+    return new Set([...OVERNIGHT_TARGETS, 'NYAM.H', 'NYAM.L']);
+  }
+  return new Set(OVERNIGHT_TARGETS);
+}
+
 function isHighLevel(name) {
   return /\.H$/.test(name);
 }

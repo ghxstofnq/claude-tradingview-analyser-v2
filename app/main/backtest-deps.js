@@ -121,18 +121,28 @@ export const PROD_DEPS = {
       await pinChart(leader);
       await replay.start({ date, time: REPLAY_ANCHORS[session] ?? "09:30" });
       const out = path.join(runDir, "brief-bundle.json");
+      const anchorTime = REPLAY_ANCHORS[session] ?? "09:30";
+      // A wedged chart shows up two ways: the capture THROWS (every TF empty)
+      // or it "succeeds" with the HTFs missing while only the active 1m TF
+      // emitted (observed 2026-06-12 ny-pm replay: m1 fresh, daily..m5 all
+      // missing, quote stamped with LIVE time — the anchor never applied).
+      // Both are instrument failures, not data verdicts — recover + retry once.
+      const wedged = (b) => {
+        const missing = b?.capture_health?.missing ?? [];
+        return b?.capture_health?.ok === false && missing.length >= 3;
+      };
       try {
         bundle = await analyzePairBundle({ out, pair: null });
+        if (wedged(bundle)) throw new Error(`anchor capture wedged: missing ${bundle.capture_health.missing.join(",")}`);
       } catch (e) {
-        // An all-TF-empty capture means the chart is wedged (not a data
-        // verdict) — recover with a page reload, re-anchor, retry once.
         // eslint-disable-next-line no-console
         console.warn("[backtest] anchor capture failed, recovering:", e.message);
         try { await replay.stop(); } catch { /* may already be detached */ }
         await reloadChartAndWait();
         await pinChart(leader);
-        await replay.start({ date, time: REPLAY_ANCHORS[session] ?? "09:30" });
+        await replay.start({ date, time: anchorTime });
         bundle = await analyzePairBundle({ out, pair: null });
+        if (wedged(bundle)) throw new Error(`anchor capture wedged after recovery: missing ${bundle.capture_health.missing.join(",")}`);
       }
     } finally {
       try {

@@ -17,6 +17,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as replayCore from "@tvmcp/core/replay";
 import { userTurn, isClaudeAuthBlocked } from "./sdk.js";
+import { resolveLlmProvider } from "./llm-provider.js";
+
+// Pure: the per-bar LLM gate. Claude login state only matters when the
+// resolved provider for this purpose IS claude.
+function llmTurnAuthBlocked({ providerName, claudeBlocked }) {
+  return providerName === "claude" && claudeBlocked === true;
+}
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
@@ -447,7 +454,11 @@ async function runClaudeTurnFor(ev, session, phase) {
   // If Claude Code is not authenticated, keep deterministic bar/trade/walker
   // ticking alive but suppress LLM turns. Otherwise a missing local login
   // creates one failed catch-up/wrap/brief attempt per scheduler tick.
-  const authBlocked = isClaudeAuthBlocked();
+  // Provider-aware: a Claude login failure must not mute turns when the
+  // bar-close purpose resolves to Codex (scheduled-turn.js already does
+  // this; the per-bar path missed it — observed 2026-06-12).
+  const providerName = resolveLlmProvider({ purpose: "bar-close" }).name;
+  const authBlocked = llmTurnAuthBlocked({ providerName, claudeBlocked: !!isClaudeAuthBlocked() });
 
   // Catch-up: if we entered entry-hunt without a pair-decision (started the
   // system after 09:45 ET for NY AM / 13:15 for NY PM / 03:15 for London),
@@ -1294,6 +1305,7 @@ export const __test = {
   buildStrategyBundleForRuntime,
   deterministicPacketToSurfacePayload,
   truthCacheKeyFor,
+  llmTurnAuthBlocked,
 };
 
 // Read the chosen leader symbol from pair-decision.json. Returns null if

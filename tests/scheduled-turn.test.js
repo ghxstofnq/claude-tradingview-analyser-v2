@@ -42,3 +42,12 @@ test("scheduled-turn provider routing: deterministic-first — a direct runner a
   assert.equal(shouldUseDirectScheduledTurn({ provider: claudeToolRequired, directRunFn: async () => {} }), true);
   assert.equal(shouldUseDirectScheduledTurn({ provider: codexTextOnlyToolRequired }), false);
 });
+
+test("scheduled-turn auth gate: deterministic-first purposes run while auth is blocked", async () => {
+  const { shouldSkipForAuth } = await import("../app/main/scheduled-turn.js");
+  // 2026-06-12: the London wrap (directRunFn present) was skipped
+  // claude_auth_blocked even though its deterministic path needs no LLM.
+  assert.equal(shouldSkipForAuth({ authMsg: "Claude not logged in", hasDirectRun: true }), false);
+  assert.equal(shouldSkipForAuth({ authMsg: "Claude not logged in", hasDirectRun: false }), true);
+  assert.equal(shouldSkipForAuth({ authMsg: null, hasDirectRun: false }), false);
+});
