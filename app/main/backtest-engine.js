@@ -42,6 +42,11 @@ const SESSION_WINDOWS = {
   london: { from: "03:00", to: "06:00" },
 };
 
+// User ruling 2026-06-12: the session halts at -3R realized — no new
+// positions once the day's closed trades reach the cap (June 11 AM chop
+// bled 9 straight stops without it).
+const SESSION_MAX_LOSS_R = -3;
+
 const OPEN_REACTION_RESOLVE_MIN = 15; // §2.3 / §7 Step 4: verdict from minute 15…
 const OPEN_REACTION_END_MIN = 30;     // …interactions count through minute 30
 
@@ -151,6 +156,8 @@ export async function runBacktest({
   const surfaced = [];
   const openTrades = [];
   const closedTrades = [];
+  let sessionRealizedR = 0;
+  let sessionHalted = false;
   let contextSource = "none";
   let chainStatus = "clean";
   let openReaction = null;
@@ -366,6 +373,10 @@ export async function runBacktest({
               appendSetupRow({ type: "rejected", ts: Date.now(), setup_id: setup.id, reason: decision.reason ?? null });
               bus.emit("backtest:event", { type: "setup_rejected", runId, setupId: setup.id });
             }
+          } else if (sessionHalted) {
+            // -3R session halt (user ruling 2026-06-12): the setup still
+            // surfaces for review, but the day is done trading.
+            appendSetupRow({ type: "session_halted", ts: Date.now(), setup_id: setup.id, session_r: round2(sessionRealizedR) });
           } else if (openTrades.length === 0) {
             openTrades.push(setup);
             appendSetupRow({ type: "open", ts: Date.now(), accepted_by: "auto", ...setup });
@@ -387,12 +398,25 @@ export async function runBacktest({
           if (trade.event_ts === entry.event?.ts) continue; // packet bar itself
           const verdict = deps.gradeFn(trade, bar);
           if (verdict.outcome === "pending") continue;
+          // Realized R (user correction 2026-06-12): a TP1 hit books the
+          // trade's actual multiple — |exit-entry| / |entry-stop| — not a
+          // flat +1R (swing TP1s pay >=2R by rule). Stops book -1R.
+          const risk = Math.abs(Number(trade.entry) - Number(trade.stop));
+          const realizedR = verdict.outcome === "tp1_hit" && Number.isFinite(risk) && risk > 0
+            ? Number((Math.abs(Number(verdict.exit) - Number(trade.entry)) / risk).toFixed(2))
+            : verdict.outcome === "stop_hit" ? -1 : 0;
           appendSetupRow({
             type: "outcome", ts: Date.now(), setup_id: trade.id,
-            outcome: verdict.outcome, exit: verdict.exit, conflict_bar: verdict.conflict_bar,
+            outcome: verdict.outcome, exit: verdict.exit, realized_r: realizedR, conflict_bar: verdict.conflict_bar,
             event_ts: entry.event?.ts ?? null,
           });
-          closedTrades.push({ ...trade, ...verdict });
+          closedTrades.push({ ...trade, ...verdict, realized_r: realizedR });
+          sessionRealizedR += realizedR;
+          if (!sessionHalted && sessionRealizedR <= SESSION_MAX_LOSS_R) {
+            sessionHalted = true;
+            appendActivity({ kind: "session_halt", session_r: round2(sessionRealizedR), rule: `halt at ${SESSION_MAX_LOSS_R}R` });
+            bus.emit("backtest:event", { type: "session_halted", runId, session_r: round2(sessionRealizedR) });
+          }
           openTrades.splice(openTrades.indexOf(trade), 1);
           bus.emit("backtest:event", {
             type: "setup_outcome", runId, setupId: trade.id,
@@ -452,7 +476,7 @@ export async function runBacktest({
     runId, date, session, mode, startedAt,
     surfaced, closedTrades, openTrades, chainStatus, contextSource,
     warnings: warnings.length, bars: entries.length, errorMessage,
-    openReaction,
+    openReaction, sessionHalted,
   });
   persistSummary({ sessionDir, stateDir, summary });
   bus.emit("backtest:event", { type: "done", runId, summary });
@@ -516,14 +540,16 @@ async function runCleanup(deps, runId) {
   }
 }
 
-function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], closedTrades, openTrades, chainStatus, contextSource, warnings = 0, bars = 0, errorMessage = null, openReaction = null }) {
+function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], closedTrades, openTrades, chainStatus, contextSource, warnings = 0, bars = 0, errorMessage = null, openReaction = null, sessionHalted = false }) {
   // `setups` counts what the chain SURFACED — a rejected setup still
   // happened; only acceptance routes it into the outcome walk.
   const totalSetups = surfaced.length;
   const wins = closedTrades.filter((t) => t.outcome === "tp1_hit").length;
   const losses = closedTrades.filter((t) => t.outcome === "stop_hit").length;
-  // Simple R model: TP1 hit = +1R, stop hit = -1R, open at session end = 0.
-  const total_r = wins - losses;
+  // Realized R model (user correction 2026-06-12): each closed trade books
+  // its actual multiple — TP1 hits pay |exit-entry|/|entry-stop| (>=2R for
+  // swing targets by rule), stops pay -1R, open at session end = 0.
+  const total_r = closedTrades.reduce((acc, t) => acc + (Number.isFinite(t.realized_r) ? t.realized_r : (t.outcome === "tp1_hit" ? 1 : t.outcome === "stop_hit" ? -1 : 0)), 0);
   const winsByModel = closedTrades.reduce((acc, t) => {
     if (!t.model || t.outcome !== "tp1_hit") return acc;
     acc[t.model] = (acc[t.model] ?? 0) + 1;
@@ -559,6 +585,7 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
     setups_by_grade,
     wins_by_grade,
     your_agreement: { agreed: 0, disagreed: 0, ungraded: totalSetups },
+    session_halted: sessionHalted,
     chain_status: errorMessage ? `error:${errorMessage}` : chainStatus,
     ...(openReaction ? {
       open_reaction: {
