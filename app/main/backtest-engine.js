@@ -339,6 +339,23 @@ export async function runBacktest({
   }
 
   bus.off("backtest:command", stopHandler);
+  // Fill the tape's PROPOSED expectation from the fold (verified stays
+  // false — the human sign-off flips it before promotion to tests/tapes/).
+  if (surfaced.length > 0) {
+    try {
+      const tapePath = path.join(sessionDir, "tape.json");
+      const tape = JSON.parse(fs.readFileSync(tapePath, "utf8"));
+      const first = surfaced[0];
+      const outcome = closedTrades.find((t) => t.id === first.id)?.outcome ?? null;
+      tape.expected = {
+        outcome: "setup",
+        model: first.model, side: first.side, grade: first.grade,
+        entry: first.entry, stop: first.stop, tp1: first.tp1,
+        ...(outcome ? { trade_outcome: outcome } : {}),
+      };
+      fs.writeFileSync(tapePath, JSON.stringify(tape, null, 2));
+    } catch { /* tape enrichment is best-effort */ }
+  }
   const summary = buildSummary({
     runId, date, session, mode, startedAt,
     surfaced, closedTrades, openTrades, chainStatus, contextSource,
