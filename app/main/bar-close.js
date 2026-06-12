@@ -928,6 +928,14 @@ function evaluateStrategyChainReadiness(inputs = {}, context = {}) {
   const ltf = inputs.ltf_bias_context ?? {};
   const state = inputs.session_state ?? {};
   if (!hasValue(inputs.leader)) blockers.push('missing_pair_decision');
+  // Fail closed on wrong-symbol evidence: a crashed pair sweep left the
+  // chart on MES@5m mid-session (2026-06-12 NY-AM) and the chain folded
+  // MES bars against MNQ context for 23 minutes. Instrument failure, not
+  // a market verdict.
+  const chartSymbol = String(inputs.bundle?.chart?.symbol ?? '').replace(/^[A-Z_]+:/, '');
+  if (hasValue(inputs.leader) && chartSymbol && chartSymbol !== String(inputs.leader).replace(/^[A-Z_]+:/, '')) {
+    blockers.push('symbol_mismatch');
+  }
   if (!hasValue(ltf.bias)) blockers.push('missing_ltf_bias');
   if (!hasValue(ltf.htf_ltf_alignment)) blockers.push('missing_htf_ltf_alignment');
   if (!hasValue(ltf.entry_model_priority)) blockers.push('missing_entry_model_priority');
@@ -1422,18 +1430,23 @@ async function preflightChartState(ev, phase) {
     const txt = await fs.readFile(path.join(dir, "pair-decision.json"), "utf8");
     decision = JSON.parse(txt);
   } catch {
-    return;  // no decision → leave chart alone
+    decision = null;
   }
-  if (!decision?.leader) return;
+  // No pair decision (the LLM minute-14 call never fired — e.g. auth down)
+  // → pin the configured primary. "Leave the chart alone" let a crashed
+  // pair sweep strand the chart on MES@5m for 23 minutes of garbage folds
+  // (2026-06-12 NY-AM); during entry hunt the chart must ALWAYS be on the
+  // leader at the event TF.
+  const leader = decision?.leader ?? PAIR_PRIMARY;
   const timeframe = ev.tf === "5m" ? "5" : "1";
-  const result = await ensureChartState({ symbol: decision.leader, timeframe });
+  const result = await ensureChartState({ symbol: leader, timeframe });
   if (result?.changed) {
     const sinceLast = Date.now() - _lastChartRevertNoticeTs;
     if (sinceLast > CHART_REVERT_NOTICE_MS) {
       _send?.("app:error", {
         source: "preflight",
         level: "warn",
-        message: `Chart reverted to ${decision.leader} @ ${timeframe}m (entry-hunt requires it). Manual changes will keep snapping back.`,
+        message: `Chart reverted to ${leader} @ ${timeframe}m (entry-hunt requires it). Manual changes will keep snapping back.`,
       });
       _lastChartRevertNoticeTs = Date.now();
     }

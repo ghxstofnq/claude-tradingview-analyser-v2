@@ -41,17 +41,42 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
 
   const gates = bundle?.gates?.engine ?? {};
   const swingStructs = gates?.pillar3?.structures_by_tier?.swing ?? [];
-  const swingStructure = swingStructs.reduce(
+  const latestOf = (arr) => arr.reduce(
     (a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a),
     null,
   );
-  const verdict = resolveOpenReaction({
+  // The open verdict judges the break against the structure standing AS OF
+  // the window — post-window structures must not rewrite the open read.
+  const inWindowSwing = latestOf(swingStructs.filter((s) => (s?.confirmed_ms ?? 0) <= window.endMs));
+  let verdict = resolveOpenReaction({
     htf_bias: htfBias,
     sweeps: gates?.pillar1?.sweeps ?? [],
-    swing_structure: swingStructure,
+    swing_structure: inWindowSwing,
     window,
     overnight_targets: overnightTargetsForSession(session),
   });
+  // §2.3 "never marries a bias" + §7 Step 5 (MSS = the LTF turning): a
+  // SWING-tier MSS confirming AFTER the open window, against the current
+  // bias, realigns the day to the structure's direction.
+  let realigned = false;
+  const postWindowMss = latestOf(swingStructs.filter((s) =>
+    s?.event === "mss" && (s?.confirmed_ms ?? 0) > window.endMs && (s?.confirmed_ms ?? 0) <= ms));
+  if (postWindowMss && verdict.ltf_bias) {
+    const structBias = postWindowMss.dir === "bear" ? "bearish" : postWindowMss.dir === "bull" ? "bullish" : null;
+    if (structBias && structBias !== verdict.ltf_bias) {
+      const aligned = structBias === htfBias;
+      verdict = {
+        ...verdict,
+        interaction: "mss_realignment",
+        ltf_bias: structBias,
+        htf_ltf_alignment: aligned ? "aligned" : "divergent",
+        is_retrace_day: !aligned,
+        grade_cap: aligned ? "A+" : "B",
+        cite: "gates.engine.pillar3.structures_by_tier.swing[latest mss]",
+      };
+      realigned = true;
+    }
+  }
   const p3 = gates?.pillar3 ?? {};
   const priority = computeEntryModelPriority({
     pillar2_verdict: brief?.pillar2_verdict ?? null,
@@ -68,7 +93,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
     is_retrace_day: verdict.is_retrace_day,
     entry_model_priority: priority.priority,
     grade_cap: verdict.grade_cap,
-    source: "deterministic-resolver",
+    source: realigned ? "deterministic-resolver:realigned" : "deterministic-resolver",
     cite: verdict.cite,
     interaction: verdict.interaction,
     level: verdict.level,
