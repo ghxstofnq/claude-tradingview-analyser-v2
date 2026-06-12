@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { surfaceSessionBrief } from "./tools/surface.js";
 import { applyCodexAnalysisToBriefPayloads, runCodexStructuredAnalysis } from "./codex-structured-analysis.js";
+import { biasFromDraw } from "./backtest-context.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -128,7 +129,10 @@ function htfQualityRow(symbol, digestSymbol, tf) {
 }
 
 function pickPrimaryDraw(digestSymbol, { price = null } = {}) {
-  for (const tf of ["h4", "h1", "daily"]) {
+  // §2.1: "Primary charts: Daily and 4H (sometimes 1H)" + "prefers 4H PD
+  // arrays when possible" — so 4H first, then DAILY, then 1H. (The previous
+  // h4→h1→daily order put 1H above Daily, backwards from the doc.)
+  for (const tf of ["h4", "daily", "h1"]) {
     const block = digestSymbol?.htf?.[tf] ?? {};
     const candidates = [...(block.top_fvgs ?? []), ...(block.top_bprs ?? [])];
     const found = candidates.find((row) => Number.isFinite(row?.top) && Number.isFinite(row?.bottom) && row?.cite);
@@ -157,6 +161,21 @@ function pickPrimaryDraw(digestSymbol, { price = null } = {}) {
     }
   }
   return null;
+}
+
+// §7 Step 2 / §2.2: decide whether overnight is extending the HTF move or
+// consolidating — computed from sweep evidence, never hardcoded. The most
+// recent sweep's resulting direction (a rejection flips the break, mirroring
+// the open-reaction resolver) is compared to the HTF draw direction: with
+// the draw → extending_htf; against → retracing_htf; no sweeps in the table
+// (or no derivable bias) → consolidating.
+function computeOvernightVerdict({ sweeps = [], htfBias = null } = {}) {
+  if (!htfBias || !sweeps.length) return "consolidating";
+  const last = sweeps.reduce((a, b) => ((b?.swept_ms ?? 0) >= (a?.swept_ms ?? 0) ? b : a));
+  const high = /H$/.test(String(last?.target ?? ""));
+  const rejected = last?.rejected === true;
+  const dir = high ? (rejected ? "bearish" : "bullish") : (rejected ? "bullish" : "bearish");
+  return dir === htfBias ? "extending_htf" : "retracing_htf";
 }
 
 function symbolQuote(bundle, symbol) {
@@ -228,7 +247,10 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       overnight_block: {
         untaken_above: levels.filter((l) => l.state === "untaken").slice(0, 3).map((l) => ({ name: l.name, price: l.price, cite: l.cite || "brief_digest" })),
         untaken_below: levels.filter((l) => l.state === "untaken").slice(-3).map((l) => ({ name: l.name, price: l.price, cite: l.cite || "brief_digest" })),
-        overnight_verdict: "consolidating",
+        overnight_verdict: computeOvernightVerdict({
+          sweeps: ds?.pillar1?.sweeps ?? [],
+          htfBias: biasFromDraw(draw),
+        }),
         path_to_destination: targetLevel.name,
       },
       htf_quality: {

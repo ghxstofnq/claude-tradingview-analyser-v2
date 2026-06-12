@@ -266,3 +266,37 @@ test('divergent day: a Trend packet in the LTF direction is playable at B, not b
   assert.equal(packet.status, 'executable');
   assert.equal(packet.grade, 'B'); // divergent never grades A+
 });
+
+// §6 / MSS model: "Target: Next internal high, then session high / HTF
+// draw." TP1 must come from intraday liquidity — internal swing pivots and
+// leg extremes join the target pool; the nearest target satisfying the
+// 1.5R discipline wins (nearer swings that fail R are skipped, not
+// blocking). TP2 is the next target beyond TP1. (Audit 2026-06-12: the
+// pool held only untaken session levels — the first live setup got the
+// weekly high as TP1 at 9.2R, and TP2 duplicated TP1.)
+test('tp1 prefers the nearest internal swing satisfying 1.5R; tp2 is the next target beyond', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      pillar3: {
+        structuralStops: [
+          { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
+          { kind: 'swing_high', price: 21015, evidenceRef: 'p3.swings.near' },   // 0.59R — skipped
+          { kind: 'swing_high', price: 21036, evidenceRef: 'p3.swings.target' }, // 1.55R — TP1
+        ],
+      },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.status, 'executable');
+  assert.equal(packet.tp1.price, 21036);
+  assert.equal(packet.tp2?.price, 21040); // the session level beyond TP1
+});
+
+test('tp1 falls back to session levels when no swing target exists (old behavior preserved)', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain() }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.tp1.price, 21040);
+});

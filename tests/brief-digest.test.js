@@ -173,3 +173,23 @@ test('digest.htf data_status derives from engine presence when capture_health is
   assert.equal(htf.h4.data_status, 'fresh');
   assert.equal(htf.h1.data_status, 'missing');
 });
+
+// §2.1 step 1: "Priority to imbalances that are EXTENSIVE (large gaps,
+// strong displacement)" — zone size joins the ranking as a tiebreaker
+// above raw displacement (below took_liq, preserving the hand-verified
+// June 9 pick). Audit 2026-06-12: size_quality was parsed but unused.
+test('ranking: among fresh+took_liq zones, a large zone outranks a tiny one with higher disp', () => {
+  const bundle = {
+    pair: { symbols: { 'MNQ1!': {
+      bars_by_tf: { h4: {} },
+      engine_by_tf: { h4: { fvgs: [
+        { dir: 'bear', top: 100, bottom: 90, state: 'fresh', took_liq: true, disp_score: 0.95, size_quality: 'tiny' },
+        { dir: 'bear', top: 200, bottom: 150, state: 'fresh', took_liq: true, disp_score: 0.7, size_quality: 'large' },
+      ], bprs: [], structures: [] } },
+      gates: { engine: {} },
+    } } },
+  };
+  const digest = buildBriefDigest(bundle);
+  const top = digest.symbols['MNQ1!'].htf.h4.top_fvgs[0];
+  assert.equal(top.size_quality, 'large');
+});
