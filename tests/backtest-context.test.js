@@ -128,10 +128,22 @@ describe("bias + pillar2 derivation from brief payloads", () => {
     assert.equal(ctx.session_state.pillar1.htfBias, "bearish");
   });
 
-  // §2.1 step 1: priority to imbalances that "took liquidity in their
-  // creation ... before displacing" — the creation displacement IS the bias.
-  test("fresh zone that took liquidity carries its displacement direction", () => {
+  // Doc correction (user Q2, 2026-06-12): creation direction is NOT a bias
+  // rule — §2.3 calls an unreacted zone a DESTINATION. A fresh unreacted
+  // zone above price is a magnet: the path toward it is bullish.
+  test("fresh unreacted zone above price is a magnet — path toward it", () => {
     const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [payloadWith({ dir: "bear", state: "fresh", took_liq: true, position: "above_price" })] });
+    assert.equal(ctx.session_state.pillar1.htfBias, "bullish");
+  });
+
+  // §2.1 step 3: reactions off HTF arrays set bias — the payload's
+  // pre-computed htf_bias (from sweep-rejection evidence) outranks any
+  // zone-derived reading.
+  test("payload htf_bias from reaction evidence outranks the zone magnet", () => {
+    const ctx = contextFromBriefPayloads({
+      session: "ny-am",
+      payloads: [payloadWith({ dir: "bear", state: "fresh", took_liq: true, position: "above_price" }, { htf_bias_dir: "bearish" })],
+    });
     assert.equal(ctx.session_state.pillar1.htfBias, "bearish");
   });
 

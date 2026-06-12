@@ -270,3 +270,28 @@ test("overnight_verdict computes extending/retracing/consolidating from sweeps",
   p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(p[0].overnight_block.overnight_verdict, "consolidating");
 });
+
+// Doc correction (user Q2): §2.1 step 3 — bias comes from REACTIONS.
+// The payload carries htf_bias derived as: zone's own reaction → latest
+// REJECTED HTF-level sweep → magnet/destination (§2.3) → zone dir.
+// June 9: the pre-open sharp rejection at PDH (engine: swept 09:05,
+// rejected) set the bearish day despite the unreacted bear zone overhead.
+test("payload htf_bias: a rejected high-sweep sets bearish despite an unreacted zone above", () => {
+  const b = bundle();
+  const ds = b.brief_digest.symbols["MNQ1!"];
+  ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91, took_liq: true, state: "fresh", reacted: false, cite: "engine_by_tf.h4.fvgs[17]" }];
+  ds.pillar1.sweeps = [{ target: "PDH", price: 29850, side: "buy", swept_ms: 100, rejected: true }];
+  b.quote = { last: 29800 };
+  const p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(p[0].htf_bias_dir, "bearish");
+});
+
+test("payload htf_bias: no reactions anywhere → the unreacted zone above is a bullish magnet", () => {
+  const b = bundle();
+  const ds = b.brief_digest.symbols["MNQ1!"];
+  ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91, took_liq: true, state: "fresh", reacted: false, cite: "engine_by_tf.h4.fvgs[17]" }];
+  ds.pillar1.sweeps = [];
+  b.quote = { last: 29800 };
+  const p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(p[0].htf_bias_dir, "bullish");
+});

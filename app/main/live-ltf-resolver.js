@@ -36,7 +36,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   const ms = Date.parse(eventTs);
   if (!Number.isFinite(ms) || ms < window.resolveMs) return null;
 
-  const htfBias = biasFromDraw(brief?.primary_draw) ?? null;
+  const htfBias = brief?.htf_bias_dir ?? biasFromDraw(brief?.primary_draw) ?? null;
   if (!htfBias) return null;
 
   const gates = bundle?.gates?.engine ?? {};

@@ -47,15 +47,13 @@ function drawPrice(draw) {
 }
 
 /**
- * HTF bias from the primary draw zone. Precedence (strategy authority:
- * docs/strategy/trading-strategy-2026.md):
- *   1. Observed reaction off the zone — §2.1 step 3: "Use reactions off
- *      those HTF PD arrays to set bias."
- *   2. Fresh zone that took liquidity in its creation — §2.1 step 1: the
- *      creation displacement (the zone's own direction) is the bias.
- *   3. Otherwise the zone is a destination — §2.3: today's path points
- *      toward it (zone below price → bearish path, above → bullish).
- *   4. Legacy fallback: the zone's direction.
+ * HTF bias fallback from the primary draw zone alone. Doc-corrected
+ * precedence (user Q2 ruling 2026-06-12; full chain in the payload's
+ * htf_bias_dir, which buildContext consumes first):
+ *   1. Observed reaction off the zone — §2.1 step 3.
+ *   2. The zone is a destination — §2.3: today's path points toward it
+ *      (below price → bearish path, above → bullish).
+ *   3. Legacy fallback: the zone's direction.
  */
 export function biasFromDraw(draw) {
   if (!draw) return null;
@@ -66,7 +64,10 @@ export function biasFromDraw(draw) {
     return null;
   };
   if (draw.reacted && asBias(draw.reaction_dir)) return asBias(draw.reaction_dir);
-  if (draw.state === "fresh" && draw.took_liq && asBias(draw.dir)) return asBias(draw.dir);
+  // Doc correction (user Q2, 2026-06-12): creation direction removed —
+  // §2.3 calls an unreacted zone a DESTINATION; the path toward it is the
+  // bias. Reaction evidence (zone or level sweeps) lives in the payload's
+  // htf_bias_dir, consumed by buildContext before this fallback.
   if (draw.position === "below_price") return "bearish";
   if (draw.position === "above_price") return "bullish";
   return asBias(draw.dir);
@@ -87,7 +88,7 @@ function buildContext({ session, leader, brief, ltf }) {
     session_state: {
       pillar1: {
         status: brief?.pillar_grade === "no-trade" ? "fail" : "pass",
-        htfBias: ltf.bias ?? biasFromDraw(draw),
+        htfBias: ltf.bias ?? brief?.htf_bias_dir ?? biasFromDraw(draw),
         htfDraw: brief?.htf_destination ?? null,
         primaryDraw: draw ?? null,
       },
