@@ -5,7 +5,7 @@
 import { getClient, evaluate } from './connection.js';
 
 const CDP_HOST = 'localhost';
-const CDP_PORT = 9223;
+const CDP_PORT = 9225;
 
 /**
  * List all open chart tabs (CDP page targets).

@@ -3,7 +3,7 @@ import CDP from 'chrome-remote-interface';
 let client = null;
 let targetInfo = null;
 const CDP_HOST = 'localhost';
-const CDP_PORT = 9223;
+const CDP_PORT = 9225;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 500;
 
@@ -71,8 +71,9 @@ export async function connect() {
 async function findChartTarget() {
   const resp = await fetch(`http://${CDP_HOST}:${CDP_PORT}/json/list`);
   const targets = await resp.json();
-  // Accept either standalone tabs (TV Desktop fallback) or Electron <webview>
-  // targets (the default, post-2026-05-27 webview migration).
+  // Accept either standalone tabs (TV Desktop on 9225 — the default since the
+  // 2026-06-11 desktop switch) or Electron <webview> targets (legacy embedded
+  // surface, kept for manual fallback).
   const isChart = (t) => (t.type === 'page' || t.type === 'webview');
   return targets.find(t => isChart(t) && /tradingview\.com\/chart/i.test(t.url))
     || targets.find(t => isChart(t) && /tradingview/i.test(t.url))
