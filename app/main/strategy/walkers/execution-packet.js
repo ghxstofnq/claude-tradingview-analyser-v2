@@ -159,13 +159,18 @@ function validTargets(context, side, entry, stop) {
     .sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
 }
 
-// TP1 = the NEAREST target that satisfies the 1.5R discipline — nearer
-// intraday pivots that fail R are skipped, not blocking. When nothing
-// clears 1.5R, return the nearest so the packet still reports
-// tp1_below_1_5r (rather than missing_side_consistent_tp1).
+// TP1 class priority (§6 + user ruling 2026-06-12): the nearest UNSWEPT
+// internal swing is the default TP1 — but only when it pays at least 2R.
+// Otherwise the nearest session level clearing the 1.5R floor takes it.
+// When nothing qualifies, return the nearest candidate so the packet
+// still reports tp1_below_1_5r (rather than missing_side_consistent_tp1).
 function selectTp1(context, side, entry, stop) {
   const candidates = validTargets(context, side, entry, stop);
-  return candidates.find((t) => t.rMultiple >= 1.5) ?? candidates[0] ?? null;
+  const swing = candidates.find((t) => t.target_class === 'intraday' && t.rMultiple >= 2.0);
+  if (swing) return swing;
+  const level = candidates.find((t) => t.target_class === 'level' && t.rMultiple >= 1.5);
+  if (level) return level;
+  return candidates[0] ?? null;
 }
 
 // TP2 = the next target beyond TP1 toward the HTF draw (§6: "second at or

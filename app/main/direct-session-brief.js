@@ -178,6 +178,27 @@ function computeOvernightVerdict({ sweeps = [], htfBias = null } = {}) {
   return dir === htfBias ? "extending_htf" : "retracing_htf";
 }
 
+// Doc-corrected HTF bias (user Q2, 2026-06-12). §2.1 step 3: "use
+// reactions off those HTF PD arrays to set bias" — precedence:
+//   1. The zone's own observed reaction.
+//   2. The latest REJECTED level sweep (the "rejects sharply" reaction —
+//      June 9's bearish day was set by the pre-open PDH rejection).
+//   3. §2.3 destination magnet: the path toward an unreacted zone.
+//   4. Zone direction (no evidence at all).
+// Creation-direction (fresh+took_liq → dir) was removed: not in the doc.
+function deriveHtfBiasDir({ draw, sweeps = [] } = {}) {
+  const asBias = (d) => /^bear/i.test(d || "") ? "bearish" : /^bull/i.test(d || "") ? "bullish" : null;
+  if (draw?.reacted && asBias(draw.reaction_dir)) return asBias(draw.reaction_dir);
+  const rejected = sweeps.filter((s) => s?.rejected === true);
+  if (rejected.length) {
+    const last = rejected.reduce((a, b) => ((b?.swept_ms ?? 0) >= (a?.swept_ms ?? 0) ? b : a));
+    return /H$/.test(String(last?.target ?? "")) ? "bearish" : "bullish";
+  }
+  if (draw?.position === "above_price") return "bullish";
+  if (draw?.position === "below_price") return "bearish";
+  return asBias(draw?.dir);
+}
+
 function symbolQuote(bundle, symbol) {
   const paired = bundle?.pair?.symbols?.[symbol]?.quote?.last;
   if (Number.isFinite(paired)) return paired;
@@ -242,7 +263,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       sizing_note: sizing.override_reason
         ? `${sizing.r_size} R · override: ${sizing.override_reason} (strategy.sizing-table)`
         : `${sizing.r_size} R · direct ${pillar_grade} (strategy.sizing-table)`,
-      ...(draw ? { primary_draw: draw } : {}),
+      ...(draw ? { primary_draw: draw, htf_bias_dir: deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [] }) } : {}),
       htf_destination: targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity",
       overnight_block: {
         untaken_above: levels.filter((l) => l.state === "untaken").slice(0, 3).map((l) => ({ name: l.name, price: l.price, cite: l.cite || "brief_digest" })),

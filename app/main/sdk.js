@@ -621,6 +621,7 @@ function buildMcpServer() {
           }),
         }).optional().describe("The chosen primary HTF PD array — anchor for the day. From brief_digest.symbols.<sym>.htf.<tf>.top_fvgs/top_bprs."),
         htf_destination: z.string().optional().describe('Free-string: "above 30000 buy-side" / "below 29400 sell-side" / "balanced".'),
+        htf_bias_dir: z.enum(["bullish", "bearish"]).optional().describe("Doc-corrected HTF bias (§2.1 step 3 reactions → §2.3 destination magnet). Emitted by the deterministic brief."),
         overnight_block: z.object({
           asia: z.object({ high: z.number(), low: z.number(), state: z.enum(["extended", "swept", "untaken"]), cite: z.string() }).optional(),
           london: z.object({ high: z.number(), low: z.number(), state: z.enum(["extended", "swept", "untaken"]), cite: z.string() }).optional(),

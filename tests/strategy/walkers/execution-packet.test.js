@@ -274,23 +274,23 @@ test('divergent day: a Trend packet in the LTF direction is playable at B, not b
 // blocking). TP2 is the next target beyond TP1. (Audit 2026-06-12: the
 // pool held only untaken session levels — the first live setup got the
 // weekly high as TP1 at 9.2R, and TP2 duplicated TP1.)
-test('tp1 prefers the nearest internal swing satisfying 1.5R; tp2 is the next target beyond', () => {
+test('tp1 prefers the nearest unswept swing clearing 2R; tp2 is the next target beyond', () => {
   const packet = buildExecutionPacketForWalker({
     context: executableContext({
       sessionChain: alignedChain(),
       pillar3: {
         structuralStops: [
           { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
-          { kind: 'swing_high', price: 21015, evidenceRef: 'p3.swings.near' },   // 0.59R — skipped
-          { kind: 'swing_high', price: 21036, evidenceRef: 'p3.swings.target' }, // 1.55R — TP1
+          { kind: 'swing_high', price: 21015, evidenceRef: 'p3.swings.near' },     // 0.59R — skipped
+          { kind: 'swing_high', price: 21046.5, evidenceRef: 'p3.swings.target' }, // 2.02R — TP1
         ],
       },
     }),
     walker: confirmedMssWalker(),
   });
   assert.equal(packet.status, 'executable');
-  assert.equal(packet.tp1.price, 21036);
-  assert.equal(packet.tp2?.price, 21040); // the session level beyond TP1
+  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp2 ?? null, null); // nothing beyond the swing
 });
 
 test('tp1 falls back to session levels when no swing target exists (old behavior preserved)', () => {
@@ -312,12 +312,48 @@ test('swept swings are not targets; the nearest UNSWEPT swing wins', () => {
       pillar3: {
         structuralStops: [
           { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
-          { kind: 'swing_high', price: 21036, swept: true, evidenceRef: 'p3.swings.swept' },   // dead liquidity
-          { kind: 'swing_high', price: 21038, swept: false, evidenceRef: 'p3.swings.live' },   // TP1
+          { kind: 'swing_high', price: 21048, swept: true, evidenceRef: 'p3.swings.swept' },    // dead liquidity
+          { kind: 'swing_high', price: 21050, swept: false, evidenceRef: 'p3.swings.live' },   // 2.18R — TP1
         ],
       },
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21038);
+  assert.equal(packet.tp1.price, 21050);
+});
+
+// User ruling 2026-06-12: a swing low/high qualifies as TP1 only at ≥2R.
+// Session levels keep the 1.5R floor. A 1.6R swing is skipped in favor of
+// the level beyond it.
+test('tp1: swings need 2R — a 1.6R swing yields to the qualifying level', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      pillar3: {
+        structuralStops: [
+          { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
+          // entry 21002, stop 20980 → risk 22. Swing at 21037.5 = 1.61R < 2R → skipped.
+          { kind: 'swing_high', price: 21037.5, swept: false, evidenceRef: 'p3.swings.near' },
+        ],
+      },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.tp1.price, 21040); // session level (1.73R ≥ 1.5R floor)
+});
+
+test('tp1: a swing clearing 2R still wins over the farther level', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      pillar3: {
+        structuralStops: [
+          { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
+          { kind: 'swing_high', price: 21046.5, swept: false, evidenceRef: 'p3.swings.q' }, // 2.02R
+        ],
+      },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.tp1.price, 21046.5);
 });
