@@ -104,14 +104,17 @@ function selectStructuralStop(context, side, entry) {
   return stopCandidatesWithAudit(context, side, entry).selected;
 }
 
-// Inversion stops are model-specific. Precedence per GXNQ's 2026-06-12
-// ruling on the June 9 tape, grounded in the strategy docs:
-//   1. The structural swing beyond the violated zone — trading-strategy-
-//      2026.md §6: "stops at structural invalidation (low/high of PD array
-//      or swing)". Pivots BETWEEN entry and the zone sit inside the violated
-//      structure and are noise (June 9: a 2.75-point micro-pivot stop).
-//   2. The violating candle's extreme — entry-models.md Inversion §5:
-//      "below the candle that closed through it".
+// Inversion stops are model-specific. Precedence per the user's hand-grade
+// 2026-06-13 (June 9, all three shorts: 29847 / 29714.25 / 29526.25):
+//   0. The FAILED LEG's extreme — the high (short) / low (long) of the move
+//      that created the violated zone, read as the extreme of the visible
+//      1m bars at packet time. §6 structural invalidation: reclaiming that
+//      swing unwinds the inversion itself.
+//   1. The violating candle's extreme — entry-models.md Inversion §5:
+//      "below the candle that closed through it" (above, for shorts).
+//   2. The structural swing beyond the violated zone — trading-strategy-
+//      2026.md §6. Pivots BETWEEN entry and the zone are noise (June 9: a
+//      2.75-point micro-pivot).
 //   3. The zone edge itself — entry-models.md Inversion §5: "below the
 //      inversion FVG low" (mirrored for shorts).
 function inversionStructuralStop(walker, side, entry, context) {
@@ -120,6 +123,29 @@ function inversionStructuralStop(walker, side, entry, context) {
   const zoneTop = numberOrNull(pd.top);
   const zoneBottom = numberOrNull(pd.bottom);
   const correctSide = (price) => (side === 'long' ? price < entry : price > entry);
+
+  // 0. The FAILED LEG's extreme — the swing the violated zone hangs from.
+  // User hand-grade 2026-06-13 (June 9, all three Inversion shorts): stops
+  // 29847 / 29714.25 / 29526.25 are the highs of the legs that created the
+  // violated FVGs = the max high of the visible 1m bars at packet time.
+  // §6 structural invalidation: reclaiming that extreme unwinds the
+  // inversion itself; the violating candle's own high is inside the leg.
+  const legBars = context?.pillar3?.ohlcv1m ?? [];
+  const legExtreme = legBars.reduce((acc, b) => {
+    const px = side === 'short' ? numberOrNull(b?.high) : numberOrNull(b?.low);
+    if (px == null) return acc;
+    if (acc == null) return px;
+    return side === 'short' ? Math.max(acc, px) : Math.min(acc, px);
+  }, null);
+  if (legExtreme != null && correctSide(legExtreme)) {
+    return { kind: 'inversion_failed_leg_extreme', price: legExtreme, evidenceRef: 'bars.last_5_bars[extreme]' };
+  }
+
+  const candle = walker?.evidence?.confirmation?.rawPayload?.last_bar ?? {};
+  const candleExtreme = side === 'short' ? numberOrNull(candle.high) : numberOrNull(candle.low);
+  if (candleExtreme != null && correctSide(candleExtreme)) {
+    return { kind: 'inversion_violating_candle', price: candleExtreme, evidenceRef: 'gates.engine.confirmation.last_bar' };
+  }
 
   const beyondZone = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
     .map((s) => ({ ...s, price: numberOrNull(s?.price ?? s?.level) }))
@@ -131,12 +157,6 @@ function inversionStructuralStop(walker, side, entry, context) {
     : beyondZone.sort((a, b) => b.price - a.price)[0];
   if (structural) {
     return { kind: 'inversion_structural_swing', price: structural.price, evidenceRef: refOf(structural) };
-  }
-
-  const candle = walker?.evidence?.confirmation?.rawPayload?.last_bar ?? {};
-  const candleExtreme = side === 'short' ? numberOrNull(candle.high) : numberOrNull(candle.low);
-  if (candleExtreme != null && correctSide(candleExtreme)) {
-    return { kind: 'inversion_violating_candle', price: candleExtreme, evidenceRef: 'gates.engine.confirmation.last_bar' };
   }
 
   const edge = side === 'short' ? zoneTop : zoneBottom;

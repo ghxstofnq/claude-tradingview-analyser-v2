@@ -357,3 +357,70 @@ test('tp1: a swing clearing 2R still wins over the farther level', () => {
   });
   assert.equal(packet.tp1.price, 21046.5);
 });
+
+// User hand-grade 2026-06-13 (June 9 trades 2+3): the Inversion stop is the
+// VIOLATING CANDLE's extreme — entry-models.md Inversion §5 "below the
+// candle that closed through it" (above, for shorts) — and it OUTRANKS the
+// structural swing beyond the zone. The earlier precedence (swing first)
+// produced 29698.75/29547.25 where the hand grade says 29714.25/29526.25.
+test('inversion stop: the violating candle extreme outranks the beyond-zone swing', () => {
+  const walker = {
+    ...confirmedMssWalker({ top: 21010, bottom: 21000 }),
+    model: 'Inversion',
+    side: 'long',
+  };
+  walker.evidence.confirmation.rawPayload.last_bar = { high: 21008, low: 20992 };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      pillar3: {
+        structuralStops: [
+          // swing beyond the zone bottom — the OLD rule would pick 20978
+          { kind: 'swing_low', side: 'long', price: 20978, evidenceRef: 'p3.swings.beyond' },
+        ],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'inversion_violating_candle');
+  assert.equal(packet.stop.price, 20992);
+});
+
+// The violating candle is the bar stamped by the zone's inverted_ms — often
+// EARLIER than the retest confirmation bar (June 9 trade 2: hand stop
+// 29714.25 = the violating candle high; the confirmation bar high was
+// 29686). When that bar is visible in ohlcv1m, its extreme is the stop.
+test('inversion stop: the failed-leg extreme across visible 1m bars outranks the violating candle', () => {
+  // User hand-grade 2026-06-13 (June 9): all three Inversion stops sit at
+  // the HIGH OF THE FAILED LEG that created the violated zone (29847 /
+  // 29714.25 / 29526.25) = the max high of the visible 1m bars at packet
+  // time — not the violating candle's own high.
+  const walker = {
+    ...confirmedMssWalker({ top: 21010, bottom: 21000, direction: 'bullish' }),
+    model: 'Inversion',
+    side: 'short',
+  };
+  walker.evidence.confirmation.rawPayload = { close: 20995, confirm_ms: 1780062600000, last_bar: { high: 21002, low: 20990 } };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      pillar1: {
+        status: 'pass',
+        untakenTargets: { above: [], below: [{ price: 20940, label: 'PDL', evidenceRef: 'p1.targets.pdl' }] },
+      },
+      pillar3: {
+        structuralStops: [{ kind: 'swing_high', side: 'short', price: 21030, evidenceRef: 'p3.stops.high' }],
+        pdArrays: [{ rawPayload: { kind: 'ifvg', top: 21010, bottom: 21000, inverted_ms: 1780062470000 } }],
+        ohlcv1m: [
+          { time: 1780062300, open: 21008, high: 21022.5, low: 21004, close: 21012 }, // failed-leg high
+          { time: 1780062360, open: 21012, high: 21018, low: 21006, close: 21010 },
+          { time: 1780062420, open: 21005, high: 21014.25, low: 20999, close: 20998 }, // violating bar
+          { time: 1780062480, open: 20998, high: 21002, low: 20990, close: 20995 },
+        ],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
+  assert.equal(packet.stop.price, 21022.5);
+});
