@@ -530,6 +530,18 @@ export async function surfaceSessionSummary(payload) {
 function renderSummaryMd(record) {
   const { date } = currentSession();
   const watch = (record.watch_next_session || []).map((w) => `- ${w}`).join("\n");
+  // Codex wrap commentary (applied by runDirectSessionWrap when the codex
+  // CLI is available) landed only in summary.json — REVIEW renders this md,
+  // so the analysis was invisible (observed 2026-06-12 London wrap).
+  const codex = record.codex_analysis;
+  const codexBlock = codex?.commentary
+    ? `
+## Analysis (Codex commentary)
+${codex.commentary}
+${(codex.risk_challenges || []).length ? `\n**Risk challenges:**\n${codex.risk_challenges.map((r) => `- ${r}`).join("\n")}` : ""}
+${codex.confidence_note ? `\n_${codex.confidence_note}_` : ""}
+`
+    : "";
   return `---
 session: ${record.session || ""}
 date: ${date}
@@ -543,7 +555,7 @@ ${record.bias_picture || "_no bias picture provided_"}
 
 ## What happened
 ${record.what_happened || "_no narrative provided_"}
-
+${codexBlock}
 ## Watch next session
 ${watch || "- _no watchlist provided_"}
 `;
@@ -580,3 +592,5 @@ export async function readSessionMemoryFor(session) {
   const dir = await briefDirFor(session);
   return readMemory(dir, { tailBars: 20, tailSetups: 20 });
 }
+
+export const __test = { renderSummaryMd };

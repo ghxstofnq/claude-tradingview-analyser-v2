@@ -51,3 +51,25 @@ test("scheduled-turn auth gate: deterministic-first purposes run while auth is b
   assert.equal(shouldSkipForAuth({ authMsg: "Claude not logged in", hasDirectRun: false }), true);
   assert.equal(shouldSkipForAuth({ authMsg: null, hasDirectRun: false }), false);
 });
+
+test("summary.md renders Codex commentary when present", async () => {
+  // The London 2026-06-12 wrap carried a full codex_analysis block in
+  // summary.json while summary.md (what REVIEW renders) showed none of it.
+  const { __test } = await import("../app/main/tools/surface.js");
+  const md = __test.renderSummaryMd({
+    session: "london",
+    ts: "2026-06-12T10:26:00.000Z",
+    bias_picture: "ctx",
+    what_happened: "quiet",
+    watch_next_session: ["PWH untaken"],
+    codex_analysis: {
+      commentary: "Chain recap only; no confirmed setups.",
+      risk_challenges: ["No setup lines persisted."],
+      confidence_note: "Moderate confidence.",
+    },
+  });
+  assert.match(md, /## Analysis \(Codex commentary\)/);
+  assert.match(md, /Chain recap only/);
+  assert.match(md, /No setup lines persisted/);
+  assert.match(md, /Moderate confidence/);
+});
