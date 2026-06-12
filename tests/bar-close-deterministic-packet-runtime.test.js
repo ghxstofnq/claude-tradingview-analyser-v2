@@ -365,6 +365,7 @@ test("bridge: a close through an inverted zone synthesizes the confirmation row 
   const invertedZone = {
     ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted',
     entry_state: 'none', confirm_close: false, confirm_dir: 'none',
+    inverted_ms: 1781013250000, // the flip happens inside THIS bar
   };
   const walker = {
     id: 'w_MNQ1__ny-am_Inversion_short_zone297307529759-75', market: 'MNQ1!', session: 'ny-am',
@@ -400,6 +401,7 @@ test("bridge: a stale opposite-direction inverted zone cannot mask the bar's rea
   };
   const bearInverted = {
     ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none',
+    inverted_ms: 1781013250000,
   };
   const walker = {
     id: 'w_MNQ1__ny-am_Inversion_short_zone3', market: 'MNQ1!', session: 'ny-am',
@@ -419,7 +421,7 @@ test("bridge: a stale opposite-direction inverted zone cannot mask the bar's rea
 });
 
 test("bridge: a close still INSIDE an inverted zone synthesizes nothing — no early entry", () => {
-  const invertedZone = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const invertedZone = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none', inverted_ms: 1781013250000 };
   const walker = {
     id: 'w_MNQ1__ny-am_Inversion_short_inside', market: 'MNQ1!', session: 'ny-am',
     model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
@@ -432,6 +434,55 @@ test("bridge: a close still INSIDE an inverted zone synthesizes nothing — no e
     event: { ts: '2026-06-09T13:54:00.000Z', tf: '1m' }, session: 'ny-am',
   });
   assert.equal(truth.bestPacket, null);
+});
+
+test("bridge: an inverted zone whose inverted_ms is from an EARLIER bar synthesizes nothing", () => {
+  // June 9 trades 4+6 (GXNQ hand grade 2026-06-13): "the entry candle didn't
+  // invert a bullish fvg" — the zones had flipped minutes-to-hours earlier.
+  // Close-beyond an old inverted zone is not "the candle that closed through
+  // it" (entry-models.md Inversion §3); the flip must stamp THIS bar.
+  const staleInverted = {
+    ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted',
+    entry_state: 'none', inverted_ms: 1781011500000, // ~29 min before the bar
+  };
+  const walker = {
+    id: 'w_MNQ1__ny-am_Inversion_short_stale', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs: liveShapedInputs({ fvgRow: staleInverted, lastBarClose: 29718.5 }),
+    previousWalkers: [walker],
+    event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  assert.equal(truth.bestPacket, null,
+    `stale inversion must not confirm: ${JSON.stringify(truth.surfacePayload ?? null)}`);
+});
+
+test("bridge: a fresh flip of zone A never confirms a walker holding zone B", () => {
+  // June 9 trade 4 cross-wiring: the 11:04 violation row for 29407.25-29414.75
+  // confirmed a walker holding 29209.5-29211.5 because the close sat below both.
+  const zoneA = {
+    kind: 'ifvg', dir: 'bear', state: 'inverted', size_quality: 'small',
+    inverted_ms: 1781013250000,
+    top: 29790, bottom: 29780, ce: 29785, created_ms: 1781012700000,
+    inverted_ms: 1781013250000, entry_state: 'none',
+  };
+  const walkerB = {
+    id: 'w_MNQ1__ny-am_Inversion_short_zoneB', market: 'MNQ1!', session: 'ny-am',
+    model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
+    pdArrayRef: 'zone:29730.75-29759.75',
+    evidence: { pdArray: { evidenceRef: 'zone:29730.75-29759.75', rawPayload: bullZone } },
+  };
+  const inputs = liveShapedInputs({ fvgRow: zoneA, lastBarClose: 29718.5 }); // below BOTH zones
+  const truth = __test.buildDeterministicPacketTruthFromInputs({
+    inputs, previousWalkers: [walkerB], event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
+  });
+  const after = truth.walkers.find((w) => w.id === walkerB.id);
+  assert.ok(after, 'walker B must survive the fold');
+  assert.notEqual(after.stage, 'confirmed', 'zone A\'s flip confirmed walker B');
+  assert.notEqual(after.stage, 'packet_ready', 'zone A\'s flip confirmed walker B');
 });
 
 test("bridge: a stale engine-confirmed row from an earlier bar never bridges this bar's confirmation", () => {
@@ -453,7 +504,7 @@ test("bridge: a stale engine-confirmed row from an earlier bar never bridges thi
   };
   // The same bar ALSO carries a genuinely violated bear zone — the stale
   // bull confirm must not preempt the violation synthesis.
-  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none', inverted_ms: 1781013250000 };
   const inputs = liveShapedInputs({ fvgRow: bearInverted, lastBarClose: 29718.5 });
   inputs.bundle.gates.engine.pillar3.fvgs = [staleConfirmed, bearInverted];
   const truth = __test.buildDeterministicPacketTruthFromInputs({
@@ -465,7 +516,7 @@ test("bridge: a stale engine-confirmed row from an earlier bar never bridges thi
 });
 
 test("bridge: inversion stop ignores micro pivots inside the violated structure and falls back to the zone edge when no swing exists beyond it", () => {
-  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none', inverted_ms: 1781013250000 };
   const walker = {
     id: 'w_MNQ1__ny-am_Inversion_short_fallback', market: 'MNQ1!', session: 'ny-am',
     model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
@@ -494,7 +545,7 @@ test("bridge: session-level high (NYAM.H) anchors the inversion stop when pivot 
   // confirmed until 09:56, but NYAM.H already carried 29847 — the session
   // high is the structural high a trader sees instantly (GXNQ ruling:
   // "stop above the structural high").
-  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none', inverted_ms: 1781013250000 };
   const walker = {
     id: 'w_MNQ1__ny-am_Inversion_short_level', market: 'MNQ1!', session: 'ny-am',
     model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',
@@ -522,7 +573,7 @@ test("bridge: V3 leg_high (running extreme since last structure break) joins the
   // leg_high beyond the violated zone and NEARER than the session high is
   // the tightest honest structural stop (strategy §6: structural
   // invalidation).
-  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none' };
+  const bearInverted = { ...bullZone, kind: 'ifvg', dir: 'bear', state: 'inverted', entry_state: 'none', inverted_ms: 1781013250000 };
   const walker = {
     id: 'w_MNQ1__ny-am_Inversion_short_leg', market: 'MNQ1!', session: 'ny-am',
     model: 'Inversion', side: 'short', stage: 'pd_identified', chain: 'Inversion_standard',

@@ -5,9 +5,13 @@ import { runInversionWalkerLifecycle } from './inversion-lifecycle.js';
 import { runWalkerEngine } from './walker-engine.js';
 
 // Grade first, then the open-reaction model priority (a preference, not a
-// gate — resolver spec §3.4 "which model to walk first").
+// gate — resolver spec §3.4 "which model to walk first"), then Inversion
+// before Trend: when one candle both inverts a zone and wick-taps another,
+// the fresh violation IS the event being traded (GXNQ hand grade, June 9
+// trade 3 — the 10:26 close). Insertion order must never decide.
 function makePacketSort(context) {
   const gradeRank = { 'A+': 0, B: 1, 'no-trade': 9 };
+  const modelRank = { inversion: 0, mss: 1, trend: 2 };
   const priority = String(context?.sessionChain?.entryModelPriority ?? '').toLowerCase();
   const priorityRank = (p) =>
     priority && !['undecided', 'unknown', 'none', ''].includes(priority)
@@ -15,7 +19,8 @@ function makePacketSort(context) {
       : 0;
   return (a, b) =>
     ((gradeRank[a.grade] ?? 8) - (gradeRank[b.grade] ?? 8)) ||
-    (priorityRank(a) - priorityRank(b));
+    (priorityRank(a) - priorityRank(b)) ||
+    ((modelRank[String(a.model ?? '').toLowerCase()] ?? 8) - (modelRank[String(b.model ?? '').toLowerCase()] ?? 8));
 }
 
 function finalizeConfirmedWalkers({ context, walkers }) {

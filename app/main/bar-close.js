@@ -1035,9 +1035,14 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
     // synthesis (fail closed).
     const barDir = conf.last_bar?.direction;
     const wantDir = barDir === 'bearish' ? 'bear' : barDir === 'bullish' ? 'bull' : null;
+    // GXNQ hand grade 2026-06-13 (June 9 trades 4+6): "the entry candle
+    // didn't invert a bullish fvg." Close-beyond an inverted zone is true of
+    // every zone the move left behind; the violation is only THIS bar's if
+    // the engine stamped inverted_ms inside it. No stamp → no synthesis.
     const violated = (confirmed || !wantDir) ? null : out.rows.find((row) => {
       if (row.state !== 'inverted' || !['fvg', 'ifvg'].includes(String(row.kind))) return false;
       if (row.dir !== wantDir) return false;
+      if (!inCurrentBar(Number(row.inverted_ms))) return false;
       const top = Number(row.top);
       const bottom = Number(row.bottom);
       if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(Number(close))) return false;
@@ -1054,6 +1059,10 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
         chop_15m: source.chop_15m === true,
         confirm_ms: source.confirm_ms ?? null,
         close,
+        // Zone identity travels with the confirmation so walkers holding a
+        // DIFFERENT zone can never consume it (June 9 trade 4 cross-wiring).
+        zone_top: Number.isFinite(Number(source.top)) ? Number(source.top) : null,
+        zone_bottom: Number.isFinite(Number(source.bottom)) ? Number(source.bottom) : null,
         evidenceRef: source.evidenceRef ?? zoneRef(source, 'gates.engine.confirmation'),
         ...(violated ? { source: 'violation_close_bridge' } : {}),
       };

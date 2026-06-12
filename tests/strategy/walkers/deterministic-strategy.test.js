@@ -84,3 +84,38 @@ test('runDeterministicWalkerStrategy keeps blocked packets visible but final ver
   assert.ok(result.packets[0].blockers.includes('tp1_below_1_5r'));
   assert.equal(result.bestPacket, null);
 });
+
+test('same bar, same grade: the Inversion packet outranks the Trend packet (June 9 trade 3 hand grade)', () => {
+  // 10:26 close inverted the bull FVG 29471.5-29482.75 AND wick-tap-confirmed
+  // a Trend short off the bear FVG above — GXNQ graded the bar as the
+  // Inversion trade. The fresh violation IS the event being traded.
+  const context = contextWithPacket({
+    pillar1: {
+      status: 'pass',
+      blockers: [],
+      untakenTargets: { above: [], below: [{ evidenceRef: 'target.pdl', label: 'PDL', price: 20800 }] },
+    },
+    pillar3: {
+      pdArrays: [], fvgs: [], ifvgs: [], bprs: [], insidePdArrays: [], confirmationRows: [],
+      structuralStops: [{ evidenceRef: 'stop.swing_high', kind: 'swing_high', price: 21080 }],
+    },
+  });
+  const mk = (model, pdArray) => ({
+    ...createWalker({ context, model, side: 'short', pdArray }),
+    stage: 'confirmed',
+    evidence: {
+      pdArray: { evidenceRef: pdArray.evidenceRef, rawPayload: pdArray },
+      confirmation: {
+        evidenceRef: 'confirm.close',
+        rawPayload: { close: 21000, confirm_ms: 1780062420000, entry_state: 'confirmed', confirm_close: 1, ce_held: 1, chop_15m: 0, confirm_dir: 'bear' },
+      },
+    },
+  });
+  const trendWalker = mk('Trend', { evidenceRef: 'zone:21040-21060', kind: 'fvg', dir: 'bear', state: 'fresh', top: 21060, bottom: 21040 });
+  const inversionWalker = mk('Inversion', { evidenceRef: 'zone:21010-21030', kind: 'fvg', dir: 'bull', state: 'fresh', top: 21030, bottom: 21010 });
+
+  // Trend first in walker order — insertion order must not decide.
+  const result = runDeterministicWalkerStrategy({ context, walkers: [trendWalker, inversionWalker] });
+  assert.equal(result.packets.filter((p) => p.status === 'executable').length, 2);
+  assert.equal(result.bestPacket.model, 'Inversion');
+});

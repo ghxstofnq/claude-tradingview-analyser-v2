@@ -386,10 +386,39 @@ test('inversion stop: the violating candle extreme outranks the beyond-zone swin
   assert.equal(packet.stop.price, 20992);
 });
 
-// The violating candle is the bar stamped by the zone's inverted_ms — often
-// EARLIER than the retest confirmation bar (June 9 trade 2: hand stop
-// 29714.25 = the violating candle high; the confirmation bar high was
-// 29686). When that bar is visible in ohlcv1m, its extreme is the stop.
+test('trend stop: the tap candle extreme, then the zone far edge (entry-models.md Trend §6)', () => {
+  // June 9 trade 7 (GXNQ: "A+ confirmed Trend continuation"): short off the
+  // bear FVG 28965-29000.75; the 11:53 tap candle's high 28971.75 is the
+  // swing that touched the zone — the stop anchor. Zone high is fallback.
+  const walker = {
+    ...confirmedMssWalker({ top: 29000.75, bottom: 28965, direction: 'bearish' }),
+    model: 'Trend',
+    side: 'short',
+  };
+  walker.evidence.confirmation.rawPayload = {
+    source: 'trend_wick_tap_confirm',
+    close: 28911.75,
+    last_bar: { time: 1781020320, open: 28954.5, high: 28971.75, low: 28909, close: 28911.75, direction: 'bearish', body_ratio: 0.68 },
+  };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      pillar1: {
+        status: 'pass',
+        untakenTargets: { above: [], below: [{ price: 28700, label: 'PDL', evidenceRef: 'p1.targets.pdl' }] },
+      },
+      pillar3: {
+        structuralStops: [{ kind: 'swing_high', side: 'short', price: 29046, evidenceRef: 'p3.stops.high' }],
+        pdArrays: [],
+        ohlcv1m: [],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'trend_tap_candle');
+  assert.equal(packet.stop.price, 28971.75);
+});
+
 test('inversion stop: the failed-leg extreme across visible 1m bars outranks the violating candle', () => {
   // User hand-grade 2026-06-13 (June 9): all three Inversion stops sit at
   // the HIGH OF THE FAILED LEG that created the violated zone (29847 /
