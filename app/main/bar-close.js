@@ -76,6 +76,14 @@ let _q5m = null;
 let _q1m = null;
 let _running = false;
 
+// One deterministic fold per underlying bar (the 5m-tagged queue copy of a
+// minute event reuses the 1m fold's truth instead of re-folding — duplicate
+// folds double-advanced walkers and broke live/replay parity, 2026-06-12).
+let _truthCache = { key: null, truth: null };
+function truthCacheKeyFor(ev) {
+  return ev?.bar_close_time ?? ev?.ts ?? null;
+}
+
 /**
  * Should this bar-close turn route into <phase name="catch_up"> instead of
  * the regular phase? True iff:
@@ -467,9 +475,20 @@ async function runClaudeTurnFor(ev, session, phase) {
   // narration-worthy bars).
   let walkerTruth = null;
   if (phase === "entry_hunt") {
+    // One fold per underlying bar: the queue synthesizes a 5m-tagged copy of
+    // the same minute event at 5m boundaries (for narration cadence), and
+    // both drain through here — observed live 2026-06-12 London as duplicate
+    // truth records + double walker advancement every 5th minute, which also
+    // breaks parity with the backtest (one fold per 1m bar). The second
+    // drain of the same bar reuses the cached truth.
+    const barKey = truthCacheKeyFor(ev);
+    if (barKey != null && _truthCache.key === barKey && _truthCache.truth) {
+      walkerTruth = _truthCache.truth;
+    } else {
     await refreshEntryHuntScanForWalker(session);
     try {
       walkerTruth = await runDeterministicPacketTruthForBar(ev, session);
+      _truthCache = { key: barKey, truth: walkerTruth };
       recordMetric({
         kind: "bar-close",
         event: "deterministic_packet_truth",
@@ -482,6 +501,7 @@ async function runClaudeTurnFor(ev, session, phase) {
       console.warn("[bar-close] deterministic packet truth threw", err?.message || err);
       recordMetric({ kind: "bar-close", event: "deterministic_packet_failed", session, reason: String(err?.message || err) });
       // Fall through to Claude turn as a safety net for the first iterations.
+    }
     }
   }
 
@@ -1273,6 +1293,7 @@ export const __test = {
   buildDeterministicPacketTruthFromInputs,
   buildStrategyBundleForRuntime,
   deterministicPacketToSurfacePayload,
+  truthCacheKeyFor,
 };
 
 // Read the chosen leader symbol from pair-decision.json. Returns null if
