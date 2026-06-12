@@ -58,7 +58,11 @@ export async function foldTape(tape, { truthFn }) {
         grade: payload.grade ?? null,
       };
       packets.push(packet);
-      distinct.add(packet.id ?? `${packet.model}:${packet.side}:${packet.entry}`);
+      // Distinct OPPORTUNITIES (model+side), not raw packet ids: as a move
+      // unfolds, neighboring zones confirm the same trade idea under new
+      // walker ids (June 9: 8 Inversion-short packets in 22 bars — one
+      // opportunity). Hand-verified expectations bound opportunities.
+      distinct.add(`${packet.model}:${packet.side}`);
       if (!firstPacket) {
         firstPacket = packet;
         firstPacketEventTs = packet.event_ts;
