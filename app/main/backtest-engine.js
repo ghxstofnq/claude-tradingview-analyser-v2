@@ -279,9 +279,14 @@ export async function runBacktest({
               appendSetupRow({ type: "rejected", ts: Date.now(), setup_id: setup.id, reason: decision.reason ?? null });
               bus.emit("backtest:event", { type: "setup_rejected", runId, setupId: setup.id });
             }
-          } else {
+          } else if (openTrades.length === 0) {
             openTrades.push(setup);
             appendSetupRow({ type: "open", ts: Date.now(), accepted_by: "auto", ...setup });
+          } else {
+            // One position at a time (§7 Step 7 sizing/management): the
+            // setup still counts as surfaced, but AUTO doesn't stack
+            // positions — recorded so the review shows what was skipped.
+            appendSetupRow({ type: "skipped_active_trade", ts: Date.now(), setup_id: setup.id });
           }
         }
       }

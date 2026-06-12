@@ -1114,13 +1114,28 @@ async function persistDeterministicTruth(dir, truth) {
   await fs.appendFile(path.join(dir, 'deterministic-packets.jsonl'), `${JSON.stringify(record)}\n`, 'utf8');
 }
 
+// Stable 8-hex-char hash (FNV-1a) — setup ids must be a pure function of
+// the walker id so the same walker keeps one id across bars, while DIFFERENT
+// walkers never collide. The previous 14-char truncation kept only
+// walker_<market>_<session>, collapsing every setup in a session into one
+// id — the backtest de-dup then swallowed all trades after the first.
+function stableIdHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
 function deterministicSetupId(packet, ev) {
   if (packet.walkerId ?? packet.id) {
-    const normalizedPacketId = String(packet.walkerId ?? packet.id)
-      .replace(/^w_/, '')
+    const raw = String(packet.walkerId ?? packet.id);
+    const readable = raw
+      .replace(/^w(alker)?_/, '')
       .replace(/[^0-9A-Za-z]+/g, '')
       .slice(0, 14) || 'unknown';
-    return `D-${normalizedPacketId}`;
+    return `D-${readable}-${stableIdHash(raw)}`;
   }
   const eventMs = Date.parse(ev?.ts);
   if (Number.isFinite(eventMs)) {
