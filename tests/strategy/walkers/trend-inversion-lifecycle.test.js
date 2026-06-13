@@ -58,9 +58,12 @@ const bearishOpposingFvg = {
   bottom: 21010,
 };
 
+const bullSwingStructure = { event: 'bos', dir: 'bull', tier: 'swing', confirmed_ms: 1780061000000, displacement: true };
+const bearSwingStructure = { event: 'mss', dir: 'bear', tier: 'swing', confirmed_ms: 1780061000000, displacement: true };
+
 test('Trend lifecycle spawns from same-direction continuation PD and requires later tap then confirmed entry-state', () => {
   const context = freshContext({
-    pillar3: { pdArrays: [bullishTrendPd], fvgs: [bullishTrendPd], insidePdArrays: [], confirmationRows: [] },
+    pillar3: { pdArrays: [bullishTrendPd], fvgs: [bullishTrendPd], structuresSwing: [bullSwingStructure], insidePdArrays: [], confirmationRows: [] },
   });
 
   const spawnRequests = buildTrendWalkerSpawnRequests(context);
@@ -95,6 +98,50 @@ test('Trend lifecycle spawns from same-direction continuation PD and requires la
   assert.equal(confirmRequests.length, 1);
   assert.equal(confirmRequests[0].stage, 'confirmed');
   assert.equal(confirmRequests[0].evidenceRef, 'confirm.later');
+});
+
+test('Trend spawn requires an established same-direction swing structure (EM Trend §1)', () => {
+  // §1: "NY or earlier session already produced a clear MSS to the upside; you
+  // are now in the continuation phase." A bullish continuation zone under a
+  // BEARISH latest swing structure is not a trend continuation — no spawn.
+  const opposing = freshContext({
+    pillar3: { pdArrays: [bullishTrendPd], fvgs: [bullishTrendPd], structuresSwing: [bearSwingStructure], insidePdArrays: [], confirmationRows: [] },
+  });
+  assert.deepEqual(buildTrendWalkerSpawnRequests(opposing), []);
+
+  // No structure at all = no established trend = no spawn (fail closed).
+  const noStructure = freshContext({
+    pillar3: { pdArrays: [bullishTrendPd], fvgs: [bullishTrendPd], structuresSwing: [], insidePdArrays: [], confirmationRows: [] },
+  });
+  assert.deepEqual(buildTrendWalkerSpawnRequests(noStructure), []);
+
+  // Aligned bullish swing structure → spawns.
+  const aligned = freshContext({
+    pillar3: { pdArrays: [bullishTrendPd], fvgs: [bullishTrendPd], structuresSwing: [bullSwingStructure], insidePdArrays: [], confirmationRows: [] },
+  });
+  assert.equal(buildTrendWalkerSpawnRequests(aligned).length, 1);
+});
+
+test('Trend structure-break kill: an opposing swing structure confirmed after spawn kills the pre-confirmation walker (EM Trend §3/§4)', () => {
+  // §4: "No trade if price breaks market structure down (no longer higher
+  // lows)." A swing-tier bear shift confirmed AFTER the long walker spawned
+  // invalidates the continuation premise.
+  const walker = {
+    ...createWalker({ context: freshContext(), model: 'Trend', side: 'long', pdArray: bullishTrendPd }),
+    stage: 'tap_seen',
+    createdAtUtc: '2026-05-29T13:45:00.000Z',
+  };
+  const broke = freshContext({
+    eventTimeUtc: '2026-05-29T13:55:00.000Z',
+    pillar3: {
+      pdArrays: [], fvgs: [], insidePdArrays: [], confirmationRows: [],
+      structuresSwing: [{ event: 'mss', dir: 'bear', tier: 'swing', confirmed_ms: Date.parse('2026-05-29T13:50:00.000Z'), displacement: true }],
+    },
+  });
+  const result = runTrendWalkerLifecycle({ context: broke, walkers: [walker] });
+  const w = result.walkers.find((x) => x.id === walker.id);
+  assert.equal(w.stage, 'blocked');
+  assert.ok(w.blockers.includes('trend_structure_broken'));
 });
 
 test('Inversion lifecycle spawns from opposing FVG and confirms on full close-through without separate tap', () => {

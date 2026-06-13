@@ -11,6 +11,27 @@ import {
   stateIsTradable,
 } from './lifecycle-utils.js';
 
+// EM Trend §1: the model is a CONTINUATION — it requires an established trend
+// in the zone direction ("a clear MSS to the upside; you are now in the
+// continuation phase"). The latest SWING-tier structure is that evidence.
+function latestSwingStructure(context) {
+  const swing = context?.pillar3?.structuresSwing ?? context?.pillar3?.structures_swing ?? [];
+  return swing.reduce(
+    (acc, s) => ((Number(s?.confirmed_ms) || 0) >= (Number(acc?.confirmed_ms) || 0) ? s : acc),
+    null,
+  );
+}
+
+function structureDirMatchesSide(structure, side) {
+  if (!structure) return false;
+  const dir = String(structure?.dir ?? structure?.direction ?? '').toLowerCase();
+  if (side === 'long') return dir === 'bull' || dir === 'bullish';
+  if (side === 'short') return dir === 'bear' || dir === 'bearish';
+  return false;
+}
+
+const TREND_PRE_CONFIRM_STAGES = new Set(['watching', 'pd_identified', 'tap_seen', 'confirmation_pending']);
+
 function findContinuationPdArrays(context) {
   return allPdArrays(context).filter((pdArray) => {
     const kind = kindOf(pdArray);
@@ -85,14 +106,47 @@ export function buildTrendWalkerSpawnRequests(context) {
   if (context?.pillar2?.status && context.pillar2.status !== 'pass') return [];
   if (!hasCleanDisplacement(context)) return [];
 
-  return findContinuationPdArrays(context).map((pdArray) => ({
-    model: 'Trend',
-    side: sideForPdDirection(pdArray),
-    pdArray,
-    setupEvidence: {
-      continuationPdArray: { evidenceRef: refOf(pdArray, 'pillar3.pdArrays.trend'), rawPayload: pdArray },
-    },
-  }));
+  // EM Trend §1: only spawn a continuation when the latest swing-tier structure
+  // is established in the zone direction. No structure = no established trend
+  // (fail closed); opposing structure = not a continuation.
+  const latest = latestSwingStructure(context);
+  return findContinuationPdArrays(context)
+    .map((pdArray) => ({ pdArray, side: sideForPdDirection(pdArray) }))
+    .filter(({ side }) => structureDirMatchesSide(latest, side))
+    .map(({ pdArray, side }) => ({
+      model: 'Trend',
+      side,
+      pdArray,
+      setupEvidence: {
+        continuationPdArray: { evidenceRef: refOf(pdArray, 'pillar3.pdArrays.trend'), rawPayload: pdArray },
+        trendStructure: { evidenceRef: refOf(latest, 'pillar3.structures_by_tier.swing'), rawPayload: latest },
+      },
+    }));
+}
+
+// EM Trend §3/§4: kill a pre-confirmation continuation walker when market
+// structure breaks against it — the latest swing-tier structure flips to the
+// opposing direction AFTER the walker spawned ("no trade if price breaks
+// market structure down / no longer higher lows").
+export function buildTrendWalkerKillRequests(context, walkers = []) {
+  const latest = latestSwingStructure(context);
+  if (!latest) return [];
+  const confirmedMs = Number(latest?.confirmed_ms);
+  const requests = [];
+  for (const walker of walkers) {
+    if (walker?.model !== 'Trend' || !TREND_PRE_CONFIRM_STAGES.has(walker?.stage)) continue;
+    if (structureDirMatchesSide(latest, walker.side)) continue; // still aligned
+    const spawnMs = Date.parse(walker?.createdAtUtc);
+    if (!Number.isFinite(spawnMs) || !Number.isFinite(confirmedMs) || confirmedMs <= spawnMs) continue;
+    requests.push({
+      id: walker.id,
+      eventTimeUtc: context?.eventTimeUtc,
+      stage: 'blocked',
+      reason: 'trend_structure_broken',
+      evidenceRef: refOf(latest, 'pillar3.structures_by_tier.swing'),
+    });
+  }
+  return requests;
 }
 
 export function buildTrendWalkerAdvanceRequests(context, walkers = []) {
@@ -155,6 +209,8 @@ export function runTrendWalkerLifecycle({ context, walkers = [] } = {}) {
       rawPayload: event.walker.evidence?.pdArray?.rawPayload ?? null,
     }));
   const pdAdvanced = runWalkerEngine({ context, walkers: spawned.walkers, advanceRequests: pdAdvanceRequests });
-  const advanced = runWalkerEngine({ context, walkers: pdAdvanced.walkers, advanceRequests: buildTrendWalkerAdvanceRequests(context, pdAdvanced.walkers) });
-  return { walkers: advanced.walkers, events: [...spawned.events, ...pdAdvanced.events, ...advanced.events] };
+  // EM Trend §3/§4: kill structure-broken walkers BEFORE they can confirm.
+  const killed = runWalkerEngine({ context, walkers: pdAdvanced.walkers, killRequests: buildTrendWalkerKillRequests(context, pdAdvanced.walkers) });
+  const advanced = runWalkerEngine({ context, walkers: killed.walkers, advanceRequests: buildTrendWalkerAdvanceRequests(context, killed.walkers) });
+  return { walkers: advanced.walkers, events: [...spawned.events, ...pdAdvanced.events, ...killed.events, ...advanced.events] };
 }
