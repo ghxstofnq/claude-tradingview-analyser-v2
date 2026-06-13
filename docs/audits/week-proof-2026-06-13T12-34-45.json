@@ -1,0 +1,230 @@
+{
+  "generated_at": "2026-06-13T12:34:45.865Z",
+  "week_total_r": 1.73,
+  "results": [
+    {
+      "date": "2026-06-01",
+      "session": "ny-pm",
+      "ok": true,
+      "summary": {
+        "run_id": "20260613-122024-pm-2026-06-01",
+        "date": "2026-06-01",
+        "session": "ny-pm",
+        "mode": "auto",
+        "created_at": "2026-06-13T12:20:24.885Z",
+        "elapsed_ms": 168332,
+        "cost_usd": 0,
+        "engine": "deterministic-walker-chain",
+        "context_source": "direct_brief",
+        "bars": 182,
+        "recording_warnings": 0,
+        "setups": 0,
+        "wins": 0,
+        "losses": 0,
+        "no_trades": 1,
+        "total_r": 0,
+        "best_model": null,
+        "setups_by_grade": {},
+        "wins_by_grade": {},
+        "your_agreement": {
+          "agreed": 0,
+          "disagreed": 0,
+          "ungraded": 0
+        },
+        "session_halted": false,
+        "chain_status": "clean",
+        "open_reaction": {
+          "interaction": "continuation",
+          "level": "LO.H",
+          "ltf_bias": "bullish",
+          "htf_ltf_alignment": "aligned",
+          "is_retrace_day": false,
+          "grade_cap": "A+",
+          "entry_model_priority": "undecided",
+          "cite": "gates.engine.pillar1.sweeps[target=LO.H]",
+          "resolved_at_ts": "2026-06-01T17:30:00.000Z"
+        }
+      }
+    },
+    {
+      "date": "2026-06-02",
+      "session": "ny-pm",
+      "ok": true,
+      "summary": {
+        "run_id": "20260613-122315-pm-2026-06-02",
+        "date": "2026-06-02",
+        "session": "ny-pm",
+        "mode": "auto",
+        "created_at": "2026-06-13T12:23:15.046Z",
+        "elapsed_ms": 173062,
+        "cost_usd": 0,
+        "engine": "deterministic-walker-chain",
+        "context_source": "direct_brief",
+        "bars": 182,
+        "recording_warnings": 0,
+        "setups": 3,
+        "wins": 1,
+        "losses": 1,
+        "no_trades": 0,
+        "total_r": 1.73,
+        "best_model": "Inversion",
+        "setups_by_grade": {
+          "B": 3
+        },
+        "wins_by_grade": {
+          "B": 1
+        },
+        "your_agreement": {
+          "agreed": 0,
+          "disagreed": 0,
+          "ungraded": 3
+        },
+        "session_halted": false,
+        "chain_status": "divergent",
+        "open_reaction": {
+          "interaction": "mss_realignment",
+          "level": null,
+          "ltf_bias": "bullish",
+          "htf_ltf_alignment": "divergent",
+          "is_retrace_day": true,
+          "grade_cap": "B",
+          "entry_model_priority": "undecided",
+          "cite": "gates.engine.pillar3.structures_by_tier.swing[latest mss]",
+          "resolved_at_ts": "2026-06-02T19:11:00.000Z"
+        }
+      }
+    },
+    {
+      "date": "2026-06-03",
+      "session": "ny-pm",
+      "ok": true,
+      "summary": {
+        "run_id": "20260613-122609-pm-2026-06-03",
+        "date": "2026-06-03",
+        "session": "ny-pm",
+        "mode": "auto",
+        "created_at": "2026-06-13T12:26:09.945Z",
+        "elapsed_ms": 167961,
+        "cost_usd": 0,
+        "engine": "deterministic-walker-chain",
+        "context_source": "direct_brief",
+        "bars": 182,
+        "recording_warnings": 0,
+        "setups": 0,
+        "wins": 0,
+        "losses": 0,
+        "no_trades": 1,
+        "total_r": 0,
+        "best_model": null,
+        "setups_by_grade": {},
+        "wins_by_grade": {},
+        "your_agreement": {
+          "agreed": 0,
+          "disagreed": 0,
+          "ungraded": 0
+        },
+        "session_halted": false,
+        "chain_status": "clean",
+        "open_reaction": {
+          "interaction": "late_direction",
+          "level": null,
+          "ltf_bias": "bullish",
+          "htf_ltf_alignment": "aligned",
+          "is_retrace_day": false,
+          "grade_cap": "B",
+          "entry_model_priority": "undecided",
+          "cite": "gates.engine.pillar3.structures_by_tier.swing[latest]",
+          "resolved_at_ts": "2026-06-03T19:41:00.000Z"
+        }
+      }
+    },
+    {
+      "date": "2026-06-04",
+      "session": "ny-pm",
+      "ok": true,
+      "summary": {
+        "run_id": "20260613-122859-pm-2026-06-04",
+        "date": "2026-06-04",
+        "session": "ny-pm",
+        "mode": "auto",
+        "created_at": "2026-06-13T12:28:59.750Z",
+        "elapsed_ms": 171717,
+        "cost_usd": 0,
+        "engine": "deterministic-walker-chain",
+        "context_source": "direct_brief",
+        "bars": 182,
+        "recording_warnings": 0,
+        "setups": 0,
+        "wins": 0,
+        "losses": 0,
+        "no_trades": 1,
+        "total_r": 0,
+        "best_model": null,
+        "setups_by_grade": {},
+        "wins_by_grade": {},
+        "your_agreement": {
+          "agreed": 0,
+          "disagreed": 0,
+          "ungraded": 0
+        },
+        "session_halted": false,
+        "chain_status": "divergent",
+        "open_reaction": {
+          "interaction": "late_direction",
+          "level": null,
+          "ltf_bias": "bullish",
+          "htf_ltf_alignment": "divergent",
+          "is_retrace_day": true,
+          "grade_cap": "B",
+          "entry_model_priority": "undecided",
+          "cite": "gates.engine.pillar3.structures_by_tier.swing[latest]",
+          "resolved_at_ts": "2026-06-04T19:31:00.000Z"
+        }
+      }
+    },
+    {
+      "date": "2026-06-05",
+      "session": "ny-pm",
+      "ok": true,
+      "summary": {
+        "run_id": "20260613-123153-pm-2026-06-05",
+        "date": "2026-06-05",
+        "session": "ny-pm",
+        "mode": "auto",
+        "created_at": "2026-06-13T12:31:53.309Z",
+        "elapsed_ms": 170719,
+        "cost_usd": 0,
+        "engine": "deterministic-walker-chain",
+        "context_source": "direct_brief",
+        "bars": 182,
+        "recording_warnings": 0,
+        "setups": 0,
+        "wins": 0,
+        "losses": 0,
+        "no_trades": 1,
+        "total_r": 0,
+        "best_model": null,
+        "setups_by_grade": {},
+        "wins_by_grade": {},
+        "your_agreement": {
+          "agreed": 0,
+          "disagreed": 0,
+          "ungraded": 0
+        },
+        "session_halted": false,
+        "chain_status": "divergent",
+        "open_reaction": {
+          "interaction": "late_direction",
+          "level": null,
+          "ltf_bias": "bearish",
+          "htf_ltf_alignment": "divergent",
+          "is_retrace_day": true,
+          "grade_cap": "B",
+          "entry_model_priority": "undecided",
+          "cite": "gates.engine.pillar3.structures_by_tier.swing[latest]",
+          "resolved_at_ts": "2026-06-05T18:13:00.000Z"
+        }
+      }
+    }
+  ]
+}
