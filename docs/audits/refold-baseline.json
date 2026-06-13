@@ -1,0 +1,153 @@
+{
+  "JUN9-AM": {
+    "total_r": 10.01,
+    "trades": [
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-09T13:52:00.000Z",
+        "entry": 29792,
+        "stop": 29847,
+        "tp1": 29659.25,
+        "outcome": "tp1_hit",
+        "exit": 29659.25,
+        "r": 2.41
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-09T14:05:00.000Z",
+        "entry": 29664,
+        "stop": 29713.75,
+        "tp1": 29458.5,
+        "outcome": "tp1_hit",
+        "exit": 29458.5,
+        "r": 4.13
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-09T14:27:00.000Z",
+        "entry": 29467.25,
+        "stop": 29526,
+        "tp1": 29302.5,
+        "outcome": "tp1_hit",
+        "exit": 29302.5,
+        "r": 2.8
+      },
+      {
+        "model": "Trend",
+        "side": "short",
+        "event_ts": "2026-06-09T15:05:00.000Z",
+        "entry": 29184,
+        "stop": 29226.5,
+        "tp1": 29083.75,
+        "outcome": "stop_hit",
+        "exit": 29226.5,
+        "r": -1
+      },
+      {
+        "model": "Trend",
+        "side": "short",
+        "event_ts": "2026-06-09T15:53:00.000Z",
+        "entry": 28911.75,
+        "stop": 28971.75,
+        "tp1": 28811.5,
+        "outcome": "tp1_hit",
+        "exit": 28811.5,
+        "r": 1.67
+      }
+    ]
+  },
+  "JUN10-AM": {
+    "total_r": 1.35,
+    "trades": [
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-10T13:51:00.000Z",
+        "entry": 29052.5,
+        "stop": 29162.25,
+        "tp1": 28771.75,
+        "outcome": "stop_hit",
+        "exit": 29162.25,
+        "r": -1
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-10T14:32:00.000Z",
+        "entry": 29101.25,
+        "stop": 29203,
+        "tp1": 28771.75,
+        "outcome": "stop_hit",
+        "exit": 29203,
+        "r": -1
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-10T14:37:00.000Z",
+        "entry": 29184.5,
+        "stop": 29251,
+        "tp1": 29046,
+        "outcome": "tp1_hit",
+        "exit": 29046,
+        "r": 2.08
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-10T14:53:00.000Z",
+        "entry": 29027.75,
+        "stop": 29106,
+        "tp1": 28771.75,
+        "outcome": "tp1_hit",
+        "exit": 28771.75,
+        "r": 3.27
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-10T15:30:00.000Z",
+        "entry": 28791.5,
+        "stop": 28873.25,
+        "tp1": 28610.25,
+        "outcome": "stop_hit",
+        "exit": 28873.25,
+        "r": -1
+      },
+      {
+        "model": "Trend",
+        "side": "short",
+        "event_ts": "2026-06-10T15:56:00.000Z",
+        "entry": 28746.25,
+        "stop": 28787.75,
+        "tp1": 28610.25,
+        "outcome": "stop_hit",
+        "exit": 28787.75,
+        "r": -1
+      }
+    ]
+  },
+  "JUN11-AM": {
+    "total_r": -1,
+    "trades": [
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-11T13:58:00.000Z",
+        "entry": 28908.75,
+        "stop": 29014.75,
+        "tp1": 28651,
+        "outcome": "stop_hit",
+        "exit": 29014.75,
+        "r": -1
+      }
+    ]
+  },
+  "JUN11-PM": {
+    "total_r": 0,
+    "trades": []
+  }
+}
