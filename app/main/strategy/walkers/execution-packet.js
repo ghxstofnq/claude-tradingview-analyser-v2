@@ -251,9 +251,7 @@ function validTargets(context, side, entry, stop) {
 // still reports tp1_below_1_5r (rather than missing_side_consistent_tp1).
 function selectTp1(context, side, entry, stop) {
   const candidates = validTargets(context, side, entry, stop);
-  // Swing bar lowered 2R → 1.5R (GXNQ 2026-06-13, June 11 trade 2: the
-  // 1.85R first swing at 28651 IS the TP1). Same floor as levels now.
-  const swing = candidates.find((t) => t.target_class === 'intraday' && t.rMultiple >= 1.5);
+  const swing = candidates.find((t) => t.target_class === 'intraday' && t.rMultiple >= 2.0);
   if (swing) return swing;
   const level = candidates.find((t) => t.target_class === 'level' && t.rMultiple >= 1.5);
   if (level) return level;
