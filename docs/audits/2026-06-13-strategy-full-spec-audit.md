@@ -86,7 +86,7 @@ FVG entries trigger on confirmation close, not touch; NY-open reversal window 15
 | G2 | M4 | No invalidation when price takes out the grab extreme after MSS spawn. | "Without making a new low" unenforced — dead-premise MSS walkers stay alive. | Kill MSS walker if post-spawn price violates the anchoring sweep's extreme (EM MSS §4). | Must refold-verify. |
 | G3 | T1/T3 | Trend spawns on any tradable in-trend zone + clean displacement; no structure requirement, no structure-break invalidation. | Continuation traded without an established trend; pullback that breaks structure not killed. | Spawn requires latest swing-tier structure in zone direction; kill on opposing swing-tier break (EM Trend §1, §3). | Must refold-verify (June 9 trade 7, June 10 Trends were with-structure). |
 | G4 | M2 | MSS spawn requires a rejected SESSION-LEVEL sweep; doc also allows clear intraday swing-low grabs. Engine failure_swings (validation=sweep) partially covers. | Under-spawning on pure swing-liquidity grabs. | Accept engine swept-swing evidence as the M2 grab when no level sweep exists (EM MSS §2). | ADDING spawns risks new trades on graded days — gate behind refold parity; drop if it moves a graded day (user rulings already cover those days' MSS candidates). |
-| G5 | I4 | Inversion failed-leg extreme = extreme of `bars.last_5_bars` (whatever the bundle carried). | "The leg that created the violated zone" is not bounded by zone creation — June 11 PM 13:30 produced a 333-pt stop. | Bound leg bars to `>= zone created_ms` (EM Inversion §5 + §6 structural invalidation). June 9 stops must stay 29847 / 29714.25 / 29526.25. | Designed to be a no-op on June 9; refold-verify. |
+| G5 | I4 | Inversion failed-leg extreme = extreme of `bars.last_5_bars` (whatever the bundle carried). | "The leg that created the violated zone" is not bounded — June 11 PM 13:30 produced a 333-pt stop. | RESOLVED — no code. Four refold-gated fixes all moved a frozen day; June 11 PM 13:30 is structurally identical to the accepted June 11 AM 13:58 launchpad stop, separable only by magnitude (curve-fitting). Logged decision 2026-06-13. | Any fix drifts frozen days; left unchanged. |
 | G6 | R6.2 | `computeSize` exists (brief sizing note) but packets carry no size. | Trader never sees per-trade size on the packet. | Attach size to packet for display (TS §6) — accounting stays R-based. Dashboard-phase item. | None (display only). |
 | G7 | R6.3 | Backtest books the FULL position at TP1 (realized R = TP1 multiple); no TP2/runner accounting. | §6 two-stage profit-taking is collapsed to TP1-only. | DOCUMENTED DECISION, not a code change: graded baselines (+10.01R/+1.35R) are computed under TP1-books-all accounting and are immutable. TP2 remains reported on the packet. Revisit only with user sign-off. | Changing it would move every graded R total — frozen. |
 | G8 | R5.1 | Confirmation discipline is 1m close only. | Doc allows 1m OR 5m closes. | DOCUMENTED DECISION: the hand-graded days settled on 1m-close discipline (chain output graded correct trade-by-trade). 5m variant stays out unless a tape proves a missed doc-valid setup. | Adding 5m confirms would add entries on graded days — frozen. |
@@ -100,7 +100,11 @@ FVG entries trigger on confirmation close, not touch; NY-open reversal window 15
 4. Any drift on a graded day = the change does not ship as-is.
 
 ## Status
-- G5 → first implementation PR (also resolves the standing June 11 PM 13:30 stop question).
-- G1, G2, G3 → second wave, one rule-set per PR, refold-gated.
+- G5 → RESOLVED 2026-06-13, no code (decisions-log). The standing June 11 PM
+  13:30 stop question has no deterministic fix that spares the frozen days;
+  the violating-candle anchor it "should" use is the same rule the frozen
+  June 11 AM 13:58 stop violates. Interpretive; a §6 max-stop risk gate is
+  flagged for user sign-off / Phase-5 empirical justification.
+- G1, G2, G3 → implementation wave, one rule-set per PR, refold-gated.
 - G4 → attempted last; dropped if it perturbs graded days.
 - G6 → dashboard phase. G7, G8, G9 → decisions logged, no code.
