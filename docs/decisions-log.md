@@ -12,6 +12,57 @@ Doc shorthand: **TS** = `docs/strategy/trading-strategy-2026.md`,
 
 ---
 
+## 2026-06-13 — Phase 5 week proof (June 1–5 NY-AM): −1.40R, root-caused
+
+**Scope.** User chose NY-AM-only (TV-replay recording wedges the live chart and
+ties it up ~25 min/session; full 15-session week deferred). Recorded + folded
+the 5 NY-AM sessions through the production engine (`scripts/run-week-proof.mjs`,
+with page-reload wedge recovery).
+
+**Result.**
+
+| Day | Net move | Called bias | Trades | R |
+|-----|----------|-------------|--------|---|
+| Jun 1 | +181 (bull) | bullish/aligned B | 2 longs | −2.00 |
+| Jun 2 | +144 (bull) | bullish/divergent B | 1 long | +2.60 |
+| Jun 3 | −139 (bear) | bullish/divergent B | 0 | 0 |
+| Jun 4 | +131 (bull) | bullish/aligned B | 0 | 0 |
+| Jun 5 | −381 (bear) | bullish/aligned A+ | 2 longs | −2.00 |
+| | | | **WEEK** | **−1.40** |
+
+**Root cause — both losing days are strategy-faithful.**
+- **Jun 1 (−2R):** correct direction (a +181 bullish day) but the two B-grade
+  longs printed LATE (11:43 / 11:53 ET) right at the session high 30554 after a
+  230-pt rally; both stopped on the pullback. Valid confirmed setups; poor
+  location, not a rule violation.
+- **Jun 5 (−2R):** Daily +15% / 4H +2% momentum bullish + a REAL LO.L rejection
+  inside the §7-Step-4 open window → mechanically aligned-bullish A+ (resolver
+  is doc-faithful). The day fell −381 anyway. The bearish delivery came as a
+  swing-tier BoS bear @ 11:12 ET with displacement=FALSE — not an MSS and not
+  displaced, so §2.3 realignment correctly did not fire.
+
+**No frozen-safe, non-curve-fitting fix flips the week.** Candidate refinements
+considered and why each is held:
+- §2.1 draw-reaction bias (brief derives htf_bias from momentum `change_pct`,
+  not from the primary draw's reaction; Jun 5's draw was a bear FVG *above* →
+  §2.1 implies a bearish destination). A REAL fidelity gap — but a large change
+  to the bias derivation that feeds the open-reaction + side gate, high risk to
+  the frozen days, and needs a full week re-record to validate.
+- §2.4 divergent-HTF grade cap (Jun 5 graded A+ despite 1H bearish). Real, but
+  grade does not gate trade-taking (A+ and B both book) → does not change R.
+- §3 price-quality stand-aside (Jun 5 marginal). Ruled OUT by the frozen days:
+  June 10 itself traded on marginal/weak quality (4 losers, +1.35R net) — the
+  documented tradable-B day. Tightening quality would move a frozen day.
+
+**Decision.** The −1.40R is a strategy-faithful slight loss on the NY-AM subset.
+Forcing it green via the above would be curve-fitting (mandate: "never fix a
+rule just to flip one loss") or would move a frozen day (forbidden). The
+honest, mandate-aligned outcome is to record it as-is and surface the §2.1
+draw-reaction bias as the one genuine fidelity gap worth a future, carefully-
+validated PR. (Frozen days re-verified intact after all week-proof runs.)
+
+---
+
 ## 2026-06-13 — June 11 PM 13:30 stop (G5): no deterministic fix; interpretive
 
 **Question.** The June 11 PM 13:30 (17:30 UTC) Inversion long surfaces with a
