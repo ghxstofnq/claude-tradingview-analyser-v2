@@ -31,20 +31,33 @@ function hasCleanDisplacement(context) {
   return displacement === 'clean' || displacement === 'acceptable';
 }
 
+// The MOST RECENT rejected sweep of opposing liquidity anchors the model —
+// the shift must follow the latest grab, not any grab on record (June 10
+// 10:06: NYPM.H from the prior afternoon + an overnight bear MSS would have
+// paired under an any-sweep rule).
 function findRejectedSweep(context, side) {
   const wanted = directionForSide(side);
-  return (context?.pillar3?.sweeps ?? context?.pillar1?.sweeps ?? []).find((sweep) => (
-    sweep?.side === wanted.sweepSide && sweep?.rejected === true
-  ));
+  return (context?.pillar3?.sweeps ?? context?.pillar1?.sweeps ?? [])
+    .filter((sweep) => sweep?.side === wanted.sweepSide && sweep?.rejected === true)
+    .sort((a, b) => (Number(b?.swept_ms) || 0) - (Number(a?.swept_ms) || 0))[0] ?? null;
 }
 
-function findMssDisplacement(context, side) {
+// GXNQ ruling 2026-06-13 (June 10, 10:06): grab without shift is not an MSS.
+// The structure shift must CONFIRM after the anchoring sweep — entry-models.md
+// MSS: sweep first, THEN the displacement break of the recent higher low.
+// Engine rows stamp confirmed_ms; created_ms is the fixture-era fallback.
+// No timestamp on either side → fail closed.
+function findMssDisplacement(context, side, sweep) {
   const wanted = directionForSide(side);
-  return (context?.pillar3?.failureSwings ?? context?.pillar3?.failure_swings ?? []).find((failureSwing) => (
-    wanted.swing.includes(failureSwing?.dir ?? failureSwing?.direction)
-    && (failureSwing?.event == null || failureSwing.event === 'mss')
-    && (failureSwing?.validation == null || failureSwing.validation === 'sweep')
-  ));
+  const sweptMs = Number(sweep?.swept_ms);
+  if (!Number.isFinite(sweptMs)) return null;
+  return (context?.pillar3?.failureSwings ?? context?.pillar3?.failure_swings ?? []).find((failureSwing) => {
+    if (!wanted.swing.includes(failureSwing?.dir ?? failureSwing?.direction)) return false;
+    if (failureSwing?.event != null && failureSwing.event !== 'mss') return false;
+    if (failureSwing?.validation != null && failureSwing.validation !== 'sweep') return false;
+    const shiftMs = Number(failureSwing?.confirmed_ms ?? failureSwing?.created_ms);
+    return Number.isFinite(shiftMs) && shiftMs > sweptMs;
+  });
 }
 
 function findReversalPdArray(context, side) {
@@ -81,7 +94,7 @@ export function buildMssWalkerSpawnRequests(context) {
   const requests = [];
   for (const side of ['long', 'short']) {
     const sweep = findRejectedSweep(context, side);
-    const displacement = findMssDisplacement(context, side);
+    const displacement = findMssDisplacement(context, side, sweep);
     const pdArray = findReversalPdArray(context, side);
     if (!sweep || !displacement || !pdArray) continue;
     requests.push({

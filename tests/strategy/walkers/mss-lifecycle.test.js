@@ -176,3 +176,58 @@ test('buildMssWalkerAdvanceRequests requires exact confirmed entry-state fields 
   assert.equal(requests[0].evidenceRef, 'gates.engine.confirmation');
   assert.equal(requests[0].evidenceKey, 'confirmation');
 });
+
+// ---- GXNQ ruling 2026-06-13 (June 10, 10:06 skipped MSS): "not valid MSS" —
+// the grab existed (LO.H ran + rejected 09:38) but no bearish shift confirmed
+// after it; the walker leaned on overnight failure-swing rows. The MSS is the
+// namesake of the model: it must confirm AFTER the most recent rejected
+// opposing sweep (entry-models.md MSS §2→§3 sequence).
+
+test('MSS spawn: a shift that confirmed BEFORE the most recent rejected sweep never spawns', () => {
+  const staleShift = {
+    ...failureSwing,
+    confirmed_ms: 1780061000000, // before the 1780062000000 sweep
+    created_ms: 1780060900000,
+  };
+  const context = freshContext({
+    pillar3: {
+      sweeps: [sweep],
+      failureSwings: [staleShift],
+      pdArrays: [bullishPd],
+      insidePdArrays: [],
+      confirmationRows: [],
+    },
+  });
+  assert.deepEqual(buildMssWalkerSpawnRequests(context), []);
+});
+
+test('MSS spawn: the anchor is the MOST RECENT rejected sweep — a shift between two sweeps does not spawn', () => {
+  const newerSweep = { ...sweep, evidenceRef: 'gates.engine.pillar1.sweeps[1]', swept_ms: 1780063000000 };
+  const shiftBetween = { ...failureSwing, confirmed_ms: 1780062500000, created_ms: 1780062400000 };
+  const context = freshContext({
+    pillar3: {
+      sweeps: [sweep, newerSweep],
+      failureSwings: [shiftBetween],
+      pdArrays: [bullishPd],
+      insidePdArrays: [],
+      confirmationRows: [],
+    },
+  });
+  assert.deepEqual(buildMssWalkerSpawnRequests(context), []);
+});
+
+test('MSS spawn: a shift confirmed AFTER the most recent rejected sweep spawns', () => {
+  const freshShift = { ...failureSwing, confirmed_ms: 1780062300000 };
+  const context = freshContext({
+    pillar3: {
+      sweeps: [sweep],
+      failureSwings: [freshShift],
+      pdArrays: [bullishPd],
+      insidePdArrays: [],
+      confirmationRows: [],
+    },
+  });
+  const requests = buildMssWalkerSpawnRequests(context);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].side, 'long');
+});
