@@ -177,6 +177,33 @@ test('buildMssWalkerAdvanceRequests requires exact confirmed entry-state fields 
   assert.equal(requests[0].evidenceKey, 'confirmation');
 });
 
+// ---- EM MSS §2 ("Price runs below an obvious low ... or a very clear
+// intra-day swing low"): the grab need not be a named session level. A swept
+// swing (engine failure_swing, validation=sweep) anchors the MSS when no
+// session-level sweep exists.
+
+test('MSS spawn: a swept-swing failure_swing anchors the grab when no session-level sweep exists (EM MSS §2)', () => {
+  const swingGrab = {
+    evidenceRef: 'gates.engine.pillar3.failure_swings[0]',
+    event: 'mss', validation: 'sweep', dir: 'bull',
+    level: 20950, broken_swing_ms: 1780062000000, confirmed_ms: 1780062180000,
+  };
+  const context = freshContext({
+    pillar3: {
+      sweeps: [], // NO session-level sweep
+      failureSwings: [swingGrab],
+      pdArrays: [bullishPd],
+      fvgs: [bullishPd],
+      insidePdArrays: [],
+      confirmationRows: [],
+    },
+  });
+  const requests = buildMssWalkerSpawnRequests(context);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].side, 'long');
+  assert.equal(Number(requests[0].setupEvidence.sweep.rawPayload.price), 20950);
+});
+
 // ---- GXNQ ruling 2026-06-13 (June 10, 10:06 skipped MSS): "not valid MSS" —
 // the grab existed (LO.H ran + rejected 09:38) but no bearish shift confirmed
 // after it; the walker leaned on overnight failure-swing rows. The MSS is the

@@ -60,6 +60,23 @@ function findMssDisplacement(context, side, sweep) {
   });
 }
 
+// EM MSS §2: the grab can be "a very clear intra-day swing low," not only a
+// named session level. When no session-level rejected sweep exists, anchor the
+// MSS on a swept-swing failure_swing (event=mss, validation=sweep) — the same
+// row findMssDisplacement consumes — and synthesize the grab from it so the
+// downstream sequence (grab → shift) and the dead-premise kill keep working.
+function findSwingGrab(context, side) {
+  const wanted = directionForSide(side);
+  return (context?.pillar3?.failureSwings ?? context?.pillar3?.failure_swings ?? []).find((fs) => {
+    if (!wanted.swing.includes(fs?.dir ?? fs?.direction)) return false;
+    if (fs?.event != null && fs.event !== 'mss') return false;
+    if (fs?.validation != null && fs.validation !== 'sweep') return false;
+    const brokenMs = Number(fs?.broken_swing_ms);
+    const shiftMs = Number(fs?.confirmed_ms ?? fs?.created_ms);
+    return Number.isFinite(brokenMs) && Number.isFinite(shiftMs) && shiftMs > brokenMs;
+  }) ?? null;
+}
+
 function findReversalPdArray(context, side) {
   const wanted = directionForSide(side);
   return (context?.pillar3?.pdArrays ?? context?.pillar3?.fvgs ?? []).find((pdArray) => {
@@ -109,8 +126,24 @@ export function buildMssWalkerSpawnRequests(context) {
 
   const requests = [];
   for (const side of ['long', 'short']) {
-    const sweep = findRejectedSweep(context, side);
-    const displacement = findMssDisplacement(context, side, sweep);
+    let sweep = findRejectedSweep(context, side);
+    let displacement = sweep ? findMssDisplacement(context, side, sweep) : null;
+    // EM MSS §2 swing-low grab fallback: no session-level sweep but a swept
+    // swing shifted structure. Synthesize the grab from that failure_swing.
+    if (!sweep) {
+      const swingGrab = findSwingGrab(context, side);
+      if (swingGrab) {
+        displacement = swingGrab;
+        sweep = {
+          evidenceRef: refOf(swingGrab, `pillar3.failureSwings.${side}.grab`),
+          side: directionForSide(side).sweepSide,
+          price: Number(swingGrab.level),
+          swept_ms: Number(swingGrab.broken_swing_ms),
+          rejected: true,
+          source: 'swept_swing',
+        };
+      }
+    }
     const pdArray = findReversalPdArray(context, side);
     if (!sweep || !displacement || !pdArray) continue;
     requests.push({
