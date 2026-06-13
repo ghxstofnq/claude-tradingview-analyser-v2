@@ -85,6 +85,33 @@ test('runDeterministicWalkerStrategy keeps blocked packets visible but final ver
   assert.equal(result.bestPacket, null);
 });
 
+test('tap→confirmation timeout: a tap_seen walker that has not confirmed within 15 min is expired (TS §7 Step 6; EM MSS §5 chop rule)', () => {
+  // TS §7 Step 6: "Price taps your chosen PD array. Within 10–15 minutes, you
+  // get a strong 1m/5m close in your direction." EM MSS §5: "No trade if price
+  // ... chops inside the FVG for >10–15 minutes." A tap that hasn't confirmed
+  // by 16 minutes is stale and must not later confirm.
+  const context = contextWithPacket({ eventTimeUtc: '2026-05-29T14:01:00.000Z' });
+  const stale = {
+    ...createWalker({ context, model: 'MSS', side: 'long', pdArray: bullishPd }),
+    stage: 'tap_seen',
+    tappedAtUtc: '2026-05-29T13:45:00.000Z', // 16 min earlier
+  };
+  const result = runDeterministicWalkerStrategy({ context, walkers: [stale] });
+  assert.equal(result.walkers[0].stage, 'expired');
+  assert.ok(result.walkers[0].blockers.includes('tap_confirmation_timeout'));
+});
+
+test('tap→confirmation timeout: a tap_seen walker still inside the 15-min window is NOT expired', () => {
+  const context = contextWithPacket({ eventTimeUtc: '2026-05-29T13:57:00.000Z' }); // 12 min later
+  const fresh = {
+    ...createWalker({ context, model: 'MSS', side: 'long', pdArray: bullishPd }),
+    stage: 'tap_seen',
+    tappedAtUtc: '2026-05-29T13:45:00.000Z',
+  };
+  const result = runDeterministicWalkerStrategy({ context, walkers: [fresh] });
+  assert.notEqual(result.walkers[0].stage, 'expired');
+});
+
 test('same bar, same grade: the Inversion packet outranks the Trend packet (June 9 trade 3 hand grade)', () => {
   // 10:26 close inverted the bull FVG 29471.5-29482.75 AND wick-tap-confirmed
   // a Trend short off the bear FVG above — GXNQ graded the bar as the

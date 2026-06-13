@@ -3,6 +3,38 @@ import { runMssWalkerLifecycle } from './mss-lifecycle.js';
 import { runTrendWalkerLifecycle } from './trend-lifecycle.js';
 import { runInversionWalkerLifecycle } from './inversion-lifecycle.js';
 import { runWalkerEngine } from './walker-engine.js';
+import { killWalker } from './walker-kill.js';
+
+// TS §7 Step 6: "Price taps your chosen PD array. Within 10–15 minutes, you
+// get a strong 1m/5m close in your direction." EM MSS §5: "No trade if price
+// wicks through and closes weak or chops inside the FVG for >10–15 minutes."
+// A walker that tapped its zone but has not confirmed within this window is
+// stale — it must not confirm on a much-later bar. Applies to the tap-wait
+// stages (MSS/Trend); Inversion confirms on the violating close with no tap
+// wait, so it has no tappedAtUtc and is unaffected.
+const TAP_CONFIRMATION_TIMEOUT_MS = 15 * 60 * 1000;
+const TAP_WAIT_STAGES = new Set(['tap_seen', 'confirmation_pending']);
+
+function expireStaleTaps({ context, walkers }) {
+  const nowMs = Date.parse(context?.eventTimeUtc);
+  if (!Number.isFinite(nowMs)) return { walkers, events: [] };
+  const events = [];
+  const next = walkers.map((walker) => {
+    if (!TAP_WAIT_STAGES.has(walker?.stage)) return walker;
+    const tappedMs = Date.parse(walker?.tappedAtUtc);
+    if (!Number.isFinite(tappedMs)) return walker;
+    if (nowMs - tappedMs <= TAP_CONFIRMATION_TIMEOUT_MS) return walker;
+    const killed = killWalker(walker, {
+      eventTimeUtc: context?.eventTimeUtc,
+      stage: 'expired',
+      reason: 'tap_confirmation_timeout',
+      evidenceRef: walker?.tapRef ?? null,
+    });
+    events.push({ type: 'walker_expired', walkerId: walker.id, reason: 'tap_confirmation_timeout' });
+    return killed;
+  });
+  return { walkers: next, events };
+}
 
 // Grade first, then the open-reaction model priority (a preference, not a
 // gate — resolver spec §3.4 "which model to walk first"), then Inversion
@@ -57,7 +89,10 @@ function finalizeConfirmedWalkers({ context, walkers }) {
 }
 
 export function runDeterministicWalkerStrategy({ context, walkers = [] } = {}) {
-  const mss = runMssWalkerLifecycle({ context, walkers });
+  // Expire stale taps BEFORE the lifecycles run, so a tap that blew its 10–15
+  // min confirmation window cannot confirm on the current (much later) bar.
+  const expired = expireStaleTaps({ context, walkers });
+  const mss = runMssWalkerLifecycle({ context, walkers: expired.walkers });
   const trend = runTrendWalkerLifecycle({ context, walkers: mss.walkers });
   const inversion = runInversionWalkerLifecycle({ context, walkers: trend.walkers });
   const finalized = finalizeConfirmedWalkers({ context, walkers: inversion.walkers });
@@ -68,6 +103,6 @@ export function runDeterministicWalkerStrategy({ context, walkers = [] } = {}) {
     packets: finalized.packets,
     bestPacket: executablePackets[0] ?? null,
     finalVerdict: executablePackets.length > 0 ? 'manual_candidate' : 'no_trade',
-    events: [...mss.events, ...trend.events, ...inversion.events, ...finalized.events],
+    events: [...expired.events, ...mss.events, ...trend.events, ...inversion.events, ...finalized.events],
   };
 }
