@@ -24,7 +24,12 @@ export function advanceWalker(walker, { eventTimeUtc, stage, evidenceRef = null,
   };
 
   const ref = normalizeEvidenceRef(evidenceRef);
-  if (stage === 'tap_seen' && ref) next.tapRef = ref;
+  if (stage === 'tap_seen') {
+    if (ref) next.tapRef = ref;
+    // Stamp the tap so the 10–15 min confirmation window can be enforced
+    // (TS §7 Step 6 / EM MSS §5). Set once on the first tap; never reset.
+    if (!next.tappedAtUtc) next.tappedAtUtc = next.lastUpdatedAtUtc ?? null;
+  }
   if (stage === 'confirmed' && ref) next.confirmationRef = ref;
 
   if (evidenceKey) {
