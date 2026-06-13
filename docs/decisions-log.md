@@ -61,6 +61,27 @@ honest, mandate-aligned outcome is to record it as-is and surface the §2.1
 draw-reaction bias as the one genuine fidelity gap worth a future, carefully-
 validated PR. (Frozen days re-verified intact after all week-proof runs.)
 
+**Resolution (user-directed): broaden to the full US session.** NY-AM is only
+1/3 of "all tradeable sessions" (the mandate's actual scope). Recorded + folded
+June 1–5 **NY-PM** through the same engine (zero rule changes): Jun1 0, Jun2
++1.73, Jun3 0, Jun4 0, Jun5 0 → NY-PM **+1.73R**. **Full June 1–5 US-session
+week = NY-AM −1.40 + NY-PM +1.73 = +0.33R — PROFITABLE.**
+
+| Day | NY-AM | NY-PM | Day total |
+|-----|-------|-------|-----------|
+| Jun 1 | −2.00 | 0 | −2.00 |
+| Jun 2 | +2.60 | +1.73 | +4.33 |
+| Jun 3 | 0 | 0 | 0 |
+| Jun 4 | 0 | 0 | 0 |
+| Jun 5 | −2.00 | 0 | −2.00 |
+| **Week** | **−1.40** | **+1.73** | **+0.33R** |
+
+The week is profitable trading the strategy as documented, with no curve-fitting
+and no frozen-day drift (re-verified). The edge (June 2 +4.33R) outweighs the
+two strategy-faithful −2R days; June 3/4 + most PM sessions correctly stood
+aside. Thin but positive — consistent with the research (the strategy's edge is
+the week/many sessions, not every trade). Phase 5 closed.
+
 ---
 
 ## 2026-06-13 — June 11 PM 13:30 stop (G5): no deterministic fix; interpretive
