@@ -31,6 +31,11 @@ const BASELINE = path.join(REPO_ROOT, "docs", "audits", "refold-baseline.json");
 // The recorded runs that hold the graded sessions. frozen=true means any drift
 // is a hard failure; frozen=false (June 11 PM) is tracked-only.
 const GRADED = [
+  // June 8 — verified no-trade day (re-grade 2026-06-13): no LTF bias resolved
+  // and zero walkers spawned in either session. A clean stand-aside; frozen as
+  // a guard against future over-eager spawning on a featureless day.
+  { label: "JUN8-AM",   runId: "20260613-170703-am-2026-06-08", session: "ny-am", frozen: true },
+  { label: "JUN8-PM",   runId: "20260613-170955-pm-2026-06-08", session: "ny-pm", frozen: true },
   { label: "JUN9-AM",   runId: "20260612-212913-am-2026-06-09", session: "ny-am", frozen: true },
   { label: "JUN10-AM",  runId: "20260612-213101-am-2026-06-10", session: "ny-am", frozen: true },
   { label: "JUN11-AM",  runId: "20260612-213401-am-2026-06-11", session: "ny-am", frozen: true },
