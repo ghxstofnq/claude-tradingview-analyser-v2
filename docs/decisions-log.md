@@ -12,6 +12,68 @@ Doc shorthand: **TS** = `docs/strategy/trading-strategy-2026.md`,
 
 ---
 
+## 2026-06-13 — June 11 PM 13:30 stop (G5): no deterministic fix; interpretive
+
+**Question.** The June 11 PM 13:30 (17:30 UTC) Inversion long surfaces with a
+333-point stop (entry 29087, stop 28753.25). Resolve docs-first.
+
+**Investigation (refold-gated, evidence below).** The current Inversion stop
+rule's first anchor is the FAILED-LEG EXTREME — the extreme of the visible 1m
+bars (`bars.last_5_bars`). EM Inversion §5 actually names the stop as "below
+the inversion FVG low **or below the candle that closed through it**"; the
+failed-leg extreme is a user refinement (hand-grade 2026-06-13, June 9) the
+frozen days depend on. For June 11 PM 13:30 the visible window is
+13:26–13:29 — bars `[L28753.25, L28756, L28785.5, L28896.75→close 29087]` — a
+clean monotonic 143-pt rally into the violating close. The violated bearish
+FVG (28925–28936.25) was created at **12:38**, 48 minutes earlier; its
+formation leg is not in the window. So 28753.25 is the **launchpad of the
+violating impulse**, not the failed leg. The doc-canonical anchor here is the
+violating candle low **28896.75** (190 pts) or the zone low 28925 (162 pts).
+
+**Four refold-gated fix attempts, all rejected:**
+1. Bound leg bars to `>= created_ms` — verified no-op on frozen days, but
+   inert here (all 4 visible bars post-date the 48-min-old zone). No fix.
+2. Per-bar clip to a `[created−120s, created+240s]` formation window —
+   **drifted all three frozen days** (changed stops → cascaded TP1/grade/
+   booking).
+3. Guard on "formation observable" (any bar in the formation window), else
+   full-window extreme — **drifted June 9 + June 11 AM** (June 10's booked
+   frozen inversions have zones 47–90 min old and the user accepted their
+   full-window stops).
+4. "Launchpad" guard (reject the extreme when it sits at the first visible bar
+   and price moves monotonically toward the violation) — **fixed June 11 PM
+   (→ 28896.75) and kept June 10, but drifted June 9 + June 11 AM.** June 11
+   AM 13:58 (frozen, accepted stop 29014.75) is bars `[H29014.75, H29009.5,
+   H29006.75, H28969.5]` — an index-0 high with monotonically falling highs:
+   **structurally identical** to June 11 PM 13:30, only a 45-pt consolidation
+   drift vs a 143-pt impulse. The user accepted the 106-pt one and flagged the
+   333-pt one.
+
+**Finding.** The ONLY thing separating June 11 PM 13:30 from the frozen,
+user-accepted launchpad stops on June 9 / June 11 AM is the **absolute stop
+magnitude** (333 vs ≤110 pts). Every structural discriminator that isolates it
+also moves a frozen day. A magnitude cap is uncited curve-fitting the mandate
+forbids ("never fix a rule just to flip one trade").
+
+**Decision.** The Inversion failed-leg-extreme rule is left **unchanged**
+(frozen days intact). G5 ships **no code**. The residual is recorded as
+KNOWN LLM-INTERPRETIVE territory: distinguishing an *impulse launchpad*
+(invalid stop) from a *consolidation-edge swing* (valid stop) requires reading
+move quality, which the deterministic full-window extreme cannot do. The
+333-pt setup correctly does not book (0 trades — its far TP and wide stop are
+both un-hit in the PM session), so there is no P&L consequence today.
+
+**Flagged for user sign-off (does NOT ship unilaterally).** A §6-grounded
+max-structural-stop RISK gate (block scalps whose structural stop exceeds a
+volatility-relative ceiling, e.g. N×ATR) would make the 333-pt setup an
+explicit no-trade without touching any frozen day (all frozen booked stops
+≤110 pts) and without changing any P&L. It is deferred to Phase 5: if the
+out-of-sample week surfaces wide-stop losers, the gate gains an empirical,
+loss-grounded justification (risk management, not curve-fitting) and can be
+proposed with that evidence.
+
+---
+
 ## 2026-06-13 — Immutability baseline frozen
 
 **Decision.** The hand-graded refold outputs are frozen as the regression
