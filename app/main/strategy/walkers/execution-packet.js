@@ -5,6 +5,7 @@ function roundTick(value) {
 }
 
 function numberOrNull(value) {
+  if (value == null || value === '') return null; // Number(null) is 0 — not a price
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -137,6 +138,46 @@ function trendStructuralStop(walker, side, entry) {
   const edge = side === 'short' ? numberOrNull(pd.top) : numberOrNull(pd.bottom);
   if (edge != null && correctSide(edge)) {
     return { kind: 'trend_zone_edge', price: edge, evidenceRef: refOf(walker?.evidence?.pdArray, 'walker.pdArray') };
+  }
+  return null;
+}
+
+// MSS stops — entry-models.md MSS §6: "Stop: Below the MSS low or below the
+// FVG low (structural invalidation)"; A+ example: "a few ticks below the
+// MSS low." Precedence:
+//   1. An explicit MSS pivot in the pool (kind mss_swing_low/high).
+//   2. The structural swing beyond the reversal FVG — the displacement leg
+//      launched from the grab extreme, so the first pivot past the zone IS
+//      the MSS low/high. Pivots BETWEEN entry and the zone are noise
+//      (June 11 10:18: a 1.5-pt micro-pivot stop).
+//   3. The zone edge itself (the FVG low/high).
+function mssStructuralStop(walker, side, entry, context) {
+  if (normalizeModelName(walker?.model) !== 'mss') return null;
+  const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+  const zoneTop = numberOrNull(pd.top);
+  const zoneBottom = numberOrNull(pd.bottom);
+  const correctSide = (price) => (side === 'long' ? price < entry : price > entry);
+  const pool = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
+    .map((s) => ({ ...s, price: numberOrNull(s?.price ?? s?.level) }))
+    .filter((s) => s.price != null && correctSide(s.price));
+
+  const explicit = pool.find((s) => String(s.kind ?? '') === (side === 'long' ? 'mss_swing_low' : 'mss_swing_high'));
+  if (explicit) {
+    return { kind: 'mss_structural_swing', price: explicit.price, evidenceRef: refOf(explicit) };
+  }
+
+  const beyondZone = pool
+    .filter((s) => (side === 'long'
+      ? String(s.kind ?? '').endsWith('_low') && zoneBottom != null && s.price < zoneBottom
+      : String(s.kind ?? '').endsWith('_high') && zoneTop != null && s.price > zoneTop))
+    .sort((a, b) => (side === 'long' ? b.price - a.price : a.price - b.price))[0] ?? null;
+  if (beyondZone) {
+    return { kind: 'mss_structural_swing', price: beyondZone.price, evidenceRef: refOf(beyondZone) };
+  }
+
+  const edge = side === 'long' ? zoneBottom : zoneTop;
+  if (edge != null && correctSide(edge)) {
+    return { kind: 'mss_zone_edge', price: edge, evidenceRef: refOf(walker?.evidence?.pdArray, 'walker.pdArray') };
   }
   return null;
 }
@@ -309,6 +350,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const stopCandidate = (entryPrice == null ? null : (
     inversionStructuralStop(walker, side, entryPrice, context)
     ?? trendStructuralStop(walker, side, entryPrice)
+    ?? mssStructuralStop(walker, side, entryPrice, context)
   )) ?? stopAudit.selected;
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
