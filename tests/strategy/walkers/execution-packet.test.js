@@ -332,24 +332,24 @@ test('swept swings are not targets; the nearest UNSWEPT swing wins', () => {
   assert.equal(packet.tp1.price, 21050);
 });
 
-// User ruling 2026-06-12: a swing low/high qualifies as TP1 only at ≥2R.
-// Session levels keep the 1.5R floor. A 1.6R swing is skipped in favor of
-// the level beyond it.
-test('tp1: swings need 2R — a 1.6R swing yields to the qualifying level', () => {
+// GXNQ ruling 2026-06-13 (June 11 trade 2: "TP1 should have been 28651",
+// 1.85R): the swing acceptance bar drops from 2R to 1.5R — same floor as
+// levels. A 1.6R swing IS the TP1; only sub-1.5R swings are skipped.
+test('tp1: a 1.6R swing clears the 1.5R bar and IS the TP1', () => {
   const packet = buildExecutionPacketForWalker({
     context: executableContext({
       sessionChain: alignedChain(),
       pillar3: {
         structuralStops: [
           { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
-          // entry 21002, stop 20980 → risk 22. Swing at 21037.5 = 1.61R < 2R → skipped.
+          // entry 21002, stop 20980 → risk 22. Swing at 21037.5 = 1.61R ≥ 1.5R.
           { kind: 'swing_high', price: 21037.5, swept: false, evidenceRef: 'p3.swings.near' },
         ],
       },
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21040); // session level (1.73R ≥ 1.5R floor)
+  assert.equal(packet.tp1.price, 21037.5);
 });
 
 test('tp1: a swing clearing 2R still wins over the farther level', () => {
