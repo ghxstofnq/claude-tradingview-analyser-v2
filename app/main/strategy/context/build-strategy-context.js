@@ -77,6 +77,10 @@ function buildPillar3(engine) {
   const rows = getIctEngineRows(engine).map(normalizePdRow);
   const sweeps = normalizeEvidenceList(engine?.pillar1?.sweeps ?? [], 'gates.engine.pillar1.sweeps');
   const failureSwings = normalizeEvidenceList(engine?.pillar3?.failure_swings ?? engine?.pillar3?.failureSwings ?? [], 'gates.engine.pillar3.failure_swings');
+  // Swing-tier market structure (HH/HL/LH/LL + MSS/BoS) — the established-trend
+  // evidence the Trend model gates on (EM Trend §1 "a clear MSS ... you are now
+  // in the continuation phase"; §3/§4 structure-break invalidation).
+  const structuresSwing = normalizeEvidenceList(engine?.pillar3?.structures_by_tier?.swing ?? engine?.pillar3?.structuresSwing ?? [], 'gates.engine.pillar3.structures_by_tier.swing');
   const structuralStops = normalizeEvidenceList(engine?.pillar3?.structural_stops ?? engine?.pillar3?.structuralStops ?? engine?.risk?.structural_stops ?? [], 'gates.engine.pillar3.structural_stops');
   const insideFvgs = normalizeEvidenceList(engine?.price_context?.inside_fvgs ?? [], 'gates.engine.price_context.inside_fvgs');
   const insideBprs = normalizeEvidenceList(engine?.price_context?.inside_bprs ?? [], 'gates.engine.price_context.inside_bprs');
@@ -88,6 +92,7 @@ function buildPillar3(engine) {
     bprs: rows.filter((row) => kindOf(row) === 'bpr'),
     sweeps,
     failureSwings,
+    structuresSwing,
     structuralStops,
     insidePdArrays: [...insideFvgs, ...insideBprs],
     confirmationRows,
