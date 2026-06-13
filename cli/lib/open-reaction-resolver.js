@@ -10,8 +10,12 @@
  *   §7 Step 7: neutral overnight (no interaction) is a B-grade weakener.
  *
  * Pure function over engine sweep rows — no clocks, no I/O. The engine's
- * sweep rows already carry the wick-break + `rejected` (close back through)
- * verdicts, so no bar math happens here (CLAUDE.md constraint #7).
+ * sweep rows carry the wick-break + `rejected` (close back through)
+ * verdicts; since 2026-06-13 the resolver ALSO reads the window's own 1m
+ * closes (GXNQ ruling, June 11 open: LO.H broke 09:51, closes returned
+ * under the level 09:57/09:59 inside the window, yet the engine flag
+ * stayed false and the day resolved long). A window close back through the
+ * swept level IS the §7-Step-4 rejection, flag or no flag.
  */
 
 const OVERNIGHT_TARGETS = new Set(['AS.H', 'AS.L', 'LO.H', 'LO.L']);
@@ -32,12 +36,24 @@ function isHighLevel(name) {
   return /\.H$/.test(name);
 }
 
+function sweepRejected(sweep, closes, endMs) {
+  if (sweep?.rejected === true) return true;
+  const level = Number(sweep?.price);
+  if (!Number.isFinite(level)) return false;
+  const high = isHighLevel(String(sweep?.target ?? ''));
+  return closes.some((c) =>
+    Number.isFinite(c?.time_ms) && Number.isFinite(c?.close)
+    && c.time_ms > sweep.swept_ms && c.time_ms <= endMs
+    && (high ? c.close < level : c.close > level));
+}
+
 export function resolveOpenReaction({
   htf_bias,
   sweeps = [],
   swing_structure = null,
   window = {},
   overnight_targets = OVERNIGHT_TARGETS,
+  window_closes = [],
 } = {}) {
   const targets = overnight_targets instanceof Set ? overnight_targets : new Set(overnight_targets);
   const { startMs = -Infinity, endMs = Infinity } = window;
@@ -64,7 +80,7 @@ export function resolveOpenReaction({
   // §2.3: "let NY open reaction confirm or challenge it" — latest wins.
   const last = interactions.reduce((a, b) => (b.swept_ms >= a.swept_ms ? b : a));
   const high = isHighLevel(last.target);
-  const rejected = last.rejected === true;
+  const rejected = sweepRejected(last, Array.isArray(window_closes) ? window_closes : [], endMs);
 
   // Rejection flips direction at the level; continuation keeps the break
   // direction. High-break continuation → bullish; rejected → bearish.
