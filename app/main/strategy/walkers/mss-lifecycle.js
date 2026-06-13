@@ -126,6 +126,43 @@ export function buildMssWalkerSpawnRequests(context) {
   return requests;
 }
 
+// EM MSS §4 ("Retrace to Bullish FVG ... without making a new low"): after the
+// sweep + MSS the reversal must hold. If price closes back THROUGH the level
+// the anchoring sweep grabbed-and-rejected (below it for a long, above for a
+// short), the rejection failed and the reversal premise is dead — kill the
+// pre-confirmation walker so it cannot confirm later. Close-based on the swept
+// LEVEL, not the wick: §2.2 sweeps print long wicks, and a deeper liquidity
+// grab is not itself an invalidation; a CLOSE back through the level is.
+const MSS_PRE_CONFIRM_STAGES = new Set(['watching', 'pd_identified', 'tap_seen', 'confirmation_pending']);
+
+function lastBarClose(context) {
+  const bars = context?.pillar3?.ohlcv1m ?? context?.pillar3?.ohlcv_1m ?? [];
+  const last = bars[bars.length - 1];
+  const close = Number(last?.close);
+  return Number.isFinite(close) ? close : null;
+}
+
+export function buildMssWalkerKillRequests(context, walkers = []) {
+  const close = lastBarClose(context);
+  if (close == null) return [];
+  const requests = [];
+  for (const walker of walkers) {
+    if (walker?.model !== 'MSS' || !MSS_PRE_CONFIRM_STAGES.has(walker?.stage)) continue;
+    const sweepPrice = Number(walker?.evidence?.sweep?.rawPayload?.price);
+    if (!Number.isFinite(sweepPrice)) continue;
+    const dead = walker.side === 'long' ? close < sweepPrice : close > sweepPrice;
+    if (!dead) continue;
+    requests.push({
+      id: walker.id,
+      eventTimeUtc: context?.eventTimeUtc,
+      stage: 'blocked',
+      reason: walker.side === 'long' ? 'mss_premise_invalidated_new_low' : 'mss_premise_invalidated_new_high',
+      evidenceRef: refOf(walker?.evidence?.sweep, walker?.pdArrayRef),
+    });
+  }
+  return requests;
+}
+
 export function buildMssWalkerAdvanceRequests(context, walkers = []) {
   const requests = [];
   const insidePdArrays = context?.pillar3?.insidePdArrays ?? context?.pillar3?.inside_pd_arrays ?? [];
@@ -183,11 +220,13 @@ export function runMssWalkerLifecycle({ context, walkers = [] } = {}) {
     }));
 
   const pdAdvanced = runWalkerEngine({ context, walkers: spawned.walkers, advanceRequests: pdAdvanceRequests });
-  const lifecycleAdvanceRequests = buildMssWalkerAdvanceRequests(context, pdAdvanced.walkers);
-  const advanced = runWalkerEngine({ context, walkers: pdAdvanced.walkers, advanceRequests: lifecycleAdvanceRequests });
+  // EM MSS §4: kill dead-premise walkers BEFORE they can tap/confirm this bar.
+  const killed = runWalkerEngine({ context, walkers: pdAdvanced.walkers, killRequests: buildMssWalkerKillRequests(context, pdAdvanced.walkers) });
+  const lifecycleAdvanceRequests = buildMssWalkerAdvanceRequests(context, killed.walkers);
+  const advanced = runWalkerEngine({ context, walkers: killed.walkers, advanceRequests: lifecycleAdvanceRequests });
 
   return {
     walkers: advanced.walkers,
-    events: [...spawned.events, ...pdAdvanced.events, ...advanced.events],
+    events: [...spawned.events, ...pdAdvanced.events, ...killed.events, ...advanced.events],
   };
 }
