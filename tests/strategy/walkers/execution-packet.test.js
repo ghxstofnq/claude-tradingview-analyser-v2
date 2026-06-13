@@ -71,7 +71,7 @@ test('buildExecutionPacketForWalker creates executable packet only from confirme
   assert.equal(packet.finalVerdict, 'manual_candidate');
   assert.equal(packet.evidenceAudit.entry.timestampMs, 1780062420000);
   assert.equal(packet.evidenceAudit.entry.close, 21002);
-  assert.equal(packet.evidenceAudit.stop.rule, 'mss_swing_low');
+  assert.equal(packet.evidenceAudit.stop.rule, 'mss_structural_swing');
   assert.equal(packet.evidenceAudit.stop.anchorPrice, 20980);
   assert.equal(packet.evidenceAudit.tp1.label, 'London High');
   assert.equal(packet.evidenceAudit.tp1.rMultiple, 1.73);
@@ -97,9 +97,19 @@ test('buildExecutionPacketForWalker records rejected alternative stops for trans
 });
 
 test('buildExecutionPacketForWalker blocks instead of inventing stop or weak TP1', () => {
-  const noStop = buildExecutionPacketForWalker({
+  // An empty pivot pool no longer blocks an MSS with a zone: the FVG low is
+  // a doc-sanctioned stop (entry-models.md MSS §6 "or below the FVG low").
+  const zoneEdge = buildExecutionPacketForWalker({
     context: executableContext({ pillar3: { structuralStops: [] } }),
     walker: confirmedMssWalker(),
+  });
+  assert.equal(zoneEdge.stop.kind, 'mss_zone_edge');
+  assert.equal(zoneEdge.stop.price, 20980);
+
+  // No pool AND no zone bounds → still fail closed.
+  const noStop = buildExecutionPacketForWalker({
+    context: executableContext({ pillar3: { structuralStops: [] } }),
+    walker: confirmedMssWalker({ top: null, bottom: null }),
   });
   assert.equal(noStop.status, 'blocked');
   assert.ok(noStop.blockers.includes('missing_structural_stop'));
@@ -384,6 +394,64 @@ test('inversion stop: the violating candle extreme outranks the beyond-zone swin
   });
   assert.equal(packet.stop.kind, 'inversion_violating_candle');
   assert.equal(packet.stop.price, 20992);
+});
+
+test('mss stop: the structural swing beyond the reversal zone outranks micro-pivots near entry', () => {
+  // entry-models.md MSS §6: "Stop: Below the MSS low or below the FVG low"
+  // — the grab low the displacement launched from, NOT the nearest pivot
+  // (June 11 10:18 MSS long carried a 1.5-pt micro-pivot stop).
+  const walker = {
+    ...confirmedMssWalker({ top: 21010, bottom: 21000, direction: 'bullish' }),
+    model: 'MSS',
+    side: 'long',
+  };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bullish' }),
+      pillar1: {
+        status: 'pass',
+        untakenTargets: { above: [{ price: 21100, label: 'PDH', evidenceRef: 'p1.targets.pdh' }], below: [] },
+      },
+      pillar3: {
+        structuralStops: [
+          { kind: 'swing_low', side: 'long', price: 21010.5, evidenceRef: 'p3.stops.micro' }, // 1.5 below entry
+          { kind: 'swing_low', side: 'long', price: 20990, evidenceRef: 'p3.stops.mss_low' }, // beyond the zone = the MSS low
+        ],
+        pdArrays: [],
+        ohlcv1m: [],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'mss_structural_swing');
+  assert.equal(packet.stop.price, 20990);
+});
+
+test('mss stop: zone edge fallback when no swing exists beyond the zone', () => {
+  const walker = {
+    ...confirmedMssWalker({ top: 21010, bottom: 21000, direction: 'bullish' }),
+    model: 'MSS',
+    side: 'long',
+  };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bullish' }),
+      pillar1: {
+        status: 'pass',
+        untakenTargets: { above: [{ price: 21100, label: 'PDH', evidenceRef: 'p1.targets.pdh' }], below: [] },
+      },
+      pillar3: {
+        structuralStops: [
+          { kind: 'swing_low', side: 'long', price: 21010.5, evidenceRef: 'p3.stops.micro' },
+        ],
+        pdArrays: [],
+        ohlcv1m: [],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'mss_zone_edge');
+  assert.equal(packet.stop.price, 21000);
 });
 
 test('trend stop: the tap candle extreme, then the zone far edge (entry-models.md Trend §6)', () => {
