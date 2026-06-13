@@ -7,7 +7,19 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { activeSessionDir } from "./sessions.js";
-import { tickTrades, foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
+import { tickTrades, foldOpenTrades, closeTradesAtEod } from "../../cli/lib/trade-outcomes.js";
+
+// 4:00 PM ET cash close — any trade still open at/after this minute is
+// force-closed at market (user ruling 2026-06-13).
+const EOD_CLOSE_MIN = 16 * 60;
+function etMinutesOf(ts) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(ts));
+  const hh = Number(parts.find((p) => p.type === "hour")?.value || 0);
+  const mm = Number(parts.find((p) => p.type === "minute")?.value || 0);
+  return hh * 60 + mm;
+}
 
 let _send = null;
 let _lastWarnedKey = null;
@@ -102,6 +114,37 @@ export async function tickOpenTrades(ev, opts = {}) {
     await fs.appendFile(file, JSON.stringify({ type: "outcome", source, ...tr }) + "\n", "utf8");
     // Bust the cache after a write so the next read picks up the new event.
     _cachedMtime = 0;
+    _send?.("trade:outcome", tr);
+  }
+}
+
+/**
+ * maybeForceCloseAtEod — at/after 16:00 ET, force-close any trade still
+ * open at the NY cash close (user ruling 2026-06-13). Filled positions
+ * exit at the bar's close; resting orders are cancelled. Once a trade is
+ * written closed it folds out of the open set, so this never re-fires.
+ * Called every bar by bar-close.js; the ET gate makes it inert pre-16:00.
+ */
+export async function maybeForceCloseAtEod(ev) {
+  if (!ev?.ts || !ev?.ohlc || etMinutesOf(ev.ts) < EOD_CLOSE_MIN) return;
+  const dir = await activeSessionDir();
+  const file = path.join(dir, "trades.jsonl");
+  let events;
+  try {
+    const txt = await fs.readFile(file, "utf8");
+    events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  } catch { return; }
+  const open = foldOpenTrades(events);
+  if (!open.length) return;
+  const bar = { close: ev.ohlc.close, ts: ev.ts };
+  const { transitions } = closeTradesAtEod(open, bar);
+  for (const tr of transitions) {
+    if (alreadyEmitted(tr.id, tr.status)) continue;
+    markEmitted(tr.id, tr.status);
+    await fs.appendFile(file, JSON.stringify({ type: "outcome", source: "eod-close", ...tr }) + "\n", "utf8");
+    _cachedMtime = 0;
+    // eslint-disable-next-line no-console
+    console.log(`[trade-ticker] 16:00 ET force-close: ${tr.id} ${tr.status}${tr.exit != null ? ` @ ${tr.exit}` : ""}`);
     _send?.("trade:outcome", tr);
   }
 }

@@ -384,6 +384,66 @@ test('tp1: a swing clearing 2R still wins over the farther level', () => {
   assert.equal(packet.tp1.price, 21046.5);
 });
 
+// User finding 2026-06-13 (June 12 AM + June 11 PM 13:30): a WIDE stop
+// deflates every nearby target below the R-floors, so the only level
+// clearing 1.5R is the far WEEKLY draw (PWH) — and selectTp1 grabbed it,
+// setting an unreachable intraday TP1 (1300+ pts away) that left the trade
+// open all session. §7 Step 7: TP1 is the nearest INTRADAY liquidity; the
+// weekly draw (PWH/PWL) is the TP2/runner. The weekly draw is excluded from
+// the TP1 pool, so the wide-stop trade flags tp1_below_1_5r (→ no-trade)
+// instead of opening toward an unreachable target.
+test('tp1 never jumps to the weekly draw (PWH) when a wide stop deflates nearby targets', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      // entry 21002, stop 20900 → risk 102 (wide). LO_H 21040 = 0.37R;
+      // PWH 21300 = 2.92R (the only target clearing the 1.5R floor).
+      pillar3: { structuralStops: [{ side: 'long', price: 20900, kind: 'mss_swing_low', evidenceRef: 'p3.stops.wide' }] },
+      pillar1: {
+        status: 'pass',
+        untakenTargets: {
+          above: [
+            { price: 21040, name: 'LO_H', evidenceRef: 'p1.targets.loH' },
+            { price: 21300, name: 'PWH', evidenceRef: 'p1.targets.pwh' },
+          ],
+          below: [],
+        },
+      },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  // TP1 lands on the nearest intraday level, NOT the weekly draw...
+  assert.equal(packet.tp1.price, 21040);
+  // ...and because that nearest target is < 1.5R under the wide stop, the
+  // trade correctly blocks instead of opening toward an unreachable target.
+  assert.equal(packet.status, 'blocked');
+  assert.ok(packet.blockers.includes('tp1_below_1_5r'));
+});
+
+// The weekly draw is still a valid TP2/runner (§7 Step 7 "second toward the
+// HTF draw") — excluding it from TP1 must not remove it from TP2.
+test('tp2 still reaches the weekly draw (PWH) once a nearer intraday TP1 qualifies', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain(),
+      // entry 21002, stop 20980 → risk 22. Swing 21046.5 = 2.02R → TP1.
+      pillar3: {
+        structuralStops: [
+          { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
+          { kind: 'swing_high', price: 21046.5, swept: false, evidenceRef: 'p3.swings.q' },
+        ],
+      },
+      pillar1: {
+        status: 'pass',
+        untakenTargets: { above: [{ price: 21300, name: 'PWH', evidenceRef: 'p1.targets.pwh' }], below: [] },
+      },
+    }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp2?.price, 21300); // weekly draw rides as the runner
+});
+
 // User hand-grade 2026-06-13 (June 9 trades 2+3): the Inversion stop is the
 // VIOLATING CANDLE's extreme — entry-models.md Inversion §5 "below the
 // candle that closed through it" (above, for shorts) — and it OUTRANKS the

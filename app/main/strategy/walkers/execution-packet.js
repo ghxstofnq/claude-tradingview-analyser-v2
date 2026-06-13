@@ -246,13 +246,28 @@ function validTargets(context, side, entry, stop) {
     .sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
 }
 
+// The WEEKLY draw (PWH/PWL) is the §7 Step 7 TP2/runner — "second toward the
+// HTF draw" — never intraday TP1 liquidity. A wide stop deflates every NEAR
+// target below the R-floors, leaving the far weekly high as the only level
+// clearing 1.5R; selecting it as TP1 sets an unreachable intraday target
+// (June 12 AM + June 11 PM 13:30: PWH ~1300 pts away, trade open all session).
+// Excluded from the TP1 pool so the wide-stop trade flags tp1_below_1_5r
+// instead. Matches both live (`name`) and fixture (`label`) shapes.
+function isWeeklyDraw(target) {
+  return /^PW_?[HL]$/i.test(String(target?.name ?? target?.label ?? ''));
+}
+
 // TP1 class priority (§6 + user ruling 2026-06-12): the nearest UNSWEPT
 // internal swing is the default TP1 — but only when it pays at least 2R.
 // Otherwise the nearest session level clearing the 1.5R floor takes it.
 // When nothing qualifies, return the nearest candidate so the packet
 // still reports tp1_below_1_5r (rather than missing_side_consistent_tp1).
 function selectTp1(context, side, entry, stop) {
-  const candidates = validTargets(context, side, entry, stop);
+  const all = validTargets(context, side, entry, stop);
+  // §7 Step 7: TP1 = nearest INTRADAY liquidity; the weekly draw is the
+  // runner. Falls back to the full pool only if there is no other target.
+  const intraday = all.filter((t) => !isWeeklyDraw(t));
+  const candidates = intraday.length ? intraday : all;
   const swing = candidates.find((t) => t.target_class === 'intraday' && t.rMultiple >= 2.0);
   if (swing) return swing;
   const level = candidates.find((t) => t.target_class === 'level' && t.rMultiple >= 1.5);

@@ -31,3 +31,17 @@ export function gradeOpenTrade(trade, bar) {
   }
   throw new Error(`gradeOpenTrade: unknown side: ${side}`);
 }
+
+// End-of-day forced close (user ruling 2026-06-13): a trade still open at
+// 16:00 ET is closed at the market — the final bar's close — booking whatever
+// it is. It is neither a TP1 nor a stop hit, so realized_r is the SIGNED
+// multiple (the close can sit in profit OR loss). The same rule resolves an
+// AM trade carried into PM that still hasn't hit a level by 16:00.
+export function closeAtMarket(trade, bar) {
+  const { side, entry, stop } = trade;
+  const exit = bar.close;
+  const risk = Math.abs(Number(entry) - Number(stop));
+  const signed = side === "long" ? Number(exit) - Number(entry) : Number(entry) - Number(exit);
+  const realized_r = Number.isFinite(risk) && risk > 0 ? Number((signed / risk).toFixed(2)) : 0;
+  return { outcome: "closed_1600", exit, realized_r, conflict_bar: false };
+}
