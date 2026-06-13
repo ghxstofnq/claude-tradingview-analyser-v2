@@ -108,3 +108,39 @@ FVG entries trigger on confirmation close, not touch; NY-open reversal window 15
 - G1, G2, G3 → implementation wave, one rule-set per PR, refold-gated.
 - G4 → attempted last; dropped if it perturbs graded days.
 - G6 → dashboard phase. G7, G8, G9 → decisions logged, no code.
+
+## Phase 4 — audit closure (2026-06-13)
+
+All gaps are resolved: implemented-and-cited, resolved-interpretive, or
+logged-decision. The deterministic system now matches the spec for every
+mechanizable requirement. Final state on `origin/main` @ b76b49a:
+
+| Gap | Requirement (citation) | Resolution | Verified-by |
+|-----|------------------------|-----------|-------------|
+| G1 | TS §7 Step 6 / EM MSS §5 — 10–15 min tap→confirm window | `expireStaleTaps` (#48) | 886/886, refold-clean |
+| G2 | EM MSS §4 — "without making a new low" | `buildMssWalkerKillRequests` (#49) | 888/888, refold-clean |
+| G3 | EM Trend §1/§3/§4 — established trend + structure-break | swing-structure spawn gate + kill (#50) | 890/890, refold-clean |
+| G4 | EM MSS §2 — "a very clear intra-day swing low" | swept-swing grab fallback (#51) | 891/891, refold-clean |
+| G5 | EM Inversion §5/§6 — inversion stop | interpretive, no code (#47) | decisions-log |
+| G6 | TS §6 — per-trade size on packet | dashboard phase | Phase 6 |
+| G7 | TS §6 / §7 Step 7 — TP2/runner accounting | frozen decision | decisions-log |
+| G8 | TS §5 — 1m OR 5m confirmation | frozen decision (1m) | decisions-log |
+| G9 | EM Inversion §4 — conservative retest entry | frozen decision (aggressive) | decisions-log |
+
+**Fold audit — every booked trade traces to a prior user ruling** (the frozen
+hand-graded baseline, reproduced byte-identically under all five fixes):
+
+- June 9 AM +10.01R / 5 — 3 Inversion shorts (2.41/4.13/2.80R) + 2 Trend
+  shorts (−1 / +1.67R). All hand-graded (decisions: Inversion stop = failed-leg
+  extreme; Trend stop = tap candle).
+- June 10 AM +1.35R / 6 — 5 Inversion shorts + 1 Trend short, hand-graded.
+- June 11 AM −1R / 1 closed — Inversion short 28908.75 → stop, TP1 28651
+  (the GXNQ "28651" ruling).
+- June 11 PM 0 / 0 — the 13:30 wide-stop setup correctly un-booked (G5).
+
+**New skip/kill behaviors trace to doc sections** (none removed a booked
+frozen trade): tap-timeout expiry (TS §7-6), MSS dead-premise kill (EM MSS §4),
+Trend structure gate + break-kill (EM Trend §1/3/4), MSS swing-grab spawn
+(EM MSS §2). The audit is CLOSED for the mechanizable surface; G6 (size on the
+packet) lands in the dashboard phase. Remaining LLM-interpretive territory:
+the Inversion impulse-launchpad vs consolidation-edge stop distinction (G5).
