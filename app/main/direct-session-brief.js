@@ -178,17 +178,28 @@ function computeOvernightVerdict({ sweeps = [], htfBias = null } = {}) {
   return dir === htfBias ? "extending_htf" : "retracing_htf";
 }
 
-// Doc-corrected HTF bias (user Q2, 2026-06-12). §2.1 step 3: "use
-// reactions off those HTF PD arrays to set bias" — precedence:
+// Doc-corrected HTF bias (user Q2, 2026-06-12; §2.1 supply-rejection 2026-06-13).
+// §2.1 step 3: "use reactions off those HTF PD arrays to set bias" — precedence:
 //   1. The zone's own observed reaction.
-//   2. The latest REJECTED level sweep (the "rejects sharply" reaction —
-//      June 9's bearish day was set by the pre-open PDH rejection).
-//   3. §2.3 destination magnet: the path toward an unreacted zone.
-//   4. Zone direction (no evidence at all).
-// Creation-direction (fresh+took_liq → dir) was removed: not in the doc.
-function deriveHtfBiasDir({ draw, sweeps = [] } = {}) {
+//   2. §2.1 supply/demand rejection: a FRESH, liquidity-taking PD array price
+//      has not yet reached is WHERE price reacts. A bear FVG/BPR ABOVE price is
+//      4H supply — price rallies INTO it and rejects sharply → bearish toward
+//      the lower sell-side (the doc's own "trades into a 4H BPR ... rejects
+//      sharply → bearish" example). Longs heading up into that zone are
+//      lower-conviction, so the HTF read is bearish, not a clean bullish draw.
+//      (June 5: this zone sat overhead and the day fell -381; June 9/10/11 all
+//      carried the same overhead supply and traded bearish — refold-verified
+//      frozen-safe: June 10 flips divergent→aligned with identical trades.)
+//   3. The latest REJECTED level sweep (the pre-open "rejects sharply").
+//   4. §2.3 destination magnet: the path toward an unreacted zone.
+//   5. Zone direction (no evidence at all).
+export function deriveHtfBiasDir({ draw, sweeps = [] } = {}) {
   const asBias = (d) => /^bear/i.test(d || "") ? "bearish" : /^bull/i.test(d || "") ? "bullish" : null;
   if (draw?.reacted && asBias(draw.reaction_dir)) return asBias(draw.reaction_dir);
+  if ((draw?.state ?? "fresh") === "fresh" && draw?.took_liq
+      && /^bear/i.test(draw?.dir || "") && draw?.position === "above_price") {
+    return "bearish";
+  }
   const rejected = sweeps.filter((s) => s?.rejected === true);
   if (rejected.length) {
     const last = rejected.reduce((a, b) => ((b?.swept_ms ?? 0) >= (a?.swept_ms ?? 0) ? b : a));

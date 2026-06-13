@@ -1,6 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDirectSessionBriefPayloads, runDirectSessionBrief, codexBriefAnalysisEnabled } from "../app/main/direct-session-brief.js";
+import { buildDirectSessionBriefPayloads, runDirectSessionBrief, codexBriefAnalysisEnabled, deriveHtfBiasDir } from "../app/main/direct-session-brief.js";
+
+// §2.1 supply-rejection (2026-06-13): a fresh, liquidity-taking bear PD array
+// ABOVE price is supply price rallies into and rejects → bearish, outranking a
+// rejected-low sweep that would otherwise read bullish. (June 5: the day fell
+// -381 under exactly this overhead 4H bear FVG.)
+test("deriveHtfBiasDir: fresh took-liq bear zone above price → bearish (§2.1 supply rejection)", () => {
+  const draw = { dir: "bear", position: "above_price", state: "fresh", took_liq: true };
+  assert.equal(deriveHtfBiasDir({ draw, sweeps: [{ target: "LO.L", rejected: true, swept_ms: 1 }] }), "bearish");
+});
+
+test("deriveHtfBiasDir: a NON-fresh or non-liquidity bear zone above does NOT trigger the supply rule", () => {
+  assert.equal(deriveHtfBiasDir({ draw: { dir: "bear", position: "above_price", state: "mitigated", took_liq: true }, sweeps: [{ target: "LO.L", rejected: true, swept_ms: 1 }] }), "bullish");
+  assert.equal(deriveHtfBiasDir({ draw: { dir: "bear", position: "above_price", state: "fresh", took_liq: false }, sweeps: [] }), "bullish");
+});
+
+test("deriveHtfBiasDir: the zone's own observed reaction still outranks the supply rule", () => {
+  assert.equal(deriveHtfBiasDir({ draw: { dir: "bear", position: "above_price", state: "fresh", took_liq: true, reacted: true, reaction_dir: "bull" } }), "bullish");
+});
 
 function digestSymbol() {
   return {
@@ -286,12 +304,17 @@ test("payload htf_bias: a rejected high-sweep sets bearish despite an unreacted 
   assert.equal(p[0].htf_bias_dir, "bearish");
 });
 
-test("payload htf_bias: no reactions anywhere → the unreacted zone above is a bullish magnet", () => {
+test("payload htf_bias: a fresh took-liq bear zone above price is SUPPLY → bearish (§2.1 supply rejection; corrected 2026-06-13)", () => {
+  // Previously this read bullish ("unreacted zone above is a bullish magnet").
+  // §2.1 corrects it: a fresh, liquidity-taking 4H bear FVG above price is
+  // supply — price rallies INTO it and rejects sharply → bearish toward the
+  // sell-side below. This is the June 5 case (the day fell -381 under exactly
+  // this overhead zone). Refold-verified frozen-safe (June 10 trades identical).
   const b = bundle();
   const ds = b.brief_digest.symbols["MNQ1!"];
   ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91, took_liq: true, state: "fresh", reacted: false, cite: "engine_by_tf.h4.fvgs[17]" }];
   ds.pillar1.sweeps = [];
   b.quote = { last: 29800 };
   const p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
-  assert.equal(p[0].htf_bias_dir, "bullish");
+  assert.equal(p[0].htf_bias_dir, "bearish");
 });
