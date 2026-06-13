@@ -286,6 +286,7 @@ function EntryHuntView({ activeSetup, noTrade, noTradeReason, onAccept, onReject
         <Row k="Stop"  v={<span className="v num red">{activeSetup.stop ?? "—"}</span>} />
         <Row k="TP1"   v={<span className="v num green">{activeSetup.tp1 ?? "—"}</span>} />
         <Row k="TP2"   v={<span className="v num green">{activeSetup.tp2 ?? "—"}</span>} />
+        <Row k="Size"  v={activeSetup.size?.label || (activeSetup.size?.contracts ? `${activeSetup.size.contracts}c` : "—")} />
         <Row k="R : R" v={activeSetup.rr ?? "—"}
              tone={activeSetup.rr >= 1.5 ? "ok" : activeSetup.rr != null ? "warn" : ""} />
 
