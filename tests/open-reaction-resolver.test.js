@@ -208,3 +208,53 @@ test('session-aware targets: ny-am keeps the overnight set without NYAM', () => 
   const pm = overnightTargetsForSession('ny-pm');
   assert.ok(pm.has('NYAM.H') && pm.has('NYAM.L') && pm.has('AS.H'));
 });
+
+// ---- close-based rejection (GXNQ ruling 2026-06-13, June 11 open) ---------
+// The engine's sweep `rejected` flag lagged on June 11: LO.H broke at 09:51,
+// closes came back under the level at 09:57 and 09:59 — inside the window —
+// yet the flag stayed false and the day resolved "continuation"/long. §7
+// Step 4 asks "what is the reaction AFTER that break": a window close back
+// through the swept level IS the rejection, flag or no flag.
+
+test('a sweep with rejected=false but an in-window close back through the level resolves as rejection', () => {
+  const verdict = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [{ target: 'LO.H', price: 28935, side: 'buy', rejected: false, swept_ms: 2_000 }],
+    window: { startMs: 0, endMs: 10_000 },
+    window_closes: [
+      { time_ms: 3_000, close: 28978 },    // holding above
+      { time_ms: 5_000, close: 28908.75 }, // back under the level — the rejection
+    ],
+  });
+  assert.equal(verdict.interaction, 'rejection');
+  assert.equal(verdict.ltf_bias, 'bearish');
+  assert.equal(verdict.htf_ltf_alignment, 'aligned');
+  assert.equal(verdict.grade_cap, 'A+');
+});
+
+test('closes that hold beyond the level keep the continuation read', () => {
+  const verdict = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [{ target: 'LO.H', price: 28935, side: 'buy', rejected: false, swept_ms: 2_000 }],
+    window: { startMs: 0, endMs: 10_000 },
+    window_closes: [
+      { time_ms: 3_000, close: 28978 },
+      { time_ms: 5_000, close: 28961.75 },
+    ],
+  });
+  assert.equal(verdict.interaction, 'continuation');
+  assert.equal(verdict.ltf_bias, 'bullish');
+});
+
+test('a close back through AFTER the window end does not count as in-window rejection', () => {
+  const verdict = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [{ target: 'LO.H', price: 28935, side: 'buy', rejected: false, swept_ms: 2_000 }],
+    window: { startMs: 0, endMs: 10_000 },
+    window_closes: [
+      { time_ms: 3_000, close: 28978 },
+      { time_ms: 12_000, close: 28900 }, // post-window
+    ],
+  });
+  assert.equal(verdict.interaction, 'continuation');
+});

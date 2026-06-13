@@ -78,7 +78,7 @@ export function openReactionWindowMs({ date, session }) {
  * contexts: resolve the NY-open verdict from the engine's sweep rows at the
  * minute-15 boundary and return the upgraded ltf context + chain status.
  */
-function resolveOpenReactionLeg({ entry, context, window, session }) {
+function resolveOpenReactionLeg({ entry, context, window, session, windowCloses = [] }) {
   const gates = entry?.inputs?.bundle?.gates?.engine ?? {};
   const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
   // Standing swing-tier structure AS OF the open window (engine's real-vs-
@@ -97,6 +97,7 @@ function resolveOpenReactionLeg({ entry, context, window, session }) {
     swing_structure: swingStructure,
     window,
     overnight_targets: overnightTargetsForSession(session),
+    window_closes: windowCloses,
   });
   const p3 = gates?.pillar3 ?? {};
   const priority = computeEntryModelPriority({
@@ -233,14 +234,25 @@ export async function runBacktest({
     const synthesizedContext = contextSource === "direct_brief";
     let walkers = [];
     let lastRealignMs = 0;
+    // In-window 1m closes for the resolver's close-based rejection (GXNQ
+    // 2026-06-13, June 11: the engine's sweep flag lagged; the closes ARE
+    // the §7-Step-4 reaction evidence). Bar close stamp = open time + 60s.
+    const windowCloses = [];
     const seenPacketIds = new Set();
     for (let i = 0; i < entries.length && !stopped; i += 1) {
       const entry = entries[i];
       const entryMs = Date.parse(entry?.event?.ts ?? "");
+      const lastBar = entry?.inputs?.bundle?.bars?.last_5_bars?.at(-1);
+      const lastBarCloseMs = Number(lastBar?.time) * 1000 + 60_000;
+      if (Number.isFinite(lastBarCloseMs) && Number.isFinite(Number(lastBar?.close))
+        && lastBarCloseMs > orWindow.startMs && lastBarCloseMs <= orWindow.endMs
+        && !windowCloses.some((c) => c.time_ms === lastBarCloseMs)) {
+        windowCloses.push({ time_ms: lastBarCloseMs, close: Number(lastBar.close) });
+      }
       const inResolveSpan = Number.isFinite(entryMs) && entryMs >= orWindow.resolveMs &&
         (!openReaction || entryMs <= orWindow.endMs);
       if (synthesizedContext && inResolveSpan) {
-        const next = resolveOpenReactionLeg({ entry, context, window: orWindow, session });
+        const next = resolveOpenReactionLeg({ entry, context, window: orWindow, session, windowCloses });
         const changed = !openReaction ||
           next.interaction !== openReaction.interaction ||
           next.level !== openReaction.level ||

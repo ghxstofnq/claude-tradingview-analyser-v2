@@ -48,12 +48,20 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   // The open verdict judges the break against the structure standing AS OF
   // the window — post-window structures must not rewrite the open read.
   const inWindowSwing = latestOf(swingStructs.filter((s) => (s?.confirmed_ms ?? 0) <= window.endMs));
+  // Close-based rejection evidence (GXNQ 2026-06-13): the visible 1m bars
+  // whose closes landed inside the open window. Live carries ~5 bars, so
+  // coverage is partial — the engine's own rejected flag remains primary.
+  const windowCloses = (bundle?.bars?.last_5_bars ?? [])
+    .map((b) => ({ time_ms: Number(b?.time) * 1000 + 60_000, close: Number(b?.close) }))
+    .filter((c) => Number.isFinite(c.time_ms) && Number.isFinite(c.close)
+      && c.time_ms > window.startMs && c.time_ms <= window.endMs);
   let verdict = resolveOpenReaction({
     htf_bias: htfBias,
     sweeps: gates?.pillar1?.sweeps ?? [],
     swing_structure: inWindowSwing,
     window,
     overnight_targets: overnightTargetsForSession(session),
+    window_closes: windowCloses,
   });
   // §2.3 + user ruling 2026-06-12: a quiet open leaves the LTF bias
   // PENDING, not the day untradeable — the first swing-tier structure
