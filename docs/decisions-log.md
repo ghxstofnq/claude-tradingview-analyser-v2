@@ -291,3 +291,34 @@ real rule: hold the AM trade while PM trades normally). The session
 one-position-at-a-time and scale-in limits are per-session.
 
 ---
+
+## 2026-06-13 — No new entries after the 15:32 ET late-session cutoff
+
+**Decision.** A new entry is blocked once its confirming 1m bar closes at
+15:32 ET or later. The last candle that may confirm a new entry is the 15:30
+ET candle (which closes at 15:31). Implemented as the `entry_after_session_cutoff`
+blocker in `app/main/strategy/walkers/execution-packet.js` (the shared brain —
+covers backtest and live), gated on `context.eventTimeUtc`. Inert for AM
+trades (they confirm before noon).
+
+**Why.** A trade confirmed in the last ~28 minutes has too little runway to
+reach its target before the 16:00 ET forced close (the 2026-06-13 hold-to-4pm
+rule). Across the four out-of-sample weeks there were 5 such 15:30–16:00
+entries: one winner (June 2, confirmed on the 15:30 candle, +2.73R) and four
+that stopped or scratched (15:33/15:34/15:43/15:57). The user set the cutoff at
+the 15:31 close so the 15:30-candle confirmation (which had ~29 min of runway
+and won) still qualifies, while later confirmations do not.
+
+**Honesty note (curve-fit risk surfaced + accepted).** The exact minute keeps
+the one winner and blocks the four losers, which is sample-sensitive — flagged
+to the user against the standing "never tune a rule just to flip a loss" rule.
+The user's rationale is runway-based (the 15:30 candle still had time), not
+outcome-based, and the cutoff was their explicit call. Revisit if more
+late-session data shows winners confirming after 15:31.
+
+**Immutability.** Frozen graded days (June 9/10/11 AM) confirm before noon —
+the cutoff is inert for them; refold-gate byte-identical (exit 0).
+
+**Effect on the out-of-sample weeks:** June 1–5 +12.66R (unchanged, winner
+kept); June 8–12 +12.65 → +14.65R; May 18–22 +11.59 → +12.59R; May 25–29
++19.11 → +19.16R.

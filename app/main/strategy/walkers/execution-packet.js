@@ -45,6 +45,25 @@ function targetPool(context, side) {
   return [...levels, ...pivots];
 }
 
+// No new entries after the late-session cutoff (user ruling 2026-06-13): a
+// trade confirmed too close to the 16:00 ET forced close has no runway to
+// reach its target before it. The last 1m candle that may confirm a NEW
+// entry is the 15:30 ET candle (which closes at 15:31); confirmations whose
+// bar closes at 15:32 ET or later are blocked. Wall-clock (the 16:00 close is
+// session-agnostic); inert for AM trades, which confirm before noon.
+const ENTRY_CUTOFF_ET_MIN = 15 * 60 + 32; // 15:32 ET (15:31-candle close onward)
+function etMinutesOfUtc(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+  return hh * 60 + mm;
+}
+
 function normalizeModelName(model) {
   const value = String(model ?? '').trim().toLowerCase();
   if (value === 'mss') return 'mss';
@@ -377,6 +396,12 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
     : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate.price);
+
+  // Late-session cutoff: no NEW entry once the confirming bar closes at 15:32
+  // ET or later (user ruling 2026-06-13) — too little runway to the 16:00
+  // forced close. Uses the bar being evaluated (eventTimeUtc); inert for AM.
+  const entryEtMin = etMinutesOfUtc(context?.eventTimeUtc);
+  if (entryEtMin != null && entryEtMin >= ENTRY_CUTOFF_ET_MIN) blockers.push('entry_after_session_cutoff');
 
   const grade = deriveGrade({ context, walker });
   if (grade === 'no-trade') blockers.push('grade_blocked');
