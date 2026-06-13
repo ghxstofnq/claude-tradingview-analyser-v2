@@ -232,6 +232,51 @@ test('MSS spawn: a shift confirmed AFTER the most recent rejected sweep spawns',
   assert.equal(requests[0].side, 'long');
 });
 
+// ---- EM MSS §4 ("Retrace to Bullish FVG ... without making a new low"): the
+// reversal premise dies if, while waiting to confirm, price closes back
+// through the level the anchoring sweep grabbed-and-rejected.
+
+test('MSS dead premise: a close back below the swept level kills the pre-confirmation long walker (EM MSS §4)', () => {
+  const longWalker = {
+    ...createWalker({ context: freshContext(), model: 'MSS', side: 'long', pdArray: bullishPd }),
+    stage: 'pd_identified',
+    evidence: {
+      pdArray: { evidenceRef: bullishPd.evidenceRef, rawPayload: bullishPd },
+      sweep: { evidenceRef: sweep.evidenceRef, rawPayload: { ...sweep, price: 20970 } },
+    },
+  };
+  const context = freshContext({
+    pillar3: {
+      sweeps: [], failureSwings: [], pdArrays: [], insidePdArrays: [], confirmationRows: [],
+      ohlcv1m: [{ time: 1780062600, open: 20985, high: 20990, low: 20955, close: 20960 }], // closed back below 20970
+    },
+  });
+  const result = runMssWalkerLifecycle({ context, walkers: [longWalker] });
+  const w = result.walkers.find((x) => x.id === longWalker.id);
+  assert.equal(w.stage, 'blocked');
+  assert.ok(w.blockers.includes('mss_premise_invalidated_new_low'));
+});
+
+test('MSS dead premise: a close holding above the swept level does NOT kill the walker', () => {
+  const longWalker = {
+    ...createWalker({ context: freshContext(), model: 'MSS', side: 'long', pdArray: bullishPd }),
+    stage: 'pd_identified',
+    evidence: {
+      pdArray: { evidenceRef: bullishPd.evidenceRef, rawPayload: bullishPd },
+      sweep: { evidenceRef: sweep.evidenceRef, rawPayload: { ...sweep, price: 20970 } },
+    },
+  };
+  const context = freshContext({
+    pillar3: {
+      sweeps: [], failureSwings: [], pdArrays: [], insidePdArrays: [], confirmationRows: [],
+      ohlcv1m: [{ time: 1780062600, open: 20985, high: 20998, low: 20978, close: 20995 }], // held above 20970
+    },
+  });
+  const result = runMssWalkerLifecycle({ context, walkers: [longWalker] });
+  const w = result.walkers.find((x) => x.id === longWalker.id);
+  assert.notEqual(w.stage, 'blocked');
+});
+
 // ---- GXNQ ruling 2026-06-13 (June 11, 10:11 MSS short): "the mss needs a
 // tap into an fvg after the MSS happens then confirmation close" — the
 // walker's tap was real but the confirmation was ANOTHER zone's violation
