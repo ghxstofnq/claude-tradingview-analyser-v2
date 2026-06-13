@@ -85,6 +85,22 @@ function matchesTrackedPd(walker, row) {
   return rowRef != null && rowRef === walker?.pdArrayRef;
 }
 
+// GXNQ ruling 2026-06-13 (June 11 10:11): the confirmation close belongs to
+// the WALKER's zone — another zone's violation row confirmed a tapped MSS
+// walker because nothing compared bounds. Bound-less rows (hand-built
+// fixtures) keep the legacy behavior.
+function confirmationMatchesZone(walker, row) {
+  const rTop = Number(row?.zone_top ?? row?.top);
+  const rBottom = Number(row?.zone_bottom ?? row?.bottom);
+  if (!Number.isFinite(rTop) || !Number.isFinite(rBottom)) return true;
+  const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+  const top = Number(pd.top);
+  const bottom = Number(pd.bottom);
+  if (!Number.isFinite(top) || !Number.isFinite(bottom)) return true;
+  const near = (a, b) => Math.abs(a - b) < 0.26;
+  return near(rTop, top) && near(rBottom, bottom);
+}
+
 export function buildMssWalkerSpawnRequests(context) {
   if (context?.sourceHealth?.status && context.sourceHealth.status !== 'fresh') return [];
   if (context?.pillar1?.status && context.pillar1.status !== 'pass') return [];
@@ -131,7 +147,8 @@ export function buildMssWalkerAdvanceRequests(context, walkers = []) {
       continue;
     }
 
-    const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side));
+    const confirmed = confirmationRows.find((row) =>
+      isValidConfirmationForSide(row, walker.side) && confirmationMatchesZone(walker, row));
     if ((walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed) {
       requests.push({
         id: walker.id,

@@ -66,12 +66,37 @@ export function buildInversionWalkerSpawnRequests(context) {
   }));
 }
 
+// GXNQ ruling 2026-06-13 (June 11 11:22): "not an inversion confirmation
+// candle — it doesn't invert the bullish fvg." Every validated Inversion
+// across June 9/10 entered on the candle that FLIPPED the zone (June 10's
+// 10:53: inverted_ms in the entry bar). When the walker's current zone row
+// carries inverted_ms and the confirmation carries its bar, the flip must
+// stamp THAT bar; stale flips are retests, not entries. Rows without the
+// stamps (hand-built fixtures) keep the legacy close-through behavior.
+function invertedOnThisBar(context, walker, row) {
+  const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+  const top = Number(pd.top);
+  const bottom = Number(pd.bottom);
+  if (!Number.isFinite(top) || !Number.isFinite(bottom)) return true;
+  const near = (a, b) => Number.isFinite(a) && Math.abs(a - b) < 0.26;
+  const current = allPdArrays(context)
+    .map((r) => r?.rawPayload ?? r)
+    .find((r) => near(Number(r?.top), top) && near(Number(r?.bottom), bottom));
+  const invMs = Number(current?.inverted_ms);
+  if (!Number.isFinite(invMs) || invMs <= 0) return true; // no stamp → legacy
+  const barMs = Number(row?.last_bar?.time) * 1000;
+  if (!Number.isFinite(barMs)) return true; // no bar identity → legacy
+  return invMs >= barMs && invMs < barMs + 60_000;
+}
+
 export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
   const requests = [];
   const confirmationRows = context?.pillar3?.confirmationRows ?? [];
 
   for (const walker of activeModelWalkers(walkers, 'Inversion')) {
-    const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side) && fullCloseThrough(row, walker));
+    const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side)
+      && fullCloseThrough(row, walker)
+      && invertedOnThisBar(context, walker, row));
     if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed) {
       requests.push({
         id: walker.id,

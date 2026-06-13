@@ -231,3 +231,48 @@ test('MSS spawn: a shift confirmed AFTER the most recent rejected sweep spawns',
   assert.equal(requests.length, 1);
   assert.equal(requests[0].side, 'long');
 });
+
+// ---- GXNQ ruling 2026-06-13 (June 11, 10:11 MSS short): "the mss needs a
+// tap into an fvg after the MSS happens then confirmation close" — the
+// walker's tap was real but the confirmation was ANOTHER zone's violation
+// row (zone 28941.5-28950.75 confirming a walker on 28944.5-28966.75).
+
+test('MSS confirm: a confirmation carrying ANOTHER zone\'s bounds never confirms this walker', () => {
+  const tapped = {
+    id: 'w1', model: 'MSS', side: 'short', stage: 'tap_seen',
+    pdArrayRef: 'zone:28944.5-28966.75',
+    evidence: { pdArray: { evidenceRef: 'zone:28944.5-28966.75', rawPayload: { ...bullishPd, dir: 'bear', direction: 'bearish', top: 28966.75, bottom: 28944.5 } } },
+  };
+  const context = freshContext({
+    pillar3: {
+      insidePdArrays: [],
+      confirmationRows: [{
+        evidenceRef: 'zone:28941.5-28950.75', entry_state: 'confirmed', confirm_close: 1,
+        ce_held: 1, chop_15m: 0, confirm_dir: 'bear', close: 28893.25,
+        zone_top: 28950.75, zone_bottom: 28941.5,
+      }],
+    },
+  });
+  assert.deepEqual(buildMssWalkerAdvanceRequests(context, [tapped]), []);
+});
+
+test('MSS confirm: the own-zone confirmation still confirms', () => {
+  const tapped = {
+    id: 'w1', model: 'MSS', side: 'short', stage: 'tap_seen',
+    pdArrayRef: 'zone:28944.5-28966.75',
+    evidence: { pdArray: { evidenceRef: 'zone:28944.5-28966.75', rawPayload: { ...bullishPd, dir: 'bear', direction: 'bearish', top: 28966.75, bottom: 28944.5 } } },
+  };
+  const context = freshContext({
+    pillar3: {
+      insidePdArrays: [],
+      confirmationRows: [{
+        evidenceRef: 'zone:28944.5-28966.75', entry_state: 'confirmed', confirm_close: 1,
+        ce_held: 1, chop_15m: 0, confirm_dir: 'bear', close: 28930,
+        zone_top: 28966.75, zone_bottom: 28944.5,
+      }],
+    },
+  });
+  const requests = buildMssWalkerAdvanceRequests(context, [tapped]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].stage, 'confirmed');
+});

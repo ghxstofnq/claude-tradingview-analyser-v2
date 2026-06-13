@@ -356,3 +356,48 @@ test('trend spawn: tiny zones never spawn Trend walkers (June 9 trade 5 ruling: 
   });
   assert.deepEqual(buildTrendWalkerSpawnRequests(context), []);
 });
+
+// ---- GXNQ ruling 2026-06-13 (June 11, 11:22 Inversion short): "not an
+// inversion confirmation candle — it doesn't invert the bullish fvg." The
+// zone flipped at 10:44; the 11:21 retest close is not the entry. Every
+// validated Inversion across June 9/10 entered on the INVERTING candle
+// (June 10's 10:53: zone flipped at 10:52, the entry bar).
+
+test('inversion confirm: a zone that inverted on an EARLIER bar never confirms — the entry is the inverting candle', () => {
+  const spawnPd = { evidenceRef: 'zone:28837.75-28873', kind: 'fvg', dir: 'bull', state: 'fresh', top: 28873, bottom: 28837.75 };
+  const walker = createWalker({ context: freshContext(), model: 'Inversion', side: 'short', pdArray: spawnPd });
+  const context = freshContext({
+    pillar3: {
+      pdArrays: [{ ...spawnPd, kind: 'ifvg', dir: 'bear', state: 'inverted', inverted_ms: 1781102640000 }], // 10:44
+      confirmationRows: [{
+        evidenceRef: 'zone:28837.75-28873', entry_state: 'confirmed', confirm_close: 1,
+        ce_held: 1, chop_15m: 0, confirm_dir: 'bear', close: 28827.5,
+        zone_top: 28873, zone_bottom: 28837.75,
+        last_bar: { time: 1781104860, open: 28848.5, high: 28858.75, low: 28820, close: 28827.5, direction: 'bearish', body_ratio: 0.54 }, // 11:21
+      }],
+    },
+  });
+  assert.deepEqual(
+    buildInversionWalkerAdvanceRequests(context, [{ ...walker, stage: 'pd_identified' }])
+      .filter((r) => r.stage === 'confirmed'),
+    [],
+  );
+});
+
+test('inversion confirm: inverted_ms inside the confirmation bar still confirms (June 10 10:53 lock)', () => {
+  const spawnPd = { evidenceRef: 'zone:29033.25-29044', kind: 'fvg', dir: 'bull', state: 'fresh', top: 29044, bottom: 29033.25 };
+  const walker = createWalker({ context: freshContext(), model: 'Inversion', side: 'short', pdArray: spawnPd });
+  const context = freshContext({
+    pillar3: {
+      pdArrays: [{ ...spawnPd, kind: 'ifvg', dir: 'bear', state: 'inverted', inverted_ms: 1781103120000 }], // bar open ts
+      confirmationRows: [{
+        evidenceRef: 'zone:29033.25-29044', entry_state: 'confirmed', confirm_close: 1,
+        ce_held: 1, chop_15m: 0, confirm_dir: 'bear', close: 29027.75,
+        zone_top: 29044, zone_bottom: 29033.25,
+        last_bar: { time: 1781103120, open: 29053.75, high: 29055, low: 29020, close: 29027.75, direction: 'bearish', body_ratio: 0.74 }, // same bar
+      }],
+    },
+  });
+  const requests = buildInversionWalkerAdvanceRequests(context, [{ ...walker, stage: 'pd_identified' }]);
+  assert.equal(requests.filter((r) => r.stage === 'confirmed').length, 1);
+});
