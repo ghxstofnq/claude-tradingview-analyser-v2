@@ -1,11 +1,62 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tickTrades, foldOpenTrades } from "../cli/lib/trade-outcomes.js";
+import { tickTrades, foldOpenTrades, closeTradesAtEod } from "../cli/lib/trade-outcomes.js";
 
 const baseLong = {
   id: "T-1", side: "long", state: "pending_entry",
   entry: 100, stop: 95, tp1: 110, tp2: 120, invalidation: 90,
 };
+
+// ── 4:00 PM forced close (user ruling 2026-06-13) ──────────────────────
+test("closeTradesAtEod: filled long closes at the bar close with signed R", () => {
+  const trade = { ...baseLong, state: "filled" };            // risk 5
+  const out = closeTradesAtEod([trade], { close: 107.5, ts: "16:00" }); // +7.5 = +1.5R
+  assert.equal(out.transitions[0].status, "CLOSED_EOD");
+  assert.equal(out.transitions[0].exit, 107.5);
+  assert.equal(out.transitions[0].r_realized, 1.5);
+  assert.equal(out.updated[0].state, "closed");
+  assert.equal(out.updated[0].outcome, "CLOSED_EOD");
+});
+
+test("closeTradesAtEod: filled long underwater books a partial loss, not -1R", () => {
+  const out = closeTradesAtEod([{ ...baseLong, state: "filled" }], { close: 98, ts: "16:00" }); // -2 = -0.4R
+  assert.equal(out.transitions[0].r_realized, -0.4);
+});
+
+test("closeTradesAtEod: a resting (unfilled) order is cancelled, not exited", () => {
+  const out = closeTradesAtEod([{ ...baseLong, state: "pending_entry" }], { close: 103, ts: "16:00" });
+  assert.equal(out.transitions[0].status, "EXPIRED_EOD");
+  assert.equal(out.transitions[0].exit, undefined);
+  assert.equal(out.updated[0].state, "closed");
+});
+
+test("closeTradesAtEod: a runner (TP1 hit, stop at BE) books R off the ORIGINAL risk", () => {
+  // After TP1, stop moved to entry (100) and orig_stop retained (95, risk 5).
+  const runner = { ...baseLong, state: "filled", tp1_hit: true, stop: 100, orig_stop: 95 };
+  const out = closeTradesAtEod([runner], { close: 115, ts: "16:00" }); // +15 / 5 = +3R
+  assert.equal(out.transitions[0].r_realized, 3);
+});
+
+test("foldOpenTrades: CLOSED_EOD / EXPIRED_EOD remove the trade from the open set", () => {
+  const open = foldOpenTrades([
+    { type: "accept", id: "A", side: "long", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "outcome", id: "A", status: "FILLED" },
+    { type: "outcome", id: "A", status: "CLOSED_EOD", exit: 104 },
+    { type: "accept", id: "B", side: "long", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "outcome", id: "B", status: "EXPIRED_EOD" },
+  ]);
+  assert.equal(open.length, 0);
+});
+
+test("foldOpenTrades: TP1_HIT retains orig_stop for a later EOD close", () => {
+  const open = foldOpenTrades([
+    { type: "accept", id: "A", side: "long", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "outcome", id: "A", status: "FILLED" },
+    { type: "outcome", id: "A", status: "TP1_HIT" },
+  ]);
+  assert.equal(open[0].orig_stop, 95);
+  assert.equal(open[0].stop, 100); // moved to break-even
+});
 
 test("pending → FILLED when bar crosses entry", () => {
   const out = tickTrades([baseLong], { high: 101, low: 99, ts: "T" });

@@ -31,6 +31,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { closeAtMarket } from "./backtest-grader.js";
 import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.js";
 import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/open-reaction-resolver.js";
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
@@ -165,6 +166,12 @@ export async function runBacktest({
   bus,
   stateDir = "state",
   deps,
+  // Same-day continuation bars (user ruling 2026-06-13): an AM run is given
+  // that day's PM tape entries so a trade still open at the AM window's end
+  // keeps grading into PM, then force-closes at 16:00. PM runs need no carry
+  // (their own tape already reaches 16:00). Outcome-grading only — no new
+  // packets surface during carry.
+  carryEntries = [],
 }) {
   if (!date || !session || !mode) {
     throw new Error("runBacktest requires { date, session, mode }");
@@ -202,6 +209,51 @@ export async function runBacktest({
   let errorMessage = null;
   let entries = [];
   let warnings = [];
+
+  // Book a resolved outcome for one open trade — shared by the main fold,
+  // the PM carry pass, and the 16:00 force-close so all three count R
+  // identically. Realized R model (user correction 2026-06-12): a TP1 hit
+  // books its actual multiple |exit-entry|/|entry-stop| (swing TP1s pay >=2R
+  // by rule), a stop books -1R; a 16:00 close carries its own SIGNED R via
+  // verdict.realized_r (the close can land in profit or loss).
+  const bookOutcome = (trade, verdict, eventTs) => {
+    const risk = Math.abs(Number(trade.entry) - Number(trade.stop));
+    const realizedR = Number.isFinite(verdict.realized_r) ? verdict.realized_r
+      : verdict.outcome === "tp1_hit" && Number.isFinite(risk) && risk > 0
+        ? Number((Math.abs(Number(verdict.exit) - Number(trade.entry)) / risk).toFixed(2))
+        : verdict.outcome === "stop_hit" ? -1 : 0;
+    appendSetupRow({
+      type: "outcome", ts: Date.now(), setup_id: trade.id,
+      outcome: verdict.outcome, exit: verdict.exit, realized_r: realizedR, conflict_bar: verdict.conflict_bar,
+      event_ts: eventTs,
+    });
+    closedTrades.push({ ...trade, ...verdict, realized_r: realizedR });
+    sessionRealizedR += realizedR;
+    // Scale-in circuit breaker: 2 ADD stop-outs in a row → adds off for the
+    // rest of the session (a winning add resets). The anchor's own outcome
+    // and a 16:00 close never count toward the streak.
+    if (SCALE_IN && trade.scale_in_add) {
+      if (verdict.outcome === "stop_hit") {
+        addStopStreak += 1;
+        if (addStopStreak >= SCALE_IN_STOP_STREAK) {
+          addsDisabled = true;
+          appendActivity({ kind: "scale_in_breaker", rule: `${SCALE_IN_STOP_STREAK} add stops in a row` });
+        }
+      } else if (verdict.outcome === "tp1_hit") {
+        addStopStreak = 0;
+      }
+    }
+    if (!sessionHalted && sessionRealizedR <= SESSION_MAX_LOSS_R) {
+      sessionHalted = true;
+      appendActivity({ kind: "session_halt", session_r: round2(sessionRealizedR), rule: `halt at ${SESSION_MAX_LOSS_R}R` });
+      bus.emit("backtest:event", { type: "session_halted", runId, session_r: round2(sessionRealizedR) });
+    }
+    openTrades.splice(openTrades.indexOf(trade), 1);
+    bus.emit("backtest:event", {
+      type: "setup_outcome", runId, setupId: trade.id,
+      outcome: verdict.outcome, exit: verdict.exit,
+    });
+  };
 
   try {
     // 1. Context: the day's recorded chain state if it exists, else a
@@ -473,50 +525,48 @@ export async function runBacktest({
           if (trade.event_ts === entry.event?.ts) continue; // packet bar itself
           const verdict = deps.gradeFn(trade, bar);
           if (verdict.outcome === "pending") continue;
-          // Realized R (user correction 2026-06-12): a TP1 hit books the
-          // trade's actual multiple — |exit-entry| / |entry-stop| — not a
-          // flat +1R (swing TP1s pay >=2R by rule). Stops book -1R.
-          const risk = Math.abs(Number(trade.entry) - Number(trade.stop));
-          const realizedR = verdict.outcome === "tp1_hit" && Number.isFinite(risk) && risk > 0
-            ? Number((Math.abs(Number(verdict.exit) - Number(trade.entry)) / risk).toFixed(2))
-            : verdict.outcome === "stop_hit" ? -1 : 0;
-          appendSetupRow({
-            type: "outcome", ts: Date.now(), setup_id: trade.id,
-            outcome: verdict.outcome, exit: verdict.exit, realized_r: realizedR, conflict_bar: verdict.conflict_bar,
-            event_ts: entry.event?.ts ?? null,
-          });
-          closedTrades.push({ ...trade, ...verdict, realized_r: realizedR });
-          sessionRealizedR += realizedR;
-          // Scale-in circuit breaker: 2 ADD stop-outs in a row → adds off for
-          // the rest of the session (winning add resets the streak). The
-          // anchor's own outcome does not count.
-          if (SCALE_IN && trade.scale_in_add) {
-            if (verdict.outcome === "stop_hit") {
-              addStopStreak += 1;
-              if (addStopStreak >= SCALE_IN_STOP_STREAK) {
-                addsDisabled = true;
-                appendActivity({ kind: "scale_in_breaker", rule: `${SCALE_IN_STOP_STREAK} add stops in a row` });
-              }
-            } else if (verdict.outcome === "tp1_hit") {
-              addStopStreak = 0;
-            }
-          }
-          if (!sessionHalted && sessionRealizedR <= SESSION_MAX_LOSS_R) {
-            sessionHalted = true;
-            appendActivity({ kind: "session_halt", session_r: round2(sessionRealizedR), rule: `halt at ${SESSION_MAX_LOSS_R}R` });
-            bus.emit("backtest:event", { type: "session_halted", runId, session_r: round2(sessionRealizedR) });
-          }
-          openTrades.splice(openTrades.indexOf(trade), 1);
-          bus.emit("backtest:event", {
-            type: "setup_outcome", runId, setupId: trade.id,
-            outcome: verdict.outcome, exit: verdict.exit,
-          });
+          bookOutcome(trade, verdict, entry.event?.ts ?? null);
         }
       }
 
       bus.emit("backtest:event", {
         type: "progress", runId, bar: i + 1, total: entries.length, cost: 0, phase: "folding",
       });
+    }
+
+    // 5. Carry + 4:00 PM close (user ruling 2026-06-13): a trade still open
+    //    when its session window ends is NOT abandoned at $0. An AM trade
+    //    keeps grading against the SAME DAY's PM bars (carryEntries); any
+    //    trade still open at the 16:00 ET bar force-closes at that bar's
+    //    price. Outcome-grading only — no new packets surface during carry.
+    //    The frozen graded days have zero open trades at session end, so this
+    //    is inert for them (refold-gate verified byte-identical).
+    if (!stopped && !errorMessage && openTrades.length > 0 && carryEntries.length > 0) {
+      for (const carryEntry of carryEntries) {
+        if (openTrades.length === 0) break;
+        const bar = lastClosedBarOf(carryEntry);
+        if (!bar) continue;
+        for (const trade of [...openTrades]) {
+          const verdict = deps.gradeFn(trade, bar);
+          if (verdict.outcome === "pending") continue;
+          bookOutcome(trade, verdict, carryEntry.event?.ts ?? null);
+        }
+      }
+    }
+    if (!stopped && !errorMessage && openTrades.length > 0) {
+      const graded = carryEntries.length > 0 ? carryEntries : entries;
+      const lastEntry = graded[graded.length - 1];
+      const lastBar = lastClosedBarOf(lastEntry);
+      const lastCloseMs = Number(lastBar?.time) * 1000 + 60_000;
+      const dayEndMs = etToEpochSeconds(date, "16:00") * 1000;
+      // Force-close ONLY at a true day end (>= 16:00 ET). An AM run with no
+      // PM carry ends at noon — those trades stay open (honest data gap),
+      // never marked at the lunch price.
+      if (lastBar && Number.isFinite(lastCloseMs) && lastCloseMs >= dayEndMs - 60_000) {
+        for (const trade of [...openTrades]) {
+          bookOutcome(trade, closeAtMarket(trade, lastBar), lastEntry.event?.ts ?? null);
+        }
+      }
     }
 
     if (stopped) chainStatus = "user-stopped";
@@ -635,6 +685,9 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
   const totalSetups = surfaced.length;
   const wins = closedTrades.filter((t) => t.outcome === "tp1_hit").length;
   const losses = closedTrades.filter((t) => t.outcome === "stop_hit").length;
+  // Trades force-closed at 16:00 (user ruling 2026-06-13) — neither a TP1 nor
+  // a stop; their SIGNED R still rolls into total_r below.
+  const closed_eod = closedTrades.filter((t) => t.outcome === "closed_1600").length;
   // Realized R model (user correction 2026-06-12): each closed trade books
   // its actual multiple — TP1 hits pay |exit-entry|/|entry-stop| (>=2R for
   // swing targets by rule), stops pay -1R, open at session end = 0.
@@ -667,7 +720,7 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
     bars,
     recording_warnings: warnings,
     setups: totalSetups,
-    wins, losses,
+    wins, losses, closed_eod,
     no_trades: totalSetups === 0 ? 1 : 0,
     total_r: round2(total_r),
     best_model,

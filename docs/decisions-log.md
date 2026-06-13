@@ -247,3 +247,47 @@ THE entry. Implementing the retest variant as an alternative would change
 graded entries. Intentionally out of scope. (Audit gap G9.)
 
 ---
+
+## 2026-06-13 — Trades hold to TP1/stop or the 4:00 PM ET close (AM carries into PM)
+
+**Decision.** A trade is held until the first of: TP1, stop, or the 16:00 ET
+cash close. An AM trade still open when the AM window ends is **monitored into
+the PM session** (it keeps grading against that day's PM bars); any trade still
+open at 16:00 ET is **force-closed at the market** (the bar's close), booking
+its signed R. A resting (unfilled) order at 16:00 is cancelled. The strategy
+docs are silent on holding-across-sessions and end-of-day close — this is a
+user ruling (2026-06-13) filling that gap.
+
+**Why.** Before this, a trade that neither hit TP1 nor stop by its session
+window's end was abandoned at $0 ("open at end"), which understated real P&L —
+those trades were mostly winners-in-waiting drifting toward their target. TS
+§7 Step 7 lets profits run "toward HTF draw if price supports continuation,"
+which naturally spans into PM; closing at 16:00 is standard intraday discipline
+(no overnight hold).
+
+**Where.**
+- Backtest: `app/main/backtest-engine.js` gains a `carryEntries` param (the
+  same day's PM tape) + a post-fold carry pass + a 16:00 mark-to-market
+  (`closeAtMarket` in `app/main/backtest-grader.js`, outcome `closed_1600`,
+  signed R). The refold/week scripts pass the PM tape to AM folds.
+- Live: `cli/lib/trade-outcomes.js` gains `closeTradesAtEod` (filled →
+  `CLOSED_EOD` at market, signed R off the original risk; pending → cancelled);
+  `app/main/trade-ticker.js` `maybeForceCloseAtEod` fires it at/after 16:00 ET;
+  wired into the per-bar handler in `app/main/bar-close.js`. The live tracker
+  already monitors continuously, so AM→PM carry is automatic live.
+
+**Immutability.** The three frozen hand-graded days (June 9 +10.01R, June 10
++1.35R, June 11 AM −3R) have ZERO open trades at their AM window's end, so the
+carry/EOD logic is inert for them — refold-gate verified byte-identical.
+
+**Effect on the out-of-sample weeks (honest R, not curve-fit):**
+June 1–5 +9.93 → +12.66R; June 8–12 +10.26 → +12.65R; May 18–22 +3.19 →
++11.59R; May 25–29 +16.35 → +19.11R. Open trades now book real outcomes
+(run to TP1 in PM, or close at 16:00) instead of phantom $0.
+
+**Modeling note.** In the backtest, an AM trade carried into PM is independent
+of the PM run's own positions — they can be concurrently open (matching the
+real rule: hold the AM trade while PM trades normally). The session
+one-position-at-a-time and scale-in limits are per-session.
+
+---

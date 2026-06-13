@@ -81,8 +81,9 @@ export function tickTrades(trades, bar) {
       if (t.side === "long") {
         if (hitTP1 && !t.tp1_hit && tp1First) {
           transitions.push({ id: t.id, ts: bar.ts, status: "TP1_HIT", r_realized: rMultiple(t, t.tp1) });
-          // Runner: stop moves to break-even.
-          const next = { ...t, tp1_hit: true, stop: t.entry };
+          // Runner: stop moves to break-even (original stop retained for a
+          // later 16:00 close to book R against the real risk).
+          const next = { ...t, tp1_hit: true, orig_stop: t.stop, stop: t.entry };
           if (bar.high >= t.tp2) {
             transitions.push({ id: t.id, ts: bar.ts, status: "TP2_HIT", r_realized: rMultiple(t, t.tp2) });
             updated.push({ ...next, state: "closed", outcome: "TP2_HIT" });
@@ -109,7 +110,7 @@ export function tickTrades(trades, bar) {
         // short, symmetric
         if (hitTP1 && !t.tp1_hit && tp1First) {
           transitions.push({ id: t.id, ts: bar.ts, status: "TP1_HIT", r_realized: rMultiple(t, t.tp1) });
-          const next = { ...t, tp1_hit: true, stop: t.entry };
+          const next = { ...t, tp1_hit: true, orig_stop: t.stop, stop: t.entry };
           if (bar.low <= t.tp2) {
             transitions.push({ id: t.id, ts: bar.ts, status: "TP2_HIT", r_realized: rMultiple(t, t.tp2) });
             updated.push({ ...next, state: "closed", outcome: "TP2_HIT" });
@@ -138,6 +139,32 @@ export function tickTrades(trades, bar) {
   return { transitions, updated };
 }
 
+// 4:00 PM ET forced close (user ruling 2026-06-13): a trade still open at the
+// NY cash close is exited at market — booking whatever it is — rather than
+// held overnight. A filled position closes at the bar's close (signed R from
+// its ORIGINAL risk, retained as orig_stop after a TP1 break-even move); a
+// resting (unfilled) order is cancelled. Mirrors the backtest's closeAtMarket.
+export function closeTradesAtEod(trades, bar) {
+  const transitions = [];
+  const updated = [];
+  for (const t of trades) {
+    if (t.state === "filled") {
+      const riskStop = Number.isFinite(Number(t.orig_stop)) ? t.orig_stop : t.stop;
+      transitions.push({
+        id: t.id, ts: bar.ts, status: "CLOSED_EOD",
+        exit: bar.close, r_realized: rMultiple({ ...t, stop: riskStop }, bar.close),
+      });
+      updated.push({ ...t, state: "closed", outcome: "CLOSED_EOD" });
+    } else if (t.state === "pending_entry") {
+      transitions.push({ id: t.id, ts: bar.ts, status: "EXPIRED_EOD" });
+      updated.push({ ...t, state: "closed", outcome: "EXPIRED_EOD" });
+    } else {
+      updated.push(t);
+    }
+  }
+  return { transitions, updated };
+}
+
 // Fold a trades.jsonl event log into the set of open trades (state ≠ closed).
 export function foldOpenTrades(events) {
   const byId = new Map();
@@ -148,8 +175,10 @@ export function foldOpenTrades(events) {
       const t = byId.get(ev.id);
       if (!t) continue;
       if (ev.status === "FILLED") t.state = "filled";
-      else if (ev.status === "TP1_HIT") { t.tp1_hit = true; t.stop = t.entry; }
-      else if (["TP2_HIT", "STOPPED", "INVALIDATED"].includes(ev.status)) {
+      // Retain the original stop before the break-even move so a later
+      // 16:00 close can book R against the real risk (not the BE stop).
+      else if (ev.status === "TP1_HIT") { t.tp1_hit = true; t.orig_stop = t.stop; t.stop = t.entry; }
+      else if (["TP2_HIT", "STOPPED", "INVALIDATED", "CLOSED_EOD", "EXPIRED_EOD"].includes(ev.status)) {
         t.state = "closed";
         t.outcome = ev.status;
       }
