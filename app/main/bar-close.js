@@ -1214,7 +1214,9 @@ function deterministicPacketToSurfacePayload(packet, ev) {
     grade: packet.grade,
     tf: ev?.tf ?? '1m',
     rr: packet.tp1?.rMultiple ?? null,
-    size_multiplier: 1,
+    // TS §6 / §7 Step 7 sizing (grade × day-of-week) — for display only.
+    size: packet.size ?? null,
+    size_multiplier: packet.size?.contracts ?? 1,
     rationale: 'Deterministic packet truth: TradingView evidence → walker lifecycle → execution packet. LLM/provider may explain it but cannot change entry, stop, target, model, side, or grade.',
     pillar_breakdown: [
       { name: 'Pillar 1', verdict: 'PASS · deterministic context gate', elements: [] },

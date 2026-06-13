@@ -1,3 +1,5 @@
+import { sizeFor, dayOfWeek } from '../../../../cli/lib/sizing.js';
+
 const TICK_SIZE = 0.25;
 
 function roundTick(value) {
@@ -382,12 +384,18 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   }
 
   const status = blockers.length === 0 ? 'executable' : 'blocked';
+  const packetGrade = status === 'executable' ? grade : 'no-trade';
+  // TS §6 / §7 Step 7: size = grade × day-of-week (Mon/Fri reduced). Attached
+  // for display only — never feeds the R accounting (refold-safe; the gate
+  // checks entry/stop/tp1/outcome/R, none of which this touches).
+  const size = sizeFor({ grade: packetGrade, dow: dayOfWeek(new Date(context?.eventTimeUtc ?? Date.now())) });
   const packet = {
     status,
     finalVerdict: status === 'executable' ? 'manual_candidate' : 'no_trade',
     model: walker?.model ?? 'unknown',
     side: side ?? 'unknown',
-    grade: status === 'executable' ? grade : 'no-trade',
+    grade: packetGrade,
+    size,
     blockers: [...new Set(blockers)],
     entry: entryPrice == null ? null : {
       price: roundTick(entryPrice),

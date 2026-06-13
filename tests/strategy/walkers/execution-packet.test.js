@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { buildExecutionPacketForWalker } from '../../../app/main/strategy/walkers/execution-packet.js';
 import { createWalker } from '../../../app/main/strategy/walkers/walker-state.js';
+import { sizeFor, dayOfWeek } from '../../../cli/lib/sizing.js';
 
 const pdArray = {
   evidenceRef: 'gates.engine.pillar3.fvgs[0]',
@@ -153,6 +154,21 @@ test('grade: all six elements aligned → A+ even on a medium zone', () => {
   });
   assert.equal(packet.status, 'executable');
   assert.equal(packet.grade, 'A+');
+});
+
+test('packet carries per-trade size (TS §6 / §7 Step 7: grade × day-of-week) — G6', () => {
+  // TS §6: "Sizing scaled by day of week (Mon/Fri reduced) + trade grade."
+  // The packet now carries the size so the trader sees it on the execution
+  // card. Additive display — does NOT affect entry/stop/tp1/R (refold-safe).
+  const context = executableContext({ sessionChain: alignedChain() });
+  const packet = buildExecutionPacketForWalker({ context, walker: confirmedMssWalker() });
+  const expected = sizeFor({ grade: packet.grade, dow: dayOfWeek(new Date(context.eventTimeUtc)) });
+  assert.equal(packet.status, 'executable');
+  assert.ok(packet.size, 'packet should carry a size object');
+  assert.equal(packet.size.contracts, expected.contracts);
+  assert.equal(packet.size.r_unit, expected.r_unit);
+  assert.equal(packet.size.label, expected.label);
+  assert.ok(packet.size.contracts >= 1, 'an executable packet sizes at least 1 contract');
 });
 
 test('grade: divergent alignment is one weaker element → B', () => {
