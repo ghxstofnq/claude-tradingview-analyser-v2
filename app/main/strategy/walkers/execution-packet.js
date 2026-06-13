@@ -52,6 +52,11 @@ function targetPool(context, side) {
 // bar closes at 15:32 ET or later are blocked. Wall-clock (the 16:00 close is
 // session-agnostic); inert for AM trades, which confirm before noon.
 const ENTRY_CUTOFF_ET_MIN = 15 * 60 + 32; // 15:32 ET (15:31-candle close onward)
+// Grade-tiered AM cutoff (user ruling 2026-06-13): in the NY-AM session a B
+// setup may only surface until 11:40 ET; A+ setups keep the full window to
+// 12:00. Conviction-tiered latitude — higher grade earns more rope in time
+// (mirrors A+→TP2 giving it more rope in target).
+const AM_B_CUTOFF_ET_MIN = 11 * 60 + 40; // 11:40 ET
 function etMinutesOfUtc(iso) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -405,6 +410,14 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const grade = deriveGrade({ context, walker });
   if (grade === 'no-trade') blockers.push('grade_blocked');
+
+  // Grade-tiered AM cutoff (user ruling 2026-06-13): a non-A+ setup confirming
+  // at 11:40 ET or later in the NY-AM session is blocked — late-session B
+  // chop. A+ setups keep the full window to noon.
+  if (grade !== 'A+' && context?.session === 'ny-am'
+      && entryEtMin != null && entryEtMin >= AM_B_CUTOFF_ET_MIN) {
+    blockers.push('b_grade_after_am_cutoff');
+  }
 
   // entry_model_priority is a SELECTION preference (resolver spec §3.4:
   // "which model to walk first"), applied in deterministic-strategy's

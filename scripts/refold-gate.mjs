@@ -31,13 +31,31 @@ const BASELINE = path.join(REPO_ROOT, "docs", "audits", "refold-baseline.json");
 // The recorded runs that hold the graded sessions. frozen=true means any drift
 // is a hard failure; frozen=false (June 11 PM) is tracked-only.
 const GRADED = [
+  // June 8 — verified no-trade day (re-grade 2026-06-13): no LTF bias resolved
+  // and zero walkers spawned in either session. A clean stand-aside; frozen as
+  // a guard against future over-eager spawning on a featureless day.
+  { label: "JUN8-AM",   runId: "20260613-170703-am-2026-06-08", session: "ny-am", frozen: true },
+  { label: "JUN8-PM",   runId: "20260613-170955-pm-2026-06-08", session: "ny-pm", frozen: true },
   { label: "JUN9-AM",   runId: "20260612-212913-am-2026-06-09", session: "ny-am", frozen: true },
   { label: "JUN10-AM",  runId: "20260612-213101-am-2026-06-10", session: "ny-am", frozen: true },
   { label: "JUN11-AM",  runId: "20260612-213401-am-2026-06-11", session: "ny-am", frozen: true },
-  { label: "JUN11-PM",  runId: "20260612-213639-pm-2026-06-11", session: "ny-pm", frozen: false },
+  { label: "JUN11-PM",  runId: "20260612-213639-pm-2026-06-11", session: "ny-pm", frozen: true },
+  { label: "JUN12-AM",  runId: "20260613-171829-am-2026-06-12", session: "ny-am", frozen: true },
+  { label: "JUN12-PM",  runId: "20260613-172102-pm-2026-06-12", session: "ny-pm", frozen: true },
 ];
 
 function round2(n) { return Math.round(n * 100) / 100; }
+
+// Same-day PM bars for the AM→PM carry (4:00 close rule). The PM tape is real
+// market data, so the latest recorded PM run for the date is fine.
+function pmCarryEntries(date) {
+  const pmRun = fs.readdirSync(path.join(REPO_ROOT, "state", "backtest"))
+    .filter((d) => d.includes(`-pm-${date}`)).sort().pop();
+  if (!pmRun) return [];
+  try {
+    return JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "state", "backtest", pmRun, "ny-pm", "tape.json"), "utf8")).entries ?? [];
+  } catch { return []; }
+}
 
 async function foldOne({ runId, session }) {
   const runDir = path.join(REPO_ROOT, "state", "backtest", runId, session);
@@ -51,10 +69,11 @@ async function foldOne({ runId, session }) {
     if (e.type === "setup_surfaced") surfaced.set(e.setup.id, e.setup);
     else if (e.type === "setup_outcome") {
       const s = surfaced.get(e.setupId) || {};
-      const risk = Math.abs(Number(s.entry) - Number(s.stop));
-      const r = e.outcome === "tp1_hit" && risk > 0
-        ? round2(Math.abs(Number(e.exit) - Number(s.entry)) / risk)
-        : e.outcome === "stop_hit" ? -1 : 0;
+      const risk = Math.abs(Number(s.entry) - Number(s.stop)); // s.stop is the ORIGINAL stop (engine never mutates it)
+      const signed = round2((s.side === "long" ? Number(e.exit) - Number(s.entry) : Number(s.entry) - Number(e.exit)) / (risk || 1));
+      const r = e.outcome === "stop_hit" ? -1
+        : e.outcome === "closed_be" ? 0
+        : risk > 0 ? signed : 0; // tp1_hit / tp2_hit / closed_1600
       booked.push({
         model: s.model, side: s.side, event_ts: s.event_ts,
         entry: s.entry, stop: s.stop, tp1: s.tp1,
@@ -74,6 +93,8 @@ async function foldOne({ runId, session }) {
   const { summary } = await runBacktest({
     date: tape.date, session, mode: "auto", bus,
     stateDir: path.join(REPO_ROOT, "state", "backtest-refold"), deps,
+    // AM trades carry into PM under the 4:00 close rule.
+    carryEntries: session === "ny-am" ? pmCarryEntries(tape.date) : [],
   });
 
   return { total_r: summary.total_r, trades: booked };

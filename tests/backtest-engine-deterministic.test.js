@@ -60,12 +60,13 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   });
 
   assert.equal(summary.cost_usd, 0);
-  // §6 TP1 = next internal swing (29692.25) — close enough that the trade
-  // resolves inside the 22-bar recorded window (the old session-level
-  // target 29302.5 was never reached in-window).
-  assert.equal(summary.best_model, "Inversion");
-  assert.ok(summary.wins >= 1);
+  // A+→TP2 (2026-06-13): the June 9 Inversion shorts grade A+, so each ARMS a
+  // runner on TP1 (no partial bank) and rides for TP2. Within this 22-bar
+  // slice none reach TP2, so they stay open — nothing books. No stops either,
+  // so losses=0 and wins=0; the runners are unresolved, which is the correct
+  // new behavior (was: TP1 scalps that closed in-window).
   assert.equal(summary.losses, 0);
+  assert.equal(summary.wins, 0);
   assert.equal(summary.chain_status, "clean");
 
   // As the move unfolds, neighboring zones confirm the same trade idea under
@@ -101,14 +102,15 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   assert.ok(events.some((e) => e.type === "done"));
 });
 
-test("outcome grading: a later bar through TP1 resolves the trade as a win from recorded bars", async () => {
+test("outcome grading: a later bar through TP1 then TP2 resolves the A+ runner as a TP2 win", async () => {
   const stateDir = tmpStateDir();
   const bus = new EventEmitter();
   const events = collectEvents(bus);
 
   const last = JUNE9.entries[JUNE9.entries.length - 1];
   const winBar = structuredClone(last);
-  // Next 1m bar trades down through tp1 29302.5.
+  // Next 1m bar trades down through TP1 AND TP2 (the A+ runner's second
+  // target) — low 29300 clears every Inversion-short TP2 on the tape.
   const bars = winBar.inputs.bundle.bars.last_5_bars;
   const prev = bars[bars.length - 1];
   const t = Number(prev.time) + 60;
@@ -123,14 +125,13 @@ test("outcome grading: a later bar through TP1 resolves the trade as a win from 
   });
 
   assert.ok(summary.setups >= 1);
-  // §6 intraday TP1s resolve faster: the first trade closes inside the
-  // window and the next opportunity can trade after it (single position).
+  // A+→TP2: the runner blows through TP1 to TP2 on that bar → a TP2 win.
   assert.ok(summary.wins >= 1);
   assert.equal(summary.losses, 0);
   assert.ok(summary.total_r >= 1);
   assert.equal(summary.best_model, "Inversion");
   const outcome = events.find((e) => e.type === "setup_outcome");
-  assert.equal(outcome.outcome, "tp1_hit");
+  assert.equal(outcome.outcome, "tp2_hit");
 });
 
 test("PAUSE mode: pauses on the packet and a reject decision records the rejection", async () => {

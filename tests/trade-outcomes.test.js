@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tickTrades, foldOpenTrades, closeTradesAtEod } from "../cli/lib/trade-outcomes.js";
+import { tickTrades, foldOpenTrades, closeTradesAtEod, consecutiveLossStreak } from "../cli/lib/trade-outcomes.js";
 
+// A+ so the runner path (TP1 → BE → TP2) is exercised; tp2 120 sits beyond
+// tp1 110. A B-grade trade banks fully at TP1 (covered separately below).
 const baseLong = {
-  id: "T-1", side: "long", state: "pending_entry",
+  id: "T-1", side: "long", state: "pending_entry", grade: "A+",
   entry: 100, stop: 95, tp1: 110, tp2: 120, invalidation: 90,
 };
 
@@ -48,14 +50,54 @@ test("foldOpenTrades: CLOSED_EOD / EXPIRED_EOD remove the trade from the open se
   assert.equal(open.length, 0);
 });
 
-test("foldOpenTrades: TP1_HIT retains orig_stop for a later EOD close", () => {
+test("foldOpenTrades: an A+ TP1_HIT arms a runner and retains orig_stop", () => {
   const open = foldOpenTrades([
-    { type: "accept", id: "A", side: "long", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "accept", id: "A", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 },
     { type: "outcome", id: "A", status: "FILLED" },
     { type: "outcome", id: "A", status: "TP1_HIT" },
   ]);
   assert.equal(open[0].orig_stop, 95);
   assert.equal(open[0].stop, 100); // moved to break-even
+});
+
+// consecutiveLossStreak — the live 3-loss halt input (user ruling 2026-06-13).
+test("consecutiveLossStreak: 3 stops in a row → 3", () => {
+  const ev = [
+    { type: "outcome", id: "a", status: "STOPPED", ts: "01" },
+    { type: "outcome", id: "b", status: "STOPPED", ts: "02" },
+    { type: "outcome", id: "c", status: "STOPPED", ts: "03" },
+  ];
+  assert.equal(consecutiveLossStreak(ev), 3);
+});
+
+test("consecutiveLossStreak: a win resets the streak", () => {
+  const ev = [
+    { type: "outcome", id: "a", status: "STOPPED", ts: "01" },
+    { type: "outcome", id: "b", status: "STOPPED", ts: "02" },
+    { type: "outcome", id: "c", status: "TP1_HIT", ts: "03" },
+    { type: "outcome", id: "d", status: "STOPPED", ts: "04" },
+  ];
+  assert.equal(consecutiveLossStreak(ev), 1);
+});
+
+test("consecutiveLossStreak: a 16:00 close underwater counts; in profit doesn't", () => {
+  assert.equal(consecutiveLossStreak([
+    { type: "outcome", id: "a", status: "STOPPED", ts: "01" },
+    { type: "outcome", id: "b", status: "CLOSED_EOD", r_realized: -0.4, ts: "02" },
+  ]), 2);
+  assert.equal(consecutiveLossStreak([
+    { type: "outcome", id: "a", status: "STOPPED", ts: "01" },
+    { type: "outcome", id: "b", status: "CLOSED_EOD", r_realized: 1.2, ts: "02" },
+  ]), 0);
+});
+
+test("foldOpenTrades: a B TP1_HIT closes the trade (no runner)", () => {
+  const open = foldOpenTrades([
+    { type: "accept", id: "A", side: "long", grade: "B", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "outcome", id: "A", status: "FILLED" },
+    { type: "outcome", id: "A", status: "TP1_HIT" },
+  ]);
+  assert.equal(open.length, 0); // closed at TP1
 });
 
 test("pending → FILLED when bar crosses entry", () => {
@@ -69,13 +111,22 @@ test("pending → INVALIDATED when bar crosses invalidation", () => {
   assert.equal(out.transitions[0].status, "INVALIDATED");
 });
 
-test("filled long → TP1_HIT pulls stop to break-even", () => {
-  const trade = { ...baseLong, state: "filled" };
+test("filled A+ long → TP1_HIT arms the runner (stop to break-even, milestone R)", () => {
+  const trade = { ...baseLong, state: "filled" }; // A+ → runs to TP2
   const out = tickTrades([trade], { high: 111, low: 105, ts: "T" });
   assert.equal(out.transitions[0].status, "TP1_HIT");
-  assert.equal(out.transitions[0].r_realized, 2);
+  assert.equal(out.transitions[0].r_realized, null); // milestone — R realized only at TP2/BE
   assert.equal(out.updated[0].stop, 100);
   assert.equal(out.updated[0].tp1_hit, true);
+});
+
+test("filled B long → TP1_HIT closes the full position (no runner)", () => {
+  const trade = { ...baseLong, grade: "B", state: "filled" };
+  const out = tickTrades([trade], { high: 111, low: 105, ts: "T" });
+  assert.equal(out.transitions[0].status, "TP1_HIT");
+  assert.equal(out.transitions[0].r_realized, 2); // banked at TP1
+  assert.equal(out.updated[0].state, "closed");
+  assert.equal(out.updated[0].outcome, "TP1_HIT");
 });
 
 test("filled long → STOPPED when bar.low ≤ stop", () => {
@@ -166,11 +217,12 @@ test("short symmetric — pending → FILLED when bar.low ≤ entry", () => {
   assert.equal(out.transitions[0].status, "FILLED");
 });
 
-test("short filled → TP1_HIT when bar.low ≤ tp1", () => {
-  const short = { ...baseLong, side: "short", state: "filled", entry: 100, stop: 105, tp1: 90, tp2: 80, invalidation: 110 };
+test("short filled (B) → TP1_HIT banks at TP1 when bar.low ≤ tp1", () => {
+  const short = { ...baseLong, grade: "B", side: "short", state: "filled", entry: 100, stop: 105, tp1: 90, tp2: 80, invalidation: 110 };
   const out = tickTrades([short], { high: 95, low: 88, ts: "T" });
   assert.equal(out.transitions[0].status, "TP1_HIT");
   assert.equal(out.transitions[0].r_realized, 2);
+  assert.equal(out.updated[0].state, "closed");
 });
 
 test("foldOpenTrades collapses an event log", () => {
@@ -186,9 +238,9 @@ test("foldOpenTrades collapses an event log", () => {
   assert.equal(open[0].state, "filled");
 });
 
-test("foldOpenTrades — TP1_HIT pulls stop to entry but trade stays open", () => {
+test("foldOpenTrades — an A+ TP1_HIT pulls stop to entry but trade stays open", () => {
   const events = [
-    { type: "accept", id: "T-1", side: "long", entry: 100, stop: 95, tp1: 110, tp2: 120, invalidation: 90 },
+    { type: "accept", id: "T-1", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120, invalidation: 90 },
     { type: "outcome", id: "T-1", status: "FILLED" },
     { type: "outcome", id: "T-1", status: "TP1_HIT" },
   ];

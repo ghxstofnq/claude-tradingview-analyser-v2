@@ -32,13 +32,43 @@ export function gradeOpenTrade(trade, bar) {
   throw new Error(`gradeOpenTrade: unknown side: ${side}`);
 }
 
+// A+ runner phase (user ruling 2026-06-13): once an A+ trade tags TP1, its
+// stop moves to break-even (entry) and the FULL position runs for TP2. From
+// then on it can only: hit TP2 (win, R off the ORIGINAL risk), come back to
+// entry (the BE stop → 0R scratch), or be force-closed at 16:00. No partial
+// bank at TP1 — the whole position rides. Conservative on a conflict bar:
+// break-even is checked first (adverse outcome assumed). orig_stop carries the
+// original risk so R is measured from it, not the moved BE stop.
+export function gradeRunner(trade, bar) {
+  const { side, entry, tp2 } = trade;
+  const origStop = Number.isFinite(Number(trade.orig_stop)) ? Number(trade.orig_stop) : Number(trade.stop);
+  const risk = Math.abs(Number(entry) - origStop);
+  const { high, low } = bar;
+  const rTo = (px) => (Number.isFinite(risk) && risk > 0
+    ? Number(((side === "long" ? Number(px) - Number(entry) : Number(entry) - Number(px)) / risk).toFixed(2))
+    : 0);
+  if (side === "long") {
+    if (low <= entry) return { outcome: "closed_be", exit: entry, realized_r: 0, conflict_bar: high >= tp2 };
+    if (high >= tp2) return { outcome: "tp2_hit", exit: tp2, realized_r: rTo(tp2), conflict_bar: false };
+    return { outcome: "pending" };
+  }
+  if (side === "short") {
+    if (high >= entry) return { outcome: "closed_be", exit: entry, realized_r: 0, conflict_bar: low <= tp2 };
+    if (low <= tp2) return { outcome: "tp2_hit", exit: tp2, realized_r: rTo(tp2), conflict_bar: false };
+    return { outcome: "pending" };
+  }
+  throw new Error(`gradeRunner: unknown side: ${side}`);
+}
+
 // End-of-day forced close (user ruling 2026-06-13): a trade still open at
 // 16:00 ET is closed at the market — the final bar's close — booking whatever
 // it is. It is neither a TP1 nor a stop hit, so realized_r is the SIGNED
 // multiple (the close can sit in profit OR loss). The same rule resolves an
-// AM trade carried into PM that still hasn't hit a level by 16:00.
+// AM trade carried into PM that still hasn't hit a level by 16:00. A runner
+// uses its ORIGINAL stop for the risk denominator (its live stop is at BE).
 export function closeAtMarket(trade, bar) {
-  const { side, entry, stop } = trade;
+  const { side, entry } = trade;
+  const stop = Number.isFinite(Number(trade.orig_stop)) ? Number(trade.orig_stop) : Number(trade.stop);
   const exit = bar.close;
   const risk = Math.abs(Number(entry) - Number(stop));
   const signed = side === "long" ? Number(exit) - Number(entry) : Number(entry) - Number(exit);
