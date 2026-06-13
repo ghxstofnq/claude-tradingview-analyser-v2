@@ -59,9 +59,9 @@ describe("trade lifecycle — bar-close → tickTrades → jsonl", () => {
     }
   }
 
-  it("FILLED → TP1 → BE-stop → TP2 (full happy path)", async () => {
+  it("A+ FILLED → TP1 → BE-stop → TP2 (full happy path)", async () => {
     await acceptTrade({
-      id: "T-A", side: "long", entry: 100, stop: 95, tp1: 110, tp2: 120, invalidation: 90,
+      id: "T-A", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120, invalidation: 90,
     });
 
     // Bar 1: crosses entry only.
@@ -114,9 +114,9 @@ describe("trade lifecycle — bar-close → tickTrades → jsonl", () => {
     assert.equal(res.transitions[0]?.r_realized, null);
   });
 
-  it("foldOpenTrades preserves linkage across many events", async () => {
+  it("foldOpenTrades preserves linkage across many events (A+ runner)", async () => {
     await acceptTrade({
-      id: "T-D", side: "short", entry: 100, stop: 105, tp1: 90, tp2: 80, invalidation: 110,
+      id: "T-D", side: "short", grade: "A+", entry: 100, stop: 105, tp1: 90, tp2: 80, invalidation: 110,
     });
     let open = await loadOpen();
     let res = tickTrades(open, { open: 101, high: 102, low: 99, ts: "B1" });

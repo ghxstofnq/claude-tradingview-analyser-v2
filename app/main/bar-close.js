@@ -36,7 +36,7 @@ import { attachDetectorBriefDigest, parseHtfDestination } from "../../cli/lib/de
 import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
-import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
+import { foldOpenTrades, consecutiveLossStreak } from "../../cli/lib/trade-outcomes.js";
 import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // #65 Trade ticking + session-end audit live in trade-ticker now,
 // so this file is closer to pure orchestration.
@@ -842,10 +842,21 @@ async function runDeterministicPacketTruthForBar(ev, session) {
   _send?.('deterministic:packet', truth);
   _send?.('walkers:state', { session, walkers: truth.walkers, deterministic: true });
 
-  if (bestPacket) {
+  // 3-losses-in-a-row session halt (user ruling 2026-06-13): once the session
+  // has 3 consecutive losers, stop surfacing new setups for the rest of it.
+  let lossHalt = false;
+  try {
+    const txt = await fs.readFile(path.join(dir, "trades.jsonl"), "utf8");
+    const events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    lossHalt = consecutiveLossStreak(events) >= 3;
+  } catch { /* no trades file yet — not halted */ }
+
+  if (bestPacket && !lossHalt) {
     await surfaceSetup(truth.surfacePayload);
   } else {
-    const reason = truth.noTradeReason ?? `deterministic packet blocked: ${(truth.blockers?.length ? truth.blockers : ['no_confirmed_packet']).join(', ')}`;
+    const reason = lossHalt
+      ? "session halt: 3 losses in a row"
+      : (truth.noTradeReason ?? `deterministic packet blocked: ${(truth.blockers?.length ? truth.blockers : ['no_confirmed_packet']).join(', ')}`);
     await surfaceNoTrade({ reason }).catch((err) => {
       // A recent setup can suppress no-trade; that's fine for UI lifecycle.
       if (!/suppressed/i.test(String(err?.message || err))) throw err;
