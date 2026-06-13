@@ -12,6 +12,39 @@ Doc shorthand: **TS** = `docs/strategy/trading-strategy-2026.md`,
 
 ---
 
+## 2026-06-13 — Break-even scale-in is now the DEFAULT (user ruling)
+
+**Decision.** The backtest/refold engine now scales into a proven-winning idea
+by default (opt out: `TV_SCALEIN=0`). Rule:
+- **Anchor** = the first trade of a cluster; keeps its ORIGINAL stop and rides
+  to TP1 as normal (winners are never scratched).
+- **Green light** = the anchor travels 50% of the way to TP1 → the move is
+  proven, adds turn on.
+- **Adds** = up to 5 concurrent, SAME-DIRECTION confirmed setups (loosened from
+  same-target after May 26 showed same-direction catches mixed-target down-moves
+  the strict rule missed); 10-min dedup collapses near-identical entries.
+- **Breaker** = 2 ADD stop-outs in a row → no more adds that session (a winning
+  add resets the streak; the anchor's own stop does not count). Caps chop-day
+  bleed.
+
+**Why.** Validated on two out-of-sample weeks (refold, $0): combined
+current +11.04R → scale-in **+26.28R** (June 1–5 +0.33→+9.93; May 25–29
++10.71→+16.35). Upside shows on multiple weeks (June 2 cluster, May 26 down-move,
+May 25/29 trend days), not one freak day; the breaker holds the cost on chop
+days (May 27/28) to ~1 extra R.
+
+**Cost on the graded days (user-authorized re-grade).** Scale-in does NOT change
+June 9 (+10.01R) or June 10 (+1.35R) — clean trend days, no adds. It DEEPENS
+June 11 AM from −1R to **−3R** (a chop morning where 2 adds stop before the
+breaker trips). The refold-gate baseline is re-frozen to reflect this:
+June 9 +10.01, June 10 +1.35, June 11 AM −3, June 11 PM 0.
+
+**Scope.** Implemented in the backtest/refold engine (`app/main/backtest-engine.js`).
+The LIVE chain (`bar-close.js`) is separate code and still trades one position —
+porting scale-in to live is a follow-up. Flag-style env opt-out retained.
+
+---
+
 ## 2026-06-13 — Phase 5 week proof (June 1–5 NY-AM): −1.40R, root-caused
 
 **Scope.** User chose NY-AM-only (TV-replay recording wedges the live chart and

@@ -86,15 +86,17 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   // level) remains parked for sign-off.
   assert.equal(surfaced[0].setup.tp1, 29659.25);
 
-  // Single-position discipline: opens are SEQUENTIAL (a new one only after
-  // the prior closed — the in-window TP1 frees the slot); every surfaced
-  // setup is either opened or skipped-while-active.
+  // Every surfaced setup gets exactly one disposition. Since scale-in is the
+  // default (2026-06-13), a setup is opened (anchor or add), skipped while a
+  // trade is active, dedup-collapsed (same-side within 10 min), or halted.
   const rows = fs.readFileSync(path.join(stateDir, "backtest", runId, "ny-am", "setups.jsonl"), "utf8")
     .trim().split("\n").map((l) => JSON.parse(l));
   const opens = rows.filter((r) => r.type === "open").length;
   const skipped = rows.filter((r) => r.type === "skipped_active_trade").length;
+  const dedup = rows.filter((r) => r.type === "dedup_skipped").length;
+  const halted = rows.filter((r) => r.type === "session_halted").length;
   assert.ok(opens >= 1);
-  assert.equal(opens + skipped, surfaced.length);
+  assert.equal(opens + skipped + dedup + halted, surfaced.length);
   assert.ok(fs.existsSync(path.join(stateDir, "backtest", runId, "ny-am", "tape.json")), "recorded tape persisted for promotion");
   assert.ok(events.some((e) => e.type === "done"));
 });
