@@ -40,7 +40,7 @@ import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // #65 Trade ticking + session-end audit live in trade-ticker now,
 // so this file is closer to pure orchestration.
-import { setTickerSink, tickOpenTrades, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
+import { setTickerSink, tickOpenTrades, maybeForceCloseAtEod, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
 import { surfaceSetup, surfaceNoTrade } from "./tools/surface.js";
 import { buildStrategyContext } from "./strategy/context/build-strategy-context.js";
 import { runDeterministicWalkerStrategy } from "./strategy/walkers/deterministic-strategy.js";
@@ -334,6 +334,12 @@ async function handleBar(ev) {
   await tickOpenTrades(ev).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[bar-close] tick threw", err?.message || err);
+  });
+  // 4:00 PM ET cash close — force-close any trade held to the NY close
+  // (user ruling 2026-06-13). ET-gated inside; inert before 16:00.
+  await maybeForceCloseAtEod(ev).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] eod-close threw", err?.message || err);
   });
 
   // Phase-aware: decide if Claude should react.

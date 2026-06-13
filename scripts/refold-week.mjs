@@ -17,6 +17,14 @@ function findRun(date, session) {
   const tag = `-${session.replace("ny-", "")}-${date}`;
   return fs.readdirSync("state/backtest").filter((d) => d.includes(tag)).sort().pop();
 }
+// PM tape entries for the same day — an AM trade still open at noon carries
+// against these to 16:00 (user ruling 2026-06-13). Empty if no PM run.
+function loadCarry(date, session) {
+  if (session !== "ny-am") return [];
+  const run = findRun(date, "ny-pm"); if (!run) return [];
+  try { return JSON.parse(fs.readFileSync(path.join("state", "backtest", run, "ny-pm", "tape.json"), "utf8")).entries ?? []; }
+  catch { return []; }
+}
 async function fold(date, session) {
   const run = findRun(date, session); if (!run) return null;
   const dir = path.join("state", "backtest", run, session);
@@ -26,11 +34,11 @@ async function fold(date, session) {
   const bus = new EventEmitter();
   bus.on("backtest:event", (e) => {
     if (e.type === "setup_surfaced") surfaced.set(e.setup.id, e.setup);
-    else if (e.type === "setup_outcome") { const s = surfaced.get(e.setupId) || {}; const risk = Math.abs(s.entry - s.stop); const r = e.outcome === "tp1_hit" ? Math.abs(e.exit - s.entry) / risk : e.outcome === "stop_hit" ? -1 : 0; booked.push({ t: et(s.event_ts), side: (s.side || "?")[0], add: !!s.scale_in_add, r: Number(r.toFixed(2)), outcome: e.outcome }); }
+    else if (e.type === "setup_outcome") { const s = surfaced.get(e.setupId) || {}; const risk = Math.abs(s.entry - s.stop); const r = e.outcome === "tp1_hit" ? Math.abs(e.exit - s.entry) / risk : e.outcome === "stop_hit" ? -1 : e.outcome === "closed_1600" ? (s.side === "long" ? e.exit - s.entry : s.entry - e.exit) / risk : 0; booked.push({ t: et(s.event_ts), side: (s.side || "?")[0], add: !!s.scale_in_add, r: Number(r.toFixed(2)), outcome: e.outcome }); }
     else if (e.type === "paused") bus.emit("backtest:command", { type: "decision", choice: "accept" });
   });
   const deps = { recordEntries: async () => ({ entries: tape.entries, warnings: [] }), loadDayContext: async () => null, runDirectBrief: async () => contextFromBriefPayloads({ session, payloads }), truthFn: bc.buildDeterministicPacketTruthFromInputs, gradeFn: gradeOpenTrade };
-  const { summary } = await runBacktest({ date: tape.date, session, mode: "auto", bus, stateDir: "state/backtest-refold", deps });
+  const { summary } = await runBacktest({ date: tape.date, session, mode: "auto", bus, stateDir: "state/backtest-refold", deps, carryEntries: loadCarry(date, session) });
   return { total_r: summary.total_r, booked };
 }
 

@@ -2,7 +2,7 @@
 // Pure-function tests for the outcome grader.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gradeOpenTrade } from "../app/main/backtest-grader.js";
+import { gradeOpenTrade, closeAtMarket } from "../app/main/backtest-grader.js";
 
 test("long: bar.low <= stop → stop_hit", () => {
   const trade = { side: "long", entry: 29080, stop: 29050, tp1: 29150 };
@@ -73,4 +73,30 @@ test("short: exact-touch on tp1 counts as hit", () => {
   const trade = { side: "short", entry: 29080, stop: 29105, tp1: 29050 };
   const bar = { high: 29090, low: 29050 };
   assert.equal(gradeOpenTrade(trade, bar).outcome, "tp1_hit");
+});
+
+// closeAtMarket — the 4:00 PM forced close (user ruling 2026-06-13).
+test("closeAtMarket long in profit → signed positive R at the close", () => {
+  const trade = { side: "long", entry: 29080, stop: 29050, tp1: 29200 }; // risk 30
+  const out = closeAtMarket(trade, { close: 29125 });                    // +45 = +1.5R
+  assert.equal(out.outcome, "closed_1600");
+  assert.equal(out.exit, 29125);
+  assert.equal(out.realized_r, 1.5);
+});
+
+test("closeAtMarket long underwater → signed negative R (but not a full -1R stop)", () => {
+  const trade = { side: "long", entry: 29080, stop: 29050, tp1: 29200 }; // risk 30
+  const out = closeAtMarket(trade, { close: 29065 });                    // -15 = -0.5R
+  assert.equal(out.realized_r, -0.5);
+});
+
+test("closeAtMarket short in profit → signed positive R at the close", () => {
+  const trade = { side: "short", entry: 29080, stop: 29110, tp1: 28960 }; // risk 30
+  const out = closeAtMarket(trade, { close: 29030 });                     // entry-exit=50 = +1.67R
+  assert.equal(out.realized_r, 1.67);
+});
+
+test("closeAtMarket zero risk → 0R, never NaN", () => {
+  const out = closeAtMarket({ side: "long", entry: 29080, stop: 29080, tp1: 29200 }, { close: 29200 });
+  assert.equal(out.realized_r, 0);
 });
