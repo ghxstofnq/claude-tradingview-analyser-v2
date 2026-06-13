@@ -127,6 +127,44 @@ test('buildExecutionPacketForWalker blocks instead of inventing stop or weak TP1
   assert.equal(weakTarget.finalVerdict, 'no_trade');
 });
 
+// ── Late-session entry cutoff (user ruling 2026-06-13) ────────────────
+// No new entries once the confirming bar closes at 15:32 ET or later — too
+// little runway before the 16:00 forced close. The 15:30 candle (closes
+// 15:31) is the last one that may confirm a new entry.
+test('entry cutoff: a confirmation closing 15:33 ET is blocked', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-11T19:33:00.000Z' }), // 15:33 ET
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(packet.status, 'blocked');
+  assert.ok(packet.blockers.includes('entry_after_session_cutoff'));
+  assert.equal(packet.finalVerdict, 'no_trade');
+});
+
+test('entry cutoff: the 15:31 close (15:30 candle) is the last allowed; 15:32 is blocked', () => {
+  const allowed = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-02T19:31:00.000Z' }), // 15:31 ET
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(allowed.status, 'executable');
+  assert.ok(!allowed.blockers.includes('entry_after_session_cutoff'));
+
+  const blocked = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-02T19:32:00.000Z' }), // 15:32 ET
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(blocked.status, 'blocked');
+  assert.ok(blocked.blockers.includes('entry_after_session_cutoff'));
+});
+
+test('entry cutoff: AM confirmations are unaffected', () => {
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-02T13:47:00.000Z' }), // 09:47 ET
+    walker: confirmedMssWalker(),
+  });
+  assert.ok(!packet.blockers.includes('entry_after_session_cutoff'));
+});
+
 // ── Six-element grading (2026-06-12) ──────────────────────────────────
 // Grade mirrors constraint #9 / trading-strategy-2026.md §7 step 7: A+ when
 // ALL elements align — HTF bias+draw (pillar1 pass), price quality good
