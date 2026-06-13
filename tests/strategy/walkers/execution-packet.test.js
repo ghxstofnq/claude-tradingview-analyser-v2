@@ -165,6 +165,42 @@ test('entry cutoff: AM confirmations are unaffected', () => {
   assert.ok(!packet.blockers.includes('entry_after_session_cutoff'));
 });
 
+// Grade-tiered AM cutoff (user ruling 2026-06-13): a B setup in NY-AM may only
+// confirm until 11:40 ET; A+ keeps the window to noon.
+test('AM cutoff: a B setup at 11:45 ET is blocked; an A+ setup is allowed', () => {
+  // No aligned chain → grade B. At 11:45 ET (15:45 UTC), AM → blocked.
+  const lateB = buildExecutionPacketForWalker({
+    context: executableContext({ eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(lateB.status, 'blocked');
+  assert.ok(lateB.blockers.includes('b_grade_after_am_cutoff'));
+
+  // Aligned chain → grade A+. Same 11:45 ET bar → allowed (A+ keeps the rope).
+  const lateAplus = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(lateAplus.status, 'executable');
+  assert.ok(!lateAplus.blockers.includes('b_grade_after_am_cutoff'));
+});
+
+test('AM cutoff: a B setup BEFORE 11:40 ET is allowed', () => {
+  const earlyB = buildExecutionPacketForWalker({
+    context: executableContext({ eventTimeUtc: '2026-06-11T15:30:00.000Z' }), // 11:30 ET
+    walker: confirmedMssWalker(),
+  });
+  assert.ok(!earlyB.blockers.includes('b_grade_after_am_cutoff'));
+});
+
+test('AM cutoff: inert in the PM session (only NY-AM is gated)', () => {
+  const pmB = buildExecutionPacketForWalker({
+    context: executableContext({ session: 'ny-pm', eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
+    walker: confirmedMssWalker(),
+  });
+  assert.ok(!pmB.blockers.includes('b_grade_after_am_cutoff'));
+});
+
 // ── Six-element grading (2026-06-12) ──────────────────────────────────
 // Grade mirrors constraint #9 / trading-strategy-2026.md §7 step 7: A+ when
 // ALL elements align — HTF bias+draw (pillar1 pass), price quality good

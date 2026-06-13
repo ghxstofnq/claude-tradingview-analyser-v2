@@ -31,7 +31,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { closeAtMarket } from "./backtest-grader.js";
+import { closeAtMarket, gradeRunner } from "./backtest-grader.js";
 import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.js";
 import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/open-reaction-resolver.js";
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
@@ -47,6 +47,10 @@ const SESSION_WINDOWS = {
 // positions once the day's closed trades reach the cap (June 11 AM chop
 // bled 9 straight stops without it).
 const SESSION_MAX_LOSS_R = -3;
+// User ruling 2026-06-13: also halt after 3 LOSING trades in a row (any win
+// resets the streak) — stricter than the cumulative cap, and it catches the
+// concurrent-adds bleed the cumulative −3R let slip (June 11 AM −4 → −3).
+const SESSION_MAX_LOSS_STREAK = 3;
 
 // Break-even scale-in — DEFAULT ON (user ruling 2026-06-13; opt out with
 // TV_SCALEIN=0). The anchor keeps its ORIGINAL stop and rides to TP1 as normal;
@@ -66,6 +70,15 @@ const DEDUP_WINDOW_MS = 10 * 60 * 1000;
 
 function anchorGreenLit(anchor) {
   return Boolean(anchor?.greenLight);
+}
+// A+ → TP2 (user ruling 2026-06-13): only A+ trades run past TP1, and only when
+// TP2 sits BEYOND TP1 in the trade's direction (otherwise there's no runner
+// room and it banks at TP1 like a B trade).
+function isRunnerEligible(trade) {
+  if (trade?.grade !== "A+") return false;
+  const t1 = Number(trade.tp1), t2 = Number(trade.tp2);
+  if (!Number.isFinite(t1) || !Number.isFinite(t2)) return false;
+  return trade.side === "short" ? t2 < t1 : t2 > t1;
 }
 function isNearDuplicate(setup, takenLog) {
   const ms = Date.parse(setup.event_ts);
@@ -202,6 +215,7 @@ export async function runBacktest({
   let addsDisabled = false;  // tripped once addStopStreak hits SCALE_IN_STOP_STREAK
   const closedTrades = [];
   let sessionRealizedR = 0;
+  let lossStreak = 0;        // consecutive losing trades (any win resets)
   let sessionHalted = false;
   let contextSource = "none";
   let chainStatus = "clean";
@@ -243,6 +257,14 @@ export async function runBacktest({
         addStopStreak = 0;
       }
     }
+    // 3-losses-in-a-row halt (user ruling 2026-06-13). A loss is realized R < 0
+    // (stop, or a 16:00 close underwater); any non-loss resets the streak.
+    if (realizedR < 0) lossStreak += 1; else lossStreak = 0;
+    if (!sessionHalted && lossStreak >= SESSION_MAX_LOSS_STREAK) {
+      sessionHalted = true;
+      appendActivity({ kind: "session_halt", session_r: round2(sessionRealizedR), rule: `${SESSION_MAX_LOSS_STREAK} losses in a row` });
+      bus.emit("backtest:event", { type: "session_halted", runId, session_r: round2(sessionRealizedR) });
+    }
     if (!sessionHalted && sessionRealizedR <= SESSION_MAX_LOSS_R) {
       sessionHalted = true;
       appendActivity({ kind: "session_halt", session_r: round2(sessionRealizedR), rule: `halt at ${SESSION_MAX_LOSS_R}R` });
@@ -253,6 +275,39 @@ export async function runBacktest({
       type: "setup_outcome", runId, setupId: trade.id,
       outcome: verdict.outcome, exit: verdict.exit,
     });
+  };
+
+  // Grade one open trade against a bar — shared by the main fold and the PM
+  // carry pass. Handles the A+→TP2 runner: a non-runner books at stop/TP1 (and
+  // an eligible A+ arms break-even + runs for TP2 on TP1); a runner books on
+  // TP2 / break-even.
+  const gradeOneTrade = (trade, bar, eventTs) => {
+    if (trade.runner) {
+      const rv = gradeRunner(trade, bar);
+      if (rv.outcome !== "pending") bookOutcome(trade, rv, eventTs);
+      return;
+    }
+    const verdict = deps.gradeFn(trade, bar);
+    if (verdict.outcome === "pending") return;
+    if (verdict.outcome === "tp1_hit" && isRunnerEligible(trade)) {
+      // Arm the runner. The stop is NOT mutated — gradeRunner uses `entry` as
+      // the break-even level and `stop` as the (original) risk denominator, so
+      // leaving stop intact keeps the surfaced setup's R/stop honest.
+      trade.runner = true;
+      const tp2SameBar = trade.side === "short"
+        ? Number(bar.low) <= Number(trade.tp2) : Number(bar.high) >= Number(trade.tp2);
+      if (tp2SameBar) {
+        const risk = Math.abs(Number(trade.entry) - Number(trade.stop));
+        const move = trade.side === "short"
+          ? Number(trade.entry) - Number(trade.tp2) : Number(trade.tp2) - Number(trade.entry);
+        bookOutcome(trade, {
+          outcome: "tp2_hit", exit: trade.tp2,
+          realized_r: risk > 0 ? Number((move / risk).toFixed(2)) : 0, conflict_bar: false,
+        }, eventTs);
+      }
+      return;
+    }
+    bookOutcome(trade, verdict, eventTs);
   };
 
   try {
@@ -523,9 +578,7 @@ export async function runBacktest({
         }
         for (const trade of [...openTrades]) {
           if (trade.event_ts === entry.event?.ts) continue; // packet bar itself
-          const verdict = deps.gradeFn(trade, bar);
-          if (verdict.outcome === "pending") continue;
-          bookOutcome(trade, verdict, entry.event?.ts ?? null);
+          gradeOneTrade(trade, bar, entry.event?.ts ?? null);
         }
       }
 
@@ -547,9 +600,7 @@ export async function runBacktest({
         const bar = lastClosedBarOf(carryEntry);
         if (!bar) continue;
         for (const trade of [...openTrades]) {
-          const verdict = deps.gradeFn(trade, bar);
-          if (verdict.outcome === "pending") continue;
-          bookOutcome(trade, verdict, carryEntry.event?.ts ?? null);
+          gradeOneTrade(trade, bar, carryEntry.event?.ts ?? null);
         }
       }
     }
@@ -683,7 +734,9 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
   // `setups` counts what the chain SURFACED — a rejected setup still
   // happened; only acceptance routes it into the outcome walk.
   const totalSetups = surfaced.length;
-  const wins = closedTrades.filter((t) => t.outcome === "tp1_hit").length;
+  // A win is a profit target — TP1 (B trades) or TP2 (A+ runners).
+  const isWin = (t) => t.outcome === "tp1_hit" || t.outcome === "tp2_hit";
+  const wins = closedTrades.filter(isWin).length;
   const losses = closedTrades.filter((t) => t.outcome === "stop_hit").length;
   // Trades force-closed at 16:00 (user ruling 2026-06-13) — neither a TP1 nor
   // a stop; their SIGNED R still rolls into total_r below.
@@ -693,7 +746,7 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
   // swing targets by rule), stops pay -1R, open at session end = 0.
   const total_r = closedTrades.reduce((acc, t) => acc + (Number.isFinite(t.realized_r) ? t.realized_r : (t.outcome === "tp1_hit" ? 1 : t.outcome === "stop_hit" ? -1 : 0)), 0);
   const winsByModel = closedTrades.reduce((acc, t) => {
-    if (!t.model || t.outcome !== "tp1_hit") return acc;
+    if (!t.model || !isWin(t)) return acc;
     acc[t.model] = (acc[t.model] ?? 0) + 1;
     return acc;
   }, {});
@@ -704,7 +757,7 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
     return acc;
   }, {});
   const wins_by_grade = closedTrades.reduce((acc, t) => {
-    if (t.outcome !== "tp1_hit") return acc;
+    if (!isWin(t)) return acc;
     const g = t.grade ?? "B";
     acc[g] = (acc[g] ?? 0) + 1;
     return acc;

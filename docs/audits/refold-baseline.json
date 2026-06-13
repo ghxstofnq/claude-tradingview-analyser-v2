@@ -8,7 +8,7 @@
     "trades": []
   },
   "JUN9-AM": {
-    "total_r": 10.01,
+    "total_r": 14.85,
     "trades": [
       {
         "model": "Inversion",
@@ -17,9 +17,9 @@
         "entry": 29792,
         "stop": 29847,
         "tp1": 29659.25,
-        "outcome": "tp1_hit",
-        "exit": 29659.25,
-        "r": 2.41
+        "outcome": "tp2_hit",
+        "exit": 29566,
+        "r": 4.11
       },
       {
         "model": "Inversion",
@@ -28,9 +28,9 @@
         "entry": 29664,
         "stop": 29713.75,
         "tp1": 29458.5,
-        "outcome": "tp1_hit",
-        "exit": 29458.5,
-        "r": 4.13
+        "outcome": "tp2_hit",
+        "exit": 29302.5,
+        "r": 7.27
       },
       {
         "model": "Inversion",
@@ -68,7 +68,7 @@
     ]
   },
   "JUN10-AM": {
-    "total_r": 1.35,
+    "total_r": 5.74,
     "trades": [
       {
         "model": "Inversion",
@@ -126,20 +126,20 @@
         "r": -1
       },
       {
-        "model": "Trend",
+        "model": "Inversion",
         "side": "short",
-        "event_ts": "2026-06-10T15:56:00.000Z",
-        "entry": 28746.25,
-        "stop": 28787.75,
+        "event_ts": "2026-06-10T15:05:00.000Z",
+        "entry": 28901.25,
+        "stop": 28987,
         "tp1": 28610.25,
-        "outcome": "stop_hit",
-        "exit": 28787.75,
-        "r": -1
+        "outcome": "tp1_hit",
+        "exit": 28610.25,
+        "r": 3.39
       }
     ]
   },
   "JUN11-AM": {
-    "total_r": -3,
+    "total_r": -4,
     "trades": [
       {
         "model": "Inversion",
@@ -173,10 +173,52 @@
         "outcome": "stop_hit",
         "exit": 28854.25,
         "r": -1
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-11T14:11:00.000Z",
+        "entry": 28893.25,
+        "stop": 29024.25,
+        "tp1": 28533,
+        "outcome": "stop_hit",
+        "exit": 29024.25,
+        "r": -1
       }
     ]
   },
   "JUN11-PM": {
+    "total_r": 9.4,
+    "trades": [
+      {
+        "model": "Inversion",
+        "side": "long",
+        "event_ts": "2026-06-11T18:13:00.000Z",
+        "entry": 29150.75,
+        "stop": 29080.25,
+        "tp1": 29302,
+        "outcome": "tp1_hit",
+        "exit": 29302,
+        "r": 2.15
+      },
+      {
+        "model": "Inversion",
+        "side": "long",
+        "event_ts": "2026-06-11T18:43:00.000Z",
+        "entry": 29207,
+        "stop": 29172.5,
+        "tp1": 29302,
+        "outcome": "closed_1600",
+        "exit": 29457,
+        "r": 7.25
+      }
+    ]
+  },
+  "JUN12-AM": {
+    "total_r": 0,
+    "trades": []
+  },
+  "JUN12-PM": {
     "total_r": 0,
     "trades": []
   }
