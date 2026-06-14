@@ -37,6 +37,11 @@ function digestSymbol() {
         PDH: { price: 29920, state: "untaken", swept: false },
         PDL: { price: 29780, state: "taken", swept: true },
       },
+      // Engine-partitioned untaken session draws (by side of price, nearest
+      // first) — the digest forwards these so the brief's overnight_block reads
+      // them instead of slicing levels by array position (2026-06-14 fix).
+      untaken_buy_side_above: [{ name: "PDH", price: 29920 }],
+      untaken_sell_side_below: [{ name: "LO.L", price: 29700 }, { name: "AS.L", price: 29500 }],
       untaken_pools_above: [{ name: "EQH", price: 30050, cite: "brief_digest.symbols.MNQ1!.pillar1.untaken_pools_above[0]" }],
       untaken_pools_below: [],
     },
@@ -78,6 +83,25 @@ test("buildDirectSessionBriefPayloads emits two valid surface_session_brief payl
     assert.doesNotMatch(payload.brief, /Direct Codex-compatible brief|no MCP tool-call loop|latest paired TradingView capture/);
     assert.doesNotMatch(payload.prose_summary, /Direct Codex-compatible brief|mechanical prep context|MCP tool-calling model/);
   }
+});
+
+// 2026-06-14 fix: overnight_block must split untaken draws by SIDE OF PRICE,
+// not by array position. The old positional slice(-3) put above-price highs
+// into untaken_below, so sell-side session lows (LO.L, AS.L) never reached the
+// TP1 pool and a short reached past the London low to a deeper swing.
+test("overnight_block.untaken_below carries the sell-side session lows (not above-price highs)", () => {
+  const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: bundle(), symbols: ["MNQ1!"] });
+  const ob = payloads[0].overnight_block;
+  // Below = sell-side lows, nearest (highest price) first.
+  assert.deepEqual(ob.untaken_below.map((l) => l.name), ["LO.L", "AS.L"]);
+  assert.equal(ob.untaken_below[0].price, 29700);
+  // Each below-target cites a real session_levels accessor (constraint #6).
+  assert.equal(ob.untaken_below[0].cite, "brief_digest.symbols.MNQ1!.pillar1.session_levels.LO_L.price");
+  // No above-price level leaks into the below list.
+  assert.ok(ob.untaken_below.every((l) => l.price < 29920));
+  // Above = buy-side highs + above pools, nearest (lowest price) first.
+  assert.deepEqual(ob.untaken_above.map((l) => l.name), ["PDH", "EQH"]);
+  assert.ok(ob.untaken_above.every((l) => l.price >= 29920));
 });
 
 test("runDirectSessionBrief surfaces direct payloads and emits tool-call events postValidate accepts", async () => {

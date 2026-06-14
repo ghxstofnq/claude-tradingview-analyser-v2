@@ -86,6 +86,38 @@ function levelRows(symbol, digestSymbol) {
   return rows.sort((a, b) => b.price - a.price).slice(0, 8);
 }
 
+// §2.1 / §7 Step 7: untaken session highs/lows (+ equal-high/low pools) are the
+// first-target draw liquidity. The engine already partitions them by side of
+// current price and sorts nearest-first (gates.engine.pillar1.untaken_sell_side
+// _below / untaken_buy_side_above, forwarded through the digest); read those
+// instead of slicing `levels` by array position. The old positional slice put
+// above-price highs into untaken_below, so sell-side session draws (LO.L, AS.L)
+// never reached the TP1 pool and a short would reach past the London low to a
+// deeper swing (2026-06-14 finding).
+function overnightDrawTargets(symbol, digestSymbol) {
+  const p1 = digestSymbol?.pillar1 ?? {};
+  const keyOf = (name) => String(name ?? "").replace(/\./g, "_");
+  const fromLevel = (l) => ({
+    name: l?.name,
+    price: firstNumber(l?.price, l?.value, l?.high, l?.low),
+    cite: cite(`brief_digest.symbols.${symbol}.pillar1.session_levels.${keyOf(l?.name)}`, "price"),
+  });
+  const fromPool = (p, dir) => ({
+    name: p?.name || `pool_${dir}`,
+    price: firstNumber(p?.price, p?.value, p?.high, p?.low),
+    cite: p?.cite || `brief_digest.symbols.${symbol}.pillar1.untaken_pools_${dir}`,
+  });
+  const above = [
+    ...(p1.untaken_buy_side_above ?? []).map(fromLevel),
+    ...(p1.untaken_pools_above ?? []).map((p) => fromPool(p, "above")),
+  ].filter((t) => Number.isFinite(t.price)).sort((a, b) => a.price - b.price).slice(0, 3);
+  const below = [
+    ...(p1.untaken_sell_side_below ?? []).map(fromLevel),
+    ...(p1.untaken_pools_below ?? []).map((p) => fromPool(p, "below")),
+  ].filter((t) => Number.isFinite(t.price)).sort((a, b) => b.price - a.price).slice(0, 3);
+  return { untaken_above: above, untaken_below: below };
+}
+
 function htfBiasRows(symbol, digestSymbol) {
   const tfMap = [
     ["DAILY", "daily"],
@@ -277,8 +309,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       ...(draw ? { primary_draw: draw, htf_bias_dir: deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [] }) } : {}),
       htf_destination: targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity",
       overnight_block: {
-        untaken_above: levels.filter((l) => l.state === "untaken").slice(0, 3).map((l) => ({ name: l.name, price: l.price, cite: l.cite || "brief_digest" })),
-        untaken_below: levels.filter((l) => l.state === "untaken").slice(-3).map((l) => ({ name: l.name, price: l.price, cite: l.cite || "brief_digest" })),
+        ...overnightDrawTargets(symbol, ds),
         overnight_verdict: computeOvernightVerdict({
           sweeps: ds?.pillar1?.sweeps ?? [],
           htfBias: biasFromDraw(draw),

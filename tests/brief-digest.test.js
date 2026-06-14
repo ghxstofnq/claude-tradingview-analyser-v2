@@ -37,6 +37,8 @@ function sampleSymbolBundle() {
         pillar1: {
           session_levels: { PDH: { name: 'PDH', price: 29397, state: 'taken', swept: true }, AS_L: { name: 'AS_L', price: 29770.5, state: 'untaken', swept: false } },
           sweeps: [{ target: 'AS_L', price: 29770.5, side: 'sell', rejected: true, swept_ms: 1779832800000 }],
+          untaken_sell_side_below: [{ name: 'AS.L', price: 29770.5, swept: false }],
+          untaken_buy_side_above: [{ name: 'PDH', price: 30100, swept: false }],
           untaken_pools_above: [{ kind: 'eqh', side: 'buy', price: 30000, swept: false }],
           untaken_pools_below: [],
         },
@@ -102,6 +104,10 @@ test('digest.pillar1 carries session_levels, sweeps, untaken_pools', () => {
   assert.equal(p1.session_levels.PDH.price, 29397);
   assert.equal(p1.sweeps[0].rejected, true);
   assert.equal(p1.untaken_pools_above[0].price, 30000);
+  // Engine-partitioned untaken draws are forwarded so the brief's
+  // overnight_block can split by side of price (2026-06-14 fix).
+  assert.equal(p1.untaken_sell_side_below[0].name, 'AS.L');
+  assert.equal(p1.untaken_buy_side_above[0].price, 30100);
 });
 
 test('digest.pillar2 carries current_tf + m5 + m15 quality objects', () => {

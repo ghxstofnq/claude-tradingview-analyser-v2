@@ -228,12 +228,26 @@ function inversionStructuralStop(walker, side, entry, context) {
     if (acc == null) return px;
     return side === 'short' ? Math.max(acc, px) : Math.min(acc, px);
   }, null);
+  const candle = walker?.evidence?.confirmation?.rawPayload?.last_bar ?? {};
+  const candleExtreme = side === 'short' ? numberOrNull(candle.high) : numberOrNull(candle.low);
+  // Wide-leg risk cap (user ruling 2026-06-14): in high-volatility regimes the
+  // failed leg can be enormous (June 11: 131 pts), so the leg-extreme stop
+  // deflates every target's R and the trade reaches past nearer liquidity. When
+  // the leg stop exceeds WIDE_LEG_PTS, fall back to the tighter violating-candle
+  // stop (entry-models.md Inversion §5 — "below the candle that closed through
+  // it"). Threshold chosen by a 4-week fold sweep: 90-99 is a flat plateau
+  // (+6.13R, zero week-level losses, no winner broken); <85 falls off a whipsaw
+  // cliff (80pt: -1.37 May25-29, breaks the June 3 winner); 100 leaves +2.1 on
+  // the table. 95 sits mid-plateau. MNQ-point scale (the only calibrated symbol;
+  // rarely fires on MES, whose stops are an order of magnitude smaller).
+  const WIDE_LEG_PTS = 95;
+  if (legExtreme != null && correctSide(legExtreme) && Math.abs(legExtreme - entry) > WIDE_LEG_PTS
+      && candleExtreme != null && correctSide(candleExtreme)) {
+    return { kind: 'inversion_violating_candle', price: candleExtreme, evidenceRef: 'gates.engine.confirmation.last_bar' };
+  }
   if (legExtreme != null && correctSide(legExtreme)) {
     return { kind: 'inversion_failed_leg_extreme', price: legExtreme, evidenceRef: 'bars.last_5_bars[extreme]' };
   }
-
-  const candle = walker?.evidence?.confirmation?.rawPayload?.last_bar ?? {};
-  const candleExtreme = side === 'short' ? numberOrNull(candle.high) : numberOrNull(candle.low);
   if (candleExtreme != null && correctSide(candleExtreme)) {
     return { kind: 'inversion_violating_candle', price: candleExtreme, evidenceRef: 'gates.engine.confirmation.last_bar' };
   }

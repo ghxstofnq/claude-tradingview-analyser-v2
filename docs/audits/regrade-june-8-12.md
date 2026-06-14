@@ -26,6 +26,19 @@ of these rules):
   retract an open position. Kept as future protection; 0R effect here. (My
   earlier sim claimed +1R by dropping the 4th trade by entry order — wrong, it
   assumed sequential trades.)
+- **Inversion wide-leg stop cap** (user ruling 2026-06-14): when the failed-leg
+  extreme is **> 95 MNQ pts** from entry, use the tighter violating-candle stop
+  instead (entry-models.md Inversion §5). In volatile regimes the failed leg can
+  be enormous (June 11: 131 pts), deflating every target's R so the trade reaches
+  past nearer liquidity. 4-week fold sweep: 90-99pt is a flat plateau (+6.13R,
+  **zero week-level losses, no winner broken**); <85 falls off a whipsaw cliff
+  (80pt loses on May25-29 + Jun1-5 and breaks the Jun 3 winner); 100 leaves +2.1R
+  on the table; 95 sits mid-plateau. Re-froze the baseline: June week 25.99 →
+  **32.12R** (Jun 9 14.85 / Jun 10 5.74 / **Jun 11 AM −4 → +1.08** / Jun 11 PM
+  9.4 / **Jun 12 AM 0 → +1.05**). June 9 + June 11 PM runners untouched (legs
+  <95). MNQ-point scale — rarely fires on MES (smaller stops); revisit if MES
+  becomes a primary. (Distinct from the rejected full candle-swap below, which
+  tightened *every* inversion stop and lost −51R.)
 
 ### Rules tested and REJECTED (kept honest for the record)
 - *Late-B reward filter (TP1 > 2.0/2.5/2.75/3.0R)* — curve-fit; non-monotonic
@@ -40,6 +53,54 @@ of these rules):
   Fixes June 11 AM (−4→−2 by dropping the bounce adds) but blocks the winning
   adds during NORMAL trend pullbacks — same trap: the reversal looks identical
   to a healthy pullback. The latch earns its keep; kept as-is.
+- *Proximity-first TP1 (drop the 2R swing premium → nearest liquidity ≥1.5R)*
+  (tested 2026-06-14) — net **−11.56R** across the 4 weeks (65.18→53.62, on
+  regenerated current-code payloads): May18-22 +4.41, **May25-29 −11.54**,
+  Jun1-5 −1.02, Jun8-12 −3.41. Born from a real finding — the 2R floor makes a
+  short reach *past* a nearer London-low draw to a deeper swing (June 11 10:11:
+  skipped LO.L 28638.25 @1.95R for 28533 @2.75R). Proximity-first DOES capture
+  it (June 11 AM −4→−1.22), but the system's edge is the A+ runners reaching
+  deeper targets: pulling TP1/TP2 nearer cuts runners short (June 9 second short
+  +7.27→+4.13) and arms break-even early enough to scratch winners (May 29: two
+  A+ runners → closed_be 0R). Same trap as the un-latch. The §7-Step-7 "first at
+  intraday liquidity" reading sounds more faithful but loses more on the trend
+  winners than it saves on the chop losers. The 2R swing premium earns its keep;
+  kept as-is. **Shipped alongside** (kept — correctness, baseline-neutral): the
+  session-low pool fix — `brief.overnight_block.untaken_{above,below}` now split
+  by side of price from the engine's `untaken_{sell_side_below,buy_side_above}`
+  lists (was sliced by array position, dropping LO.L / AS.L), so sell-side
+  session lows finally reach the TP1 pool; refold-gate stays byte-identical
+  because the 2R rule still governs selection.
+- *Inversion stop: violating candle instead of failed-leg extreme* (tested
+  2026-06-14) — **catastrophic, net −51.48R** across the 4 weeks (65.18→13.70):
+  May18-22 −12.3, May25-29 −16.0, Jun1-5 −12.3, Jun8-12 −10.9. The leg-extreme
+  stop is wider (June 11 10:11: 131 pts vs the candle's 85.5) and that width is
+  LOAD-BEARING — it gives trades room to survive noise so the A+ runners reach
+  the deep targets where the edge lives. The tighter candle stop gets whipsawed
+  out: June 10 AM 7.49→1.16, June 11 PM +9.4→−3 (the +7.25 runner stopped). It
+  HELPED exactly one day — June 11 AM −4→+1.08 (the day we were staring at, the
+  LO.L targets finally clear 2R) — and wrecked everything else. Textbook
+  single-day overfit; the cross-week fold is what caught it. Failed-leg extreme
+  (tier 0) kept as the primary Inversion stop (entry-models.md §6 / June 9
+  hand-grade). **Update 2026-06-14:** the *conditional* version — candle stop ONLY
+  when the leg is > 95 pts — was ADOPTED (see the wide-leg cap in the adopted list
+  above): tightening only the over-extended legs is net-positive (+6.13R, no
+  winner broken), whereas tightening *every* inversion stop is the −51R disaster
+  here. The distinction is the whole point.
+- *Reclaim gate — block new shorts once a recently-swept sell-side draw is
+  reclaimed* (price back above the swept level within a recency window) (tested
+  2026-06-14 on top of the 95pt cap) — **net flat-to-negative, REJECTED.** The
+  engine's single-bar `rejected` sweep flag was false on the LO.L sweep (the
+  rejection was a multi-bar reversal), so the gate used raw price-reclaim +
+  recency window instead. Window sweep is non-monotonic (10min 71.31 / 15min
+  72.31 / 20min 70.64 / 35min 71.20 / 45min 68.05) and — fatally — **no window
+  fixes June 11 AM without breaking June 9**: the only window that preserves
+  June 9 (15min) doesn't touch June 11 at all (its +1 is coincidental other-week
+  trades); every window that blocks a June 11 short also blocks June 9's +1.67
+  Trend continuation short. June 11 AM's reversal-reclaim and June 9's
+  trend-pullback-reclaim happen at the same age — price alone can't separate
+  them (same trap as the stand-aside gate). A structure-flip signal (bullish
+  MSS/BOS after the sweep) might, but the evidence here doesn't justify it.
 
 These re-grade rules are **not yet in production code** — these values are the
 signed-off targets; the engine changes + gate re-freeze happen in one pass once

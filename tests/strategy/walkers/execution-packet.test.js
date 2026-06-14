@@ -671,3 +671,44 @@ test('inversion stop: the failed-leg extreme across visible 1m bars outranks the
   assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
   assert.equal(packet.stop.price, 21022.5);
 });
+
+// Wide-leg risk cap (user ruling 2026-06-14): when the failed-leg extreme is
+// more than 95 pts from entry (high-volatility regime), fall back to the tighter
+// violating-candle stop. 4-week fold: 90-99pt plateau, +6.13R, no winner broken.
+function wideLegInversion({ legHigh, candleHigh, close }) {
+  const walker = {
+    ...confirmedMssWalker({ top: 21010, bottom: 21000, direction: 'bullish' }),
+    model: 'Inversion',
+    side: 'short',
+  };
+  walker.evidence.confirmation.rawPayload = { close, confirm_ms: 1780062600000, last_bar: { high: candleHigh, low: close - 10 } };
+  return buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      pillar1: { status: 'pass', untakenTargets: { above: [], below: [{ price: 20700, label: 'PDL', evidenceRef: 'p1.targets.pdl' }] } },
+      pillar3: {
+        structuralStops: [{ kind: 'swing_high', side: 'short', price: 21030, evidenceRef: 'p3.stops.high' }],
+        pdArrays: [{ rawPayload: { kind: 'ifvg', top: 21010, bottom: 21000, inverted_ms: 1780062470000 } }],
+        ohlcv1m: [
+          { time: 1780062300, open: legHigh - 5, high: legHigh, low: legHigh - 20, close: legHigh - 8 },
+          { time: 1780062480, open: candleHigh - 5, high: candleHigh, low: close - 10, close },
+        ],
+      },
+    }),
+    walker,
+  });
+}
+
+test('inversion stop: a leg wider than 95pt falls back to the tighter violating candle', () => {
+  // entry 20900, leg high 21000 = 100pt (> 95) → use the 50pt candle instead.
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900 });
+  assert.equal(packet.stop.kind, 'inversion_violating_candle');
+  assert.equal(packet.stop.price, 20950);
+});
+
+test('inversion stop: a 95pt leg is NOT wide enough — leg extreme kept (boundary)', () => {
+  // entry 20905, leg high 21000 = 95pt exactly; the cap is strictly > 95.
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20905 });
+  assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
+  assert.equal(packet.stop.price, 21000);
+});
