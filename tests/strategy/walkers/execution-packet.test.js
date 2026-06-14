@@ -712,3 +712,67 @@ test('inversion stop: a 95pt leg is NOT wide enough — leg extreme kept (bounda
   assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
   assert.equal(packet.stop.price, 21000);
 });
+
+test('trend stop: anchors to the pullback swing low, not the confirmation candle wick', () => {
+  // entry-models.md §5: stop below the swing low that touches the FVG. The
+  // confirmation candle's own wick (20990) is shallower than the prior pullback
+  // bar's low (20985) — the stop must use the deeper swing low (May 13 11:29
+  // regression: the tight wick stop was clipped by a dip the swing low survived).
+  const pd = { evidenceRef: 'gates.engine.pillar3.fvgs[0]', kind: 'fvg', direction: 'bullish', size_quality: 'large', top: 21000, bottom: 20975 };
+  const walker = {
+    ...createWalker({ context: { market: 'MNQ1!', session: 'ny-am', eventTimeUtc: '2026-05-29T13:45:00.000Z' }, model: 'Trend', side: 'long', pdArray: pd }),
+    stage: 'confirmed',
+    evidence: {
+      pdArray: { evidenceRef: pd.evidenceRef, rawPayload: pd },
+      confirmation: {
+        evidenceRef: 'gates.engine.confirmation',
+        rawPayload: { close: 21002, confirm_ms: 1780062300000, confirm_dir: 'bull', last_bar: { open: 20991, high: 21003, low: 20990, close: 21002, body_ratio: 0.8 } },
+      },
+    },
+  };
+  const context = {
+    market: 'MNQ1!', session: 'ny-am', eventTimeUtc: '2026-05-29T13:47:00.000Z',
+    pillar1: { status: 'pass', untakenTargets: { above: [{ price: 21080, label: 'London High', evidenceRef: 'p1.targets.lonHigh' }], below: [] } },
+    pillar2: { status: 'pass', displacement: 'clean', blockers: [] },
+    pillar3: {
+      structuralStops: [],
+      ohlcv1m: [
+        { open: 21010, high: 21012, low: 21005, close: 21006 },
+        { open: 21000, high: 21001, low: 20985, close: 20992 }, // deepest pullback bar
+        { open: 20991, high: 21003, low: 20990, close: 21002 }, // confirmation candle
+      ],
+    },
+    sessionChain: { leader: 'MNQ1!', ltfBias: 'bullish', htfLtfAlignment: 'aligned', entryModelPriority: 'Trend', gradeCap: 'A+' },
+  };
+  const packet = buildExecutionPacketForWalker({ context, walker });
+  assert.equal(packet.status, 'executable');
+  assert.equal(packet.model, 'Trend');
+  assert.equal(packet.stop.kind, 'trend_pullback_swing');
+  assert.equal(packet.stop.price, 20985); // not the 20990 confirmation wick
+});
+
+test('trend stop: falls back to the confirmation candle when no recent-bar window', () => {
+  // Bound-less fixtures (no ohlcv1m) keep the legacy confirmation-candle stop.
+  const pd = { evidenceRef: 'gates.engine.pillar3.fvgs[0]', kind: 'fvg', direction: 'bullish', size_quality: 'large', top: 21000, bottom: 20975 };
+  const walker = {
+    ...createWalker({ context: { market: 'MNQ1!', session: 'ny-am', eventTimeUtc: '2026-05-29T13:45:00.000Z' }, model: 'Trend', side: 'long', pdArray: pd }),
+    stage: 'confirmed',
+    evidence: {
+      pdArray: { evidenceRef: pd.evidenceRef, rawPayload: pd },
+      confirmation: {
+        evidenceRef: 'gates.engine.confirmation',
+        rawPayload: { close: 21002, confirm_ms: 1780062300000, confirm_dir: 'bull', last_bar: { open: 20991, high: 21003, low: 20990, close: 21002, body_ratio: 0.8 } },
+      },
+    },
+  };
+  const context = {
+    market: 'MNQ1!', session: 'ny-am', eventTimeUtc: '2026-05-29T13:47:00.000Z',
+    pillar1: { status: 'pass', untakenTargets: { above: [{ price: 21080, label: 'London High', evidenceRef: 'p1.targets.lonHigh' }], below: [] } },
+    pillar2: { status: 'pass', displacement: 'clean', blockers: [] },
+    pillar3: { structuralStops: [] }, // no ohlcv1m
+    sessionChain: { leader: 'MNQ1!', ltfBias: 'bullish', htfLtfAlignment: 'aligned', entryModelPriority: 'Trend', gradeCap: 'A+' },
+  };
+  const packet = buildExecutionPacketForWalker({ context, walker });
+  assert.equal(packet.stop.kind, 'trend_tap_candle');
+  assert.equal(packet.stop.price, 20990);
+});
