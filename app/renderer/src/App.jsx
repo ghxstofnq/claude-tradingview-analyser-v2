@@ -9,6 +9,8 @@ import { BacktestCell } from "./BacktestPopover.jsx";
 import { PrepCell } from "./PrepPopover.jsx";
 import { LiveCell } from "./LivePopover.jsx";
 import { ReviewCell } from "./ReviewPopover.jsx";
+import { AccountCell } from "./SettingsPopover.jsx";
+import { bootAccount, loadGuards, saveGuards } from "./Account.helpers.js";
 import { SystemPage } from "./System.jsx";
 import { RiskPage } from "./Risk.jsx";
 import { FixturesPage } from "./Fixtures.jsx";
@@ -287,14 +289,16 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
                   clock,
                   news, newsOpen, setNewsOpen, newsImminent,
                   alerts, alertsOpen, setAlertsOpen, onDisarm,
+                  account, setAccount, guards, setGuards,
                   currentPrice }) {
   const newsCount = news.length;
   const alertCount = alerts.fired.length + alerts.armed.length;
   return (
     <header className="topbar">
-      <div className="id" />
+      <div className="id"><span className="wm">G<span className="accent">X</span>OFNQ</span></div>
       <div className="status">
         <VersionCell />
+        <AccountCell account={account} setAccount={setAccount} guards={guards} setGuards={setGuards} />
         <div className={"cell pop-cell" + (alertCount > 0 ? " has-alerts" : "")}
              onClick={() => setAlertsOpen((o) => !o)}>
           <span className="k">ALERTS</span>
@@ -316,11 +320,6 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
             <NewsPopover payload={{ events: news }} now={new Date()} onClose={() => setNewsOpen(false)} />
           )}
         </div>
-        <BacktestCell />
-        <ReviewCell />
-        <LiveCell />
-        <PrepCell symbol={symbol} currentPrice={currentPrice} />
-        <SymbolSwitcher symbol={symbol} setSymbol={setSymbol} />
         <div className="cell">
           <button className={"th-btn" + (theme === "dark" ? " on" : "")}
                   onClick={() => setTheme("dark")}>◐</button>
@@ -333,6 +332,7 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
 }
 
 function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
+                      symbol, currentPrice,
                       chats, activeProvider, setActiveProvider, openProvider, setOpenProvider }) {
   const loopDown = loopStatus === "stale" || loopStatus === "down";
   const activeChat = getProviderChat(chats, activeProvider);
@@ -346,8 +346,10 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
   return (
     <div className="statusline">
       <div className="grp">
-        <span className="item"><span className="k">STATE</span><span className="v">{state}</span></span>
-        <span className="item"><span className="k">FOCUS</span><span className="v">{focus}</span></span>
+        <PrepCell symbol={symbol} currentPrice={currentPrice} />
+        <LiveCell />
+        <ReviewCell />
+        <BacktestCell />
         <span className="item provider-controls">
           {CHAT_PROVIDER_CELLS.map((cell) => {
             const selected = activeProvider === cell.provider;
@@ -370,11 +372,6 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
                 onClick={(e) => { e.stopPropagation(); if (chatActive) activeChat?.cancel?.(); }}>
             STOP
           </span>
-        </span>
-        <span className="item"><span className="k">CYCLE</span><span className="v">{cycle}</span></span>
-        <span className="item" title={`LOOP · ${loopStatus || "ok"}`}>
-          <span className="k">LOOP</span>
-          <span className={"dot " + (loopDown ? "down" : "")}></span>
         </span>
       </div>
       <div className="grp">
@@ -399,6 +396,13 @@ const UTIL_PAGES = {
 function App() {
   // Mode tabs removed 2026-05-28; PREP/LIVE/REVIEW are popovers in the topbar.
   const [symbol, setSymbol] = useState("MNQ1!");
+
+  // Account mode is ephemeral — boots PAPER every launch, never persists (a
+  // real-money safety rule); guardrails persist. (dashboard-v2)
+  const [account, setAccount] = useState(() => bootAccount());
+  const [guards, setGuards] = useState(() => loadGuards());
+  useEffect(() => { saveGuards(guards); }, [guards]);
+
   const [utilPage, setUtilPage] = useState(() => location.hash.slice(1));
   useEffect(() => {
     const onHash = () => setUtilPage(location.hash.slice(1));
@@ -535,6 +539,7 @@ function App() {
               alerts={alerts}
               alertsOpen={alertsOpen} setAlertsOpen={setAlertsOpen}
               onDisarm={disarm}
+              account={account} setAccount={setAccount} guards={guards} setGuards={setGuards}
               currentPrice={currentPrice} />
 
       {/* Persistent chart-host — mounted ONCE at the App root. Util pages
@@ -572,6 +577,8 @@ function App() {
       )}
 
       <StatusLine
+        symbol={symbol}
+        currentPrice={currentPrice}
         state={"CHART"}
         focus={symbol}
         cycle={lastBar?.hhmm || "—"}
