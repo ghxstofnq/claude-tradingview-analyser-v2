@@ -26,6 +26,19 @@ of these rules):
   retract an open position. Kept as future protection; 0R effect here. (My
   earlier sim claimed +1R by dropping the 4th trade by entry order — wrong, it
   assumed sequential trades.)
+- **Inversion wide-leg stop cap** (user ruling 2026-06-14): when the failed-leg
+  extreme is **> 95 MNQ pts** from entry, use the tighter violating-candle stop
+  instead (entry-models.md Inversion §5). In volatile regimes the failed leg can
+  be enormous (June 11: 131 pts), deflating every target's R so the trade reaches
+  past nearer liquidity. 4-week fold sweep: 90-99pt is a flat plateau (+6.13R,
+  **zero week-level losses, no winner broken**); <85 falls off a whipsaw cliff
+  (80pt loses on May25-29 + Jun1-5 and breaks the Jun 3 winner); 100 leaves +2.1R
+  on the table; 95 sits mid-plateau. Re-froze the baseline: June week 25.99 →
+  **32.12R** (Jun 9 14.85 / Jun 10 5.74 / **Jun 11 AM −4 → +1.08** / Jun 11 PM
+  9.4 / **Jun 12 AM 0 → +1.05**). June 9 + June 11 PM runners untouched (legs
+  <95). MNQ-point scale — rarely fires on MES (smaller stops); revisit if MES
+  becomes a primary. (Distinct from the rejected full candle-swap below, which
+  tightened *every* inversion stop and lost −51R.)
 
 ### Rules tested and REJECTED (kept honest for the record)
 - *Late-B reward filter (TP1 > 2.0/2.5/2.75/3.0R)* — curve-fit; non-monotonic
@@ -69,8 +82,11 @@ of these rules):
   LO.L targets finally clear 2R) — and wrecked everything else. Textbook
   single-day overfit; the cross-week fold is what caught it. Failed-leg extreme
   (tier 0) kept as the primary Inversion stop (entry-models.md §6 / June 9
-  hand-grade). June 11 AM is a genuine −4R chop day — three different "saves"
-  (proximity TP1, stand-aside gate, tighter stop) all net-negative across weeks.
+  hand-grade). **Update 2026-06-14:** the *conditional* version — candle stop ONLY
+  when the leg is > 95 pts — was ADOPTED (see the wide-leg cap in the adopted list
+  above): tightening only the over-extended legs is net-positive (+6.13R, no
+  winner broken), whereas tightening *every* inversion stop is the −51R disaster
+  here. The distinction is the whole point.
 
 These re-grade rules are **not yet in production code** — these values are the
 signed-off targets; the engine changes + gate re-freeze happen in one pass once
