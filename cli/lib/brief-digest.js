@@ -102,6 +102,13 @@ function pillar1ForSymbol(symBundle) {
   return {
     session_levels: p1.session_levels || {},
     sweeps: p1.sweeps || [],
+    // Engine-partitioned untaken session draws, already split by side of price
+    // and sorted nearest-first (compute-engine-gates). The brief's
+    // overnight_block reads these so sell-side session lows (LO.L, AS.L) reach
+    // the TP1 pool — previously the brief sliced `levels` by array position and
+    // dropped them (2026-06-14 finding).
+    untaken_sell_side_below: (p1.untaken_sell_side_below || []).slice(0, TOP_N),
+    untaken_buy_side_above: (p1.untaken_buy_side_above || []).slice(0, TOP_N),
     untaken_pools_above: (p1.untaken_pools_above || []).slice(0, TOP_N),
     untaken_pools_below: (p1.untaken_pools_below || []).slice(0, TOP_N),
   };

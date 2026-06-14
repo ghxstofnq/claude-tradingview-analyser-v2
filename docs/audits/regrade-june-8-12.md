@@ -40,6 +40,24 @@ of these rules):
   Fixes June 11 AM (−4→−2 by dropping the bounce adds) but blocks the winning
   adds during NORMAL trend pullbacks — same trap: the reversal looks identical
   to a healthy pullback. The latch earns its keep; kept as-is.
+- *Proximity-first TP1 (drop the 2R swing premium → nearest liquidity ≥1.5R)*
+  (tested 2026-06-14) — net **−11.56R** across the 4 weeks (65.18→53.62, on
+  regenerated current-code payloads): May18-22 +4.41, **May25-29 −11.54**,
+  Jun1-5 −1.02, Jun8-12 −3.41. Born from a real finding — the 2R floor makes a
+  short reach *past* a nearer London-low draw to a deeper swing (June 11 10:11:
+  skipped LO.L 28638.25 @1.95R for 28533 @2.75R). Proximity-first DOES capture
+  it (June 11 AM −4→−1.22), but the system's edge is the A+ runners reaching
+  deeper targets: pulling TP1/TP2 nearer cuts runners short (June 9 second short
+  +7.27→+4.13) and arms break-even early enough to scratch winners (May 29: two
+  A+ runners → closed_be 0R). Same trap as the un-latch. The §7-Step-7 "first at
+  intraday liquidity" reading sounds more faithful but loses more on the trend
+  winners than it saves on the chop losers. The 2R swing premium earns its keep;
+  kept as-is. **Shipped alongside** (kept — correctness, baseline-neutral): the
+  session-low pool fix — `brief.overnight_block.untaken_{above,below}` now split
+  by side of price from the engine's `untaken_{sell_side_below,buy_side_above}`
+  lists (was sliced by array position, dropping LO.L / AS.L), so sell-side
+  session lows finally reach the TP1 pool; refold-gate stays byte-identical
+  because the 2R rule still governs selection.
 
 These re-grade rules are **not yet in production code** — these values are the
 signed-off targets; the engine changes + gate re-freeze happen in one pass once
