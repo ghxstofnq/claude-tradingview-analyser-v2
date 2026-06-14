@@ -8,7 +8,7 @@
     "trades": []
   },
   "JUN9-AM": {
-    "total_r": 14.85,
+    "total_r": 37.73,
     "trades": [
       {
         "model": "Inversion",
@@ -35,24 +35,57 @@
       {
         "model": "Inversion",
         "side": "short",
+        "event_ts": "2026-06-09T14:57:00.000Z",
+        "entry": 29134.75,
+        "stop": 29223.5,
+        "tp1": 28821,
+        "outcome": "stop_hit",
+        "exit": 29223.5,
+        "r": -1
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
         "event_ts": "2026-06-09T14:27:00.000Z",
         "entry": 29467.25,
         "stop": 29526,
         "tp1": 29302.5,
-        "outcome": "tp1_hit",
-        "exit": 29302.5,
-        "r": 2.8
+        "outcome": "tp2_hit",
+        "exit": 28821,
+        "r": 11
       },
       {
-        "model": "Trend",
+        "model": "Inversion",
         "side": "short",
-        "event_ts": "2026-06-09T15:05:00.000Z",
-        "entry": 29184,
-        "stop": 29226.5,
-        "tp1": 29083.75,
-        "outcome": "stop_hit",
-        "exit": 29226.5,
-        "r": -1
+        "event_ts": "2026-06-09T14:44:00.000Z",
+        "entry": 29341,
+        "stop": 29411.5,
+        "tp1": 28821,
+        "outcome": "tp1_hit",
+        "exit": 28821,
+        "r": 7.38
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-09T15:13:00.000Z",
+        "entry": 29212.5,
+        "stop": 29302,
+        "tp1": 28821,
+        "outcome": "tp1_hit",
+        "exit": 28821,
+        "r": 4.37
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-09T15:23:00.000Z",
+        "entry": 29099.75,
+        "stop": 29194.75,
+        "tp1": 28821,
+        "outcome": "tp1_hit",
+        "exit": 28821,
+        "r": 2.93
       },
       {
         "model": "Trend",
@@ -60,8 +93,8 @@
         "event_ts": "2026-06-09T15:53:00.000Z",
         "entry": 28911.75,
         "stop": 28971.75,
-        "tp1": 28811.5,
-        "outcome": "tp1_hit",
+        "tp1": 28821,
+        "outcome": "tp2_hit",
         "exit": 28811.5,
         "r": 1.67
       }
