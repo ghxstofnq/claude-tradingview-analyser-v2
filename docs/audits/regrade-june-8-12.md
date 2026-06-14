@@ -58,6 +58,19 @@ of these rules):
   lists (was sliced by array position, dropping LO.L / AS.L), so sell-side
   session lows finally reach the TP1 pool; refold-gate stays byte-identical
   because the 2R rule still governs selection.
+- *Inversion stop: violating candle instead of failed-leg extreme* (tested
+  2026-06-14) — **catastrophic, net −51.48R** across the 4 weeks (65.18→13.70):
+  May18-22 −12.3, May25-29 −16.0, Jun1-5 −12.3, Jun8-12 −10.9. The leg-extreme
+  stop is wider (June 11 10:11: 131 pts vs the candle's 85.5) and that width is
+  LOAD-BEARING — it gives trades room to survive noise so the A+ runners reach
+  the deep targets where the edge lives. The tighter candle stop gets whipsawed
+  out: June 10 AM 7.49→1.16, June 11 PM +9.4→−3 (the +7.25 runner stopped). It
+  HELPED exactly one day — June 11 AM −4→+1.08 (the day we were staring at, the
+  LO.L targets finally clear 2R) — and wrecked everything else. Textbook
+  single-day overfit; the cross-week fold is what caught it. Failed-leg extreme
+  (tier 0) kept as the primary Inversion stop (entry-models.md §6 / June 9
+  hand-grade). June 11 AM is a genuine −4R chop day — three different "saves"
+  (proximity TP1, stand-aside gate, tighter stop) all net-negative across weeks.
 
 These re-grade rules are **not yet in production code** — these values are the
 signed-off targets; the engine changes + gate re-freeze happen in one pass once
