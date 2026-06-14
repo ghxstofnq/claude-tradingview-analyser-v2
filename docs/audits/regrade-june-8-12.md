@@ -177,5 +177,13 @@ also lifts **June 10 5.74 → 15.32R** (§2.1 reshuffle + deeper draws — verif
 both new shorts reached 28610.25, stops never hit). **Re-froze: June week 55.0 →
 60.08R** (Jun8 0 / Jun9 37.73 / Jun10 15.32 / Jun11 1.08 AM + 4.9 PM / Jun12
 1.05). The gate now mirrors live end-to-end (§2.1 grades + fixed targets).
-**Still open:** re-record the tapes so they stop carrying stale brief data at all
-(the regen-from-bundle in the gate is the interim bridge).
+
+**Tapes re-recorded 2026-06-14** — `scripts/refresh-tape-briefs.mjs` re-derives the
+stale brief-only fields (`inputs.untaken_targets`, `inputs.session_state`) and
+`brief-payloads.json` from the recorded bundle with current code, across all 45
+runs. Market/engine data and recorded OHLC are untouched, so the frozen baseline
+does not move (verified: gate still +60.08R after the refresh). Re-run it after
+any brief-code change. The gate keeps its own regen-from-bundle as a self-healing
+guarantee (it never trusts the tape's baked brief), so even an un-refreshed tape
+can't silently re-introduce the stale-data bug — the refresh just keeps the raw
+files honest for direct readers (debug-fold, the popover replay).
