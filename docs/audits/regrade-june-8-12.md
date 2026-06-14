@@ -187,3 +187,62 @@ any brief-code change. The gate keeps its own regen-from-bundle as a self-healin
 guarantee (it never trusts the tape's baked brief), so even an un-refreshed tape
 can't silently re-introduce the stale-data bug — the refresh just keeps the raw
 files honest for direct readers (debug-fold, the popover replay).
+
+## 2026-06-14 (later) — "avoid bad trades" campaign: reclaim gate re-test, counter-structure, 5m-confirmation
+
+All measured on the CLEAN pool (every session regenerates its brief from the
+recorded bundle, self-healing like refold-gate). **Clean 4-week baseline =
+100.02R** (May18-22 9.83 / May25-29 17.61 / Jun1-5 12.5 / Jun8-12 60.08).
+Harnesses (kept, untracked): `scripts/reclaim-gate-test.mjs`,
+`scripts/trade-dump.mjs`, `scripts/five-m-confirm-sim.mjs`.
+
+**1. Reclaim gate re-test (the one item rejected on STALE data).** The original
+2026-06-14 rejection used the stale 71.31R baseline; re-run clean:
+- *Raw price-reclaim, short-only* — block a short within N min of a swept
+  sell-side draw being reclaimed. Saturates at **+4.33R** (60min). BUT it pays a
+  −1.67R June 9 tax (clips the 11:53 Trend runner) and its June 11 "help" is on a
+  reclaim that had ALREADY structurally failed (every bullish flip `recl=true` by
+  11:19) — i.e. June 11's late losers were never reversal-context shorts; they
+  lost to chop. The gate is a **continuation-fade**.
+- *Two-sided* (add the buy-side mirror to block longs) — **−20R** (100.02 →
+  84.28). Kills the June 2 long runners (+2.08/+3.31/+3.67/+4.54) and June 11 PM
+  (+4.9 → 0). Proves the mechanism fades runners in whichever direction trends;
+  short-only looked clean only because this corpus's clean trends are down days.
+- *Structure-confirmed* (block only when a standing bullish MSS/BoS confirms the
+  reclaim) — **+2.00R**, fires exactly twice (May 20, two A+ losers), zero
+  winners killed, June untouched. Clean and §2.1-faithful but **2 trades of
+  evidence** and does nothing for the real losers. **Verdict: not adopted** —
+  too thin; the raw gate is rejected (continuation-fade that clips a runner for
+  a refuted reason). June 11's losses were never a reclaim problem.
+
+**2. No clean trade-level filter exists.** `trade-dump.mjs` over all 87 trades:
+- By grade: A+ +54.34R / B +45.68R — both net positive, nothing to cut.
+- By model/side: all positive. Stop/ATR: ~all trades in one bucket (no separation).
+- Counter-structure at entry (standing opposite-side flip): n=11 **W4/L7 but net
+  +19.86R** — the SAME signal precedes May 20's losers AND May 29's +11.92 / June
+  10's +8.64 winners. Blocking it loses money.
+- The killer counterexample: **June 10 lost its first two trades then made +18R on
+  the next three** — kills every loss-streak / re-entry / stand-aside rule (why
+  the halt is at 3, not 2). **The losers are the entry price of the runner days;
+  they are ex-ante indistinguishable from the winners.**
+
+**3. 5m-confirmation — faithfully simulated, CATASTROPHIC (−55R).** §5 ("1m/5m
+close"). First attempt (env-gate confirmation to 5m boundaries) was confounded by
+the Inversion `invertedOnThisBar` stamp (dropped ~80% of setups by inversion-minute
+parity) — reverted. Faithful sim (`five-m-confirm-sim.mjs`): the real chain still
+identifies setup + zone + structural stop + targets; we BUFFER each confirmed
+packet and release it at the next 5m boundary only if the 5m close still holds
+beyond the zone, **repriced to that 5m close** (stop/targets are structural and
+don't move). Result: **100.02 → 45.22R** (max_wait 1/2/3 all 42-45R). 71% of
+entries reprice to a worse fill — e.g. June 9 first short: entry 29792→~29650,
+risk 55→197pt, +4.11R→+1.43R. **The post-hoc filter's +3.41R counted an impossible
+benefit** (good 1m fill AND fakeout-filter): to filter the fakeout you must wait
+for the 5m close → worse fill (−55R); to get the fill you take the 1m limit →
+already in before the 5m confirms (100R, eats the fakeout). **The aggressive 1m
+entry is correct and load-bearing.** 5m-confirmation closed as strictly worse.
+
+**Net: the system is at the frontier of what's cleanly filterable.** Every lever
+either fades the runners (reclaim two-sided, 5m-confirmation) or can't separate
+losers from winners (counter-structure, grade, RR, stop, hour). The −1R losers
+are the cost of being in the market on runner days. Baseline unchanged at
+60.08R June / 100.02R 4-week; no code shipped.

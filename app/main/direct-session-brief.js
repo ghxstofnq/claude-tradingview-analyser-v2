@@ -225,13 +225,36 @@ function computeOvernightVerdict({ sweeps = [], htfBias = null } = {}) {
 //   3. The latest REJECTED level sweep (the pre-open "rejects sharply").
 //   4. §2.3 destination magnet: the path toward an unreacted zone.
 //   5. Zone direction (no evidence at all).
-export function deriveHtfBiasDir({ draw, sweeps = [] } = {}) {
+// §2.4 HTF trend = the most recent NON-reclaimed h4 (then daily) market-structure
+// shift/break direction. Used as the bias fallback when no zone reaction or
+// rejected sweep resolves it — the actual trend, not the zone's position.
+export function htfTrendDir(digestSymbol) {
+  for (const tf of ["h4", "daily"]) {
+    const s = (digestSymbol?.htf?.[tf]?.recent_structures ?? [])[0];
+    if (s && s.is_reclaimed !== true) {
+      if (/^bull/i.test(s.dir || "")) return "bullish";
+      if (/^bear/i.test(s.dir || "")) return "bearish";
+    }
+  }
+  return null;
+}
+
+export function deriveHtfBiasDir({ draw, sweeps = [], htfTrend = null } = {}) {
   const asBias = (d) => /^bear/i.test(d || "") ? "bearish" : /^bull/i.test(d || "") ? "bullish" : null;
   if (draw?.reacted && asBias(draw.reaction_dir)) return asBias(draw.reaction_dir);
   if ((draw?.state ?? "fresh") === "fresh" && draw?.took_liq
       && /^bear/i.test(draw?.dir || "") && draw?.position === "above_price") {
     return "bearish";
   }
+  // §2.4 HTF trend: follow the recent h4/daily structure direction (BoS/MSS) —
+  // the macro direction. It outranks the near-term rejected-sweep heuristic and
+  // the zone-position magnet, both of which mis-read uptrend days as bearish: on
+  // May 13/14/June 2 a swept-high rejection + a bull FVG below price both said
+  // "bearish" while h4 structure was BoS bull and price was making new highs
+  // (→ losing A+ shorts into the highs). It stays below the §2.1 bear-FVG-above
+  // supply rule, so the genuine down days are unaffected (June 9 h4 MSS bear /
+  // June 10 h4 BoS bear agree bearish anyway).
+  if (htfTrend) return htfTrend;
   const rejected = sweeps.filter((s) => s?.rejected === true);
   if (rejected.length) {
     const last = rejected.reduce((a, b) => ((b?.swept_ms ?? 0) >= (a?.swept_ms ?? 0) ? b : a));
@@ -306,7 +329,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       sizing_note: sizing.override_reason
         ? `${sizing.r_size} R · override: ${sizing.override_reason} (strategy.sizing-table)`
         : `${sizing.r_size} R · direct ${pillar_grade} (strategy.sizing-table)`,
-      ...(draw ? { primary_draw: draw, htf_bias_dir: deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [] }) } : {}),
+      ...(draw ? { primary_draw: draw, htf_bias_dir: deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) } : {}),
       htf_destination: targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity",
       overnight_block: {
         ...overnightDrawTargets(symbol, ds),

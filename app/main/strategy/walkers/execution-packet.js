@@ -144,14 +144,30 @@ function selectStructuralStop(context, side, entry) {
 //      2.75-point micro-pivot).
 //   3. The zone edge itself — entry-models.md Inversion §5: "below the
 //      inversion FVG low" (mirrored for shorts).
-// Trend stops are model-specific — entry-models.md Trend §6: "Stop: Below
-// the swing low that touches the FVG or below the FVG low itself" (mirrored
-// for shorts). The tap candle IS the swing that touches; the generic pivot
-// pool would reach past it to an older, wider swing (June 9 trade 7: 29046
-// vs the 28971.75 tap wick).
-function trendStructuralStop(walker, side, entry) {
+// Trend stops are model-specific — entry-models.md Trend §5: "Stop: Below the
+// swing low that touches the FVG or below the FVG low itself" (mirrored for
+// shorts). The "swing low that touches the FVG" is the DEEPEST point of the
+// recent pullback into the zone — NOT just the confirmation candle's own wick.
+// May 13 11:29: the confirmation candle bottomed at 29287.5, but the prior
+// pullback bar made the real swing low at 29281.5; the tighter confirmation-wick
+// stop got clipped by a 29284 dip the swing-low stop would have survived
+// (−1 → +2.89). So take the extreme of the recent 1m window (same source the
+// Inversion leg-extreme uses) — it subsumes the confirmation candle. Fall back
+// to the confirmation candle, then the FVG edge, for bound-less fixtures.
+function trendStructuralStop(walker, side, entry, context) {
   if (normalizeModelName(walker?.model) !== 'trend') return null;
   const correctSide = (price) => (side === 'long' ? price < entry : price > entry);
+
+  const recent = context?.pillar3?.ohlcv1m ?? [];
+  const pullbackExtreme = recent.reduce((acc, b) => {
+    const px = side === 'short' ? numberOrNull(b?.high) : numberOrNull(b?.low);
+    if (px == null || !correctSide(px)) return acc;
+    if (acc == null) return px;
+    return side === 'short' ? Math.max(acc, px) : Math.min(acc, px);
+  }, null);
+  if (pullbackExtreme != null) {
+    return { kind: 'trend_pullback_swing', price: pullbackExtreme, evidenceRef: 'bars.last_5_bars[pullback_extreme]' };
+  }
 
   const bar = walker?.evidence?.confirmation?.rawPayload?.last_bar
     ?? walker?.evidence?.tap?.rawPayload?.last_bar ?? {};
@@ -404,7 +420,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const stopAudit = entryPrice == null ? { selected: null, rejected: [] } : stopCandidatesWithAudit(context, side, entryPrice);
   const stopCandidate = (entryPrice == null ? null : (
     inversionStructuralStop(walker, side, entryPrice, context)
-    ?? trendStructuralStop(walker, side, entryPrice)
+    ?? trendStructuralStop(walker, side, entryPrice, context)
     ?? mssStructuralStop(walker, side, entryPrice, context)
   )) ?? stopAudit.selected;
   if (!stopCandidate) blockers.push('missing_structural_stop');

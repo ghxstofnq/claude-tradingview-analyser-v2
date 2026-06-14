@@ -20,6 +20,16 @@
 
 const OVERNIGHT_TARGETS = new Set(['AS.H', 'AS.L', 'LO.H', 'LO.L']);
 
+// §2.4 + §3 divergent-clean gate: a retrace (divergent) trade is lower-conviction
+// and demands a CLEAN open rejection. If price ACCEPTED the swept break for this
+// many window closes before fading back through, the retrace signal is weak →
+// stand aside. Threshold calibrated on the May-June corpus: acceptance of 1-4
+// bars still reversed reliably (May 25 +5.85R, May 29 +11.92R — both 4-bar
+// reclaims), while >= 5 bars failed (May 22, May 14 @9). Gating at >= 5 catches
+// the two genuine accept-then-fade losers without harming the 4-bar winners that
+// a tighter cut (4) discarded. Frozen June 8-12 = 60.08R at every threshold.
+const ACCEPT_BARS_MAX = 5;
+
 /**
  * §2.2: "One session creates liquidity, another delivers into it." The PM
  * open reacts to the MORNING session's high/low, so NYAM.H/L join the
@@ -104,6 +114,39 @@ export function resolveOpenReaction({
   }
 
   const aligned = htf_bias === dir;
+
+  // §2.4 + §3 divergent-clean gate: a DIVERGENT (retrace) trade is lower-conviction,
+  // so it demands a CLEAN rejection. "accept-bars" = how many window closes held the
+  // BREAK direction before the first close back through. A clean liquidity-grab
+  // reverses inside 4 bars; an "accept-then-fade" held the break >= ACCEPT_BARS_MAX
+  // (5) bars then faded late — a weak retrace signal that stands aside (May 14: HTF
+  // bull, LO.H accepted 9 bars then faded → wrong retrace shorts; May 22 likewise).
+  // Clean divergent reclaims are kept (June 11 PM / June 12: 1 bar; May 19 PM; and
+  // the May 25 / May 29 4-bar reclaims that ran +5.85R / +11.92R). ALIGNED days are
+  // NEVER gated (June 9: aligned shorts, 11 accept-bars, the +37.73R day — the HTF
+  // backs them).
+  if (!aligned) {
+    const lvl = Number(last.price);
+    let acceptBars = 0;
+    const ordered = (Array.isArray(window_closes) ? window_closes : [])
+      .filter((c) => Number.isFinite(c?.time_ms) && Number.isFinite(c?.close)
+        && c.time_ms > last.swept_ms && c.time_ms <= endMs)
+      .sort((a, b) => a.time_ms - b.time_ms);
+    for (const c of ordered) {
+      if (high ? c.close > lvl : c.close < lvl) acceptBars++; else break;
+    }
+    if (acceptBars >= ACCEPT_BARS_MAX) {
+      return {
+        interaction: 'divergent_weak_rejection',
+        level: last.target,
+        ltf_bias: null,
+        htf_ltf_alignment: 'unclear',
+        is_retrace_day: false,
+        grade_cap: 'B',
+        cite: `${cite} (divergent + accept_bars=${acceptBars} → weak retrace, stand aside)`,
+      };
+    }
+  }
 
   return {
     interaction,

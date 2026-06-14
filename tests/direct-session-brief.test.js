@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDirectSessionBriefPayloads, runDirectSessionBrief, codexBriefAnalysisEnabled, deriveHtfBiasDir } from "../app/main/direct-session-brief.js";
+import { buildDirectSessionBriefPayloads, runDirectSessionBrief, codexBriefAnalysisEnabled, deriveHtfBiasDir, htfTrendDir } from "../app/main/direct-session-brief.js";
 
 // §2.1 supply-rejection (2026-06-13): a fresh, liquidity-taking bear PD array
 // ABOVE price is supply price rallies into and rejects → bearish, outranking a
@@ -18,6 +18,33 @@ test("deriveHtfBiasDir: a NON-fresh or non-liquidity bear zone above does NOT tr
 
 test("deriveHtfBiasDir: the zone's own observed reaction still outranks the supply rule", () => {
   assert.equal(deriveHtfBiasDir({ draw: { dir: "bear", position: "above_price", state: "fresh", took_liq: true, reacted: true, reaction_dir: "bull" } }), "bullish");
+});
+
+// §2.4 HTF trend (2026-06-14): with no zone reaction or §2.1 supply rule, the
+// recent h4/daily structure direction outranks the rejected-sweep heuristic and
+// the position magnet — the May 13/14 bug, where a fresh bull FVG below price
+// plus a swept high both read bearish on a clean uptrend (h4 BoS bull, new highs).
+test("deriveHtfBiasDir: HTF structure trend outranks the rejected-sweep heuristic", () => {
+  const draw = { dir: "bull", position: "below_price", state: "fresh", took_liq: true };
+  assert.equal(deriveHtfBiasDir({ draw, sweeps: [{ target: "PDH", rejected: true, swept_ms: 1 }], htfTrend: "bullish" }), "bullish");
+});
+
+test("deriveHtfBiasDir: the §2.1 supply rule still outranks the HTF trend", () => {
+  const draw = { dir: "bear", position: "above_price", state: "fresh", took_liq: true };
+  assert.equal(deriveHtfBiasDir({ draw, htfTrend: "bullish" }), "bearish");
+});
+
+test("deriveHtfBiasDir: falls back to the position magnet when no htfTrend", () => {
+  assert.equal(deriveHtfBiasDir({ draw: { dir: "bull", position: "below_price", state: "fresh", took_liq: true } }), "bearish");
+});
+
+test("htfTrendDir: most recent non-reclaimed h4 structure, else daily, else null", () => {
+  assert.equal(htfTrendDir({ htf: { h4: { recent_structures: [{ event: "bos", dir: "bull", is_reclaimed: false }] } } }), "bullish");
+  assert.equal(htfTrendDir({ htf: {
+    h4: { recent_structures: [{ event: "bos", dir: "bull", is_reclaimed: true }] },
+    daily: { recent_structures: [{ event: "mss", dir: "bear", is_reclaimed: false }] },
+  } }), "bearish");
+  assert.equal(htfTrendDir({ htf: {} }), null);
 });
 
 function digestSymbol() {
