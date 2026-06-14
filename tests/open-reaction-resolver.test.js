@@ -260,11 +260,34 @@ test('a close back through AFTER the window end does not count as in-window reje
 });
 
 // §2.4 + §3 divergent-clean gate (2026-06-14): a divergent (retrace) trade
-// demands a CLEAN rejection. If price ACCEPTED the swept break for >= 4 window
+// demands a CLEAN rejection. If price ACCEPTED the swept break for >= 5 window
 // closes before fading back through, the retrace is weak → stand aside (May 14:
-// HTF bull, LO.H accepted then faded → wrong shorts). Clean reclaims and ALL
-// aligned days are unaffected.
+// HTF bull, LO.H accepted 9 bars then faded → wrong shorts). Clean reclaims and
+// ALL aligned days are unaffected.
 test('divergent + accept-then-fade (weak rejection) → stand aside (May 14)', () => {
+  const sw = inWindow();
+  const r = resolveOpenReaction({
+    htf_bias: 'bullish',
+    sweeps: [sweep({ target: 'LO.H', rejected: false, ms: sw })],
+    window: W,
+    window_closes: [
+      { time_ms: sw + 1000, close: 105 }, // accepted above the high for 5 bars…
+      { time_ms: sw + 2000, close: 106 },
+      { time_ms: sw + 3000, close: 104 },
+      { time_ms: sw + 4000, close: 103 },
+      { time_ms: sw + 5000, close: 102 },
+      { time_ms: sw + 6000, close: 98 },  // …then faded below (late rejection)
+    ],
+  });
+  assert.equal(r.interaction, 'divergent_weak_rejection');
+  assert.equal(r.ltf_bias, null);
+  assert.equal(r.htf_ltf_alignment, 'unclear');
+});
+
+// Boundary: a divergent reclaim that accepted the break for exactly 4 bars is
+// still CLEAN enough to keep (May 25 / May 29 — both ran to big winners that a
+// tighter >= 4 cut wrongly discarded). The gate fires only at >= 5.
+test('divergent + 4-bar acceptance → kept as retrace (May 25 / May 29)', () => {
   const sw = inWindow();
   const r = resolveOpenReaction({
     htf_bias: 'bullish',
@@ -275,12 +298,13 @@ test('divergent + accept-then-fade (weak rejection) → stand aside (May 14)', (
       { time_ms: sw + 2000, close: 106 },
       { time_ms: sw + 3000, close: 104 },
       { time_ms: sw + 4000, close: 103 },
-      { time_ms: sw + 5000, close: 98 },  // …then faded below (late rejection)
+      { time_ms: sw + 5000, close: 98 },  // …then reclaimed below (clean enough)
     ],
   });
-  assert.equal(r.interaction, 'divergent_weak_rejection');
-  assert.equal(r.ltf_bias, null);
-  assert.equal(r.htf_ltf_alignment, 'unclear');
+  assert.equal(r.interaction, 'rejection');
+  assert.equal(r.ltf_bias, 'bearish');
+  assert.equal(r.htf_ltf_alignment, 'divergent');
+  assert.equal(r.grade_cap, 'B');
 });
 
 test('divergent + clean instant reclaim → kept as retrace (June 12)', () => {
