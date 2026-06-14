@@ -10,7 +10,7 @@ import { armReady as isArmReady } from "./Account.helpers.js";
 
 function Row({ k, v }) {
   return (
-    <div className="set-row"><span className="k">{k}</span><span className="v">{v}</span></div>
+    <div className="row"><span className="k">{k}</span><span className="v">{v}</span></div>
   );
 }
 
@@ -86,7 +86,7 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
           <div className="sect-hd"><span>EXECUTION</span></div>
           <Row k="Per-order confirm" v={<span style={{ color: "var(--amber)" }}>OFF · fires on accept</span>} />
           <Row k="Default order type" v="MARKET" />
-          <Row k="Orders" v={<span style={{ color: "var(--label)" }}>stub · engine pending</span>} />
+          <Row k="Detector" v={<span style={{ color: "var(--green)" }}>● RUNNING</span>} />
         </div>
       </div>
     </div>
