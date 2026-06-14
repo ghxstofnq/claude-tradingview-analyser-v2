@@ -87,6 +87,20 @@ of these rules):
   above): tightening only the over-extended legs is net-positive (+6.13R, no
   winner broken), whereas tightening *every* inversion stop is the −51R disaster
   here. The distinction is the whole point.
+- *Reclaim gate — block new shorts once a recently-swept sell-side draw is
+  reclaimed* (price back above the swept level within a recency window) (tested
+  2026-06-14 on top of the 95pt cap) — **net flat-to-negative, REJECTED.** The
+  engine's single-bar `rejected` sweep flag was false on the LO.L sweep (the
+  rejection was a multi-bar reversal), so the gate used raw price-reclaim +
+  recency window instead. Window sweep is non-monotonic (10min 71.31 / 15min
+  72.31 / 20min 70.64 / 35min 71.20 / 45min 68.05) and — fatally — **no window
+  fixes June 11 AM without breaking June 9**: the only window that preserves
+  June 9 (15min) doesn't touch June 11 at all (its +1 is coincidental other-week
+  trades); every window that blocks a June 11 short also blocks June 9's +1.67
+  Trend continuation short. June 11 AM's reversal-reclaim and June 9's
+  trend-pullback-reclaim happen at the same age — price alone can't separate
+  them (same trap as the stand-aside gate). A structure-flip signal (bullish
+  MSS/BOS after the sweep) might, but the evidence here doesn't justify it.
 
 These re-grade rules are **not yet in production code** — these values are the
 signed-off targets; the engine changes + gate re-freeze happen in one pass once
