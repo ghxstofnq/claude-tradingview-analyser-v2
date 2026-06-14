@@ -75,7 +75,11 @@ export function selectPillar(pillars, pattern) {
 export function pillar2ToRows(pillar2) {
   const elements = pillar2?.elements || [];
   const findExact = (predicate) => elements.find((e) => e && typeof e.name === "string" && predicate(e.name));
-  const statusTone = (s) => ({ pass: "green", weak: "amber", fail: "red", pending: "dim" }[s] || "dim");
+  // Designer's STEP 3 tone vocabulary is ok / warn / bad / dim (not
+  // green/amber/red) — those classes are the ones the popover stylesheet
+  // colors inside `.bt-popover .row .v`. Keep them aligned so PRICE QUALITY
+  // values render colored, matching the mockup.
+  const statusTone = (s) => ({ pass: "ok", weak: "warn", fail: "bad", pending: "dim" }[s] || "dim");
 
   // Three slot matchers — each tries the chain-spec name first, then
   // falls back to the legacy substring.
@@ -181,6 +185,62 @@ export function htfBiasToRowsConcise(brief) {
       tip: "Recent reaction off HTF PD array",
     },
   ];
+}
+
+// Map brief.htf_bias to the per-timeframe rows shown in STEP 1, matching the
+// designer's layout exactly: one row per TF (Daily / 4H / 1H) carrying a
+// tone-colored bias verdict + a gray descriptive note, then a Draw row from
+// brief.primary_draw (or htf_destination as fallback).
+//
+// Returns [{ k, v, tone, note, tip }]. tone ∈ "bull"|"bear"|"neutral"|"".
+// Notes carry a "(json.path)" citation per constraint #6 — stripped for
+// display (the full text with the citation stays as the title="" tooltip).
+export function htfBiasToRowsDesigner(brief) {
+  const tfLabel = (tf) => {
+    const t = String(tf || "").toUpperCase();
+    if (t === "DAILY") return "Daily";
+    return t || "—";
+  };
+  const biasLabel = (b) => {
+    const v = String(b || "").toUpperCase();
+    if (v === "BULLISH") return "BULL";
+    if (v === "BEARISH") return "BEAR";
+    return v || "—";
+  };
+  const biasTone = (b) => {
+    const v = String(b || "").toUpperCase();
+    if (v === "BULLISH") return "bull";
+    if (v === "BEARISH") return "bear";
+    if (v === "NEUTRAL" || v === "MIXED") return "neutral";
+    return "";
+  };
+  const rows = (brief?.htf_bias || []).map((r) => ({
+    k: tfLabel(r.tf),
+    v: biasLabel(r.bias),
+    tone: biasTone(r.bias),
+    note: stripCitations(r.note) || "",
+    tip: r.note || "",
+  }));
+
+  const pd = brief?.primary_draw;
+  if (pd) {
+    const price = pd.ce ?? pd.top ?? pd.bottom;
+    const tf = pd.tf || pd.timeframe;
+    const kind = String(pd.kind || pd.type || "").toUpperCase();
+    const dir = pd.dir ? String(pd.dir).toLowerCase() : null;
+    const note = [tf, kind ? `${kind} midpoint` : null, dir, pd.took_liq ? "took liq" : null]
+      .filter(Boolean).join(" · ");
+    rows.push({
+      k: "Draw",
+      v: price != null ? String(price) : (brief?.htf_destination || "—"),
+      tone: "",
+      note,
+      tip: pd.cite ? `primary draw · ${pd.cite}` : "Primary HTF draw",
+    });
+  } else if (brief?.htf_destination) {
+    rows.push({ k: "Draw", v: brief.htf_destination, tone: "", note: "", tip: "Main HTF draw" });
+  }
+  return rows;
 }
 
 // Map brief.overnight_block + brief.key_levels to STEP 2 header rows.
