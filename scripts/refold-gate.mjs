@@ -62,13 +62,13 @@ function pmCarryEntries(date) {
 async function foldOne({ runId, session }) {
   const runDir = path.join(REPO_ROOT, "state", "backtest", runId, session);
   const tape = JSON.parse(fs.readFileSync(path.join(runDir, "tape.json"), "utf8"));
-  // Patch ONLY the overnight_block targets from the current brief onto the
-  // recorded payloads. The June-13 payloads baked the old malformed
-  // overnight_block (wrong-side levels in the below/above lists); folding them
-  // (with the engine override below) measured a system that no longer runs.
-  // We replace just untaken_above/below with the 2026-06-14 fixed values and
-  // keep recorded grades/bias/draw intact — so the only change is the target
-  // pool, not an unrelated re-grade. The engine then feeds these to the walker.
+  // Regenerate the FULL brief from the recorded bundle with current code, so
+  // the gate reflects the live system end-to-end (fixed overnight_block targets
+  // AND §2.1 bias grading). The June-13 payloads baked both the old malformed
+  // targets and the pre-§2.1 bias read (June 11 PM graded A+ off "draw above
+  // price → bullish"; §2.1 correctly reads the fresh 4H bear FVG above price as
+  // supply → bearish, making the PM rally a retrace → B). The engine then feeds
+  // these targets to the walker. Falls back to recorded payloads if no bundle.
   const recorded = JSON.parse(fs.readFileSync(path.join(runDir, "brief-payloads.json"), "utf8"));
   let payloads = recorded;
   const bundlePath = path.join(runDir, "brief-bundle.json");
@@ -76,15 +76,7 @@ async function foldOne({ runId, session }) {
     const leader = recorded[0]?.symbol || "MNQ1!";
     const bundle = JSON.parse(fs.readFileSync(bundlePath, "utf8"));
     const digest = buildBriefDigest({ pair: { symbols: { [leader]: bundle } } });
-    const fixed = buildDirectSessionBriefPayloads({ session, bundle: { ...bundle, brief_digest: digest }, symbols: [leader] });
-    payloads = recorded.map((p, i) => ({
-      ...p,
-      overnight_block: {
-        ...(p.overnight_block ?? {}),
-        untaken_above: fixed[i]?.overnight_block?.untaken_above ?? p.overnight_block?.untaken_above,
-        untaken_below: fixed[i]?.overnight_block?.untaken_below ?? p.overnight_block?.untaken_below,
-      },
-    }));
+    payloads = buildDirectSessionBriefPayloads({ session, bundle: { ...bundle, brief_digest: digest }, symbols: [leader] });
   }
 
   const surfaced = new Map();   // id -> setup

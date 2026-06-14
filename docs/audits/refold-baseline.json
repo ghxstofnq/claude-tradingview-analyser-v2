@@ -101,7 +101,7 @@
     ]
   },
   "JUN10-AM": {
-    "total_r": 5.74,
+    "total_r": 15.32,
     "trades": [
       {
         "model": "Inversion",
@@ -128,28 +128,6 @@
       {
         "model": "Inversion",
         "side": "short",
-        "event_ts": "2026-06-10T14:37:00.000Z",
-        "entry": 29184.5,
-        "stop": 29251,
-        "tp1": 29046,
-        "outcome": "tp1_hit",
-        "exit": 29046,
-        "r": 2.08
-      },
-      {
-        "model": "Inversion",
-        "side": "short",
-        "event_ts": "2026-06-10T14:53:00.000Z",
-        "entry": 29027.75,
-        "stop": 29106,
-        "tp1": 28771.75,
-        "outcome": "tp1_hit",
-        "exit": 28771.75,
-        "r": 3.27
-      },
-      {
-        "model": "Inversion",
-        "side": "short",
         "event_ts": "2026-06-10T15:30:00.000Z",
         "entry": 28791.5,
         "stop": 28873.25,
@@ -161,13 +139,35 @@
       {
         "model": "Inversion",
         "side": "short",
+        "event_ts": "2026-06-10T14:37:00.000Z",
+        "entry": 29184.5,
+        "stop": 29251,
+        "tp1": 29046,
+        "outcome": "tp2_hit",
+        "exit": 28610.25,
+        "r": 8.64
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
+        "event_ts": "2026-06-10T14:53:00.000Z",
+        "entry": 29027.75,
+        "stop": 29106,
+        "tp1": 28771.75,
+        "outcome": "tp2_hit",
+        "exit": 28610.25,
+        "r": 5.34
+      },
+      {
+        "model": "Inversion",
+        "side": "short",
         "event_ts": "2026-06-10T15:05:00.000Z",
         "entry": 28901.25,
         "stop": 28987,
         "tp1": 28610.25,
-        "outcome": "tp1_hit",
-        "exit": 28610.25,
-        "r": 3.39
+        "outcome": "closed_1600",
+        "exit": 28528.75,
+        "r": 4.34
       }
     ]
   },
@@ -254,7 +254,7 @@
     ]
   },
   "JUN11-PM": {
-    "total_r": 9.4,
+    "total_r": 4.9,
     "trades": [
       {
         "model": "Inversion",
@@ -274,9 +274,9 @@
         "entry": 29207,
         "stop": 29172.5,
         "tp1": 29302,
-        "outcome": "closed_1600",
-        "exit": 29457,
-        "r": 7.25
+        "outcome": "tp1_hit",
+        "exit": 29302,
+        "r": 2.75
       }
     ]
   },
