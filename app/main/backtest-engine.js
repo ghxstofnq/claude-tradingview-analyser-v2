@@ -488,6 +488,15 @@ export async function runBacktest({
       if (synthesizedContext && openReaction) {
         entry.inputs.ltf_bias_context = openReaction.ltf_bias_context;
       }
+      // Targets come from the BRIEF, not the tape's baked-in copy. Old tapes
+      // froze the malformed-overnight_block targets (wrong-side levels in the
+      // below/above lists); replaying them folded on stale targets while live
+      // used the fixed brief (2026-06-14). Override per bar from the context's
+      // untaken_targets so a replay reflects the current brief (no-op on fresh
+      // runs, where the tape and context already agree).
+      if (context?.untaken_targets) {
+        entry.inputs.untaken_targets = context.untaken_targets;
+      }
       const truth = await deps.truthFn({
         inputs: entry.inputs,
         previousWalkers: walkers,

@@ -137,3 +137,29 @@ the whole week is reviewed.
 | 10:27 | Inversion | short | 29467.25 | 29526 | 29302.5 | 29302.5 | A+ | TP1 (TP2=TP1) | +2.80 |
 | 11:05 | Trend | short | 29184 | 29226.5 | 29083.75 | 29083.75 | A+ | stop | −1.00 |
 | 11:53 | Trend | short | 28911.75 | 28971.75 | 28811.5 | 28811.5 | A+ | TP1 (TP2=TP1) | +1.67 |
+
+## 2026-06-14 — stale-target discovery: the backtest was folding on malformed targets
+
+Triggered by a TP1-selection challenge (a London low skipped for a far swing).
+Root cause turned out bigger: **the backtest folded on the targets baked into
+the June-13 tapes/payloads, which carried the OLD malformed `overnight_block`**
+(positional slice — wrong-side levels in both the above/below lists, e.g. a
+London *high* sitting in a short's *below* target list). The 2026-06-14
+session-low fix corrected this for LIVE (buildDetectorInputs reads the fresh
+brief) but **never took effect in any fold** — every backtest this session
+(including the wide-leg sweep) measured a system that no longer runs.
+
+**Fix:** (1) `backtest-engine.js` now overrides each bar's `untaken_targets`
+from the brief context instead of the tape's baked copy (no-op on fresh runs);
+(2) `refold-gate.mjs` patches the recorded payloads' `overnight_block` targets
+with the current brief's values (targets only — recorded grades/bias kept, so no
+unrelated re-grade). **Re-froze the baseline: June week 32.12 → 55.0R**, entirely
+**June 9 AM 14.85 → 37.73R** — the stale targets had been capping the big
+down-trend shorts at malformed nearer levels; the correct sell-side draws (LO.L
+29566 / AS.L 29302.5 / PDL 28821) let them ride the real move to the prior-day
+low. **Independently verified** (1m price path, no grader): all four new
+deep-draw shorts reached PDL 28821 at 11:35 and none had their stop touched.
+Other June days byte-identical; 4-week out-of-sample 71.31 → 94.94R (−2 on
+May18-22, rest flat). **Open:** §2.1 grade reflection in the gate (full brief
+regen flips June 11 PM A+→B; deferred to avoid re-opening that sign-off) +
+re-record the tapes so they no longer carry stale targets at all.
