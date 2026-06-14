@@ -332,7 +332,7 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
 }
 
 function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
-                      symbol, currentPrice,
+                      symbol, currentPrice, account, guards,
                       chats, activeProvider, setActiveProvider, openProvider, setOpenProvider }) {
   const loopDown = loopStatus === "stale" || loopStatus === "down";
   const activeChat = getProviderChat(chats, activeProvider);
@@ -347,7 +347,7 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
     <div className="statusline">
       <div className="grp">
         <PrepCell symbol={symbol} currentPrice={currentPrice} />
-        <LiveCell />
+        <LiveCell account={account} guards={guards} symbol={symbol} />
         <ReviewCell />
         <BacktestCell />
         <span className="item provider-controls">
@@ -579,6 +579,8 @@ function App() {
       <StatusLine
         symbol={symbol}
         currentPrice={currentPrice}
+        account={account}
+        guards={guards}
         state={"CHART"}
         focus={symbol}
         cycle={lastBar?.hhmm || "—"}
