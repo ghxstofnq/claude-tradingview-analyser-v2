@@ -160,6 +160,22 @@ down-trend shorts at malformed nearer levels; the correct sell-side draws (LO.L
 low. **Independently verified** (1m price path, no grader): all four new
 deep-draw shorts reached PDL 28821 at 11:35 and none had their stop touched.
 Other June days byte-identical; 4-week out-of-sample 71.31 → 94.94R (−2 on
-May18-22, rest flat). **Open:** §2.1 grade reflection in the gate (full brief
-regen flips June 11 PM A+→B; deferred to avoid re-opening that sign-off) +
-re-record the tapes so they no longer carry stale targets at all.
+May18-22, rest flat).
+
+**§2.1 grade reflection — RESOLVED 2026-06-14 (gate now folds the full current
+brief, not just targets).** The recorded June-13 payloads carried the pre-§2.1
+bias read: a fresh, liquidity-taking 4H **bear** FVG above price (30249-30397)
+graded **bullish** ("draw above price → bullish"), so the June 11 PM rally-long
+graded A+ (aligned) and ran to the 4:00 close (+7.25). §2.1's supply-rejection
+rule (strategy §2.1: "trades into a 4H BPR... rejects sharply → bearish") reads
+that same zone as 4H **supply → bearish**; the PM rally is then a **retrace
+against** the bearish draw → **B** (§2.4: "HTF one way, LTF a short-term retrace"
+= conviction trade, not A+). HTF momentum confirms (4H bearish / 1H bearish;
+only daily bullish). So **June 11 PM = B, +4.9R** (banks at TP1), not A+ +9.4R —
+the user's A+ sign-off rested on the old bullish misread. Folding the full brief
+also lifts **June 10 5.74 → 15.32R** (§2.1 reshuffle + deeper draws — verified:
+both new shorts reached 28610.25, stops never hit). **Re-froze: June week 55.0 →
+60.08R** (Jun8 0 / Jun9 37.73 / Jun10 15.32 / Jun11 1.08 AM + 4.9 PM / Jun12
+1.05). The gate now mirrors live end-to-end (§2.1 grades + fixed targets).
+**Still open:** re-record the tapes so they stop carrying stale brief data at all
+(the regen-from-bundle in the gate is the interim bridge).
