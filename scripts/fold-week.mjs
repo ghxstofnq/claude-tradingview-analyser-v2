@@ -89,5 +89,6 @@ for (const date of DATES) {
 }
 console.log("  " + "-".repeat(52));
 console.log(`  WEEK TOTAL: ${round2(week)}R`);
-console.log(`\n  corpus reference: May18-22 9.83 | May25-29 17.61 | Jun1-5 12.5 | Jun8-12 60.08`);
+// Verified 2026-06-14 (committed chain, accept-bars gate @>=5): full clean fold.
+console.log(`\n  corpus reference: May11-15 22.49 | May18-22 15.73 | May25-29 20.16 | Jun1-5 12.63 | Jun8-12 60.08 = 131.09R`);
 process.exit(0);
