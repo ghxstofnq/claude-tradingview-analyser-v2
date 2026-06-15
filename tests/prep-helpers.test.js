@@ -12,6 +12,7 @@ import {
   pillar2ToRows,
   formatChainChip,
   htfBiasToRowsConcise,
+  htfBiasToRowsDesigner,
   overnightHeaderRows,
   scenariosMeta,
   stripCitations,
@@ -102,11 +103,11 @@ describe("pillar2ToRows", () => {
     assert.equal(rows.length, 3);
     assert.equal(rows[0].k, "3h range");
     assert.match(rows[0].v, /PASS/);
-    assert.equal(rows[0].tone, "green");
+    assert.equal(rows[0].tone, "ok");
     assert.equal(rows[1].k, "4H/1H displacement");
-    assert.equal(rows[1].tone, "amber");
+    assert.equal(rows[1].tone, "warn");
     assert.equal(rows[2].k, "15m/5m candles");
-    assert.equal(rows[2].tone, "amber");
+    assert.equal(rows[2].tone, "warn");
   });
 
   it("renders missing elements as '—' with dim tone", () => {
@@ -336,5 +337,61 @@ describe("htfBiasToRowsConcise — abbreviation + dir in best imbalances", () =>
     };
     const rows = htfBiasToRowsConcise(brief);
     assert.match(rows[1].v, /h1 bull FVG · took_liq yes/);
+  });
+});
+
+describe("htfBiasToRowsDesigner — per-TF rows with tone + note + Draw", () => {
+  it("emits one row per htf_bias TF with label, abbreviated bias, and tone", () => {
+    const brief = {
+      htf_bias: [
+        { tf: "DAILY", bias: "BULLISH", note: "up 1% (x.y)" },
+        { tf: "4H",    bias: "BEARISH", note: "down (a.b)" },
+        { tf: "1H",    bias: "NEUTRAL", note: "ranging (c.d)" },
+      ],
+    };
+    const rows = htfBiasToRowsDesigner(brief);
+    assert.equal(rows[0].k, "Daily");
+    assert.equal(rows[0].v, "BULL");
+    assert.equal(rows[0].tone, "bull");
+    assert.equal(rows[1].v, "BEAR");
+    assert.equal(rows[1].tone, "bear");
+    assert.equal(rows[2].v, "NEUTRAL");
+    assert.equal(rows[2].tone, "neutral");
+  });
+
+  it("strips the (json.path) citation from the note but keeps it in the tip", () => {
+    const brief = { htf_bias: [{ tf: "DAILY", bias: "BULLISH", note: "up 1.5% (brief_digest.x)" }] };
+    const rows = htfBiasToRowsDesigner(brief);
+    assert.equal(rows[0].note, "up 1.5%");
+    assert.equal(rows[0].tip, "up 1.5% (brief_digest.x)");
+  });
+
+  it("appends a Draw row from primary_draw using the midpoint (ce)", () => {
+    const brief = {
+      htf_bias: [{ tf: "DAILY", bias: "BULLISH", note: "x (a.b)" }],
+      primary_draw: { tf: "h4", kind: "fvg", dir: "bear", ce: 30002, took_liq: true, cite: "engine_by_tf.h4.fvgs[16]" },
+    };
+    const rows = htfBiasToRowsDesigner(brief);
+    const draw = rows[rows.length - 1];
+    assert.equal(draw.k, "Draw");
+    assert.equal(draw.v, "30002");
+    assert.match(draw.note, /h4 · FVG midpoint · bear · took liq/);
+    assert.match(draw.tip, /engine_by_tf\.h4\.fvgs\[16\]/);
+  });
+
+  it("falls back to htf_destination text when no primary_draw", () => {
+    const brief = {
+      htf_bias: [{ tf: "DAILY", bias: "BULLISH" }],
+      htf_destination: "above nearest untaken liquidity",
+    };
+    const rows = htfBiasToRowsDesigner(brief);
+    const draw = rows[rows.length - 1];
+    assert.equal(draw.k, "Draw");
+    assert.equal(draw.v, "above nearest untaken liquidity");
+  });
+
+  it("returns [] for an empty brief", () => {
+    assert.deepEqual(htfBiasToRowsDesigner({}), []);
+    assert.deepEqual(htfBiasToRowsDesigner(null), []);
   });
 });

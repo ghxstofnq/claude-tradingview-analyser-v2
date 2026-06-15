@@ -9,7 +9,7 @@ import {
   selectPillar,
   pillar2ToRows,
   formatChainChip,
-  htfBiasToRowsConcise,
+  htfBiasToRowsDesigner,
   overnightHeaderRows,
   scenariosMeta,
   stripCitations,
@@ -65,13 +65,17 @@ function SessionBriefPanel({ brief, session, ageMs, status, chainStatus, selecte
 // ───────────────────────────────────────────────────────────────────────
 // STEP 1 · HTF BIAS — four concise rows with strategy-doc tooltips.
 function Step1Panel({ brief }) {
-  const rows = htfBiasToRowsConcise(brief);
+  const rows = htfBiasToRowsDesigner(brief);
+  const toneCls = (t) => (t === "bull" ? "ok" : t === "bear" ? "bad" : t === "neutral" ? "warn" : "");
   return (
     <Panel title="STEP 1 · HTF BIAS" meta="D / 4H / 1H">
       {rows.map((r) => (
         <div className="row" key={r.k} title={r.tip}>
           <span className="k">{r.k}</span>
-          <span className="v">{r.v}</span>
+          <span className="v">
+            <span className={"v " + toneCls(r.tone)}>{r.v}</span>
+            {r.note ? <span style={{ color: "var(--label)" }}>  {r.note}</span> : null}
+          </span>
         </div>
       ))}
     </Panel>

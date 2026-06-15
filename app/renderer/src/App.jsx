@@ -9,21 +9,16 @@ import { BacktestCell } from "./BacktestPopover.jsx";
 import { PrepCell } from "./PrepPopover.jsx";
 import { LiveCell } from "./LivePopover.jsx";
 import { ReviewCell } from "./ReviewPopover.jsx";
+import { AccountCell } from "./SettingsPopover.jsx";
+import { bootAccount, loadGuards, saveGuards } from "./Account.helpers.js";
 import { SystemPage } from "./System.jsx";
 import { RiskPage } from "./Risk.jsx";
 import { FixturesPage } from "./Fixtures.jsx";
 import { HealthPage } from "./Health.jsx";
 import { SettingsPage } from "./Settings.jsx";
 import { ErrorBoundary } from "./ErrorBoundary.jsx";
-import {
-  CHAT_PROVIDER_CELLS,
-  DEFAULT_CHAT_PROVIDER,
-  buildProviderPopoverTitle,
-  buildProviderSubmitOptions,
-  getExclusiveActiveProvider,
-  getProviderChat,
-  isProviderChatActive,
-} from "./provider-popover-contract.js";
+import { ChatCell } from "./ChatPopover.jsx";
+import { DEFAULT_CHAT_PROVIDER } from "./provider-popover-contract.js";
 
 import { useHealth } from "./hooks/useHealth.js";
 import { useVersion } from "./hooks/useVersion.js";
@@ -37,45 +32,6 @@ const SYMBOLS = [
   { sym: "MNQ1!", name: "MICRO E-MINI NASDAQ-100" },
   { sym: "MES1!", name: "MICRO E-MINI S&P 500" },
 ];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SymbolSwitcher — drop-down in topbar
-function SymbolSwitcher({ symbol, setSymbol }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, []);
-  return (
-    <div className="cell" ref={ref} style={{ position: "relative", cursor: "pointer" }}>
-      <span className="k">SYM</span>
-      <span className="v" onClick={() => setOpen((o) => !o)}>{symbol} ▾</span>
-      {open && (
-        <div className="sym-menu" style={{
-          position: "absolute", top: "100%", right: 0, zIndex: 50,
-          background: "var(--surface-1)", border: "1px solid var(--border)",
-          minWidth: 240,
-        }}>
-          {SYMBOLS.map((s) => (
-            <div key={s.sym}
-                 onClick={() => { setSymbol(s.sym); setOpen(false); }}
-                 style={{
-                   padding: "6px 12px", display: "flex", gap: 10,
-                   color: s.sym === symbol ? "var(--amber)" : "var(--value)",
-                   borderBottom: "1px solid var(--border)",
-                   cursor: "pointer",
-                 }}>
-              <span>{s.sym}</span>
-              <span style={{ color: "var(--label)", fontSize: 10 }}>{s.name}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useCalendar — pulls window.api.calendar.thisWeek() on mount + subscribes
@@ -224,29 +180,6 @@ function AlertsPopover({ alerts, onClose, onDisarm }) {
   );
 }
 
-function ProviderPopover({ provider, chat, onClose }) {
-  const messages = chat?.messages || [];
-  const providerLabel = provider.toUpperCase();
-  return (
-    <div className="claude-popover statusline-popover" onClick={(e) => e.stopPropagation()}>
-      <div className="head">
-        <span className="t">{buildProviderPopoverTitle(provider)}</span>
-        <span className="x" onClick={onClose}>×</span>
-      </div>
-      <div className="body">
-        <ClaudeFeed
-          messages={messages}
-          typing={chat?.typing}
-          providerLabel={providerLabel}
-          onSubmit={(text) => chat?.send?.(text, buildProviderSubmitOptions(provider))}
-          onCancel={chat?.typing ? chat?.cancel : null}
-          onReset={chat?.reset}
-        />
-      </div>
-    </div>
-  );
-}
-
 function AlertToast({ alert, onClose }) {
   useEffect(() => {
     const id = setTimeout(onClose, 4500);
@@ -287,14 +220,16 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
                   clock,
                   news, newsOpen, setNewsOpen, newsImminent,
                   alerts, alertsOpen, setAlertsOpen, onDisarm,
+                  account, setAccount, guards, setGuards,
                   currentPrice }) {
   const newsCount = news.length;
   const alertCount = alerts.fired.length + alerts.armed.length;
   return (
     <header className="topbar">
-      <div className="id" />
+      <div className="id"><span className="wm">G<span className="accent">X</span>OFNQ</span></div>
       <div className="status">
         <VersionCell />
+        <AccountCell account={account} setAccount={setAccount} guards={guards} setGuards={setGuards} />
         <div className={"cell pop-cell" + (alertCount > 0 ? " has-alerts" : "")}
              onClick={() => setAlertsOpen((o) => !o)}>
           <span className="k">ALERTS</span>
@@ -316,11 +251,6 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
             <NewsPopover payload={{ events: news }} now={new Date()} onClose={() => setNewsOpen(false)} />
           )}
         </div>
-        <BacktestCell />
-        <ReviewCell />
-        <LiveCell />
-        <PrepCell symbol={symbol} currentPrice={currentPrice} />
-        <SymbolSwitcher symbol={symbol} setSymbol={setSymbol} />
         <div className="cell">
           <button className={"th-btn" + (theme === "dark" ? " on" : "")}
                   onClick={() => setTheme("dark")}>◐</button>
@@ -333,49 +263,16 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
 }
 
 function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
+                      symbol, currentPrice, account, guards,
                       chats, activeProvider, setActiveProvider, openProvider, setOpenProvider }) {
-  const loopDown = loopStatus === "stale" || loopStatus === "down";
-  const activeChat = getProviderChat(chats, activeProvider);
-  const chatActive = isProviderChatActive(chats, activeProvider);
-  const selectProvider = (provider) => {
-    const next = getExclusiveActiveProvider(activeProvider, provider);
-    if (next !== activeProvider && chatActive) activeChat?.cancel?.();
-    setActiveProvider(next);
-    setOpenProvider((cur) => cur === next ? null : next);
-  };
   return (
     <div className="statusline">
       <div className="grp">
-        <span className="item"><span className="k">STATE</span><span className="v">{state}</span></span>
-        <span className="item"><span className="k">FOCUS</span><span className="v">{focus}</span></span>
-        <span className="item provider-controls">
-          {CHAT_PROVIDER_CELLS.map((cell) => {
-            const selected = activeProvider === cell.provider;
-            return (
-              <span key={cell.provider}
-                    className={"provider-chip" + (selected ? " selected" : "")}
-                    onClick={(e) => { e.stopPropagation(); selectProvider(cell.provider); }}>
-                <span className="k">{cell.label}</span>
-                <span className={"claude-dot" + (selected && isProviderChatActive(chats, cell.provider) ? " active" : "")} />
-                {openProvider === cell.provider && selected && (
-                  <ProviderPopover provider={cell.provider}
-                                   chat={getProviderChat(chats, cell.provider)}
-                                   onClose={() => setOpenProvider(null)} />
-                )}
-              </span>
-            );
-          })}
-          <span className={"provider-stop" + (chatActive ? " active" : " disabled")}
-                title={`stop ${activeProvider}`}
-                onClick={(e) => { e.stopPropagation(); if (chatActive) activeChat?.cancel?.(); }}>
-            STOP
-          </span>
-        </span>
-        <span className="item"><span className="k">CYCLE</span><span className="v">{cycle}</span></span>
-        <span className="item" title={`LOOP · ${loopStatus || "ok"}`}>
-          <span className="k">LOOP</span>
-          <span className={"dot " + (loopDown ? "down" : "")}></span>
-        </span>
+        <PrepCell symbol={symbol} currentPrice={currentPrice} />
+        <LiveCell account={account} guards={guards} symbol={symbol} />
+        <ReviewCell />
+        <BacktestCell />
+        <ChatCell chats={chats} />
       </div>
       <div className="grp">
         <span className="item"><span className="k">PH</span><span className="v amber">{phase}</span></span>
@@ -399,6 +296,13 @@ const UTIL_PAGES = {
 function App() {
   // Mode tabs removed 2026-05-28; PREP/LIVE/REVIEW are popovers in the topbar.
   const [symbol, setSymbol] = useState("MNQ1!");
+
+  // Account mode is ephemeral — boots PAPER every launch, never persists (a
+  // real-money safety rule); guardrails persist. (dashboard-v2)
+  const [account, setAccount] = useState(() => bootAccount());
+  const [guards, setGuards] = useState(() => loadGuards());
+  useEffect(() => { saveGuards(guards); }, [guards]);
+
   const [utilPage, setUtilPage] = useState(() => location.hash.slice(1));
   useEffect(() => {
     const onHash = () => setUtilPage(location.hash.slice(1));
@@ -535,6 +439,7 @@ function App() {
               alerts={alerts}
               alertsOpen={alertsOpen} setAlertsOpen={setAlertsOpen}
               onDisarm={disarm}
+              account={account} setAccount={setAccount} guards={guards} setGuards={setGuards}
               currentPrice={currentPrice} />
 
       {/* Persistent chart-host — mounted ONCE at the App root. Util pages
@@ -572,6 +477,10 @@ function App() {
       )}
 
       <StatusLine
+        symbol={symbol}
+        currentPrice={currentPrice}
+        account={account}
+        guards={guards}
         state={"CHART"}
         focus={symbol}
         cycle={lastBar?.hhmm || "—"}

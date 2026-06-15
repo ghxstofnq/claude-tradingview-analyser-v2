@@ -5,8 +5,17 @@
 import React, { useState } from "react";
 import { useBacktest } from "./hooks/useBacktest.js";
 import {
-  aggregateRuns, filterRuns, formatRunForRow, estimateRun,
+  aggregateRuns, filterRuns, formatRunForRow,
 } from "./Backtest.helpers.js";
+
+// Header state-switcher (designer's NEW/RUN/PAUSE/DONE/ANALYTICS). Internal
+// reducer states map: IDLE→NEW, AUTO_RUNNING→RUN, PAUSE_AWAITING→PAUSE,
+// DONE→DONE, LIBRARY→ANALYTICS. NEW + ANALYTICS are always navigable; the
+// engine-driven states only light up when the run is in them.
+const BT_SWITCHER = [
+  ["IDLE", "NEW"], ["AUTO_RUNNING", "RUN"], ["PAUSE_AWAITING", "PAUSE"],
+  ["DONE", "DONE"], ["LIBRARY", "ANALYTICS"],
+];
 
 export function BacktestCell() {
   const [open, setOpen] = useState(false);
@@ -29,7 +38,7 @@ export function BacktestCell() {
       <BadgeForState state={state} />
       {open && (
         <div
-          className={"bt-popover" + (state.ui === "LIBRARY" || state.ui === "DETAIL" ? " wide" : "")}
+          className={"bt-popover " + (state.ui === "LIBRARY" ? "w-analytics" : "w-660 bt-fixed")}
           onClick={(e) => e.stopPropagation()}
         >
           <Header state={state} actions={actions} onClose={close} />
@@ -70,23 +79,34 @@ function Header({ state, actions, onClose }) {
   }
 
   const cfg = {
-    IDLE:           { ttl: "BACKTEST",                 cls: "",      x: "×",  dismissable: true },
-    AUTO_RUNNING:   { ttl: "BACKTEST · AUTO",          cls: "",      x: "─",  dismissable: false, pulse: true },
-    PAUSE_AWAITING: { ttl: "BACKTEST · AWAITING DECISION", cls: "pause", x: "─", dismissable: false },
-    DONE:           { ttl: "BACKTEST · COMPLETE",      cls: "done",  x: "×",  dismissable: true, check: true },
-    LIBRARY:        { ttl: "BACKTEST · LIBRARY",       cls: "",      x: "×",  dismissable: true },
-  }[state.ui] ?? { ttl: "BACKTEST", cls: "", x: "×", dismissable: true };
+    IDLE:           { cls: "",      x: "×",  dismissable: true },
+    AUTO_RUNNING:   { cls: "",      x: "─",  dismissable: false, pulse: true },
+    PAUSE_AWAITING: { cls: "pause", x: "─",  dismissable: false },
+    DONE:           { cls: "done",  x: "×",  dismissable: true },
+    LIBRARY:        { cls: "",      x: "×",  dismissable: true },
+  }[state.ui] ?? { cls: "", x: "×", dismissable: true };
+
+  // Navigate via the switcher: NEW resets to IDLE, ANALYTICS opens the
+  // library; engine-driven states (RUN/PAUSE/DONE) aren't manually entered.
+  const goState = (s) => {
+    if (s === state.ui) return;
+    if (s === "IDLE") actions.runAnother();
+    else if (s === "LIBRARY") actions.viewAll();
+  };
 
   return (
     <div className="head">
       <span className={"t " + cfg.cls}>
         {cfg.pulse && <span className="pulse" />}
-        {cfg.check && "✓ "}
-        {cfg.ttl}
+        BACKTEST
       </span>
-      {state.ui === "LIBRARY" && (
-        <span className="sub">{state.library.runs.length} RUNS</span>
-      )}
+      <span className="live-tabs" style={{ marginLeft: 10 }} onClick={(e) => e.stopPropagation()}>
+        {BT_SWITCHER.map(([s, l]) => (
+          <span key={s}
+                className={"tab" + (state.ui === s ? " on" : "") + (s === "IDLE" || s === "LIBRARY" ? "" : " dim")}
+                onClick={() => goState(s)}>{l}</span>
+        ))}
+      </span>
       <span className="spacer" />
       <span
         className="x"
@@ -136,77 +156,148 @@ function BadgeForState({ state }) {
 // IDLE body — configure a new run + recent 5
 // ─────────────────────────────────────────────────────────────────────
 function IdleBody({ state, actions }) {
-  const [date, setDate] = useState(todayIsoUtc());
-  const [session, setSession] = useState("ny-am");
+  const presets = presetRanges();
+  const STUDY_PRESETS = [
+    { id: "today", label: "TODAY", start: presets.today[0], end: presets.today[1] },
+    { id: "week", label: "THIS WEEK", start: presets.week[0], end: presets.week[1] },
+    { id: "lastweek", label: "LAST WEEK", start: presets.lastweek[0], end: presets.lastweek[1] },
+    { id: "custom", label: "CUSTOM", start: null, end: null },
+  ];
+  const [symbol, setSymbol] = useState("both");
+  const [preset, setPreset] = useState("lastweek");
+  const [start, setStart] = useState(presets.lastweek[0]);
+  const [end, setEnd] = useState(presets.lastweek[1]);
+  const [sessions, setSessions] = useState({ "ny-am": true, "ny-pm": false, "london": true });
   const [mode, setMode] = useState("auto");
-  const est = estimateRun({ session });
   const agg = aggregateRuns(state.library.runs);
   const recent = state.library.runs.slice(0, 5);
+
+  const applyPreset = (p) => { setPreset(p.id); if (p.start) { setStart(p.start); setEnd(p.end); } };
+  const editDate = (which, v) => { setPreset("custom"); which === "start" ? setStart(v) : setEnd(v); };
+  const toggleSession = (k) => setSessions((s) => ({ ...s, [k]: !s[k] }));
+
+  const SESS = [["ny-am", "NY-AM"], ["ny-pm", "NY-PM"], ["london", "LONDON"]];
+  const selected = SESS.filter(([k]) => sessions[k]);
+  const symLabel = { mnq: "MNQ1!", mes: "MES1!", both: "MNQ1! + MES1!" }[symbol];
+  const days = weekdaysBetween(start, end);
+  const recordings = days * selected.length;
+  const canRun = days > 0 && selected.length > 0;
+  const run = () => { if (canRun) actions.startStudy(expandStudy({ symbol, start, end, sessions, mode })); };
 
   return (
     <>
       <div className="section">
-        <div className="sect-hd">
-          <span>NEW RUN</span>
-          <span className="meta">EST. ~{est.minutes} MIN · $0</span>
+        <div className="sect-hd"><span>CONFIGURE STUDY</span><span className="meta">RUNS ARE FREE</span></div>
+
+        <div className="cfg-field">
+          <div className="cfg-label">SYMBOL</div>
+          <Seg value={symbol} onChange={setSymbol} options={[["mnq", "MNQ"], ["mes", "MES"], ["both", "BOTH"]]} />
         </div>
-        <div className="form-row">
-          <span className="k">DATE</span>
-          <div className="search-wrap">
-            <input
-              type="text" value={date} onChange={(e) => setDate(e.target.value)}
-              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
-              name={`bt-d-${Math.random().toString(36).slice(2, 8)}`}
-            />
+
+        <div className="cfg-field">
+          <div className="cfg-label">DATE RANGE<span className="cfg-hint">{days} session day{days !== 1 ? "s" : ""}</span></div>
+          <div className="cfg-presets">
+            {STUDY_PRESETS.map((p) => (
+              <div key={p.id} className={"cfg-preset" + (preset === p.id ? " on" : "")} onClick={() => applyPreset(p)}>{p.label}</div>
+            ))}
+          </div>
+          <div className="cfg-dates">
+            <label className="cfg-date"><span className="dk">START</span><input type="date" value={start} max={end} onChange={(e) => editDate("start", e.target.value)} /></label>
+            <span className="arrow">→</span>
+            <label className="cfg-date"><span className="dk">END</span><input type="date" value={end} min={start} onChange={(e) => editDate("end", e.target.value)} /></label>
           </div>
         </div>
-        <div className="form-row">
-          <span className="k">SESSION</span>
-          <Seg value={session} onChange={setSession}
-               options={[["london","LON"],["ny-am","AM"],["ny-pm","PM"]]} />
+
+        <div className="cfg-field">
+          <div className="cfg-label">SESSIONS<span className="cfg-hint">recorded from each day</span></div>
+          <div className="cfg-multi">
+            {SESS.map(([k, l]) => (
+              <div key={k} className={"cfg-chip" + (sessions[k] ? " on" : "")} onClick={() => toggleSession(k)}>
+                <span className="ck">{sessions[k] ? "✓" : ""}</span>{l}
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="form-row">
-          <span className="k">PAIR</span>
-          <span className="v">MNQ1! + MES1!</span>
+
+        <div className="cfg-field">
+          <div className="cfg-label">MODE</div>
+          <Seg value={mode} onChange={setMode} options={[["auto", "AUTO"], ["pause", "PAUSE ON SETUP"]]} />
         </div>
-        <div className="form-row">
-          <span className="k">MODE</span>
-          <Seg value={mode} onChange={setMode}
-               options={[["auto","AUTO"],["pause","PAUSE ON SETUP"]]} />
+
+        <div className="cfg-summary">
+          {canRun
+            ? <>▸ Records <b>{symLabel}</b> across <b>{selected.map((s) => s[1]).join(" + ")}</b> · <b>{start} → {end}</b> · {days} day{days !== 1 ? "s" : ""} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} aggregated into ANALYTICS</>
+            : <span style={{ color: "var(--red)" }}>▸ Pick at least one session and a valid date range to run.</span>}
         </div>
-        <button className="start-btn" onClick={() => actions.start({ date, session, mode })}>
-          ▶  START RUN
-        </button>
+
+        <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RUN</button>
       </div>
 
       <div className="section">
-        <div className="sect-hd">
-          <span>RECENT</span>
-          <span className="meta">{agg.total_runs} RUNS</span>
-        </div>
+        <div className="sect-hd"><span>RECENT</span><span className="meta">{agg.total_runs} RUNS</span></div>
         <div className="recent-summary">
           A+ <b className="green">{pct(agg.aplus_hit_rate)}</b>
           {" · "}B <b>{pct(agg.b_hit_rate)}</b>
-          {" · "}CUM <b className={agg.cum_r >= 0 ? "green" : "red"}>
-            {agg.cum_r > 0 ? "+" : ""}{agg.cum_r.toFixed(1)}R
-          </b>
+          {" · "}CUM <b className={agg.cum_r >= 0 ? "green" : "red"}>{agg.cum_r > 0 ? "+" : ""}{agg.cum_r.toFixed(1)}R</b>
         </div>
         {recent.length === 0 && (
-          <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 0" }}>
-            no runs yet
-          </div>
+          <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 0" }}>no runs yet</div>
         )}
         {recent.map((r) => (
           <RunRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
         ))}
-        {state.library.runs.length > 5 && (
-          <div className="view-all" onClick={actions.viewAll}>
-            VIEW ALL {state.library.runs.length} RUNS  →
-          </div>
-        )}
+        <div className="view-all" onClick={actions.viewAll}>
+          VIEW ANALYTICS · {state.library.runs.length} RUNS  →
+        </div>
       </div>
     </>
   );
+}
+
+// Weekdays (Mon–Fri) inclusive between two ISO dates; 0 if invalid/reversed.
+function weekdaysBetween(a, b) {
+  const s = new Date(a + "T00:00"), e = new Date(b + "T00:00");
+  if (isNaN(s) || isNaN(e) || e < s) return 0;
+  let n = 0;
+  for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay();
+    if (wd >= 1 && wd <= 5) n++;
+  }
+  return n;
+}
+
+// Expand a study into sequential jobs — one per (weekday × selected session).
+// symbol is passed through as a hint; the engine runs its configured pair.
+function expandStudy({ symbol, start, end, sessions, mode }) {
+  const s = new Date(start + "T00:00"), e = new Date(end + "T00:00");
+  if (isNaN(s) || isNaN(e) || e < s) return [];
+  const order = ["london", "ny-am", "ny-pm"];
+  const sel = order.filter((k) => sessions[k]);
+  const jobs = [];
+  for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay();
+    if (wd < 1 || wd > 5) continue;
+    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    for (const session of sel) jobs.push({ date, session, mode, symbol });
+  }
+  return jobs;
+}
+
+// Preset date ranges relative to today (Mon–Fri weeks).
+function presetRanges() {
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = new Date();
+  const dow = today.getDay();
+  const monday = new Date(today); monday.setDate(today.getDate() - ((dow + 6) % 7));
+  const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
+  const weekEnd = friday < today ? friday : today;
+  const lastMon = new Date(monday); lastMon.setDate(monday.getDate() - 7);
+  const lastFri = new Date(lastMon); lastFri.setDate(lastMon.getDate() + 4);
+  return {
+    today: [iso(today), iso(today)],
+    week: [iso(monday), iso(weekEnd)],
+    lastweek: [iso(lastMon), iso(lastFri)],
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -346,13 +437,14 @@ function DoneBody({ state, actions }) {
             <span className="v green">{winRate}%</span>
           </div>
           <div className="lcell">
-            <span className="k">BEST</span>
-            <span className="v amber">{s.best_model ?? "—"}</span>
+            <span className="k">AGREEMENT</span>
+            <span className="v amber">{doneAgreementPct(s)}</span>
           </div>
         </div>
         <div className="actions">
-          <button className="btn secondary" onClick={() => actions.openDetail(s.run_id)}>▸ OPEN DETAIL</button>
-          <button className="btn primary" onClick={actions.runAnother}>+ RUN ANOTHER</button>
+          <button className="btn primary full" onClick={actions.viewAll}>▤  VIEW IN ANALYTICS</button>
+          <button className="btn secondary" onClick={actions.runAnother}>↻ RE-RUN</button>
+          <button className="btn danger" onClick={actions.runAnother}>DISCARD</button>
         </div>
       </div>
 
@@ -748,8 +840,10 @@ function derivedGrade(run) {
   if (run.setups > 0 && run.wins / run.setups >= 0.5) return "A+";
   return "B";
 }
-function todayIsoUtc() {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-}
 function pad(n) { return String(n).padStart(2, "0"); }
+function doneAgreementPct(s) {
+  const a = s?.your_agreement;
+  if (!a) return "—";
+  const total = (a.agreed ?? 0) + (a.disagreed ?? 0);
+  return total === 0 ? "—" : `${Math.round((100 * a.agreed) / total)}%`;
+}
