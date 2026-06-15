@@ -29,6 +29,7 @@ import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
+import { normalizeLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
 import { activeSessionDir } from "./sessions.js";
@@ -728,27 +729,31 @@ async function readUntakenTargetsBlock() {
   } catch { return ""; }
 }
 
-// Read ltf-bias.md frontmatter — flat YAML between --- markers — to drive
-// the detector's grade_cap / htf_ltf_alignment / entry_model_priority logic.
+// Read the finalized LTF bias for the detector's grade_cap / htf_ltf_alignment
+// / entry_model_priority / bias logic. The `ltf-bias.json` sidecar that
+// surface_ltf_bias writes IS the source of truth (the `.md` is the human view).
+// Earlier this parsed the `.md` FRONTMATTER for a field named `bias` — but the
+// writer puts the value in the `.md` body as `ltf_bias` and the structured
+// payload in the JSON, so the chain read `bias: null` and blocked every
+// divergent/mixed-open session on `missing_ltf_bias`. Read the JSON; fall back
+// to scanning the `.md` (frontmatter AND body) for legacy sessions.
 async function readLtfBiasFrontmatter() {
   const dir = await activeSessionDir();
   try {
+    const rec = JSON.parse(await fs.readFile(path.join(dir, "ltf-bias.json"), "utf8"));
+    const ctx = normalizeLtfBiasRecord(rec);
+    if (hasValue(ctx.bias)) return ctx;
+  } catch { /* no JSON sidecar — fall back to the .md below */ }
+  try {
     const txt = await fs.readFile(path.join(dir, "ltf-bias.md"), "utf8");
-    const m = txt.match(/^---\n([\s\S]*?)\n---/);
-    if (!m) return {};
     const fm = {};
-    for (const line of m[1].split("\n")) {
-      const kv = line.match(/^(\w+):\s*"?([^"]*?)"?$/);
-      if (kv) fm[kv[1]] = kv[2].trim();
+    // Scan the whole file: the structured fields live in the body as
+    // `- ltf_bias: ...` bullets (and, in older files, in the `---` frontmatter).
+    for (const line of txt.split("\n")) {
+      const kv = line.match(/^[-\s]*([A-Za-z0-9_]+):\s*"?([^"#]*?)"?\s*$/);
+      if (kv && !(kv[1] in fm)) fm[kv[1]] = kv[2].trim();
     }
-    return {
-      bias: fm.bias || fm.leader_bias || null,
-      leader: fm.leader || null,
-      htf_ltf_alignment: fm.htf_ltf_alignment || null,
-      is_retrace_day: fm.is_retrace_day === "true",
-      entry_model_priority: fm.entry_model_priority || null,
-      grade_cap: fm.grade_cap || null,
-    };
+    return normalizeLtfBiasRecord(fm);
   } catch { return {}; }
 }
 
