@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildDirectSessionBriefPayloads, runDirectSessionBrief, codexBriefAnalysisEnabled, deriveHtfBiasDir, htfTrendDir } from "../app/main/direct-session-brief.js";
+import { buildBriefDigest } from "../cli/lib/brief-digest.js";
 
 // §2.1 supply-rejection (2026-06-13): a fresh, liquidity-taking bear PD array
 // ABOVE price is supply price rallies into and rejects → bearish, outranking a
@@ -277,6 +278,53 @@ test("htf_quality reads the digest's real h4/h1 engine quality rows, not pillar2
   assert.equal(payload.htf_quality.h1.cite, "brief_digest.symbols.MNQ1!.htf.h1.quality");
 });
 
+
+// 2026-06-15 regression: the failed brief refresh. After the leader decision,
+// `tv analyze --pair` short-circuits to a leader-only bundle (no `pair` block).
+// buildBriefDigest must still produce brief_digest.symbols from the top-level
+// bundle so the direct brief rebuilds instead of throwing
+// "requires bundle.brief_digest.symbols".
+test("single-symbol leader capture rebuilds the brief end-to-end (short-circuit refresh fix)", () => {
+  const single = {
+    chart: { symbol: "CME_MINI:MNQ1!" },
+    quote: { last: 29900 },
+    bars_by_tf: { daily: {}, h4: {}, h1: {} },
+    engine_by_tf: {
+      daily: { fvgs: [], bprs: [], structures: [], quality: null },
+      h4: {
+        fvgs: [{ dir: "bull", top: 30000, bottom: 29950, ce: 29975, disp_score: 0.8, took_liq: true, state: "fresh", size_quality: "normal", reacted: false, reaction_dir: "none" }],
+        bprs: [], structures: [],
+        quality: { range_quality: "good", displacement: "clean", candle: "normal" },
+      },
+      h1: { fvgs: [], bprs: [], structures: [], quality: null },
+    },
+    gates: {
+      engine: {
+        pillar1: {
+          session_levels: { PDH: { name: "PDH", price: 30100, state: "untaken", swept: false } },
+          untaken_buy_side_above: [{ name: "PDH", price: 30100 }],
+          untaken_sell_side_below: [], untaken_pools_above: [], untaken_pools_below: [], sweeps: [],
+        },
+        pillar2: {
+          current_tf: { range_quality: "good", displacement: "clean", candle: "normal" },
+          m5: { range_quality: "good", displacement: "clean", candle: "normal" },
+          m15: { range_quality: "good", displacement: "acceptable", candle: "normal" },
+        },
+        price_context: {},
+      },
+    },
+  };
+  const digest = buildBriefDigest(single);
+  assert.ok(digest?.symbols?.["MNQ1!"], "single-symbol capture must yield brief_digest.symbols.MNQ1!");
+  // tv analyze prepends the digest the same way (analyze.js).
+  const bundleSingle = { brief_digest: digest, ...single };
+  const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: bundleSingle, sizingByGrade: { B: { r_size: 0.75 } } });
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0].symbol, "MNQ1!");
+  assert.equal(payloads[0].pillar_grade, "B");
+  assert.equal(payloads[0].primary_draw.dir, "bull");
+  assert.ok(payloads[0].chain_status.includes("direct-codex-compatible"));
+});
 
 test("codexBriefAnalysisEnabled — Codex brief commentary is env opt-in, default off", () => {
   assert.equal(codexBriefAnalysisEnabled({}), false);

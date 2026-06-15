@@ -135,27 +135,52 @@ function ltfContextForSymbol(symBundle) {
   };
 }
 
+/** Bare ticker from a fully-qualified chart symbol ("CME_MINI:MNQ1!" → "MNQ1!"). */
+function bareSymbol(bundle) {
+  const raw = bundle?.chart?.symbol || bundle?.quote?.symbol || '';
+  return String(raw).replace(/^[A-Z_]+:/, '').trim() || null;
+}
+
+function digestSection(symBundle) {
+  return {
+    htf: htfBlockForSymbol(symBundle),
+    pillar1: pillar1ForSymbol(symBundle),
+    pillar2: pillar2ForSymbol(symBundle),
+    ltf_context: ltfContextForSymbol(symBundle),
+  };
+}
+
 /**
  * buildBriefDigest(bundle) → digest | null
  *
- * Returns null when there is no `pair` block (single-symbol bundles don't
- * need a digest — the model reads top-level fields directly).
+ * Paired bundle → one section per symbol. Single-symbol full capture → a
+ * one-symbol digest keyed by the chart's bare symbol.
+ *
+ * The single-symbol path closes a 2026-06-15 gap: once the leader is decided,
+ * `tv analyze --pair` short-circuits to a leader-only capture (no `pair`
+ * block) to save the dual-capture cost. The direct session brief still needs
+ * `brief_digest.symbols` to rebuild, so without a single-symbol digest any
+ * brief refresh after the leader decision threw
+ * "requires bundle.brief_digest.symbols". Returns null only when the bundle
+ * has neither a pair block nor a usable single-symbol capture (no resolvable
+ * symbol or no `engine_by_tf` — e.g. an empty or polling-mode bundle).
  */
 export function buildBriefDigest(bundle) {
   const pair = bundle?.pair;
-  if (!pair?.symbols) return null;
-  const symbols = {};
-  for (const sym of Object.keys(pair.symbols)) {
-    const sb = pair.symbols[sym];
-    symbols[sym] = {
-      htf: htfBlockForSymbol(sb),
-      pillar1: pillar1ForSymbol(sb),
-      pillar2: pillar2ForSymbol(sb),
-      ltf_context: ltfContextForSymbol(sb),
+  if (pair?.symbols) {
+    const symbols = {};
+    for (const sym of Object.keys(pair.symbols)) {
+      symbols[sym] = digestSection(pair.symbols[sym]);
+    }
+    return {
+      symbols,
+      leader_evidence: pair.leader_evidence || {},
     };
   }
+  const sym = bareSymbol(bundle);
+  if (!sym || !bundle?.engine_by_tf) return null;
   return {
-    symbols,
-    leader_evidence: pair.leader_evidence || {},
+    symbols: { [sym]: digestSection(bundle) },
+    leader_evidence: {},
   };
 }
