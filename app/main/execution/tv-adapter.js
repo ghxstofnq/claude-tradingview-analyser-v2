@@ -111,6 +111,26 @@ export async function placeOrder(order = {}) {
   return { ...res, sent: payload, accountId: acct };
 }
 
+// Place a STANDALONE order (no bracket): market entry, or a per-tranche resting
+// stop/limit. M0 spike (2026-06-15): multiple standalone stop/limit orders rest
+// concurrently on a netted position, each reducing it when filled — this is how
+// independent tranches are recreated on a netting account. order:
+// {symbol, type:"market"|"stop"|"limit", side, contracts, price?}.
+export async function placeStandalone(order = {}) {
+  const acct = paperAccountId();
+  if (!acct) throw new Error("no paper account id configured");
+  const payload = {
+    symbol: tvSymbol(order.symbol),
+    type: order.type === "stop" || order.type === "limit" ? order.type : "market",
+    qty: order.contracts ?? order.qty ?? 1,
+    side: tvSide(order.side),
+    outside_rth: false,
+  };
+  if (payload.type !== "market" && order.price != null) payload.price = order.price;
+  const res = await postTrading(`/trading/place/${acct}`, payload);
+  return { ...res, sent: payload, accountId: acct };
+}
+
 // Modify the open position's bracket (move SL / TP). M0 spike: POST
 // /trading/modify_position/<acct> {symbol, sl, tp} → 200 (new sl/tp ids).
 export async function modifyPosition({ symbol, sl, tp } = {}) {
@@ -168,4 +188,4 @@ export async function addToPosition(order = {}) {
 }
 
 export { rememberAccountId };
-export const tvAdapter = { brokerConnected, readState, placeOrder, flatten, panic, modifyPosition, cancelOrder, addToPosition };
+export const tvAdapter = { brokerConnected, readState, placeOrder, placeStandalone, flatten, panic, modifyPosition, cancelOrder, addToPosition };
