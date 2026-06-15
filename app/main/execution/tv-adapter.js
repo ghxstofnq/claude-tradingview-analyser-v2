@@ -103,11 +103,30 @@ export async function placeOrder(order = {}) {
     outside_rth: false,
     outside_rth_tp: false,
   };
+  // TradingView limit/stop orders take `price` (NOT limitPrice).
   if (type === "limit" && (order.entry != null || order.limitPrice != null)) {
-    payload.limitPrice = order.limitPrice ?? order.entry;
+    payload.price = order.limitPrice ?? order.entry;
   }
   const res = await postTrading(`/trading/place/${acct}`, payload);
   return { ...res, sent: payload, accountId: acct };
+}
+
+// Modify the open position's bracket (move SL / TP). M0 spike: POST
+// /trading/modify_position/<acct> {symbol, sl, tp} → 200 (new sl/tp ids).
+export async function modifyPosition({ symbol, sl, tp } = {}) {
+  const acct = paperAccountId();
+  if (!acct) throw new Error("no paper account id configured");
+  const res = await postTrading(`/trading/modify_position/${acct}`, { symbol: tvSymbol(symbol), sl, tp });
+  return { ...res, accountId: acct };
+}
+
+// Cancel a working order by id. M0 spike: POST /trading/cancel/<acct>
+// {id:<NUMBER>} → 200 (id must be numeric, not a string).
+export async function cancelOrder({ id } = {}) {
+  const acct = paperAccountId();
+  if (!acct) throw new Error("no paper account id configured");
+  const res = await postTrading(`/trading/cancel/${acct}`, { id: Number(id) });
+  return { ...res, accountId: acct };
 }
 
 // Close the open position for the order's symbol (market). flatten == close.
@@ -123,10 +142,10 @@ export async function flatten(order = {}) {
 // cancel-all is M5; for the thin slice this flattens the active position.
 export async function panic(order = {}) { return flatten(order); }
 
-export async function moveStopToBE() { throw new Error("moveStopToBE not implemented yet (M5)"); }
-export async function trail() { throw new Error("trail not implemented yet (M5)"); }
-export async function cancel() { throw new Error("cancel not implemented yet (M5)"); }
+// addToPosition (scale-in) is M5 — composed later from placeOrder + the
+// walker's scale_in_add candidate. BE / TRAIL / CANCEL are composed in
+// ipc-execution from modifyPosition / cancelOrder + the live position.
 export async function addToPosition() { throw new Error("addToPosition not implemented yet (M5)"); }
 
 export { rememberAccountId };
-export const tvAdapter = { brokerConnected, readState, placeOrder, flatten, panic, moveStopToBE, trail, cancel, addToPosition };
+export const tvAdapter = { brokerConnected, readState, placeOrder, flatten, panic, modifyPosition, cancelOrder, addToPosition };

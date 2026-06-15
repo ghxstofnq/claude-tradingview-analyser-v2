@@ -41,7 +41,7 @@ export function registerExecutionIpc() {
         position: feed.position ?? dom.position ?? null,
         balance: feed.balance ?? dom.balance ?? null,
         price: dom.price ?? null,
-        workingOrders: dom.workingOrders ?? [],
+        workingOrders: feed.workingOrders ?? [],
         source: feed.position != null || feed.connected ? "ws" : "dom",
       };
       return { ok: true, state };
@@ -53,10 +53,53 @@ export function registerExecutionIpc() {
     try { return { ok: true, result: await tvAdapter.placeOrder(payload) }; }
     catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
-  for (const verb of ["flatten", "panic", "moveStopToBE", "trail", "cancel", "addToPosition"]) {
+  for (const verb of ["flatten", "panic", "addToPosition"]) {
     ipcMain.handle(`execution:${verb}`, async (_e, payload) => {
       try { return { ok: true, result: await tvAdapter[verb](payload) }; }
       catch (e) { return { ok: false, error: String(e?.message || e) }; }
     });
   }
+
+  // BE: move the stop to the entry (break-even) via modify_position.
+  ipcMain.handle("execution:moveStopToBE", async () => {
+    try {
+      const pos = getTradingState().position;
+      if (!pos) return { ok: false, error: "no open position" };
+      const r = await tvAdapter.modifyPosition({ symbol: pos.symbol, sl: tick(pos.avgFill), tp: pos.tp });
+      return { ok: r?.status === 200, result: r };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
+  // TRAIL (one-shot): lock in half the open profit — move the stop toward
+  // price by 50% of the unrealized gain, never the wrong direction.
+  ipcMain.handle("execution:trail", async (_e, arg = {}) => {
+    try {
+      const pos = getTradingState().position;
+      if (!pos) return { ok: false, error: "no open position" };
+      const dom = await tvAdapter.readState();
+      const price = arg?.price ?? dom.price;
+      const entry = pos.avgFill;
+      let sl = pos.sl ?? entry;
+      if (price != null && entry != null) {
+        if (pos.side === "buy") sl = Math.max(sl, entry + Math.max(0, (price - entry) * 0.5));
+        else sl = Math.min(sl, entry - Math.max(0, (entry - price) * 0.5));
+      }
+      const r = await tvAdapter.modifyPosition({ symbol: pos.symbol, sl: tick(sl), tp: pos.tp });
+      return { ok: r?.status === 200, result: r, newSl: tick(sl) };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
+  // CANCEL: cancel every working order (e.g. an unfilled limit entry).
+  ipcMain.handle("execution:cancel", async () => {
+    try {
+      const wos = getTradingState().workingOrders || [];
+      if (wos.length === 0) return { ok: true, cancelled: 0 };
+      const results = [];
+      for (const o of wos) results.push(await tvAdapter.cancelOrder({ id: o.id }));
+      return { ok: true, cancelled: results.length, result: results };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
 }
+
+// Round to the MNQ/MES tick (0.25).
+function tick(n) { return Number.isFinite(n) ? Math.round(n * 4) / 4 : n; }
