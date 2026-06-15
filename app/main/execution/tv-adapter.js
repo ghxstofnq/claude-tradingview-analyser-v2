@@ -8,23 +8,38 @@ import { evaluate, findWebviewTarget } from "./cdp-webview.js";
 const NOT_YET = "execution placement not implemented — gated on the M0 mechanism spike";
 
 export async function brokerConnected() {
-  // A broker/Paper-Trading connection shows a real account-manager with an
-  // account row. Heuristic, refined in M1. Returns boolean.
+  // A connected broker (incl. TV Paper Trading) renders the account-manager
+  // shell + the order buttons, even when the bottom panel is COLLAPSED
+  // (class js-hidden) — so detect by element presence, not visible text.
+  // The order buttons alone exist as latent scaffolding on a chart with no
+  // broker; requiring the accountManager too is what proves a connection.
   try {
     return await evaluate(`(() => {
-      const am = document.querySelector('[class*="accountManager"] [class*="account"], [data-name="account-manager"]');
-      const txt = (document.body.innerText || '');
-      return !!am && /paper|account|balance|\\$[0-9]/i.test(txt);
+      const am = document.querySelector('[class*="accountManager-"], .js-account-manager-header');
+      const order = document.querySelector('[data-name="buy-order-button"], [data-name="sell-order-button"]');
+      return !!(am && order);
     })()`);
   } catch { return false; }
 }
 
 export async function readState() {
-  // Read-only position/orders/balance from the account-manager DOM.
-  // Real parsing lands in M1 against a connected paper account; until then
-  // report the connection state so the UI can show "connect Paper Trading".
-  const connected = await brokerConnected();
-  return { connected, position: null, workingOrders: [], balance: null };
+  // Read-only snapshot from the account-manager DOM. Connection + account
+  // name read via textContent (works even when the panel is collapsed).
+  // Full position/order parsing lands in M1 against a live paper position.
+  try {
+    const snap = await evaluate(`(() => {
+      const am = document.querySelector('[class*="accountManager-"], .js-account-manager-header');
+      const order = document.querySelector('[data-name="buy-order-button"], [data-name="sell-order-button"]');
+      const connected = !!(am && order);
+      const nameEl = document.querySelector('[class*="accountName-"]');
+      const account = nameEl ? (nameEl.textContent || "").trim().slice(0, 40) : null;
+      const posRows = document.querySelectorAll('[data-name="Paper.positions-table"] tr, .positions tbody tr').length;
+      return { connected, account, openPositionRows: posRows };
+    })()`);
+    return { connected: !!snap?.connected, account: snap?.account ?? null, position: null, openPositionRows: snap?.openPositionRows ?? 0, workingOrders: [], balance: null };
+  } catch {
+    return { connected: false, account: null, position: null, openPositionRows: 0, workingOrders: [], balance: null };
+  }
 }
 
 export async function placeOrder() { throw new Error(NOT_YET); }
