@@ -17,6 +17,7 @@ import { FixturesPage } from "./Fixtures.jsx";
 import { HealthPage } from "./Health.jsx";
 import { SettingsPage } from "./Settings.jsx";
 import { ErrorBoundary } from "./ErrorBoundary.jsx";
+import { ChatCell } from "./ChatPopover.jsx";
 import {
   CHAT_PROVIDER_CELLS,
   DEFAULT_CHAT_PROVIDER,
@@ -350,29 +351,7 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
         <LiveCell account={account} guards={guards} symbol={symbol} />
         <ReviewCell />
         <BacktestCell />
-        <span className="item provider-controls">
-          {CHAT_PROVIDER_CELLS.map((cell) => {
-            const selected = activeProvider === cell.provider;
-            return (
-              <span key={cell.provider}
-                    className={"provider-chip" + (selected ? " selected" : "")}
-                    onClick={(e) => { e.stopPropagation(); selectProvider(cell.provider); }}>
-                <span className="k">{cell.label}</span>
-                <span className={"claude-dot" + (selected && isProviderChatActive(chats, cell.provider) ? " active" : "")} />
-                {openProvider === cell.provider && selected && (
-                  <ProviderPopover provider={cell.provider}
-                                   chat={getProviderChat(chats, cell.provider)}
-                                   onClose={() => setOpenProvider(null)} />
-                )}
-              </span>
-            );
-          })}
-          <span className={"provider-stop" + (chatActive ? " active" : " disabled")}
-                title={`stop ${activeProvider}`}
-                onClick={(e) => { e.stopPropagation(); if (chatActive) activeChat?.cancel?.(); }}>
-            STOP
-          </span>
-        </span>
+        <ChatCell chats={chats} />
       </div>
       <div className="grp">
         <span className="item"><span className="k">PH</span><span className="v amber">{phase}</span></span>
