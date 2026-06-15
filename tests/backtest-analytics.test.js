@@ -145,9 +145,36 @@ test("buildAnalytics cuts by grade and model, sorted by expectancy", () => {
   assert.deepEqual(A.by_model.map((r) => r.k), ["MSS", "Trend"]);
 });
 
-test("buildAnalytics omits by_bias (untracked), never fabricates it", () => {
-  const A = buildAnalytics(runDetails);
+test("buildAnalytics omits by_bias when no run carries alignment, never fabricates it", () => {
+  const A = buildAnalytics(runDetails); // these run entries have no open_reaction
   assert.equal(A.by_bias, undefined);
+});
+
+test("buildAnalytics builds by_bias from open_reaction.htf_ltf_alignment when tracked", () => {
+  const withBias = [
+    {
+      entry: { run_id: "r1", date: "2026-05-21", session: "ny-am", open_reaction: { htf_ltf_alignment: "aligned" } },
+      setups: [
+        { type: "open", id: "a", grade: "A+", model: "MSS", side: "long", entry: 100, stop: 90, tp1: 120, event_ts: "2026-05-21T13:35:00.000Z" },
+        { type: "outcome", setup_id: "a", outcome: "tp1_hit", exit: 120 },
+        { type: "open", id: "b", grade: "B", model: "MSS", side: "long", entry: 200, stop: 210, tp1: 180, event_ts: "2026-05-21T13:50:00.000Z" },
+        { type: "outcome", setup_id: "b", outcome: "stop_hit", exit: 210 },
+      ],
+    },
+    {
+      entry: { run_id: "r2", date: "2026-05-20", session: "ny-pm", open_reaction: { htf_ltf_alignment: "divergent" } },
+      setups: [
+        { type: "open", id: "c", grade: "B", model: "Inversion", side: "short", entry: 50, stop: 55, tp1: 30, tp2: 20, event_ts: "2026-05-20T18:35:00.000Z" },
+        { type: "outcome", setup_id: "c", outcome: "tp2_hit", exit: 20 },
+      ],
+    },
+  ];
+  const A = buildAnalytics(withBias);
+  const byK = Object.fromEntries(A.by_bias.map((r) => [r.k, r]));
+  assert.equal(byK["HTF-aligned"].n, 2); // r1's two trades (+2R, -1R)
+  assert.equal(byK["HTF-aligned"].exp, 0.5);
+  assert.equal(byK["Counter-trend"].n, 1); // r2's tp2 (+6R = |20-50|/5)
+  assert.equal(byK["Counter-trend"].exp, 6);
 });
 
 test("buildAnalytics builds session concentration sorted by R", () => {
