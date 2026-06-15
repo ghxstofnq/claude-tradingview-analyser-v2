@@ -8,6 +8,11 @@ import {
   filterRuns,
   formatRunForRow,
   estimateRun,
+  formatClockEt,
+  recordClockEt,
+  outcomeMeta,
+  runGrade,
+  displayGrade,
 } from "../app/renderer/src/Backtest.helpers.js";
 
 test("nextState — IDLE + START → AUTO_RUNNING", () => {
@@ -121,4 +126,51 @@ test("estimateRun — unknown session falls back to default bars", () => {
   const v = estimateRun({ session: "unknown" });
   assert.ok(v.bars > 0);
   assert.equal(v.cost, 0);
+});
+
+// ── Display-fix regression tests (2026-06-15) ──────────────────────────
+// The backtest DETAIL view showed run-time instead of session-time, mislabeled
+// UTC as ET, rendered TP2 winners as red "STOPPED", and defaulted missing
+// grades to "A+". These lock the fixes.
+
+test("formatClockEt — converts UTC to New York (ET), not a UTC slice labeled ET", () => {
+  // 2026-05-13 13:50 UTC = 09:50 EDT.
+  assert.equal(formatClockEt("2026-05-13T13:50:00.000Z"), "09:50 ET");
+  // epoch ms accepted too
+  assert.equal(formatClockEt(Date.parse("2026-05-13T13:50:00.000Z")), "09:50 ET");
+  assert.equal(formatClockEt(null), "");
+  assert.equal(formatClockEt(""), "");
+});
+
+test("recordClockEt — prefers the historical event_ts over the run-time ts", () => {
+  // The bug: ts is the wall-clock fold time (run day); event_ts is the real bar.
+  const rec = { ts: 1781515901746 /* 2026-06-15 run time */, event_ts: "2026-05-13T13:50:00.000Z" };
+  assert.equal(recordClockEt(rec), "09:50 ET");
+  // Falls back to ts when no event_ts (e.g. live-streamed activity).
+  assert.equal(recordClockEt({ ts: "2026-05-13T14:00:00.000Z" }), "10:00 ET");
+  assert.equal(recordClockEt({}), "");
+});
+
+test("outcomeMeta — BOTH targets are wins; only a stop is a loss", () => {
+  assert.deepEqual(outcomeMeta("tp1_hit"), { cls: "win", label: "HIT TP1" });
+  assert.deepEqual(outcomeMeta("tp2_hit"), { cls: "win", label: "HIT TP2" }); // was rendered "STOPPED"
+  assert.deepEqual(outcomeMeta("stop_hit"), { cls: "loss", label: "STOPPED" });
+  assert.equal(outcomeMeta("closed_eod").cls, "live");
+  assert.deepEqual(outcomeMeta(undefined), { cls: "live", label: null }); // still open → no badge
+  assert.equal(outcomeMeta("weird_state").label, "WEIRD STATE");
+});
+
+test("runGrade — strategy grade of the setups, independent of win-rate", () => {
+  // A losing day of A+ setups is still graded A+ (was "B" under the win-rate heuristic).
+  assert.equal(runGrade({ setups: 5, wins: 0, losses: 5, setups_by_grade: { "A+": 5 } }), "A+");
+  assert.equal(runGrade({ setups: 3, wins: 3, losses: 0, setups_by_grade: { B: 3 } }), "B");
+  assert.equal(runGrade({ setups: 4, setups_by_grade: { "A+": 1, B: 3 } }), "A+"); // best present
+  assert.equal(runGrade({ setups: 0 }), "NO");
+});
+
+test("displayGrade — never fabricates an A+ for a missing grade", () => {
+  assert.equal(displayGrade("A+"), "A+");
+  assert.equal(displayGrade("B"), "B");
+  assert.equal(displayGrade(undefined), "—");
+  assert.equal(displayGrade(null), "—");
 });
