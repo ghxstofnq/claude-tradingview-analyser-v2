@@ -188,25 +188,38 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
-function InTradeView({ trade, lastBar, chat, symbol, addCandidate, onAdd }) {
-  const grid = liveGridFromTrade(trade, lastBar?.close);
+function InTradeView({ position, trade, lastBar, price, chat, symbol, addCandidate, onAdd }) {
+  // The live broker position (from execution.state / trading WS) is the source
+  // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
+  // grade / id metadata when present.
+  const t = trade || {};
+  const live = !!position;
+  const side = position ? (position.side === "buy" ? "long" : "short") : (t.side || "long");
+  const entry = position?.avgFill ?? t.entry;
+  const stop = position?.sl ?? t.stop;
+  const tp1 = position?.tp ?? t.tp1;
+  const qty = position?.qty ?? t.size?.contracts ?? null;
+  const sym = String(position?.symbol || symbol || "").replace("CME_MINI:", "");
+  const view = { side, entry, stop, tp1, tp2: t.tp2, r_realized: t.r_realized, tp1_hit: t.tp1_hit };
+  const livePrice = (typeof price === "number" && Number.isFinite(price)) ? price : lastBar?.close;
+  const grid = liveGridFromTrade(view, livePrice);
   const barRead = latestBarReadMessage(chat?.messages || []);
-  const grade = trade.grade || "—";
+  const grade = t.grade || "—";
   const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : "dim";
-  const pointValue = pointValueFor(symbol);
-  const contracts = trade.size?.contracts ?? null;
-  const dollarRisk = (trade.entry != null && trade.stop != null && contracts != null)
-    ? (Math.abs(trade.entry - trade.stop) * pointValue * contracts).toFixed(0)
+  const pointValue = pointValueFor(sym);
+  const dollarRisk = (entry != null && stop != null && qty != null)
+    ? (Math.abs(entry - stop) * pointValue * qty).toFixed(0)
     : null;
-  const mng = (fn) => () => { try { executionAdapter[fn]({ tradeId: trade.id }); } catch { /* stub */ } };
+  const mng = (fn) => () => { try { executionAdapter[fn]({ symbol: position?.symbol || symbol, tradeId: t.id }); } catch { /* best-effort */ } };
   return (
     <div className="work-scroll">
       <Panel title="IN-TRADE"
         right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-          <span style={{ color: "var(--value)", fontSize: 11 }}>#{trade.id}</span>
-          <span className={"pill " + (trade.side === "long" ? "green" : "red")}>{(trade.side || "").toUpperCase()}</span>
-          <span className={"pill " + gradeTone}>{grade}</span>
-          <span style={{ color: "var(--label)", fontSize: 10 }}>{trade.model}</span>
+          {live && <span className="acct live">● LIVE</span>}
+          {t.id && <span style={{ color: "var(--value)", fontSize: 11 }}>#{t.id}</span>}
+          <span className={"pill " + (side === "long" ? "green" : "red")}>{side.toUpperCase()}</span>
+          {grade !== "—" && <span className={"pill " + gradeTone}>{grade}</span>}
+          <span style={{ color: "var(--label)", fontSize: 10 }}>{sym}{qty ? ` · ${qty}c` : ""}{t.model ? ` · ${t.model}` : ""}</span>
         </span>}>
 
         <div className="live-grid">
@@ -218,11 +231,11 @@ function InTradeView({ trade, lastBar, chat, symbol, addCandidate, onAdd }) {
 
         <div className="lv-box plan-rows">
           <div className="lv-box-hd">RISK PLAN</div>
-          <Row k="Entry" v={<Px v={trade.entry} />} />
-          <Row k="Stop" v={<Px v={`${trade.stop}${trade.tp1_hit ? " · BE" : ""}`} tone="red" />} />
-          <Row k="TP1" v={<Px v={trade.tp1} tone="green" />} />
-          <Row k="TP2" v={<Px v={trade.tp2} tone="green" />} />
-          <Row k="Size · R : R" v={<span>{sizeLabel(trade.size)}{trade.rr ? ` · ${trade.rr}` : ""}{trade.tp1_hit ? " · stop at BE" : ""}</span>} />
+          <Row k="Entry" v={<Px v={entry ?? "—"} />} />
+          <Row k="Stop" v={<Px v={`${stop ?? "—"}${t.tp1_hit ? " · BE" : ""}`} tone="red" />} />
+          <Row k="TP1" v={<Px v={tp1 ?? "—"} tone="green" />} />
+          {t.tp2 != null && <Row k="TP2" v={<Px v={t.tp2} tone="green" />} />}
+          <Row k="Size" v={<span>{qty != null ? `${qty}c` : "—"}{t.rr ? ` · ${t.rr}` : ""}{t.tp1_hit ? " · stop at BE" : ""}</span>} />
           {dollarRisk != null && <Row k="$ Risk" v={<Px v={"$" + dollarRisk} />} />}
         </div>
 
@@ -413,7 +426,9 @@ function LiveCell({ account, guards, symbol }) {
   const exec = useExecutionState();
 
   // Default view follows the data unless the user clicked a tab this session.
-  const dataView = activeTrade ? "intrade" : "hunt";
+  // A live broker position (execution feed) OR a journal trade → IN-TRADE.
+  const hasPosition = !!exec.position || !!activeTrade;
+  const dataView = hasPosition ? "intrade" : "hunt";
   const effectiveView = userPickedView ? view : dataView;
 
   useEffect(() => {
@@ -425,10 +440,15 @@ function LiveCell({ account, guards, symbol }) {
     return () => window.removeEventListener("topbar:open-cell", onOpen);
   }, []);
 
-  // Cell badge: green/red P&L when in a trade, amber HUNT when hunting, else dim.
+  // Cell badge: green/red P&L when in a position (live broker or journal),
+  // amber HUNT when hunting, else dim.
   let badge;
-  if (activeTrade) {
-    const pnl = liveGridFromTrade(activeTrade, lastBar?.close)?.pnl;
+  if (exec.position || activeTrade) {
+    const src = exec.position
+      ? { entry: exec.position.avgFill, stop: exec.position.sl, tp1: exec.position.tp, side: exec.position.side === "buy" ? "long" : "short" }
+      : activeTrade;
+    const badgePrice = (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastBar?.close;
+    const pnl = liveGridFromTrade(src, badgePrice)?.pnl;
     const cls = pnl?.tone === "red" ? "red" : "green";
     badge = (<><span className={"pulse " + cls} /><span className={"pnl " + cls}>{pnl?.v ?? "—"}</span></>);
   } else if (activeSetup) {
@@ -475,9 +495,9 @@ function LiveCell({ account, guards, symbol }) {
   if (backtest.running) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveView === "intrade") {
-    body = activeTrade
-      ? <InTradeView trade={activeTrade} lastBar={lastBar} chat={chat} symbol={symbol} addCandidate={null} onAdd={() => pickView("add")} />
-      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active trade ]</div>;
+    body = (exec.position || activeTrade)
+      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} chat={chat} symbol={symbol} addCandidate={null} onAdd={() => pickView("add")} />
+      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
       ? <TicketView setup={ticketSetup} isAdd={ticketAdd} account={account} guards={guards} symbol={symbol}

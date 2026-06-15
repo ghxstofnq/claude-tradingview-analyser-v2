@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 
 const EMPTY = { connected: false, position: null, workingOrders: [], balance: null };
 
-export function useExecutionState(intervalMs = 5000) {
+export function useExecutionState(intervalMs = 2000) {
   const [state, setState] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
 
