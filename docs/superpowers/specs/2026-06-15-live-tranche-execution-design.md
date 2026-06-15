@@ -55,8 +55,7 @@ Per `backtest-engine.js` + `backtest-grader.js` + `cli/lib/trade-outcomes.js` (s
 2. **Risk model adjustable, defaults = backtest-exact:** each add = the configured per-trade **$ risk** against **its own stop**; **max adds = 5**; **no combined cap**; backstops = 2-add-stop breaker + 3-loss halt. Adjustable settings: automation mode, max concurrent adds, optional combined-position $ cap.
 3. **Exits:** engine-managed in the two auto modes; human-managed in full-manual mode (per decision above).
 4. **Paper-only.** LIVE arming stays a separate, deliberate, gated step (unchanged). Auto modes fire **paper** orders only until LIVE is armed.
-
-**Open for your sign-off at spec review:** in the auto modes, take **every** surfaced grade (A+ and B, backtest-exact) vs **A+ only**. Proposed default: take-all (adjustable), to match the backtest.
+5. **Auto grade filter:** in the auto modes, fire on **all grades (A+ and B)** — anchors and adds — backtest-exact (the 131R includes B trades/adds). Adjustable later.
 
 ---
 
