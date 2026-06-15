@@ -1244,15 +1244,57 @@ function deterministicPacketToSurfacePayload(packet, ev) {
   };
 }
 
-async function refreshEntryHuntScanForWalker(session) {
-  try {
-    await tvAnalyzeFast(entryHuntFastScanArgs(), { skipRead: true });
-    recordMetric({ kind: "bar-close", event: "scan_refreshed", session });
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("[bar-close] entry-hunt scan refresh failed", err?.message || err);
-    recordMetric({ kind: "bar-close", event: "scan_refresh_failed", session, reason: String(err?.message || err) });
+// A fast scan is only chain-usable if the engine emitted zone rows — an empty
+// engine table (the forming-bar emit / a CDP read race against the indicator
+// re-render) makes the walker chain block missing_ict_engine_rows for that one
+// bar. Observed live 2026-06-15 on ~16% of NY-AM bars, each self-recovering the
+// next bar. Predicate kept pure for unit testing.
+function scanBundleHasEngineRows(bundle) {
+  const p3 = bundle?.gates?.engine?.pillar3 ?? {};
+  return (Array.isArray(p3.fvgs) && p3.fvgs.length > 0)
+    || (Array.isArray(p3.bprs) && p3.bprs.length > 0);
+}
+
+// Re-run `scanFn` a bounded number of times until it yields a bundle with
+// engine rows, giving the indicator a moment to re-render. FRESH evidence
+// only — an empty scan is re-captured, never reused as stale rows; a persistent
+// empty (or a scan failure) returns ok:false so the chain blocks honestly.
+// `scanFn` + `sleep` are injectable so the retry loop is unit-testable.
+async function scanUntilEngineRows({
+  scanFn, retries = 3, waitMs = 350,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+} = {}) {
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    let bundle = null;
+    try {
+      bundle = await scanFn();
+    } catch (err) {
+      return { ok: false, failed: true, attempts: attempt, error: err };
+    }
+    if (scanBundleHasEngineRows(bundle)) return { ok: true, attempts: attempt, bundle };
+    if (attempt < retries) await sleep(waitMs);
   }
+  return { ok: false, attempts: retries, bundle: null };
+}
+
+async function refreshEntryHuntScanForWalker(session) {
+  const res = await scanUntilEngineRows({
+    scanFn: async () => (await tvAnalyzeFast(entryHuntFastScanArgs())).bundle,
+  });
+  if (res.failed) {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] entry-hunt scan refresh failed", res.error?.message || res.error);
+    recordMetric({ kind: "bar-close", event: "scan_refresh_failed", session, reason: String(res.error?.message || res.error) });
+    return;
+  }
+  if (res.ok) {
+    recordMetric({ kind: "bar-close", event: "scan_refreshed", session, ...(res.attempts > 1 ? { attempts: res.attempts } : {}) });
+    return;
+  }
+  // Still no engine rows after retries — leave the fresh (engine-less) scan on
+  // disk; the chain blocks missing_ict_engine_rows honestly rather than fold
+  // against stale evidence.
+  recordMetric({ kind: "bar-close", event: "scan_empty_engine_persist", session, attempts: res.attempts });
 }
 
 async function readBriefJson(session, leader = null) {
@@ -1345,6 +1387,8 @@ export const __test = {
   deterministicPacketToSurfacePayload,
   truthCacheKeyFor,
   llmTurnAuthBlocked,
+  scanBundleHasEngineRows,
+  scanUntilEngineRows,
 };
 
 // Read the chosen leader symbol from pair-decision.json. Returns null if
