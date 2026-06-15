@@ -29,10 +29,14 @@ export function nextState(state, event) {
     case "LIBRARY":
       if (event.type === "ROW_CLICK") return "DETAIL";
       if (event.type === "DISMISS") return "IDLE";
+      // The header's NEW tab dispatches RUN_ANOTHER; without this, NEW was a
+      // no-op from ANALYTICS (the user was stuck in the library).
+      if (event.type === "RUN_ANOTHER") return "IDLE";
       return state;
     case "DETAIL":
       if (event.type === "BACK") return "LIBRARY";
       if (event.type === "DISMISS") return "IDLE";
+      if (event.type === "RUN_ANOTHER") return "IDLE";
       return state;
     default:
       return state;
