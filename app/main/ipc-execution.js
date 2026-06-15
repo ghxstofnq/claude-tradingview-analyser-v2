@@ -40,6 +40,7 @@ export function registerExecutionIpc() {
         account: dom.account ?? feed.accountId ?? null,
         position: feed.position ?? dom.position ?? null,
         balance: feed.balance ?? dom.balance ?? null,
+        price: dom.price ?? null,
         workingOrders: dom.workingOrders ?? [],
         source: feed.position != null || feed.connected ? "ws" : "dom",
       };

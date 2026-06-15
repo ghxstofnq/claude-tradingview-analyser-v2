@@ -39,6 +39,11 @@ export async function readState() {
       const connected = !!(am && order);
       const nameEl = document.querySelector('[class*="accountName-"]');
       const account = nameEl ? (nameEl.textContent || "").trim().slice(0, 40) : null;
+      // Live mid-price from the buy/sell order buttons (update continuously,
+      // even when the panel is collapsed) — feeds the IN-TRADE P&L grid.
+      const btnNum = (sel) => { const m = ((document.querySelector(sel)||{}).textContent||"").match(/[\\d,]+\\.?\\d*/); return m ? Number(m[0].replace(/,/g,"")) : null; };
+      const ask = btnNum('[data-name="buy-order-button"]'), bid = btnNum('[data-name="sell-order-button"]');
+      const price = (ask != null && bid != null) ? (ask + bid) / 2 : (ask ?? bid ?? null);
       const tbl = document.querySelector('[data-name="Paper.positions-table"]');
       const rows = tbl ? [...tbl.querySelectorAll('tr')].map(r => [...r.querySelectorAll('td,th')].map(c => (c.innerText||'').trim())) : [];
       const dataRows = rows.filter(c => c.length > 6 && /CME|MNQ|MES|:/.test(c[0] || ""));
@@ -48,18 +53,19 @@ export async function readState() {
         symbol: c[0], side: (c[1] || "").toLowerCase(), qty: num(c[2]),
         avgFill: num(c[3]), tp: num(c[4]), sl: num(c[5]), last: num(c[6]), uPnlUsd: num(c[7]),
       } : null;
-      return { connected, account, position, positionCount: dataRows.length };
+      return { connected, account, position, positionCount: dataRows.length, price };
     })()`);
     return {
       connected: !!snap?.connected,
       account: snap?.account ?? null,
       position: snap?.position ?? null,
       positionCount: snap?.positionCount ?? 0,
+      price: snap?.price ?? null,
       workingOrders: [],
       balance: null,
     };
   } catch {
-    return { connected: false, account: null, position: null, positionCount: 0, workingOrders: [], balance: null };
+    return { connected: false, account: null, position: null, positionCount: 0, price: null, workingOrders: [], balance: null };
   }
 }
 
