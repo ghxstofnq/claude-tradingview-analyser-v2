@@ -18,15 +18,7 @@ import { HealthPage } from "./Health.jsx";
 import { SettingsPage } from "./Settings.jsx";
 import { ErrorBoundary } from "./ErrorBoundary.jsx";
 import { ChatCell } from "./ChatPopover.jsx";
-import {
-  CHAT_PROVIDER_CELLS,
-  DEFAULT_CHAT_PROVIDER,
-  buildProviderPopoverTitle,
-  buildProviderSubmitOptions,
-  getExclusiveActiveProvider,
-  getProviderChat,
-  isProviderChatActive,
-} from "./provider-popover-contract.js";
+import { DEFAULT_CHAT_PROVIDER } from "./provider-popover-contract.js";
 
 import { useHealth } from "./hooks/useHealth.js";
 import { useVersion } from "./hooks/useVersion.js";
@@ -40,45 +32,6 @@ const SYMBOLS = [
   { sym: "MNQ1!", name: "MICRO E-MINI NASDAQ-100" },
   { sym: "MES1!", name: "MICRO E-MINI S&P 500" },
 ];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SymbolSwitcher — drop-down in topbar
-function SymbolSwitcher({ symbol, setSymbol }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, []);
-  return (
-    <div className="cell" ref={ref} style={{ position: "relative", cursor: "pointer" }}>
-      <span className="k">SYM</span>
-      <span className="v" onClick={() => setOpen((o) => !o)}>{symbol} ▾</span>
-      {open && (
-        <div className="sym-menu" style={{
-          position: "absolute", top: "100%", right: 0, zIndex: 50,
-          background: "var(--surface-1)", border: "1px solid var(--border)",
-          minWidth: 240,
-        }}>
-          {SYMBOLS.map((s) => (
-            <div key={s.sym}
-                 onClick={() => { setSymbol(s.sym); setOpen(false); }}
-                 style={{
-                   padding: "6px 12px", display: "flex", gap: 10,
-                   color: s.sym === symbol ? "var(--amber)" : "var(--value)",
-                   borderBottom: "1px solid var(--border)",
-                   cursor: "pointer",
-                 }}>
-              <span>{s.sym}</span>
-              <span style={{ color: "var(--label)", fontSize: 10 }}>{s.name}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useCalendar — pulls window.api.calendar.thisWeek() on mount + subscribes
@@ -227,29 +180,6 @@ function AlertsPopover({ alerts, onClose, onDisarm }) {
   );
 }
 
-function ProviderPopover({ provider, chat, onClose }) {
-  const messages = chat?.messages || [];
-  const providerLabel = provider.toUpperCase();
-  return (
-    <div className="claude-popover statusline-popover" onClick={(e) => e.stopPropagation()}>
-      <div className="head">
-        <span className="t">{buildProviderPopoverTitle(provider)}</span>
-        <span className="x" onClick={onClose}>×</span>
-      </div>
-      <div className="body">
-        <ClaudeFeed
-          messages={messages}
-          typing={chat?.typing}
-          providerLabel={providerLabel}
-          onSubmit={(text) => chat?.send?.(text, buildProviderSubmitOptions(provider))}
-          onCancel={chat?.typing ? chat?.cancel : null}
-          onReset={chat?.reset}
-        />
-      </div>
-    </div>
-  );
-}
-
 function AlertToast({ alert, onClose }) {
   useEffect(() => {
     const id = setTimeout(onClose, 4500);
@@ -335,15 +265,6 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
 function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
                       symbol, currentPrice, account, guards,
                       chats, activeProvider, setActiveProvider, openProvider, setOpenProvider }) {
-  const loopDown = loopStatus === "stale" || loopStatus === "down";
-  const activeChat = getProviderChat(chats, activeProvider);
-  const chatActive = isProviderChatActive(chats, activeProvider);
-  const selectProvider = (provider) => {
-    const next = getExclusiveActiveProvider(activeProvider, provider);
-    if (next !== activeProvider && chatActive) activeChat?.cancel?.();
-    setActiveProvider(next);
-    setOpenProvider((cur) => cur === next ? null : next);
-  };
   return (
     <div className="statusline">
       <div className="grp">
