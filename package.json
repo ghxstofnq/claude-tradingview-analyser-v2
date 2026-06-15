@@ -16,7 +16,7 @@
     "review:real": "node ./scripts/real-review.js",
     "verify:grading": "node ./scripts/real-review.js --verify-grading",
     "test": "npm run test:unit",
-    "test:unit": "node --test tests/*.test.js tests/strategy/context/*.test.js tests/strategy/walkers/*.test.js",
+    "test:unit": "GOFNQ_STATE_DIR=\"${GOFNQ_STATE_DIR:-$(mktemp -d)}\" node --test tests/*.test.js tests/strategy/context/*.test.js tests/strategy/walkers/*.test.js",
     "tapes": "node ./scripts/tape-runner.js"
   },
   "workspaces": [
