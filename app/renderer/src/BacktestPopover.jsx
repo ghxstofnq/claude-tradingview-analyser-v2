@@ -4,6 +4,8 @@
 
 import React, { useState } from "react";
 import { useBacktest } from "./hooks/useBacktest.js";
+import { useAnalytics } from "./hooks/useAnalytics.js";
+import Analytics from "./Analytics.jsx";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
 } from "./Backtest.helpers.js";
@@ -475,6 +477,7 @@ function LibraryBody({ state, actions }) {
     session: sessionFilter, mode: modeFilter, grade: gradeFilter,
   });
   const agg = aggregateRuns(state.library.runs);
+  const { A, loading } = useAnalytics(state.library.runs, true);
   const agreementPct = (() => {
     const a = agg.agreement;
     const total = (a?.agreed ?? 0) + (a?.disagreed ?? 0);
@@ -483,6 +486,8 @@ function LibraryBody({ state, actions }) {
 
   return (
     <>
+      <Analytics A={A} loading={loading} />
+
       <div className="section">
         <div className="sect-hd">
           <span>AGGREGATE</span>
