@@ -142,10 +142,30 @@ export async function flatten(order = {}) {
 // cancel-all is M5; for the thin slice this flattens the active position.
 export async function panic(order = {}) { return flatten(order); }
 
-// addToPosition (scale-in) is M5 — composed later from placeOrder + the
-// walker's scale_in_add candidate. BE / TRAIL / CANCEL are composed in
-// ipc-execution from modifyPosition / cancelOrder + the live position.
-export async function addToPosition() { throw new Error("addToPosition not implemented yet (M5)"); }
+// addToPosition (scale-in): place a bare SAME-SIDE order that averages into
+// the open position. M0 spike (2026-06-15): a second same-side market order
+// with NO sl/tp averages the position (qty grows, avg recomputes) AND the
+// existing OCO bracket auto-resizes to the new combined qty — so the add must
+// NOT carry its own sl/tp (that would spawn a second bracket). The caller
+// (ipc-execution) verifies an open position exists and the side matches.
+export async function addToPosition(order = {}) {
+  const acct = paperAccountId();
+  if (!acct) throw new Error("no paper account id configured");
+  const type = order.type === "limit" ? "limit" : "market";
+  const payload = {
+    symbol: tvSymbol(order.symbol),
+    type,
+    qty: order.contracts ?? order.qty ?? 1,
+    side: tvSide(order.side),
+    outside_rth: false,
+    outside_rth_tp: false,
+  };
+  if (type === "limit" && (order.entry != null || order.limitPrice != null)) {
+    payload.price = order.limitPrice ?? order.entry;
+  }
+  const res = await postTrading(`/trading/place/${acct}`, payload);
+  return { ...res, sent: payload, accountId: acct, addedTo: payload.symbol };
+}
 
 export { rememberAccountId };
 export const tvAdapter = { brokerConnected, readState, placeOrder, flatten, panic, modifyPosition, cancelOrder, addToPosition };

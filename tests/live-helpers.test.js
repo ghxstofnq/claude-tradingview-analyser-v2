@@ -8,6 +8,7 @@ import {
   pillar3ToConfirmationRows,
   liveGridFromTrade,
   latestBarReadMessage,
+  deriveAddCandidate,
 } from "../app/renderer/src/Live.helpers.js";
 
 describe("selectPillar3", () => {
@@ -155,5 +156,48 @@ describe("latestBarReadMessage", () => {
   it("returns null on non-array input", () => {
     assert.equal(latestBarReadMessage(undefined), null);
     assert.equal(latestBarReadMessage(null), null);
+  });
+});
+
+describe("deriveAddCandidate", () => {
+  const longSetup = { side: "long", entry: 105, stop: 100, tp1: 120, model: "Trend" };
+  const shortSetup = { side: "short", entry: 105, stop: 110, tp1: 90, model: "MSS" };
+  const longPos = { side: "buy", qty: 1, avgFill: 100, sl: 95, tp: 110 };
+  const shortPos = { side: "sell", qty: 1, avgFill: 110, sl: 115, tp: 100 };
+
+  it("returns null with no position", () => {
+    assert.equal(deriveAddCandidate({ position: null, activeSetup: longSetup, price: 106 }), null);
+  });
+
+  it("returns null with no activeSetup", () => {
+    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: null, price: 106 }), null);
+  });
+
+  it("returns null when sides differ (no reversing via add)", () => {
+    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: shortSetup, price: 106 }), null);
+  });
+
+  it("returns null when the anchor is not green-lit (<50% to TP1)", () => {
+    // long: entry 100, tp 110, price 104 → progress 0.4
+    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: 104 }), null);
+  });
+
+  it("returns the candidate when same side and green-lit (>=50% to TP1) — long", () => {
+    // long: entry 100, tp 110, price 105 → progress 0.5
+    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: 105 }), longSetup);
+  });
+
+  it("returns the candidate when same side and green-lit — short", () => {
+    // short: entry 110, tp 100, price 105 → progress 0.5
+    assert.equal(deriveAddCandidate({ position: shortPos, activeSetup: shortSetup, price: 105 }), shortSetup);
+  });
+
+  it("returns null when TP is missing / equal to entry (can't judge green-lit)", () => {
+    assert.equal(deriveAddCandidate({ position: { ...longPos, tp: null }, activeSetup: longSetup, price: 109 }), null);
+    assert.equal(deriveAddCandidate({ position: { ...longPos, tp: 100 }, activeSetup: longSetup, price: 109 }), null);
+  });
+
+  it("returns null when price is not finite", () => {
+    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: undefined }), null);
   });
 });

@@ -53,12 +53,27 @@ export function registerExecutionIpc() {
     try { return { ok: true, result: await tvAdapter.placeOrder(payload) }; }
     catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
-  for (const verb of ["flatten", "panic", "addToPosition"]) {
+  for (const verb of ["flatten", "panic"]) {
     ipcMain.handle(`execution:${verb}`, async (_e, payload) => {
       try { return { ok: true, result: await tvAdapter[verb](payload) }; }
       catch (e) { return { ok: false, error: String(e?.message || e) }; }
     });
   }
+
+  // ADD (scale-in): add contracts to the OPEN position. Requires a live
+  // position whose side matches the add (never reverse via an add), then runs
+  // the same guardrails as a fresh place against the ADDED contracts' risk.
+  ipcMain.handle("execution:addToPosition", async (_e, payload) => {
+    try {
+      const pos = getTradingState().position;
+      if (!pos) return { ok: false, error: "no open position to add to" };
+      const addSide = payload?.side === "long" || payload?.side === "buy" ? "buy" : "sell";
+      if (addSide !== pos.side) return { ok: false, error: `add side ${addSide} != position side ${pos.side}` };
+      const gate = await guarded({ ...payload, hasStop: payload?.hasStop ?? pos.sl != null });
+      if (!gate.ok) return { ok: false, blocked: true, ...gate };
+      return { ok: true, result: await tvAdapter.addToPosition(payload) };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
 
   // BE: move the stop to the entry (break-even) via modify_position.
   ipcMain.handle("execution:moveStopToBE", async () => {

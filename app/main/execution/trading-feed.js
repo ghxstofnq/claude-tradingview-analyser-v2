@@ -65,7 +65,16 @@ function handleContent(c) {
       } else {
         state.position = { symbol: p.symbol, side: p.side, qty: p.qty, avgFill: p.avg_price, sl: p.sl, tp: p.tp };
         if (!openTrade) openTrade = { symbol: p.symbol, side: p.side, qty: p.qty, entry: p.avg_price, sl: p.sl, tp: p.tp, openedMs: Date.now() };
-        else { if (p.sl != null) openTrade.sl = p.sl; if (p.tp != null) openTrade.tp = p.tp; }
+        else {
+          if (p.sl != null) openTrade.sl = p.sl;
+          if (p.tp != null) openTrade.tp = p.tp;
+          // Scale-in (qty grew): the cost basis moved — re-anchor entry + qty
+          // to the averaged values so the round-trip R is computed correctly.
+          if (p.qty != null && openTrade.qty != null && p.qty > openTrade.qty) {
+            if (p.avg_price != null) openTrade.entry = p.avg_price;
+            openTrade.qty = p.qty;
+          }
+        }
       }
       break;
     case "balance_update": state.balance = p.balance; break;

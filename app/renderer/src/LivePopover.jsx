@@ -13,6 +13,7 @@ import {
   pillar3ToConfirmationRows,
   liveGridFromTrade,
   latestBarReadMessage,
+  deriveAddCandidate,
 } from "./Live.helpers.js";
 import { stripCitations } from "./Prep.helpers.js";
 import { sizeOrder } from "./Sizing.helpers.js";
@@ -471,7 +472,13 @@ function LiveCell({ account, guards, symbol }) {
   };
 
   const lastPrice = lastBar?.close;
-  const ticketSetup = ticketAdd ? activeSetup : activeSetup; // ADD candidate source = activeSetup for now
+  // Scale-in: a same-side live candidate onto a green-lit open position.
+  const addCandidate = deriveAddCandidate({
+    position: exec.position,
+    activeSetup,
+    price: (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastPrice,
+  });
+  const ticketSetup = ticketAdd ? addCandidate : activeSetup;
   const TABS = [["hunt", "HUNT"], ["ticket", "TICKET"], ["intrade", "IN-TRADE"], ["add", "ADD"]];
 
   // Accept from HUNT → size in TICKET; fire in TICKET → real accept + (stub) order → IN-TRADE.
@@ -479,16 +486,20 @@ function LiveCell({ account, guards, symbol }) {
   const onTicketFire = async (order) => {
     try {
       if (ticketSetup) {
-        await accept(ticketSetup);
-        // Send the canonical order payload so main's guardrail gate reads the
-        // right shape (hasStop/sizing/guards). Placement itself is still the
-        // M0-gated stub — this just makes the fire path correct for Phase 2.
-        executionAdapter.placeOrder(buildOrderRequest({
+        const req = buildOrderRequest({
           setup: ticketSetup, sizing: order.sizing, guards, account, symbol, type: order.type,
-        }));
+        });
+        if (ticketAdd) {
+          // Scale-in: add to the OPEN position (no new journal trade — the add
+          // averages into the existing one; its bracket auto-resizes).
+          executionAdapter.addToPosition(req);
+        } else {
+          await accept(ticketSetup);
+          executionAdapter.placeOrder(req);
+        }
       }
-    } catch { /* stub / best-effort */ }
-    setUserPickedView(true); setView("intrade");
+    } catch { /* best-effort */ }
+    setTicketAdd(false); setUserPickedView(true); setView("intrade");
   };
 
   let body;
@@ -496,7 +507,7 @@ function LiveCell({ account, guards, symbol }) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveView === "intrade") {
     body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} chat={chat} symbol={symbol} addCandidate={null} onAdd={() => pickView("add")} />
+      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} chat={chat} symbol={symbol} addCandidate={addCandidate} onAdd={() => pickView("add")} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
@@ -504,8 +515,9 @@ function LiveCell({ account, guards, symbol }) {
                     tradeId={activeTrade?.id} onFire={onTicketFire} onCancel={() => pickView(ticketAdd ? "add" : "hunt")} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no candidate to ticket ]</div>;
   } else if (effectiveView === "add") {
-    body = <EntryHuntView setup={null} isAdd tradeId={activeTrade?.id} lastBarPrice={lastPrice}
-                          walkers={walkers} chat={chat} noTradeReason="no scale-in candidate yet"
+    body = <EntryHuntView setup={addCandidate} isAdd tradeId={activeTrade?.id} lastBarPrice={lastPrice}
+                          walkers={walkers} chat={chat}
+                          noTrade={!addCandidate} noTradeReason={addCandidate ? undefined : "no scale-in candidate yet"}
                           onAccept={() => { setTicketAdd(true); setUserPickedView(true); setView("ticket"); }}
                           onReject={() => pickView("intrade")} />;
   } else {

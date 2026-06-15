@@ -96,6 +96,30 @@ export function liveGridFromTrade(trade, lastClose) {
   };
 }
 
+// Decide whether a same-side scale-in ("ADD") should surface onto the open
+// position. Per strategy §7 Step 7, you only add to a WINNER: the anchor must
+// be green-lit (price at least 50% of the way to its TP1) and the new live
+// candidate must be the SAME side as the position — never reverse via an add.
+//
+// Inputs:
+//   position   — live broker position { side:"buy"|"sell", avgFill, tp, ... }
+//   activeSetup — the live walker candidate { side:"long"|"short", entry, ... }
+//   price      — current mid price
+// Returns the activeSetup (the add candidate) when all conditions hold, else null.
+export function deriveAddCandidate({ position, activeSetup, price } = {}) {
+  if (!position || !activeSetup) return null;
+  const posSide = position.side === "buy" ? "long" : position.side === "sell" ? "short" : null;
+  if (!posSide || activeSetup.side !== posSide) return null;     // same side only
+  const entry = Number(position.avgFill);
+  const tp = Number(position.tp);
+  const px = Number(price);
+  if (![entry, tp, px].every(Number.isFinite) || entry === tp) return null;
+  // Green-lit = at least halfway to TP1 (the anchor is proving itself).
+  const progress = posSide === "long" ? (px - entry) / (tp - entry) : (entry - px) / (entry - tp);
+  if (!(progress >= 0.5)) return null;
+  return activeSetup;
+}
+
 // Find the latest "bar-read" message from a useChat-shaped messages array.
 // Each message has shape { type, body, t }. Returns the message or null.
 //
