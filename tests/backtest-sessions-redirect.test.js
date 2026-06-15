@@ -18,7 +18,7 @@ test("activeSessionDir — backtest context redirects to state/backtest/<run-id>
   });
   try {
     const dir = await activeSessionDir();
-    assert.ok(dir.includes("/state/backtest/20260528-103047-am-2026-05-20/ny-am"),
+    assert.ok(dir.includes("/backtest/20260528-103047-am-2026-05-20/ny-am"),
       `expected backtest path; got ${dir}`);
   } finally {
     clearBacktestSessionContext();
@@ -28,7 +28,7 @@ test("activeSessionDir — backtest context redirects to state/backtest/<run-id>
 test("activeSessionDir — no context returns normal live path", async () => {
   clearBacktestSessionContext();
   const dir = await activeSessionDir();
-  assert.ok(dir.includes("/state/session/"), `expected live session path; got ${dir}`);
+  assert.ok(dir.includes("/session/"), `expected live session path; got ${dir}`);
   assert.ok(!dir.includes("/backtest/"));
 });
 

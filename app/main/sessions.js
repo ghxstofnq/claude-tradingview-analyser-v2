@@ -71,10 +71,18 @@ export function clearBacktestSessionContext() {
   _backtestSessionContext = null;
 }
 
+// State root. GOFNQ_STATE_DIR redirects every session-state write off the
+// live tree — the test suite sets it to a temp dir so a stray surface call
+// can never clobber the live brief/session (a brief-flow test once did,
+// wiping a live NY-AM MNQ brief). Falls back to the real state/ in production.
+export function stateRoot() {
+  return process.env.GOFNQ_STATE_DIR || path.join(REPO_ROOT, "state");
+}
+
 export async function activeSessionDir() {
   if (_backtestSessionContext) {
     const { runId, session } = _backtestSessionContext;
-    const dir = path.join(REPO_ROOT, "state", "backtest", runId, session);
+    const dir = path.join(stateRoot(), "backtest", runId, session);
     await fs.mkdir(dir, { recursive: true });
     return dir;
   }
@@ -82,7 +90,7 @@ export async function activeSessionDir() {
   const folder = session === "idle"
     ? mostRecentSession(et_hour, et_minute)
     : session;
-  const dir = path.join(REPO_ROOT, "state", "session", date, folder);
+  const dir = path.join(stateRoot(), "session", date, folder);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }

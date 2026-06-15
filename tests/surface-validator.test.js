@@ -16,7 +16,7 @@ import {
   clearCurrentSurfaceState,
   getCurrentSurfaceState,
 } from '../app/main/tools/surface.js';
-import { setBacktestSessionContext, clearBacktestSessionContext } from '../app/main/sessions.js';
+import { setBacktestSessionContext, clearBacktestSessionContext, activeSessionDir } from '../app/main/sessions.js';
 
 function executablePacket() {
   return {
@@ -67,7 +67,10 @@ test('surface_no_trade preserves structured blockers in UI state and append-only
   clearCurrentSurfaceState();
   const runId = `surface-no-trade-${Date.now()}`;
   setBacktestSessionContext({ runId, session: 'ny-am' });
-  const dir = path.resolve('state', 'backtest', runId, 'ny-am');
+  // Resolve via activeSessionDir so the read path tracks GOFNQ_STATE_DIR
+  // (the test runner redirects the state root); hardcoding state/ would miss
+  // the redirected write.
+  const dir = await activeSessionDir();
   try {
     const result = await surfaceNoTrade({
       reason: 'cannot evaluate: strategy chain incomplete: missing_ltf_bias',

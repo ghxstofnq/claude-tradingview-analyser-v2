@@ -5,7 +5,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { activeSessionDir, currentSession } from "../sessions.js";
+import { activeSessionDir, currentSession, stateRoot } from "../sessions.js";
 import { writePairDecision } from "../../../cli/lib/pair-decision.js";
 import { writeBrief, readMemory, writeAtomic } from "../session-memory.js";
 import { PAIR_PRIMARY, PAIR_SECONDARY } from "../config.js";
@@ -250,8 +250,13 @@ export function clearCurrentSurfaceState() {
 // so a clock-derived dir would land in ny-am/ and getBriefForToday("london")
 // would never find it.
 async function briefDirFor(session) {
+  // GOFNQ_BRIEF_DIR_OVERRIDE pins an exact folder (used by brief-flow tests so
+  // a surfaceSessionBrief call never writes into the live session); otherwise
+  // resolve under stateRoot() (GOFNQ_STATE_DIR redirects the whole tree in
+  // tests). Either guard keeps test runs from clobbering a live brief.
+  const override = process.env.GOFNQ_BRIEF_DIR_OVERRIDE;
   const { date } = currentSession();
-  const dir = path.join(REPO_ROOT, "state", "session", date, session);
+  const dir = override || path.join(stateRoot(), "session", date, session);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
