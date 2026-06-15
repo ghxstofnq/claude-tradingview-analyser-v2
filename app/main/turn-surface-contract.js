@@ -101,6 +101,19 @@ export function validateTurnSurfaceContract({ purpose, text = "", toolCalls = []
 
     const setupCount = count(calls, "mcp__tv__surface_setup");
     const noTradeCount = count(calls, "mcp__tv__surface_no_trade");
+    // Entry-hunt is narration-only (single-brain, 2026-06-12): the deterministic
+    // chain surfaces the packet/no-trade in CODE before this turn, and the
+    // prompt (entryHuntNarrationHint) tells the model NOT to surface. So a
+    // narration turn must surface NOTHING — flag it only if it wrongly
+    // double-surfaces. Detected via the hint markers carried in the prompt.
+    const isNarration = /<walker_truth>|ALREADY been surfaced|DO NOT call surface_setup/i.test(text);
+    if (isNarration) {
+      if (setupCount + noTradeCount > 0) {
+        return fail("entry-hunt narration turn must NOT call surface_setup/surface_no_trade (the chain already surfaced in code)", calls);
+      }
+      return { ok: true };
+    }
+    // Legacy (pre-single-brain) entry-hunt turn: the LLM does the surface.
     if (setupCount + noTradeCount !== 1) {
       return fail("entry-hunt bar-close turn must call exactly one of surface_setup or surface_no_trade", calls);
     }
