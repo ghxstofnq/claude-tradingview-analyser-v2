@@ -55,6 +55,16 @@ test("nextState — DETAIL + BACK → LIBRARY", () => {
   assert.equal(nextState("DETAIL", { type: "BACK" }), "LIBRARY");
 });
 
+test("nextState — NEW (RUN_ANOTHER) escapes ANALYTICS/DETAIL back to IDLE", () => {
+  // Regression: the header NEW tab dispatches RUN_ANOTHER; from LIBRARY it was
+  // a no-op, trapping the user in ANALYTICS.
+  assert.equal(nextState("LIBRARY", { type: "RUN_ANOTHER" }), "IDLE");
+  assert.equal(nextState("DETAIL", { type: "RUN_ANOTHER" }), "IDLE");
+  // But a RUN_ANOTHER must NOT abandon an in-flight run (use STOP for that).
+  assert.equal(nextState("AUTO_RUNNING", { type: "RUN_ANOTHER" }), "AUTO_RUNNING");
+  assert.equal(nextState("PAUSE_AWAITING", { type: "RUN_ANOTHER" }), "PAUSE_AWAITING");
+});
+
 test("nextState — unknown event keeps state", () => {
   assert.equal(nextState("IDLE", { type: "WAT" }), "IDLE");
 });
