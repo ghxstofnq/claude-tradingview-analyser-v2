@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { runTrancheManager } from "../app/main/execution/tranche-manager.js";
+import { runTrancheManager, openTrancheNow } from "../app/main/execution/tranche-manager.js";
 
 // Build a deps double that records calls. Defaults describe a healthy auto
 // session with no open trades.
@@ -94,5 +94,21 @@ describe("runTrancheManager", () => {
     assert.match(r.action, /^skip:/);
     assert.equal(calls.accept.length, 0);
     assert.equal(calls.recordSkip.length, 1);
+  });
+});
+
+describe("openTrancheNow (manual ADD path)", () => {
+  it("guardrail ok → accepts (tagged add) + opens standalone bracket", async () => {
+    const { deps, calls } = makeDeps();
+    const r = await openTrancheNow({ packet: anchorPacket, role: "add" }, deps);
+    assert.equal(r.ok, true);
+    assert.equal(calls.accept[0].tranche_role, "add");
+    assert.equal(calls.openTrancheOrders.length, 1);
+  });
+  it("guardrail block → no accept", async () => {
+    const { deps, calls } = makeDeps({ checkOrder: () => ({ ok: false, code: "SIZE" }) });
+    const r = await openTrancheNow({ packet: anchorPacket }, deps);
+    assert.equal(r.ok, false);
+    assert.equal(calls.accept.length, 0);
   });
 });

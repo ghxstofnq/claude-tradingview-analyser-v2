@@ -101,7 +101,7 @@ contextBridge.exposeInMainWorld("api", {
     moveStopToBE(payload) { return ipcRenderer.invoke("execution:moveStopToBE", payload); },
     trail(payload) { return ipcRenderer.invoke("execution:trail", payload); },
     cancel(payload) { return ipcRenderer.invoke("execution:cancel", payload); },
-    addToPosition(payload) { return ipcRenderer.invoke("execution:addToPosition", payload); },
+    openTranche(payload) { return ipcRenderer.invoke("execution:openTranche", payload); },
     config: {
       get() { return ipcRenderer.invoke("execution:config", { action: "get" }); },
       set(patch) { return ipcRenderer.invoke("execution:config", { action: "set", patch }); },

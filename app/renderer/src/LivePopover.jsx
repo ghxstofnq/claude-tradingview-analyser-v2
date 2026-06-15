@@ -14,6 +14,7 @@ import {
   liveGridFromTrade,
   latestBarReadMessage,
   deriveAddCandidate,
+  trancheStackFromState,
 } from "./Live.helpers.js";
 import { stripCitations } from "./Prep.helpers.js";
 import { sizeOrder } from "./Sizing.helpers.js";
@@ -189,7 +190,7 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
-function InTradeView({ position, trade, lastBar, price, chat, symbol, addCandidate, onAdd }) {
+function InTradeView({ position, trade, tranches, lastBar, price, chat, symbol, addCandidate, onAdd }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -229,6 +230,21 @@ function InTradeView({ position, trade, lastBar, price, chat, symbol, addCandida
           <div className="lcell"><span className="k">→ TP1</span><span className={"v " + grid.toTp1.tone}><Px v={grid.toTp1.v} /></span><span className="sub">{grid.toTp1.sub}</span></div>
           <div className="lcell"><span className="k">→ STOP</span><span className={"v " + grid.toStop.tone}><Px v={grid.toStop.v} /></span><span className="sub">{grid.toStop.sub}</span></div>
         </div>
+
+        {Array.isArray(tranches) && tranches.length > 1 && (
+          <div className="lv-box">
+            <div className="lv-box-hd">TRANCHE STACK · {tranches.length}</div>
+            {tranches.map((tr) => (
+              <Row key={tr.id}
+                k={<span>{tr.role === "anchor" ? "ANCHOR" : `ADD ${tr.seq}`} · #{tr.id}</span>}
+                v={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                  <span className={"pill " + (tr.grade === "A+" ? "green" : tr.grade === "B" ? "amber" : "dim")}>{tr.grade}</span>
+                  <Px v={tr.entry} />
+                  <span className={tr.tone}>{tr.r}</span>
+                </span>} />
+            ))}
+          </div>
+        )}
 
         <div className="lv-box plan-rows">
           <div className="lv-box-hd">RISK PLAN</div>
@@ -419,7 +435,7 @@ function LiveCell({ account, guards, symbol }) {
 
   const backtest = useBacktestRunning();
   const health = useHealth();
-  const { activeTrade, accept } = useTrades();
+  const { trades, activeTrade, accept } = useTrades();
   const { activeSetup, noTrade, noTradeReason } = useActiveSetup();
   const lastBar = useLastBar();
   const chat = useChat();
@@ -479,6 +495,12 @@ function LiveCell({ account, guards, symbol }) {
     price: (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastPrice,
   });
   const ticketSetup = ticketAdd ? addCandidate : activeSetup;
+  // Open tranches (anchor + adds) for the IN-TRADE stack — each is its own
+  // journal trade on a netting account.
+  const trancheRows = trancheStackFromState(
+    Object.values(trades || {}),
+    (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastPrice,
+  );
   const TABS = [["hunt", "HUNT"], ["ticket", "TICKET"], ["intrade", "IN-TRADE"], ["add", "ADD"]];
 
   // Accept from HUNT → size in TICKET; fire in TICKET → real accept + (stub) order → IN-TRADE.
@@ -490,9 +512,11 @@ function LiveCell({ account, guards, symbol }) {
           setup: ticketSetup, sizing: order.sizing, guards, account, symbol, type: order.type,
         });
         if (ticketAdd) {
-          // Scale-in: add to the OPEN position (no new journal trade — the add
-          // averages into the existing one; its bracket auto-resizes).
-          executionAdapter.addToPosition(req);
+          // Scale-in: open the add as its OWN standalone tranche (own stop +
+          // target), not an average-in. The main-process tranche path journals
+          // the accept (tagged add) and lays the bracket; exits are managed by
+          // the outcome ticker like any tranche.
+          executionAdapter.openTranche({ ...ticketSetup, symbol, tranche_role: "add" });
         } else {
           await accept(ticketSetup);
           executionAdapter.placeOrder(req);
@@ -507,7 +531,7 @@ function LiveCell({ account, guards, symbol }) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveView === "intrade") {
     body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} chat={chat} symbol={symbol} addCandidate={addCandidate} onAdd={() => pickView("add")} />
+      ? <InTradeView position={exec.position} trade={activeTrade} tranches={trancheRows} lastBar={lastBar} price={exec.price} chat={chat} symbol={symbol} addCandidate={addCandidate} onAdd={() => pickView("add")} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup

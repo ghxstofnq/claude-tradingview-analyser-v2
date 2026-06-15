@@ -91,6 +91,26 @@ export async function runTrancheManager(ctx = {}, deps) {
   return decision;
 }
 
+// Open a tranche on demand (the manual ADD path / human-accepted anchor).
+// Unlike runTrancheManager this skips the planTrancheAction gate (the human
+// already decided) but keeps the guardrail check + standalone bracket so a
+// manual add gets its OWN stop/target, same as an auto add.
+export async function openTrancheNow({ packet, role = "add" }, deps) {
+  const d = deps || (await buildRealDeps());
+  if (!packet) return { ok: false, error: "no packet" };
+  const cfg = await d.readExecConfig();
+  const sizing = d.sizePacket(packet, cfg);
+  const gate = d.checkOrder({
+    hasStop: Number.isFinite(Number(packet.stop)) && Number(packet.stop) !== Number(packet.entry),
+    sizing, guards: cfg.guards, dayState: { realizedLossUsd: d.dayRealizedLossUsd() },
+  });
+  if (!gate.ok) return { ok: false, blocked: gate };
+  const accepted = await d.accept({ ...packet, tranche_role: role });
+  if (!accepted?.id) return { ok: false, error: "accept_failed", accepted };
+  const ids = await d.openTrancheOrders({ packet, contracts: sizing.contracts, trancheId: accepted.id });
+  return { ok: true, accepted, ids };
+}
+
 // Production deps. Heavy modules (CDP/adapter/journal) imported lazily so the
 // unit test (which injects fakes) never loads electron/ws.
 async function buildRealDeps() {

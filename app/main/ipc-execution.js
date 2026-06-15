@@ -70,18 +70,14 @@ export function registerExecutionIpc() {
     });
   }
 
-  // ADD (scale-in): add contracts to the OPEN position. Requires a live
-  // position whose side matches the add (never reverse via an add), then runs
-  // the same guardrails as a fresh place against the ADDED contracts' risk.
-  ipcMain.handle("execution:addToPosition", async (_e, payload) => {
+  // ADD / scale-in: open a tranche as its OWN standalone position (entry + its
+  // own stop + its own target), per the netting workaround. Supersedes the old
+  // averaging addToPosition. Used by the manual ADD button (auto modes open
+  // tranches via the bar-close tranche manager). payload = the setup/packet.
+  ipcMain.handle("execution:openTranche", async (_e, payload) => {
     try {
-      const pos = getTradingState().position;
-      if (!pos) return { ok: false, error: "no open position to add to" };
-      const addSide = payload?.side === "long" || payload?.side === "buy" ? "buy" : "sell";
-      if (addSide !== pos.side) return { ok: false, error: `add side ${addSide} != position side ${pos.side}` };
-      const gate = await guarded({ ...payload, hasStop: payload?.hasStop ?? pos.sl != null });
-      if (!gate.ok) return { ok: false, blocked: true, ...gate };
-      return { ok: true, result: await tvAdapter.addToPosition(payload) };
+      const { openTrancheNow } = await import("./execution/tranche-manager.js");
+      return await openTrancheNow({ packet: payload, role: payload?.tranche_role || "add" });
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 

@@ -120,6 +120,35 @@ export function deriveAddCandidate({ position, activeSetup, price } = {}) {
   return activeSetup;
 }
 
+// Build the IN-TRADE tranche stack from the open journal trades (each tranche
+// is its own trade on a netting account). Anchor first, then adds by seq. Each
+// row carries its own entry/stop/tp + unrealized R (via liveGridFromTrade).
+export function trancheStackFromState(openTrades, price) {
+  if (!Array.isArray(openTrades)) return [];
+  const rows = openTrades
+    .filter((t) => t && t.state !== "closed")
+    .map((t) => {
+      const grid = liveGridFromTrade(
+        { entry: t.entry, stop: t.stop, tp1: t.tp1, tp2: t.tp2, side: t.side, r_realized: t.r_realized, tp1_hit: t.tp1_hit },
+        price,
+      );
+      return {
+        id: t.id,
+        role: t.tranche_role || "anchor",
+        seq: t.tranche_seq ?? 0,
+        side: t.side,
+        grade: t.grade,
+        entry: t.entry,
+        stop: t.stop,
+        tp: t.tp1,
+        r: grid.pnl.v,
+        tone: grid.pnl.tone,
+      };
+    });
+  rows.sort((a, b) => (a.role === "anchor" ? 0 : 1) - (b.role === "anchor" ? 0 : 1) || (a.seq - b.seq));
+  return rows;
+}
+
 // Find the latest "bar-read" message from a useChat-shaped messages array.
 // Each message has shape { type, body, t }. Returns the message or null.
 //
