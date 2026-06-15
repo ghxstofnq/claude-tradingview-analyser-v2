@@ -17,7 +17,9 @@ export const executionAdapter = {
   moveStopToBE: (p) => call("moveStopToBE", p),
   trail: (p) => call("trail", p),
   cancel: (p) => call("cancel", p),
-  addToPosition: (p) => call("addToPosition", p),
+  // Scale-in add: opens a standalone tranche (its own stop+target). Supersedes
+  // the retired averaging addToPosition.
+  openTranche: (p) => call("openTranche", p),
   state: () => call("state"),
   // Account mode is renderer UI state for now (set in Settings); these are
   // where the engine will retarget the broker account post-spike.

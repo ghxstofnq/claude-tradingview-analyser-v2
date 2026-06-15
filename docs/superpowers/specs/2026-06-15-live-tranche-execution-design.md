@@ -24,8 +24,9 @@ A futures account **nets** same-symbol positions. The backtest models each scale
 
 - Spike A: add with **no** bracket → position averages (qty grows, avg recomputes), the existing bracket auto-resizes to cover the combined qty.
 - Spike B: add **with its own** bracket → the new bracket **overwrites** the anchor's and resizes to the full net qty (one stop, one target).
+- Spike C (M0, 2026-06-15): **standalone** stop+limit orders (placed individually, NOT via the position bracket) → all four rest concurrently at their own prices on a netted 2c long (2 stops @ 30801.25/30841.25, 2 limits @ 31121.25/31001.25, qty 1 each), then flatten leaves the account FLAT. **Per-tranche resting orders ARE supported** → Task 6 uses the standalone-order mechanism (path 3a). Note: the REST/WS path works even when the `accountManager` DOM panel is collapsed (order buttons + session cookies are enough) — the `brokerConnected` DOM check should be loosened to "order buttons present".
 
-So independent tranches must be **recreated** by the engine — they don't exist at the broker for free.
+So independent tranches must be **recreated** by the engine as standalone orders — they don't exist via the broker's auto-bracket for free.
 
 ## What the backtest actually does (the model to reproduce)
 

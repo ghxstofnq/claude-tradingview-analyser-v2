@@ -35,6 +35,13 @@ async function syncSeq() {
 // trades for one setup. Resolves once the appendFile + IPC emit complete.
 const _acceptInFlight = new Set();
 
+// A scale-in add is tagged tranche_role:"add" by the tranche manager (or the
+// manual ADD path). Adds open concurrently with the anchor; everything else is
+// a single-position anchor subject to the single-trade lock.
+export function isAddAccept(setup) {
+  return setup?.tranche_role === "add";
+}
+
 export async function acceptSetup({ setup, send }) {
   await syncSeq();
   const dir = await activeSessionDir();
@@ -50,10 +57,11 @@ export async function acceptSetup({ setup, send }) {
   }
   _acceptInFlight.add(dedupeKey);
 
-  // #4 Single-trade enforcement. Read the current open-trade set; if any
-  // exist, reject the accept. Trader has to close / wait for the open
-  // trade before accepting another. Eliminates the "two active trades,
-  // one invisible" class.
+  // #4 Single-trade enforcement — ANCHORS only. A scale-in add
+  // (tranche_role:"add") is allowed to open concurrently with the anchor;
+  // that is the tranche engine's whole purpose. tranche_seq = how many trades
+  // are already open (anchor=0, first add=1, …).
+  let trancheSeq = 0;
   try {
     const existing = await fs.readFile(file, "utf8").catch(() => "");
     const events = existing.trim().split("\n").filter(Boolean).map((l) => {
@@ -61,7 +69,8 @@ export async function acceptSetup({ setup, send }) {
     }).filter(Boolean);
     const { foldOpenTrades } = await import("../../cli/lib/trade-outcomes.js");
     const open = foldOpenTrades(events);
-    if (open.length > 0) {
+    trancheSeq = open.length;
+    if (!isAddAccept(setup) && open.length > 0) {
       _acceptInFlight.delete(dedupeKey);
       return { error: `cannot accept — trade ${open[0].id} is still open`, openTradeId: open[0].id };
     }
@@ -97,6 +106,8 @@ export async function acceptSetup({ setup, send }) {
       invalidation: setup.invalidation,
       rr: setup.rr ?? null,
       size,
+      tranche_role: isAddAccept(setup) ? "add" : "anchor",
+      tranche_seq: trancheSeq,
     };
     await fs.appendFile(file, JSON.stringify(event) + "\n", "utf8");
     send?.("trade:accepted", event);

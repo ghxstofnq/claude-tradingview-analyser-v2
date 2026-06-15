@@ -9,6 +9,7 @@ import {
   liveGridFromTrade,
   latestBarReadMessage,
   deriveAddCandidate,
+  trancheStackFromState,
 } from "../app/renderer/src/Live.helpers.js";
 
 describe("selectPillar3", () => {
@@ -199,5 +200,32 @@ describe("deriveAddCandidate", () => {
 
   it("returns null when price is not finite", () => {
     assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: undefined }), null);
+  });
+});
+
+describe("trancheStackFromState", () => {
+  it("maps open journal trades to stack rows, anchor first then adds by seq", () => {
+    const trades = [
+      { id: "T-0002", tranche_role: "add", tranche_seq: 1, side: "long", grade: "B", entry: 105, stop: 102, tp1: 112, state: "filled" },
+      { id: "T-0001", tranche_role: "anchor", tranche_seq: 0, side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, state: "filled" },
+    ];
+    const rows = trancheStackFromState(trades, 108);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].role, "anchor");
+    assert.equal(rows[0].id, "T-0001");
+    assert.equal(rows[1].role, "add");
+  });
+  it("excludes closed tranches", () => {
+    const trades = [
+      { id: "T-0001", tranche_role: "anchor", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, state: "closed" },
+      { id: "T-0002", tranche_role: "add", side: "long", grade: "B", entry: 105, stop: 102, tp1: 112, state: "filled" },
+    ];
+    const rows = trancheStackFromState(trades, 108);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, "T-0002");
+  });
+  it("returns [] for empty / non-array", () => {
+    assert.deepEqual(trancheStackFromState(null, 100), []);
+    assert.deepEqual(trancheStackFromState([], 100), []);
   });
 });
