@@ -115,6 +115,21 @@ export async function tickOpenTrades(ev, opts = {}) {
     // Bust the cache after a write so the next read picks up the new event.
     _cachedMtime = 0;
     _send?.("trade:outcome", tr);
+    await applyTrancheExitSafe(tr);
+  }
+}
+
+// Mirror a grader transition to the broker for an auto-mode tranche (A+ BE
+// move, cancel the resting sibling, EOD close). Self-skips non-tranche trades
+// (no standalone order markers) so manual/position-bracket trades are
+// untouched. Never let an execution error break outcome tracking.
+async function applyTrancheExitSafe(tr) {
+  try {
+    const { applyTrancheExit } = await import("./execution/tranche-exec.js");
+    await applyTrancheExit(tr);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[trade-ticker] applyTrancheExit failed", err?.message || err);
   }
 }
 
@@ -146,6 +161,7 @@ export async function maybeForceCloseAtEod(ev) {
     // eslint-disable-next-line no-console
     console.log(`[trade-ticker] 16:00 ET force-close: ${tr.id} ${tr.status}${tr.exit != null ? ` @ ${tr.exit}` : ""}`);
     _send?.("trade:outcome", tr);
+    await applyTrancheExitSafe(tr);
   }
 }
 

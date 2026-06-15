@@ -727,6 +727,25 @@ git commit -m "feat(trades): multi-tranche accept — adds bypass the single-tra
 
 ---
 
+## Task 8 — AMENDMENT (2026-06-15, found during execution)
+
+The original Task 8 covered only *opening* tranches. With the standalone-order
+mechanism (M0 confirmed), the broker's resting stop/limit auto-exit each
+tranche, but the engine still owns three exit-side actions, wired into the
+OUTCOME path (`trade-ticker.js`), not bar-close:
+- **A+ TP1 tag** → slide that tranche's stop to break-even (cancel the standalone
+  stop + place a new one at entry — modify-by-id is unverified, cancel+replace
+  uses proven primitives).
+- **One leg fills (STOPPED / TP2_HIT)** → cancel the resting sibling so it can't
+  reopen a position.
+- **CLOSED_EOD** → market-close the tranche + cancel both resting orders.
+Each tranche's standalone order ids are persisted as a `{type:"tranche_orders",
+setup_id, stopOrderId, limitOrderId}` event in trades.jsonl (foldOpenTrades
+ignores unknown types). Green-light is latched via a `{type:"green_light",
+setup_id}` event so it survives the per-bar re-fold. The exit wiring only fires
+for tranches that HAVE recorded standalone ids (auto-mode); manual-mode trades
+use the position bracket and are untouched.
+
 ## Task 8: Tranche-manager runtime + wire into bar-close (auto modes)
 
 **Files:**

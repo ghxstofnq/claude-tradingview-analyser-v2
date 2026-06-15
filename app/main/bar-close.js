@@ -853,6 +853,21 @@ async function runDeterministicPacketTruthForBar(ev, session) {
 
   if (bestPacket && !lossHalt) {
     await surfaceSetup(truth.surfacePayload);
+    // Tranche execution (auto modes only). The manager no-ops in manual mode
+    // (default), so the existing surface→human-accept flow is untouched. Never
+    // let an execution failure break the chain.
+    try {
+      const { runTrancheManager } = await import("./execution/tranche-manager.js");
+      const price = ev?.ohlc?.close ?? null;
+      const r = await runTrancheManager({ bestPacket: truth.surfacePayload, price });
+      if (r && r.action !== "manual" && r.action !== "none") {
+        // eslint-disable-next-line no-console
+        console.log(`[tranche] ${r.action}${r.reason ? ` — ${r.reason}` : ""}`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[tranche] runTrancheManager failed", err?.message || err);
+    }
   } else {
     const reason = lossHalt
       ? "session halt: 3 losses in a row"

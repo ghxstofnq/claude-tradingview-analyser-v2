@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { brokerActionsForTranche, brokerActionsForTransition } from "../app/main/execution/tranche-exec.js";
+import { brokerActionsForTranche, brokerActionsForTransition, planTrancheExit, applyTrancheExit } from "../app/main/execution/tranche-exec.js";
 
 describe("brokerActionsForTranche (open)", () => {
   it("entry market + standalone stop + standalone tp (B → tp1)", () => {
@@ -46,5 +46,72 @@ describe("brokerActionsForTransition (manage)", () => {
   });
   it("unknown status → no action", () => {
     assert.deepEqual(brokerActionsForTransition({ status: "FILLED" }), []);
+  });
+});
+
+describe("planTrancheExit (journal lookup + sibling selection)", () => {
+  const events = [
+    { type: "accept", id: "T-1", side: "long", grade: "A+", entry: 100, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "tranche_orders", setup_id: "T-1", stopOrderId: 11, limitOrderId: 22 },
+  ];
+  it("returns null when the tranche has no standalone orders (manual trade)", () => {
+    const manual = [{ type: "accept", id: "T-9", side: "long", grade: "B", entry: 100 }];
+    assert.equal(planTrancheExit({ id: "T-9", status: "STOPPED" }, manual), null);
+  });
+  it("STOPPED → cancel the limit sibling", () => {
+    const p = planTrancheExit({ id: "T-1", status: "STOPPED" }, events);
+    assert.deepEqual(p.actions, [{ kind: "cancel", orderId: 22 }]);
+  });
+  it("TP2_HIT → cancel the stop sibling", () => {
+    const p = planTrancheExit({ id: "T-1", status: "TP2_HIT" }, events);
+    assert.deepEqual(p.actions, [{ kind: "cancel", orderId: 11 }]);
+  });
+  it("A+ TP1_HIT → modify the stop to break-even", () => {
+    const p = planTrancheExit({ id: "T-1", status: "TP1_HIT" }, events);
+    assert.deepEqual(p.actions, [{ kind: "modify_stop", orderId: 11, price: 100 }]);
+  });
+  it("latest tranche_orders marker wins (after a BE replacement)", () => {
+    const withReplace = [...events, { type: "tranche_orders", setup_id: "T-1", stopOrderId: 33, limitOrderId: 22 }];
+    const p = planTrancheExit({ id: "T-1", status: "STOPPED" }, withReplace);
+    assert.deepEqual(p.actions, [{ kind: "cancel", orderId: 22 }]);
+    assert.equal(p.orders.stopOrderId, 33);
+  });
+});
+
+describe("applyTrancheExit (DI execution)", () => {
+  const events = [
+    { type: "accept", id: "T-1", side: "long", grade: "A+", entry: 100, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "tranche_orders", setup_id: "T-1", stopOrderId: 11, limitOrderId: 22 },
+  ];
+  function makeDeps() {
+    const calls = { cancel: [], flatten: [], place: [], record: [] };
+    return {
+      calls,
+      readEvents: async () => events,
+      cancelOrder: async (id) => { calls.cancel.push(id); },
+      flatten: async (s) => { calls.flatten.push(s); },
+      placeStandalone: async (o) => { calls.place.push(o); return 99; },
+      recordTrancheOrders: async (o) => { calls.record.push(o); },
+    };
+  }
+  it("STOPPED cancels the limit sibling", async () => {
+    const d = makeDeps();
+    await applyTrancheExit({ id: "T-1", status: "STOPPED" }, d);
+    assert.deepEqual(d.calls.cancel, [22]);
+  });
+  it("A+ TP1_HIT cancels the old stop, places a BE stop, records the new id", async () => {
+    const d = makeDeps();
+    await applyTrancheExit({ id: "T-1", status: "TP1_HIT" }, d);
+    assert.deepEqual(d.calls.cancel, [11]);
+    assert.equal(d.calls.place[0].type, "stop");
+    assert.equal(d.calls.place[0].price, 100);
+    assert.equal(d.calls.record[0].stopOrderId, 99);
+  });
+  it("non-standalone trade → no broker calls", async () => {
+    const d = makeDeps();
+    d.readEvents = async () => [{ type: "accept", id: "T-9", side: "long", grade: "B", entry: 100 }];
+    const r = await applyTrancheExit({ id: "T-9", status: "STOPPED" }, d);
+    assert.equal(r.skipped, true);
+    assert.equal(d.calls.cancel.length, 0);
   });
 });
