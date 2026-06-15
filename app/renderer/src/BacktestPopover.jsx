@@ -8,6 +8,7 @@ import { useAnalytics } from "./hooks/useAnalytics.js";
 import Analytics from "./Analytics.jsx";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
+  formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
 } from "./Backtest.helpers.js";
 
 // Header state-switcher (designer's NEW/RUN/PAUSE/DONE/ANALYTICS). Internal
@@ -369,10 +370,10 @@ function PauseBody({ state, actions }) {
         </div>
         <div className="setup-card live">
           <div className="hd">
-            <span className={"gp " + gradeClass(setup.grade)}>{setup.grade ?? "A+"}</span>
+            <span className={"gp " + gradeClass(setup.grade)}>{displayGrade(setup.grade)}</span>
             <span className={"side " + sideClass(setup.side)}>{(setup.side ?? "").toUpperCase()}</span>
             <span className="model">{setup.model ?? ""}</span>
-            <span className="ts">{formatTs(setup.ts)}</span>
+            <span className="ts">{recordClockEt(setup)}</span>
           </div>
           <div className="lvls">
             <div className="lv"><span className="k">ENTRY</span><span className="v">{setup.entry}</span></div>
@@ -663,7 +664,7 @@ function DetailBody({ state, actions }) {
           <div className="log">
             {activity.map((a, i) => (
               <div key={i} className={"ln phase-" + (a.phase ?? "")}>
-                <span className="t">{formatTs(a.ts)}</span>
+                <span className="t">{formatClockEt(a.ts)}</span>
                 <span className="ph">{a.phase ?? a.purpose ?? ""}</span>
                 <span className="msg">{a.message ?? a.summary_msg ?? ""}</span>
               </div>
@@ -706,7 +707,7 @@ function Filter({ label, value, onChange, options }) {
 }
 
 function LibRow({ run, onClick }) {
-  const grade = derivedGrade(run);
+  const grade = runGrade(run);
   const f = formatRunForRow(run);
   const ag = run.your_agreement ?? { agreed: 0, disagreed: 0 };
   return (
@@ -772,7 +773,7 @@ function Seg({ value, onChange, options }) {
 
 function RunRow({ run, onClick }) {
   const f = formatRunForRow(run);
-  const grade = derivedGrade(run);
+  const grade = runGrade(run);
   const rDisp = `${run.total_r > 0 ? "+" : ""}${(run.total_r ?? 0).toFixed(1)}R`;
   return (
     <div className="run-row" onClick={onClick}>
@@ -788,25 +789,26 @@ function RunRow({ run, onClick }) {
 }
 
 function SetupCardReadOnly({ setup }) {
-  const cls = setup.outcome === "tp1_hit" ? "win" : setup.outcome === "stop_hit" ? "loss" : "live";
+  const om = outcomeMeta(setup.outcome);
+  const cls = om.cls;
   return (
     <div className={"setup-card " + cls}>
       <div className="hd">
-        <span className={"gp " + gradeClass(setup.grade)}>{setup.grade ?? "A+"}</span>
+        <span className={"gp " + gradeClass(setup.grade)}>{displayGrade(setup.grade)}</span>
         <span className={"side " + sideClass(setup.side)}>{(setup.side ?? "").toUpperCase()}</span>
         <span className="model">{setup.model ?? ""}</span>
-        <span className="ts">{formatTs(setup.ts)}</span>
+        <span className="ts">{recordClockEt(setup)}</span>
       </div>
       <div className="lvls">
         <div className="lv"><span className="k">ENTRY</span><span className="v">{setup.entry}</span></div>
         <div className="lv"><span className="k">STOP</span><span className="v red">{setup.stop}</span></div>
         <div className="lv"><span className="k">TP1</span><span className="v green">{setup.tp1}</span></div>
       </div>
-      {setup.outcome && (
+      {setup.outcome && om.label && (
         <div className="outcome">
-          <span className={"res " + (setup.outcome === "tp1_hit" ? "win" : "loss")}>
+          <span className={"res " + om.cls}>
             <span className="ind" />
-            {setup.outcome === "tp1_hit" ? "HIT TP1" : "STOPPED"} @ {setup.exit ?? "—"}
+            {om.label} @ {setup.exit ?? "—"}
           </span>
         </div>
       )}
@@ -831,19 +833,9 @@ function sideClass(side) {
   if (s === "short") return "s";
   return "";
 }
-function formatTs(ts) {
-  if (!ts) return "";
-  if (typeof ts === "string" && /^\d{2}:\d{2}/.test(ts)) return ts;
-  try { return new Date(ts).toISOString().slice(11, 16) + " ET"; } catch { return String(ts); }
-}
 function pct({ numerator, denominator }) {
   if (!denominator) return "—";
   return Math.round((100 * numerator) / denominator) + "%";
-}
-function derivedGrade(run) {
-  if ((run.setups ?? 0) === 0) return "NO";
-  if (run.setups > 0 && run.wins / run.setups >= 0.5) return "A+";
-  return "B";
 }
 function pad(n) { return String(n).padStart(2, "0"); }
 function doneAgreementPct(s) {
