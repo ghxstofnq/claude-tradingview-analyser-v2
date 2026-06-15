@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld("api", {
   },
   execution: {
     state() { return ipcRenderer.invoke("execution:state"); },
+    fills(date) { return ipcRenderer.invoke("execution:fills", { date }); },
     place(payload) { return ipcRenderer.invoke("execution:place", payload); },
     flatten(payload) { return ipcRenderer.invoke("execution:flatten", payload); },
     panic(payload) { return ipcRenderer.invoke("execution:panic", payload); },

@@ -6,7 +6,7 @@
 import { ipcMain } from "electron";
 import { tvAdapter } from "./execution/tv-adapter.js";
 import { checkOrder } from "./execution/guardrails.js";
-import { readFills, dayRealizedLossUsd } from "./execution/fills.js";
+import { readFills, dayRealizedLossUsd, readAllFills } from "./execution/fills.js";
 import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR } from "./execution/config.js";
 
@@ -20,6 +20,14 @@ async function guarded(payload) {
 }
 
 export function registerExecutionIpc() {
+  ipcMain.handle("execution:fills", async (_e, arg = {}) => {
+    try {
+      const date = arg?.date || today();
+      const fills = date === "all" ? readAllFills(tradesDir()) : readFills(tradesDir(), date);
+      return { ok: true, date, fills };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
   ipcMain.handle("execution:state", async () => {
     try {
       // Prefer the live trading-WS feed (reliable; DOM goes stale when the

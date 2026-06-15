@@ -10,7 +10,35 @@ import {
   deriveLedgerReason,
   buildLedger,
   buildTrackRecord,
+  buildTrackRecordFromFills,
 } from "../app/renderer/src/Review.helpers.js";
+
+describe("buildTrackRecordFromFills", () => {
+  const fills = [
+    { side: "long", symbol: "MNQ1!", actual: { r: 1.6, usd: 320 } },
+    { side: "short", symbol: "MNQ1!", actual: { r: -1.0, usd: -200 } },
+    { side: "long", symbol: "MES1!", actual: { r: 2.4, usd: 600 } },
+  ];
+  it("aggregates real fills into cumulative R, win-rate, payoff, expectancy", () => {
+    const A = buildTrackRecordFromFills(fills);
+    assert.equal(A.n_trades, 3);
+    assert.equal(A.cum_r, 3.0);
+    assert.equal(A.cum_usd, 720);
+    assert.equal(A.win_n, 2);
+    assert.equal(A.loss_n, 1);
+    assert.equal(A.win_pct, 67);
+    assert.equal(A.avg_win, 2.0);
+    assert.equal(A.avg_loss, -1.0);
+    assert.equal(A.payoff, 2.0);
+    assert.equal(A.expectancy, 1.0);
+    assert.equal(A.best_r, 2.4);
+    assert.equal(A.worst_r, -1.0);
+  });
+  it("ignores fills without a numeric realized R; empty → zeros", () => {
+    assert.equal(buildTrackRecordFromFills([{ actual: {} }]).n_trades, 0);
+    assert.equal(buildTrackRecordFromFills([]).cum_r, 0);
+  });
+});
 
 describe("buildTrackRecord", () => {
   const rows = [

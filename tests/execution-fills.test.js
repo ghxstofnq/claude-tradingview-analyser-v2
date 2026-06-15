@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendFill, readFills, dayRealizedLossUsd } from "../app/main/execution/fills.js";
+import { appendFill, readFills, dayRealizedLossUsd, readAllFills } from "../app/main/execution/fills.js";
 
 let dir;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "fills-")); });
@@ -26,6 +26,17 @@ describe("fills", () => {
     appendFill(dir, "2026-06-15", { actual: { usd: 120 } });
     appendFill(dir, "2026-06-15", { actual: { usd: -150 } });
     assert.equal(dayRealizedLossUsd(readFills(dir, "2026-06-15")), 350);
+  });
+  it("readAllFills concatenates every date file oldest-first", () => {
+    appendFill(dir, "2026-06-12", { ts: "2026-06-12T10:00:00Z", actual: { r: 1 } });
+    appendFill(dir, "2026-06-15", { ts: "2026-06-15T10:00:00Z", actual: { r: -1 } });
+    const all = readAllFills(dir);
+    assert.equal(all.length, 2);
+    assert.equal(all[0].ts, "2026-06-12T10:00:00Z");
+    assert.equal(all[1].ts, "2026-06-15T10:00:00Z");
+  });
+  it("readAllFills returns [] for a missing dir", () => {
+    assert.deepEqual(readAllFills(join(dir, "nope")), []);
   });
 });
 

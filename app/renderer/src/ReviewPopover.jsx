@@ -8,12 +8,14 @@ import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
   buildTrackRecord,
+  buildTrackRecordFromFills,
   degradedChainStages,
   deriveLedgerState,
   deriveLedgerReason,
   formatGradeShort,
 } from "./Review.helpers.js";
 import { useReview } from "./hooks/useReview.js";
+import { useFills } from "./hooks/useFills.js";
 
 const gradeTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "dim");
 
@@ -212,16 +214,74 @@ function SessionLibraryPanel({ library, currentDate, currentSession, onPick }) {
   );
 }
 
+// ── SESSION EXECUTED FILLS (plan vs actual, real fills) ──────────────
+function SessionFillsPanel({ date }) {
+  const { fills } = useFills(date || new Date().toISOString().slice(0, 10));
+  if (!fills || fills.length === 0) return null;
+  const cumR = Math.round(fills.reduce((s, f) => s + (Number(f?.actual?.r) || 0), 0) * 100) / 100;
+  const cumUsd = Math.round(fills.reduce((s, f) => s + (Number(f?.actual?.usd) || 0), 0));
+  return (
+    <Panel title="EXECUTED FILLS · PLAN vs ACTUAL"
+           meta={`${fills.length} fill${fills.length === 1 ? "" : "s"} · ${cumR > 0 ? "+" : ""}${cumR}R · ${cumUsd >= 0 ? "+" : ""}$${cumUsd}`}>
+      {fills.map((f, i) => {
+        const a = f.actual || {}, p = f.planned || {};
+        const sideCls = (f.side === "long" || f.side === "buy") ? "l" : "s";
+        const rTone = a.r > 0 ? "ok" : a.r < 0 ? "bad" : "";
+        const sym = (f.symbol || "").replace("CME_MINI:", "");
+        return (
+          <div key={i} style={{ borderBottom: "1px dashed var(--label-dim)", padding: "6px 0" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 10.5, marginBottom: 4 }}>
+              <span className={"side " + sideCls} style={{ color: sideCls === "l" ? "var(--green)" : "var(--red)", letterSpacing: ".14em" }}>{(f.side || "").toUpperCase()}</span>
+              <span style={{ color: "var(--value)" }}>{sym} · {f.qty}c</span>
+              <span style={{ marginLeft: "auto", color: a.r > 0 ? "var(--green)" : a.r < 0 ? "var(--red)" : "var(--label)" }}>
+                {a.r > 0 ? "+" : ""}{a.r ?? "—"}R · {a.usd >= 0 ? "+" : ""}${a.usd ?? "—"}
+              </span>
+            </div>
+            <Row k="Planned E/S/T" v={`${p.entry ?? "—"} / ${p.stop ?? "—"} / ${p.tp ?? "—"}`} />
+            <Row k="Actual fill→exit" v={`${a.entry ?? "—"} → ${a.exit ?? "—"}`} tone={rTone} />
+          </div>
+        );
+      })}
+    </Panel>
+  );
+}
+
 // ── TRACK RECORD ─────────────────────────────────────────────────────
-// Honest analytics over the real session library — cumulative R, win-rate,
-// session concentration, by-grade. Per-trade expectancy/payoff/by-model
-// need a per-trade pipeline that doesn't exist yet, so they're omitted
-// rather than fabricated (CLAUDE.md #6/#7).
+// Per-FILL performance from real execution fills (state/trades) up top —
+// cumulative R, expectancy, payoff, avg win/loss, max DD — then the
+// session-level summary (concentration, by-grade) below. Every number is
+// from real fills or real per-session totals (no fabrication).
 function TrackRecordView({ library }) {
+  const { fills } = useFills("all");
+  const F = buildTrackRecordFromFills(fills);
   const A = buildTrackRecord(library);
   const maxSession = Math.max(1, ...A.by_session.map((s) => Math.abs(s.r)));
   return (
     <div className="work-scroll">
+      {F.n_trades > 0 && (
+        <div className="section">
+          <div className="sect-hd"><span>PERFORMANCE · REAL FILLS</span><span className="meta">{F.n_trades} TRADE{F.n_trades === 1 ? "" : "S"}</span></div>
+          <div className="an-hero">
+            <div className="htile">
+              <span className="k">CUMULATIVE R</span>
+              <span className={"v " + (F.cum_r >= 0 ? "green" : "red")}>{F.cum_r > 0 ? "+" : ""}{F.cum_r.toFixed(1)}R</span>
+              <span className="sub">{F.n_trades} fills · {F.cum_usd >= 0 ? "+" : ""}${F.cum_usd}</span>
+            </div>
+            <div className="htile">
+              <span className="k">EXPECTANCY</span>
+              <span className={"v " + (F.expectancy >= 0 ? "green" : "red")}>{F.expectancy > 0 ? "+" : ""}{F.expectancy.toFixed(2)}R</span>
+              <span className="sub">per trade · payoff {F.payoff.toFixed(2)}× · {F.win_pct}% win</span>
+            </div>
+          </div>
+          <div className="an-strip">
+            <div className="c"><span className="k">WIN RATE</span><span className="v">{F.win_pct}%</span></div>
+            <div className="c"><span className="k">PAYOFF</span><span className="v">{F.payoff.toFixed(2)}×</span></div>
+            <div className="c"><span className="k">AVG WIN</span><span className="v green">+{F.avg_win.toFixed(2)}R</span></div>
+            <div className="c"><span className="k">AVG LOSS</span><span className="v red">{F.avg_loss.toFixed(2)}R</span></div>
+            <div className="c"><span className="k">MAX DD</span><span className="v red">{F.max_drawdown_r.toFixed(1)}R</span></div>
+          </div>
+        </div>
+      )}
       <div className="section">
         <div className="sect-hd"><span>PERFORMANCE</span><span className="meta">{A.n_sessions} SESSION{A.n_sessions === 1 ? "" : "S"} · REAL FILLS</span></div>
         <div className="an-hero">
@@ -306,6 +366,7 @@ function ReviewBody({ view = "SESSION", picked, setPicked }) {
   return (
     <div className="work-scroll">
       <SessionJournalPanel journal={journal} onExport={onExport} />
+      <SessionFillsPanel date={journal?.date} />
       <CandidateLedgerPanel ledger={ledger} />
     </div>
   );
