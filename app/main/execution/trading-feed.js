@@ -20,10 +20,14 @@ const state = { connected: false, position: null, balance: null, accountId: null
 let openTrade = null;     // { symbol, side, qty, entry, sl, tp, openedMs }
 let lastExecPrice = null; // most recent execution price (the exit, at close time)
 let lastRealizedUsd = null;
+const workingOrders = new Map(); // id → { id, type, side, price, symbol } (status:working)
 let sock = null, reconnectTimer = null, stopped = false;
 
 export function getTradingState() {
-  return { connected: state.connected, position: state.position, balance: state.balance, accountId: state.accountId };
+  return {
+    connected: state.connected, position: state.position, balance: state.balance,
+    accountId: state.accountId, workingOrders: [...workingOrders.values()],
+  };
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -67,6 +71,15 @@ function handleContent(c) {
     case "balance_update": state.balance = p.balance; break;
     case "execution_update": if (p.price != null) { lastExecPrice = p.price; state.lastFillTs = Date.now(); } break;
     case "account_change_update": if (p.after != null && p.before != null) lastRealizedUsd = Math.round((p.after - p.before) * 100) / 100; break;
+    case "order_update":
+      // Track working orders so CANCEL can find them by id; drop on any
+      // terminal status (filled / cancelled / inactive / rejected).
+      if (p.id != null) {
+        if (p.status === "working" || p.status === "pending") {
+          workingOrders.set(p.id, { id: p.id, type: p.type, side: p.side, price: p.price, symbol: p.symbol });
+        } else { workingOrders.delete(p.id); }
+      }
+      break;
     default: break;
   }
 }
