@@ -26,6 +26,28 @@ test("entry-hunt bar-close requires exactly one setup/no_trade surface", () => {
   );
 });
 
+test("entry-hunt narration turn (single-brain) must NOT surface — the chain surfaced in code", () => {
+  // The production entry-hunt prompt carries entryHuntNarrationHint: the
+  // deterministic chain already surfaced the packet/no-trade in CODE, and the
+  // model is told NOT to surface. So surfacing nothing is the expected pass —
+  // the validator must stop flagging surface_calls=none as a violation.
+  const text =
+    "A new 1m bar just closed. Phase: entry_hunt. <walker_truth>verdict</walker_truth>\n" +
+    "The block above has ALREADY been surfaced to the UI in code before this turn. " +
+    "DO NOT call surface_setup or surface_no_trade.";
+  assert.deepEqual(validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [READ] }), { ok: true });
+  assert.deepEqual(validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [] }), { ok: true });
+  // Wrongly double-surfacing (would contradict the chain) IS still a violation.
+  assert.match(
+    validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [SETUP] }).message,
+    /must NOT call surface/i,
+  );
+  assert.match(
+    validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [NO_TRADE] }).message,
+    /must NOT call surface/i,
+  );
+});
+
 test("open-reaction bar-close requires open_reaction plus no_trade and forbids setup", () => {
   const text = "A new 1m bar just closed. Phase: open_reaction (+6m).";
   assert.deepEqual(validateTurnSurfaceContract({ purpose: "bar-close", text, toolCalls: [READ, OPEN, NO_TRADE] }), { ok: true });
