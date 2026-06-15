@@ -102,6 +102,10 @@ contextBridge.exposeInMainWorld("api", {
     trail(payload) { return ipcRenderer.invoke("execution:trail", payload); },
     cancel(payload) { return ipcRenderer.invoke("execution:cancel", payload); },
     addToPosition(payload) { return ipcRenderer.invoke("execution:addToPosition", payload); },
+    config: {
+      get() { return ipcRenderer.invoke("execution:config", { action: "get" }); },
+      set(patch) { return ipcRenderer.invoke("execution:config", { action: "set", patch }); },
+    },
   },
   walkers: {
     onState(cb) {

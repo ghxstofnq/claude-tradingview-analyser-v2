@@ -8,7 +8,7 @@ import { tvAdapter } from "./execution/tv-adapter.js";
 import { checkOrder } from "./execution/guardrails.js";
 import { readFills, dayRealizedLossUsd, readAllFills } from "./execution/fills.js";
 import { getTradingState } from "./execution/trading-feed.js";
-import { TRADES_DIR } from "./execution/config.js";
+import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
 
 function tradesDir() { return TRADES_DIR; }
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -20,6 +20,16 @@ async function guarded(payload) {
 }
 
 export function registerExecutionIpc() {
+  // Automation mode + risk knobs + guardrails. The settings popover reads on
+  // mount and writes on change; the main-process tranche manager reads this to
+  // enforce guardrails on auto-fired orders (no ticket to attach them to).
+  ipcMain.handle("execution:config", async (_e, arg = {}) => {
+    try {
+      if (arg?.action === "set" && arg.patch) return { ok: true, config: writeExecConfig(arg.patch) };
+      return { ok: true, config: readExecConfig() };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
   ipcMain.handle("execution:fills", async (_e, arg = {}) => {
     try {
       const date = arg?.date || today();
