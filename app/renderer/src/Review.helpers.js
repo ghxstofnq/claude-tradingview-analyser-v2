@@ -104,6 +104,59 @@ export function buildLedger(setups = [], trades = []) {
 // backfilled:<phase> / divergent / stale:<min>. Only degraded:* and stale:*
 // are failures worth a red strip — divergent is a market verdict and
 // backfilled means the chain recovered on its own.
+// Honest TRACK RECORD summary over the session-library rows (no per-trade
+// fabrication — every number is summed from real per-session totals).
+// rows: [{ date, session, grade, total_r, stats:{setups,accepted} }].
+// Returns the aggregates the designer's analytics hero/strip/concentration
+// can honestly render. Per-trade cuts (expectancy/payoff/by-model) need a
+// per-trade pipeline that doesn't exist yet, so they're deliberately absent.
+export function buildTrackRecord(rows = []) {
+  const r1 = (n) => Math.round(n * 10) / 10;
+  // Per-session R lives in stats.net_r (the library row shape); total_r is a
+  // forward-compat fallback. Every row is a real session — no-trade days
+  // count as 0R sessions.
+  const sessR = (r) => Number(r.stats?.net_r ?? r.total_r ?? 0) || 0;
+  const list = (rows || []).filter(Boolean);
+  const n = list.length;
+  const cumR = r1(list.reduce((s, r) => s + sessR(r), 0));
+  const wins = list.filter((r) => sessR(r) > 0);
+  const losses = list.filter((r) => sessR(r) < 0);
+  const best = list.reduce((m, r) => Math.max(m, sessR(r)), 0);
+  const worst = list.reduce((m, r) => Math.min(m, sessR(r)), 0);
+  const setupsTotal = list.reduce((s, r) => s + (r.stats?.setups || 0), 0);
+  const acceptedTotal = list.reduce((s, r) => s + (r.stats?.accepted || 0), 0);
+
+  const groupR = (keyFn) => {
+    const m = new Map();
+    for (const r of list) {
+      const k = keyFn(r);
+      const cur = m.get(k) || { k, r: 0, n: 0 };
+      cur.r = r1(cur.r + sessR(r));
+      cur.n += 1;
+      m.set(k, cur);
+    }
+    return [...m.values()];
+  };
+  const sessLabel = (s) => ({ "ny-am": "NY-AM", "ny-pm": "NY-PM", london: "LONDON" })[s] || s || "—";
+  const bySession = groupR((r) => sessLabel(r.session));
+  const byGrade = groupR((r) => r.grade || "—");
+
+  return {
+    n_sessions: n,
+    cum_r: cumR,
+    avg_r: n ? r1(cumR / n) : 0,
+    win_sessions: wins.length,
+    loss_sessions: losses.length,
+    win_pct: n ? Math.round((100 * wins.length) / n) : 0,
+    best_r: r1(best),
+    worst_r: r1(worst),
+    setups_total: setupsTotal,
+    accepted_total: acceptedTotal,
+    by_session: bySession,
+    by_grade: byGrade,
+  };
+}
+
 export function degradedChainStages(chainAudit) {
   if (!chainAudit || typeof chainAudit !== "object") return [];
   const out = [];

@@ -7,12 +7,15 @@ import React, { useState, useEffect } from "react";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
+  buildTrackRecord,
   degradedChainStages,
   deriveLedgerState,
   deriveLedgerReason,
   formatGradeShort,
 } from "./Review.helpers.js";
 import { useReview } from "./hooks/useReview.js";
+
+const gradeTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "dim");
 
 // ── SESSION JOURNAL ──────────────────────────────────────────────────
 function SessionJournalPanel({ journal, onExport }) {
@@ -209,9 +212,68 @@ function SessionLibraryPanel({ library, currentDate, currentSession, onPick }) {
   );
 }
 
+// ── TRACK RECORD ─────────────────────────────────────────────────────
+// Honest analytics over the real session library — cumulative R, win-rate,
+// session concentration, by-grade. Per-trade expectancy/payoff/by-model
+// need a per-trade pipeline that doesn't exist yet, so they're omitted
+// rather than fabricated (CLAUDE.md #6/#7).
+function TrackRecordView({ library }) {
+  const A = buildTrackRecord(library);
+  const maxSession = Math.max(1, ...A.by_session.map((s) => Math.abs(s.r)));
+  return (
+    <div className="work-scroll">
+      <div className="section">
+        <div className="sect-hd"><span>PERFORMANCE</span><span className="meta">{A.n_sessions} SESSION{A.n_sessions === 1 ? "" : "S"} · REAL FILLS</span></div>
+        <div className="an-hero">
+          <div className="htile">
+            <span className="k">CUMULATIVE R</span>
+            <span className={"v " + (A.cum_r >= 0 ? "green" : "red")}>{A.cum_r > 0 ? "+" : ""}{A.cum_r.toFixed(1)}R</span>
+            <span className="sub">{A.n_sessions} sessions · {A.accepted_total} taken of {A.setups_total} candidates</span>
+          </div>
+          <div className="htile">
+            <span className="k">AVG R / SESSION</span>
+            <span className={"v " + (A.avg_r >= 0 ? "green" : "red")}>{A.avg_r > 0 ? "+" : ""}{A.avg_r.toFixed(2)}R</span>
+            <span className="sub">{A.win_sessions}W · {A.loss_sessions}L sessions</span>
+          </div>
+        </div>
+        <div className="an-strip">
+          <div className="c"><span className="k">SESSIONS</span><span className="v">{A.n_sessions}</span></div>
+          <div className="c"><span className="k">WIN SESSIONS</span><span className="v">{A.win_pct}%</span></div>
+          <div className="c"><span className="k">BEST</span><span className="v green">+{A.best_r.toFixed(1)}R</span></div>
+          <div className="c"><span className="k">WORST</span><span className="v red">{A.worst_r.toFixed(1)}R</span></div>
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="sect-hd"><span>SESSION CONCENTRATION</span><span className="meta">R BY SESSION TYPE</span></div>
+        {A.by_session.length === 0 && <Row k="—" v="no sessions yet" tone="dim" />}
+        {A.by_session.map((sv) => {
+          const w = (Math.abs(sv.r) / maxSession) * 100;
+          const neg = sv.r < 0;
+          return (
+            <div className="conc-row" key={sv.k}>
+              <span className="lbl">{sv.k}<span className="n">{sv.n} session{sv.n === 1 ? "" : "s"}</span></span>
+              <span className="track"><span className={"fill" + (neg ? " neg" : "")} style={{ width: w + "%" }} /></span>
+              <span className={"rval" + (neg ? " neg" : "")}>{sv.r > 0 ? "+" : ""}{sv.r.toFixed(1)}R</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="section">
+        <div className="sect-hd"><span>BY GRADE</span><span className="meta">SESSION GRADE → R</span></div>
+        {A.by_grade.map((g) => (
+          <Row key={g.k} k={<span className={"pill " + gradeTone(g.k)}>{g.k}</span>}
+               v={`${g.r > 0 ? "+" : ""}${g.r.toFixed(1)}R · ${g.n} session${g.n === 1 ? "" : "s"}`}
+               tone={g.r > 0 ? "ok" : g.r < 0 ? "bad" : ""} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Workstation ──────────────────────────────────────────────────────
-function ReviewBody() {
-  const [picked, setPicked] = useState({});
+function ReviewBody({ view = "SESSION", picked, setPicked }) {
   const { journal, library } = useReview(picked);
   const ledger = React.useMemo(
     () => buildLedger(journal?.setups || [], journal?.trades || []),
@@ -230,14 +292,21 @@ function ReviewBody() {
     if (!row?.date || !row?.session) return;
     setPicked({ date: row.date, session: row.session });
   };
+  if (view === "TRACK") return <TrackRecordView library={library} />;
+  if (view === "LIBRARY") {
+    return (
+      <div className="work-scroll">
+        <SessionLibraryPanel library={library}
+                             currentDate={journal?.date}
+                             currentSession={journal?.session}
+                             onPick={onPickLibrary} />
+      </div>
+    );
+  }
   return (
     <div className="work-scroll">
       <SessionJournalPanel journal={journal} onExport={onExport} />
       <CandidateLedgerPanel ledger={ledger} />
-      <SessionLibraryPanel library={library}
-                           currentDate={journal?.date}
-                           currentSession={journal?.session}
-                           onPick={onPickLibrary} />
     </div>
   );
 }
@@ -245,8 +314,12 @@ function ReviewBody() {
 // ───────────────────────────────────────────────────────────────────────
 // ReviewCell — topbar cell + anchored 660px popover wrapper. Badge shows
 // today's session P&L color-coded (or setup count pre-session).
+const RV_TABS = [["SESSION", "SESSION"], ["TRACK", "TRACK RECORD"], ["LIBRARY", "LIBRARY"]];
+
 function ReviewCell() {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState("SESSION");
+  const [picked, setPicked] = useState({});
   const { journal, library } = useReview();
   const today = library?.[0];                  // assumed sorted newest-first
   const totalR = today?.total_r ?? null;
@@ -282,14 +355,19 @@ function ReviewCell() {
       <span className="k">REVIEW</span>
       {badge}
       {open && (
-        <div className="bt-popover w-660" onClick={(e) => e.stopPropagation()}>
+        <div className={"bt-popover " + (view === "TRACK" ? "w-analytics" : "w-660")} onClick={(e) => e.stopPropagation()}>
           <div className="head">
             <span className="t">REVIEW</span>
-            <span className="sub">{journal?.date ?? "—"} · {journal?.session?.toUpperCase() ?? ""}</span>
+            <span className="live-tabs" style={{ marginLeft: 10 }} onClick={(e) => e.stopPropagation()}>
+              {RV_TABS.map(([v, l]) => (
+                <span key={v} className={"tab" + (view === v ? " on" : "")} onClick={() => setView(v)}>{l}</span>
+              ))}
+            </span>
+            <span className="spacer" style={{ flex: 1 }} />
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <div className="body">
-            <ReviewBody />
+            <ReviewBody view={view} picked={picked} setPicked={setPicked} />
           </div>
         </div>
       )}

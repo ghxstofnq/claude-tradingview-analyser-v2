@@ -9,7 +9,44 @@ import {
   deriveLedgerState,
   deriveLedgerReason,
   buildLedger,
+  buildTrackRecord,
 } from "../app/renderer/src/Review.helpers.js";
+
+describe("buildTrackRecord", () => {
+  const rows = [
+    { date: "2026-06-12", session: "ny-am", grade: "A+", stats: { setups: 3, accepted: 1, net_r: 1.6 } },
+    { date: "2026-06-11", session: "ny-pm", grade: "B", stats: { setups: 2, accepted: 1, net_r: -1.0 } },
+    { date: "2026-06-11", session: "ny-am", grade: "A+", stats: { setups: 4, accepted: 2, net_r: 2.4 } },
+  ];
+  it("sums cumulative R and session counts from real per-session totals", () => {
+    const A = buildTrackRecord(rows);
+    assert.equal(A.n_sessions, 3);
+    assert.equal(A.cum_r, 3.0);
+    assert.equal(A.win_sessions, 2);
+    assert.equal(A.loss_sessions, 1);
+    assert.equal(A.win_pct, 67);
+    assert.equal(A.best_r, 2.4);
+    assert.equal(A.worst_r, -1.0);
+    assert.equal(A.setups_total, 9);
+    assert.equal(A.accepted_total, 4);
+  });
+  it("groups R by session type and by grade", () => {
+    const A = buildTrackRecord(rows);
+    const am = A.by_session.find((s) => s.k === "NY-AM");
+    assert.equal(am.r, 4.0);
+    assert.equal(am.n, 2);
+    const aplus = A.by_grade.find((g) => g.k === "A+");
+    assert.equal(aplus.r, 4.0);
+    assert.equal(aplus.n, 2);
+  });
+  it("handles an empty library without NaN", () => {
+    const A = buildTrackRecord([]);
+    assert.equal(A.n_sessions, 0);
+    assert.equal(A.cum_r, 0);
+    assert.equal(A.avg_r, 0);
+    assert.deepEqual(A.by_session, []);
+  });
+});
 
 describe("formatGradeShort", () => {
   it("shortens 'no-trade' to 'NO'", () => {
