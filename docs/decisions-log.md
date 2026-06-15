@@ -352,3 +352,19 @@ account mode boots PAPER every launch (ephemeral).
 **Verified** end-to-end on the live paper account: place → filled long with
 SL/TP bracket → flatten → flat, no leftovers. Spec:
 [docs/superpowers/specs/2026-06-15-execution-engine-design.md](superpowers/specs/2026-06-15-execution-engine-design.md).
+
+## 2026-06-15 — Execution: scale-in ADD (paper)
+
+**ADD to the open position works** (PR #76). M0-style spike against the paper
+account established the mechanism: a second SAME-SIDE order with no sl/tp
+averages into the position (qty grows, avg recomputes) and the existing OCO
+bracket auto-resizes to the combined qty — so the add carries no bracket of its
+own. IPC handler is guarded: requires an open position whose side matches the
+add (never reverse via an add) + the standard pre-fire guardrails on the added
+contracts' risk. The fill feed re-anchors entry+qty to the averaged values on a
+scale-in so the recorded round-trip R uses the real cost basis. UI surfaces a
+same-side candidate onto a GREEN-LIT anchor only (≥50% to TP1, strategy §7
+Step 7). **Verified live:** place 1c → add 1c → qty 2 with bracket intact;
+wrong-side + no-position adds rejected; flatten clean; fill recorded qty 2 +
+averaged entry. Deferred: auto-surfacing from a live producer (mirrors the
+backtest's canScaleInto); real-broker LIVE arming.
