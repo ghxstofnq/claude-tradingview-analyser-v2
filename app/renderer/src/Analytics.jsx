@@ -207,6 +207,7 @@ export default function Analytics({ A, loading }) {
         <div className="an-breakdowns">
           {A.by_grade?.length > 0 && <BreakdownCard title="BY GRADE" rows={A.by_grade} unit="A+ leads" maxExp={2.5} />}
           {A.by_model?.length > 0 && <BreakdownCard title="BY MODEL" rows={A.by_model} unit="best model leads" maxExp={2.5} />}
+          {A.by_bias?.length > 0 && <BreakdownCard title="BIAS ALIGNMENT" rows={A.by_bias} unit="aligned ≫ counter" maxExp={2.5} />}
           {A.by_time?.length > 0 && <BreakdownCard title="ENTRY TIME · ET" rows={A.by_time} unit="killzone open leads" maxExp={2.5} />}
         </div>
       </div>

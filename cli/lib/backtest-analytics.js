@@ -135,6 +135,9 @@ function etHalfHourBucket(ts) {
   return `${p(h)}:${p(startMin)}–${p(endH)}:${p(endMin)}`;
 }
 
+// Session HTF/LTF-alignment verdict → the designer's bias-cut bucket label.
+const ALIGN_LABEL = { aligned: "HTF-aligned", divergent: "Counter-trend", unclear: "Unclear" };
+
 // byCut row → BreakdownCard row, sorted by expectancy descending.
 function toBreakdown(cuts) {
   return cuts
@@ -145,17 +148,19 @@ function toBreakdown(cuts) {
 // ── buildAnalytics — assemble the dashboard `A` shape from run details ───
 // Input: the array of { entry, setups } objects returned by backtest:get.
 // Every figure is code-derived from paired open/outcome rows (constraints
-// #6/#7). Cuts whose data isn't tracked (bias alignment) are omitted, not
-// faked. The equity series is the REAL per-trade cumulative R — the curve is
-// drawn from data, not a seeded random walk.
+// #6/#7). The bias-alignment cut uses the run's tracked open-reaction verdict
+// (entry.open_reaction.htf_ltf_alignment) and is omitted — not faked — only
+// when no run carries it. The equity series is the REAL per-trade cumulative R
+// — the curve is drawn from data, not a seeded random walk.
 export function buildAnalytics(runDetails = []) {
   const trades = [];
   const dates = [];
   for (const rd of runDetails) {
     const session = rd?.entry?.session ?? "unknown";
+    const alignment = rd?.entry?.open_reaction?.htf_ltf_alignment ?? null;
     if (rd?.entry?.date) dates.push(rd.entry.date);
     for (const t of tradesFromSetups(rd?.setups ?? [])) {
-      trades.push({ ...t, session });
+      trades.push({ ...t, session, bias_alignment: alignment });
     }
   }
 
@@ -189,6 +194,13 @@ export function buildAnalytics(runDetails = []) {
     (t) => etHalfHourBucket(t.entry_ts),
   ));
 
+  // Bias-alignment cut from the run's tracked open-reaction verdict. Omitted
+  // (undefined) when no run carries an alignment — never fabricated.
+  const biasTrades = trades.filter((t) => ALIGN_LABEL[t.bias_alignment]);
+  const byBias = biasTrades.length
+    ? toBreakdown(byCut(biasTrades, (t) => ALIGN_LABEL[t.bias_alignment]))
+    : undefined;
+
   const dateRange = dates.length
     ? `${dates.slice().sort()[0]} → ${dates.slice().sort().at(-1)}`
     : "";
@@ -218,7 +230,7 @@ export function buildAnalytics(runDetails = []) {
     by_grade: toBreakdown(byCut(trades, (t) => t.grade ?? "—")),
     by_model: toBreakdown(byCut(trades, (t) => t.model ?? "—")),
     by_time: byTime,
-    // by_bias intentionally omitted — alignment isn't tracked per trade.
+    ...(byBias ? { by_bias: byBias } : {}),
     sessions,
     outcomes,
   };
