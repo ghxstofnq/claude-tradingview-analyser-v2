@@ -17,6 +17,7 @@ import {
 import { stripCitations } from "./Prep.helpers.js";
 import { sizeOrder } from "./Sizing.helpers.js";
 import { executionAdapter } from "./execution/executionAdapter.js";
+import { buildOrderRequest } from "./execution/orderRequest.js";
 import { useTrades } from "./hooks/useTrades.js";
 import { useActiveSetup } from "./hooks/useActiveSetup.js";
 import { noTradeStatusLabel } from "./hooks/useActiveSetup.helpers.js";
@@ -25,6 +26,7 @@ import { useHealth } from "./hooks/useHealth.js";
 import { useChat } from "./hooks/useChat.js";
 import { useWalkers } from "./hooks/useWalkers.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
+import { useExecutionState } from "./hooks/useExecutionState.js";
 
 // ── Price with hover data-source tooltip (designer's Px) ─────────────────
 function Px({ v, children, src, tone, big }) {
@@ -110,7 +112,7 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
   const fire = () => {
     if (block) return;
     saveRisk(risk);
-    onFire({ contracts, actualRisk, type, riskUsd: risk });
+    onFire({ type, riskUsd: risk, sizing: sized });
   };
   const sideCls = setup.side === "long" ? "l" : "s";
 
@@ -408,6 +410,7 @@ function LiveCell({ account, guards, symbol }) {
   const lastBar = useLastBar();
   const chat = useChat();
   const walkers = useWalkers();
+  const exec = useExecutionState();
 
   // Default view follows the data unless the user clicked a tab this session.
   const dataView = activeTrade ? "intrade" : "hunt";
@@ -457,7 +460,12 @@ function LiveCell({ account, guards, symbol }) {
     try {
       if (ticketSetup) {
         await accept(ticketSetup);
-        executionAdapter.placeOrder({ setup: ticketSetup, ...order, symbol, account });
+        // Send the canonical order payload so main's guardrail gate reads the
+        // right shape (hasStop/sizing/guards). Placement itself is still the
+        // M0-gated stub — this just makes the fire path correct for Phase 2.
+        executionAdapter.placeOrder(buildOrderRequest({
+          setup: ticketSetup, sizing: order.sizing, guards, account, symbol, type: order.type,
+        }));
       }
     } catch { /* stub / best-effort */ }
     setUserPickedView(true); setView("intrade");
@@ -508,7 +516,15 @@ function LiveCell({ account, guards, symbol }) {
             </div>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
-          <div className="body">{body}</div>
+          <div className="body">
+            {!exec.connected && !exec.loading && (
+              <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)",
+                            color: "var(--amber)", fontSize: 10.5, letterSpacing: ".14em" }}>
+                ⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders
+              </div>
+            )}
+            {body}
+          </div>
         </div>
       )}
     </div>

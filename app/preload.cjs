@@ -92,6 +92,17 @@ contextBridge.exposeInMainWorld("api", {
     start() { return ipcRenderer.invoke("detector:start"); },
     stop()  { return ipcRenderer.invoke("detector:stop"); },
   },
+  execution: {
+    state() { return ipcRenderer.invoke("execution:state"); },
+    fills(date) { return ipcRenderer.invoke("execution:fills", { date }); },
+    place(payload) { return ipcRenderer.invoke("execution:place", payload); },
+    flatten(payload) { return ipcRenderer.invoke("execution:flatten", payload); },
+    panic(payload) { return ipcRenderer.invoke("execution:panic", payload); },
+    moveStopToBE(payload) { return ipcRenderer.invoke("execution:moveStopToBE", payload); },
+    trail(payload) { return ipcRenderer.invoke("execution:trail", payload); },
+    cancel(payload) { return ipcRenderer.invoke("execution:cancel", payload); },
+    addToPosition(payload) { return ipcRenderer.invoke("execution:addToPosition", payload); },
+  },
   walkers: {
     onState(cb) {
       const listener = (_e, ev) => cb(ev);

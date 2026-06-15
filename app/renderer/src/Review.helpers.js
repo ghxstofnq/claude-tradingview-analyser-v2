@@ -157,6 +157,36 @@ export function buildTrackRecord(rows = []) {
   };
 }
 
+// Real TRACK RECORD from actual execution fills (state/trades records).
+// Each fill: { side, symbol, account, planned:{entry,stop,tp},
+// actual:{entry,exit,usd,r,heldMs} }. Per-trade R is the realized R recorded
+// at close (computed in code from realized $ ÷ risk — not fabricated).
+export function buildTrackRecordFromFills(fills = []) {
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const list = (fills || []).filter((f) => f && f.actual && typeof f.actual.r === "number");
+  const n = list.length;
+  const rs = list.map((f) => f.actual.r);
+  const usds = list.map((f) => Number(f.actual.usd) || 0);
+  const cumR = r2(rs.reduce((s, v) => s + v, 0));
+  const cumUsd = Math.round(usds.reduce((s, v) => s + v, 0));
+  const wins = rs.filter((r) => r > 0);
+  const losses = rs.filter((r) => r < 0);
+  const winRate = n ? Math.round((100 * wins.length) / n) : 0;
+  const avgWin = wins.length ? r2(wins.reduce((s, v) => s + v, 0) / wins.length) : 0;
+  const avgLoss = losses.length ? r2(losses.reduce((s, v) => s + v, 0) / losses.length) : 0;
+  const expectancy = n ? r2(cumR / n) : 0;
+  const payoff = avgLoss !== 0 ? r2(avgWin / Math.abs(avgLoss)) : 0;
+  let eq = 0, peak = 0, maxDD = 0;
+  for (const r of rs) { eq = r2(eq + r); peak = Math.max(peak, eq); maxDD = Math.min(maxDD, r2(eq - peak)); }
+  const best = rs.length ? r2(Math.max(...rs)) : 0;
+  const worst = rs.length ? r2(Math.min(...rs)) : 0;
+  return {
+    n_trades: n, cum_r: cumR, cum_usd: cumUsd, win_pct: winRate,
+    win_n: wins.length, loss_n: losses.length, avg_win: avgWin, avg_loss: avgLoss,
+    expectancy, payoff, max_drawdown_r: r2(maxDD), best_r: best, worst_r: worst,
+  };
+}
+
 export function degradedChainStages(chainAudit) {
   if (!chainAudit || typeof chainAudit !== "object") return [];
   const out = [];
