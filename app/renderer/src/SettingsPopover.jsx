@@ -7,6 +7,7 @@
 // broker when the execution engine lands.
 import React, { useState, useEffect, useRef } from "react";
 import { armReady as isArmReady } from "./Account.helpers.js";
+import { useExecutionState } from "./hooks/useExecutionState.js";
 
 function Row({ k, v }) {
   return (
@@ -34,6 +35,7 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
   const ready = isArmReady(txt.trim().toUpperCase());
   const arm = () => { if (!ready) return; setAccount("live"); setArming(false); setTxt(""); };
   const set = (k, v) => setGuards({ ...guards, [k]: v });
+  const exec = useExecutionState();
   const broker = live ? "Tradovate · LIVE" : "Tradovate · DEMO";
 
   return (
@@ -84,6 +86,9 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
         </div>
         <div className="section">
           <div className="sect-hd"><span>EXECUTION</span></div>
+          <Row k="Broker" v={exec.connected
+            ? <span style={{ color: "var(--green)" }}>● PAPER TRADING</span>
+            : <span style={{ color: "var(--amber)" }}>{exec.loading ? "checking…" : "○ not connected — connect in TradingView"}</span>} />
           <Row k="Per-order confirm" v={<span style={{ color: "var(--amber)" }}>OFF · fires on accept</span>} />
           <Row k="Default order type" v="MARKET" />
           <Row k="Detector" v={<span style={{ color: "var(--green)" }}>● RUNNING</span>} />
