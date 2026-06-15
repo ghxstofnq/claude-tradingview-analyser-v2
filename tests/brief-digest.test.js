@@ -60,8 +60,39 @@ function sampleSymbolBundle() {
   };
 }
 
-test('buildBriefDigest returns null when no pair block present', () => {
+test('buildBriefDigest returns null for an unusable bundle (no pair, no symbol, no engine data)', () => {
   const out = buildBriefDigest({ chart: {}, gates: {} });
+  assert.equal(out, null);
+});
+
+// 2026-06-15 short-circuit fix: after the leader is decided, `tv analyze --pair`
+// drops the pair block and captures only the leader (cost saving). The direct
+// session brief still requires brief_digest.symbols to rebuild, so a single-symbol
+// full capture must still produce a digest keyed by the chart's bare symbol —
+// otherwise any brief refresh after the leader decision throws
+// "requires bundle.brief_digest.symbols".
+test('buildBriefDigest single-symbol leader capture: one-symbol digest keyed by the bare chart symbol', () => {
+  const sb = sampleSymbolBundle();
+  sb.chart = { symbol: 'CME_MINI:MNQ1!' };
+  const out = buildBriefDigest(sb);
+  assert.ok(out, 'expected a digest for a single-symbol leader capture');
+  assert.deepEqual(Object.keys(out.symbols), ['MNQ1!']);
+  // Same per-symbol shape as the paired path, sourced from the top-level bundle.
+  assert.equal(out.symbols['MNQ1!'].htf.h4.top_fvgs[0].took_liq, true);
+  assert.ok(out.symbols['MNQ1!'].htf.h4.top_fvgs[0].cite.startsWith('engine_by_tf.h4.fvgs'));
+  assert.equal(out.symbols['MNQ1!'].pillar1.session_levels.PDH.price, 29397);
+  assert.equal(out.symbols['MNQ1!'].pillar2.m5.range_3h, 40);
+  assert.deepEqual(out.leader_evidence, {});
+});
+
+test('buildBriefDigest single-symbol: a bare symbol with no exchange prefix is used as-is', () => {
+  const sb = sampleSymbolBundle();
+  sb.chart = { symbol: 'MNQ1!' };
+  assert.deepEqual(Object.keys(buildBriefDigest(sb).symbols), ['MNQ1!']);
+});
+
+test('buildBriefDigest single-symbol: no engine_by_tf returns null (polling-mode bundle has no HTF to digest)', () => {
+  const out = buildBriefDigest({ chart: { symbol: 'CME_MINI:MNQ1!' }, engine_by_tf: null, gates: {} });
   assert.equal(out, null);
 });
 
