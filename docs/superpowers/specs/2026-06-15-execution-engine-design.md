@@ -1,72 +1,87 @@
-# Execution engine — design spec
+# Execution engine — design spec (build-ready)
 
-**Status:** draft for review · 2026-06-15
-**Branch:** `feat/dashboard-v2` (built **second**, after the UI spec)
-**Companion spec:** [2026-06-15-dashboard-v2-ui-design.md](2026-06-15-dashboard-v2-ui-design.md)
+**Status:** locked for planning · 2026-06-15 (refined from the draft after a feasibility spike + brainstorm)
+**Branch:** fresh branch off `main` (`feat/execution-engine`), isolated from the dashboard-v2 work and the separate backtest session.
+**Companion:** [2026-06-15-dashboard-v2-ui-design.md](2026-06-15-dashboard-v2-ui-design.md) (merged — provides the ticket/buttons/blocked-state UI + the `executionAdapter` stub this fills in).
 
 ## Goal
 
-Wire the dashboard's order controls to **real orders through TradingView**, paper-first. On accepting a setup the trader enters a $ risk; the engine sizes it to micro contracts and places the entry + a SL/TP bracket. The in-trade buttons (FLATTEN / BE / PANIC / TRAIL / CANCEL) modify the live position. Scale-ins surface as ADD candidates that add to the position. The engine captures fills + outcomes and feeds them to REVIEW (results + track record).
+Wire the dashboard's order controls to **real orders through TradingView, paper-first**. On accepting a setup the trader enters a $ risk; the engine sizes it to micro contracts, runs guardrails, and places the entry + an SL/TP bracket. In-trade buttons modify the live position. Fills + outcomes are captured and feed REVIEW (built next, after this works).
 
-This is the **higher-risk** half — automated real-money order placement. It is built isolated, behind a guarded PAPER→LIVE switch, paper-first.
+This is the **higher-risk** half — automated, real-money-capable order placement. Built isolated, behind a guarded PAPER→LIVE switch, **paper-first**.
 
 ## ⚠ Constraint change
 
-This **reverses CLAUDE.md hard constraint #2** ("CLI only — no MCP tools" / "the system must not drive the broker / no broker writes"). The dashboard becomes an order-placing surface. **CLAUDE.md + `docs/decisions-log.md` must be updated** as part of this work, with the new posture: the system may place/modify/close orders through TradingView, paper-first, behind the guarded LIVE arm, with the guardrails below. This spec is the authority for that change; flag it explicitly in review.
+This **reverses CLAUDE.md hard constraint #2** ("CLI only — no MCP tools" / "the system must not drive the broker / no broker writes"). The dashboard becomes an order-placing surface. **CLAUDE.md #2 + `docs/decisions-log.md` must be updated as part of this work** with the new posture: the system may place/modify/close orders through the **in-app TradingView webview**, paper-first, behind the guarded LIVE arm, with the guardrails below. This spec is the authority for that change; flag it explicitly in review. The CLI/analysis path (`packages/core` on CDP 9225) is unchanged and still does not place orders.
 
-## Scope
+## Locked decisions (this brainstorm)
 
-**In:** the `executionAdapter` (stubbed by the UI spec) implemented against TradingView; deterministic sizing; guardrails enforcement; ephemeral account mode + guarded LIVE arm; fills/outcomes capture feeding REVIEW. **Paper-first**, then a flip to live.
+1. **Broker:** TradingView's built-in **Paper Trading** (zero signup, simulates fills on the chart symbols MNQ1!/MES1!). A real futures broker is connected later for the live flip; the adapter interface does not change.
+2. **Order surface:** the **in-app `<webview>` on CDP 9223** (the chart the trader watches), NOT TV Desktop (9225, the analysis backend). Keeps trading isolated from capture/replay.
+3. **First milestone:** a **thin vertical slice** — accept → size → place entry + SL/TP bracket → see the position → FLATTEN + PANIC — proven on paper before BE/TRAIL/CANCEL/ADD are added.
+4. **Placement mechanism:** decided by an **M0 feasibility spike** (below). Preference order: (A) replay TradingView's trading network message (websocket/REST) discovered by intercepting one manual paper order — precedent `packages/core/alerts.js` which POSTs TV's `create_alert`; fallback (B) DOM automation of the trade panel. **Position/fill state is always READ from the account-manager DOM** regardless of placement path. Everything downstream of placement is identical for A or B.
 
-**Out:** any broker beyond what TradingView connects to; portfolio/multi-account; anything not behind the LIVE arm.
+**Feasibility finding (2026-06-15 spike):** neither TV instance currently has a broker connected — there is latent trading UI (account-manager stub, order/trading toast groups) but no active account, order ticket, or balance. **Prerequisite: the user connects "Paper Trading" once in the in-app TradingView trade panel** before M0 can run.
 
-## Architecture
+## Architecture (isolated, testable units)
 
-### 1. Sizing (`cli/lib/sizing.js` — extend existing)
-Pure, deterministic (constraint #7 — no LLM math): `contracts = floor( $risk ÷ (stopDistancePts × pointValue) )`, pointValue MNQ $2 / MES $5. Pick the whole-micro count whose risk is closest to target **within ±$50**; if none within ±$50 → **block** (no order). For market entries size off live price; for limit, off the entry price. Returns `{ contracts, actualRisk$, pctOfMax, withinTolerance, blockReason? }`.
+### 1. Sizing — `cli/lib/sizing.js` (exists) + `app/renderer/src/Sizing.helpers.js` (exists)
+Pure, deterministic (constraint #7 — no LLM math): `contracts = floor($risk ÷ (stopPts × pointValue))`, pointValue MNQ $2 / MES $5; pick the whole-micro count within **±$50** of target, else **block**. Returns `{contracts, actualRisk, pctOfMax, withinTolerance, blockReason?}`. Already unit-tested; no change expected beyond reuse in main.
 
-### 2. Execution adapter (`app/main/execution/tv-adapter.js`)
-Implements the interface the UI spec stubbed. Drives TradingView via the existing CDP control (`packages/core` over CDP 9225 / the webview), targeting TV's connected futures broker (Tradovate/AMP/etc.), **paper account first**:
-- `placeOrder({side, type: market|limit, contracts, entry, stop, tp, account})` → entry + **OCO SL/TP bracket**.
+### 2. CDP webview client — `app/main/execution/cdp-webview.js` (new)
+A thin CDP client pinned to the **9223 `type:"webview"`** target (TradingView). Connect, `Runtime.evaluate`, `Network` enable for the spike. Distinct from `packages/core` (9225, analysis) so the two never interfere. Re-acquires the target on webview reload.
+
+### 3. Execution adapter — `app/main/execution/tv-adapter.js` (new)
+Implements the interface the UI stubbed, driving the webview via #2. Slice scope first, then the rest:
+- `placeOrder({side, type:market|limit, contracts, entry, stop, tp, account})` → entry + **OCO SL/TP bracket**.
 - `flatten()` → close position at market + cancel working orders.
-- `moveStopToBE()` → modify stop to entry.
 - `panic()` → flatten all + cancel all (emergency).
-- `trail(level)` / `cancel()` → modify/cancel working orders.
-- `addToPosition({...})` → ADD: place more contracts on the existing position (not a new one).
-- `armLive()` / `returnToPaper()` → switch the adapter's target account.
+- *(M5)* `moveStopToBE()`, `trail(level)`, `cancel()`, `addToPosition({...})`.
+- `armLive()` / `returnToPaper()` → switch the adapter's target account (paper-only until the slice is solid).
+- `readState()` → parse the account-manager DOM → `{position, workingOrders, balance}` for the IN-TRADE panel + fill capture.
 
-Mechanism (to confirm during a feasibility spike): drive TV's trade panel/DOM, or its internal order REST endpoint (precedent: `alerts.js` POSTs TV's `create_alert`). A spike validates which is reliable for the user's broker before full build.
+### 4. Guardrails — `app/main/execution/guardrails.js` (new)
+Pure; run **before every order fires** (orders fire immediately on accept — this is the gate). `check({risk, sizing, dayState, guards})` → `{ok}` or `{block:true, reason}`:
+- Always-on: require a valid stop; block if no size within ±$50.
+- User-chosen: max $ per trade (reject over); daily-loss halt (block new entries after the day hits the limit / the existing loss-halt).
 
-### 3. Guardrails (`app/main/execution/guardrails.js`)
-Enforced **before every order fires** (orders fire immediately on accept — no per-order confirm, so this is the gate):
-- **Always-on:** require a valid stop; block if no size within ±$50.
-- **User-chosen:** max $ per trade (reject over); daily-loss halt (block new entries after the day hits the limit / the existing 3-loss halt).
-- On block → no order, surface the reason inline (the UI's blocked-order state).
+### 5. Fills + outcomes — `app/main/execution/fills.js` (new)
+On fill/exit, append a record to `state/trades/<date>.jsonl`: planned (entry/stop/tp/R) + actual (fill, slippage, exit type, real R + $, account PAPER|LIVE, held time). REVIEW (next project) reads these for SESSION reconciliation + TRACK RECORD (LIVE-default filter).
 
-### 4. Account mode (ephemeral) + guarded LIVE arm
-Account mode lives in memory, **boots PAPER every launch** (never persisted; clear any stale `workstation:account` key — already done in the UI). Guardrails persist (settings, not risk state). LIVE arm: type-"LIVE"-to-enable gate → adapter targets the live account; one-click return to paper. Arming is per-session, never carried across restart (verified safe in the UI mockup).
+### 6. IPC — `app/main/ipc-execution.js` (new) + preload exposure
+`execution:place / flatten / panic / state / arm / disarm` (+ M5 verbs). Renderer's `executionAdapter.js` becomes a thin `window.api.execution.*` wrapper (replacing the stub). Account mode + guards already live in renderer state (boots PAPER, ephemeral) and ride along on each call.
 
-### 5. Fills + outcomes → REVIEW
-On fill/exit, write a fill record (`state/trades/<date>.jsonl` or similar): planned (entry/stop/tp/R) + actual (fill, slippage, exit type, real R + $, account PAPER|LIVE, held time). REVIEW SESSION reconciliation + TRACK RECORD read these (TRACK RECORD filters to LIVE by default).
+## Milestones (thin slice → full)
+
+- **M0 — mechanism spike.** With Paper Trading connected, place ONE manual paper order while capturing webview `Network` + DOM. Decide A (network replay) vs B (DOM). Document the chosen path. *No engine code committed until this resolves.*
+- **M1 — read state.** `readState()` parses the account-manager DOM (position, working orders, balance). Verified against a manual paper position.
+- **M2 — place entry + bracket.** `placeOrder` via the chosen path; guardrails before fire; ticket shows computed micros + actual $; verify the paper position + SL/TP appear.
+- **M3 — FLATTEN + PANIC.** Close/cancel verified; PANIC flattens all.
+- **M4 — fills → record.** Fill/exit writes `state/trades/<date>.jsonl`; IN-TRADE panel reads live position from `readState()`.
+- **M5 — BE / TRAIL / CANCEL / ADD.** Layer remaining controls; ADD adds to the position (walker chain already emits `scale_in_add`).
 
 ## Safety model
 
-- **Paper-first**: full flow validated on TV Paper Trading before any live flip.
-- **Pre-fire validation is the gate** (immediate fire, no confirm): require-stop + ±$50 + max-$ + daily-halt all checked; any failure blocks, never fires wrong.
-- **Guarded LIVE arm**: deliberate type-to-arm, ephemeral, red across the UI when live.
-- **PANIC** kill switch always available.
-- **No silent sizing**: every order shows computed contracts + actual $ risk before firing (on the ticket).
+- **Paper-first** — full flow validated on TV Paper Trading; LIVE arm stays disabled in code until M0–M4 are solid.
+- **Pre-fire validation is the gate** — require-stop + ±$50 + max-$ + daily-halt; any failure blocks, never fires wrong.
+- **Guarded LIVE arm** — deliberate type-"LIVE", ephemeral (boots PAPER), red across the UI when live (UI already built/verified).
+- **PANIC** kill switch always available; manual broker control is the ultimate backstop.
+- **No silent sizing** — every order shows computed contracts + actual $ risk on the ticket before firing.
 
 ## Testing
 
-- Sizing: pure unit tests (`node --test`) incl. ±$50 boundary, floor/nearest, both point values, block-when-none-fit.
-- Guardrails: unit tests for each gate (require-stop, over-max, daily-halt, ±$50).
-- Adapter: integration test against TV **paper** (manual/scripted spike); never auto-test against live.
-- Account mode ephemerality: covered by the UI spec's verified reload test.
+- Sizing + guardrails: pure `node --test` (±$50 boundary, floor/nearest, both point values, block-when-none-fit; each guardrail gate).
+- Adapter: integration against TV **paper** only (scripted spike harness); **never auto-tested against live**.
+- `readState()` DOM parse: fixture-based unit test on a captured account-manager HTML snapshot.
+- Account-mode ephemerality: covered by the UI's verified reload test.
 
 ## Risks
 
-- **Real money** — automated placement; mitigated by paper-first + the guardrails + the guarded arm.
-- **TV automation fragility** — DOM/REST may break on TV updates; the feasibility spike picks the most robust path; PANIC + manual broker control are the backstops.
-- **Constraint reversal** — must update CLAUDE.md/#2 + decisions-log deliberately, not silently.
-- **Build only after the UI spec** is in place (it provides the adapter interface + the ticket/buttons/blocked-state UI this fills in).
+- **Real money** — automated placement; mitigated by paper-first + guardrails + guarded arm + PANIC.
+- **TV automation fragility** — DOM/network may change on TV updates; the M0 spike picks the most robust path; `readState()` parsing is isolated so a TV change touches one unit; PANIC + manual control are backstops.
+- **Constraint reversal** — update CLAUDE.md #2 + decisions-log deliberately (a milestone deliverable, not silent).
+- **Prerequisite** — Paper Trading must be connected by the user before M0; the engine surfaces a clear "no broker connected" state until then.
+
+## Out of scope
+
+Any broker beyond TV Paper Trading (for now); portfolio/multi-account; anything behind the LIVE arm until the slice is proven; REVIEW wiring (separate next project — this only writes the fill records it will read).
