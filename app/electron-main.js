@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { initSdk } from "./main/sdk.js";
 import { registerIpc } from "./main/ipc.js";
 import { registerExecutionIpc } from "./main/ipc-execution.js";
+import { startTradingFeed } from "./main/execution/trading-feed.js";
 import { setSurfaceSink } from "./main/tools/surface.js";
 import { startHealthMonitor } from "./main/health.js";
 import { startAlertPolling } from "./main/alerts.js";
@@ -81,6 +82,7 @@ app.whenReady().then(async () => {
   const win = createWindow();
   const ipc = registerIpc(win);
   registerExecutionIpc();
+  startTradingFeed();
   setSurfaceSink(ipc.send);
   startHealthMonitor(ipc.send);
   startAlertPolling({ send: ipc.send });
