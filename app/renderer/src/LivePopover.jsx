@@ -17,6 +17,7 @@ import {
 import { stripCitations } from "./Prep.helpers.js";
 import { sizeOrder } from "./Sizing.helpers.js";
 import { executionAdapter } from "./execution/executionAdapter.js";
+import { buildOrderRequest } from "./execution/orderRequest.js";
 import { useTrades } from "./hooks/useTrades.js";
 import { useActiveSetup } from "./hooks/useActiveSetup.js";
 import { noTradeStatusLabel } from "./hooks/useActiveSetup.helpers.js";
@@ -111,7 +112,7 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
   const fire = () => {
     if (block) return;
     saveRisk(risk);
-    onFire({ contracts, actualRisk, type, riskUsd: risk });
+    onFire({ type, riskUsd: risk, sizing: sized });
   };
   const sideCls = setup.side === "long" ? "l" : "s";
 
@@ -459,7 +460,12 @@ function LiveCell({ account, guards, symbol }) {
     try {
       if (ticketSetup) {
         await accept(ticketSetup);
-        executionAdapter.placeOrder({ setup: ticketSetup, ...order, symbol, account });
+        // Send the canonical order payload so main's guardrail gate reads the
+        // right shape (hasStop/sizing/guards). Placement itself is still the
+        // M0-gated stub — this just makes the fire path correct for Phase 2.
+        executionAdapter.placeOrder(buildOrderRequest({
+          setup: ticketSetup, sizing: order.sizing, guards, account, symbol, type: order.type,
+        }));
       }
     } catch { /* stub / best-effort */ }
     setUserPickedView(true); setView("intrade");
