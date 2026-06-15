@@ -9,6 +9,8 @@
 // adapter and records the resulting order ids on the tranche so a later
 // transition can reference its own stop/limit/sibling.
 
+import { runnerEligible } from "../../../cli/lib/trade-outcomes.js";
+
 // A+ runs to TP2 (when there's room); everything else banks at TP1.
 function runnerTp(grade, tp1, tp2) {
   return grade === "A+" && tp2 != null && Number.isFinite(Number(tp2)) ? tp2 : tp1;
@@ -24,12 +26,16 @@ export function brokerActionsForTranche({ side, grade, contracts, entry, stop, t
   ];
 }
 
-// A grader transition → the broker action(s) for that tranche.
-export function brokerActionsForTransition({ status, grade, entry, side, contracts, symbol, stopOrderId, limitOrderId, siblingOrderId }) {
+// A grader transition → the broker action(s) for that tranche. `runner` is the
+// runner-eligibility of the trade (A+ with TP2 room) — it disambiguates a TP1
+// tag: a runner uses TP1 as a break-even MILESTONE (move the stop, keep the
+// TP2 limit); a non-runner (B, or A+ with no room) EXITS at its resting TP1
+// limit, so its now-orphaned stop sibling must be cancelled (standalone orders
+// are not an OCO pair — nothing auto-cancels).
+export function brokerActionsForTransition({ status, runner, entry, side, contracts, symbol, stopOrderId, limitOrderId, siblingOrderId }) {
   if (status === "TP1_HIT") {
-    // A+ runner: slide that tranche's stop to break-even. B already exits via
-    // its resting TP1 limit — nothing to do.
-    return grade === "A+" ? [{ kind: "modify_stop", orderId: stopOrderId, price: entry }] : [];
+    if (runner) return [{ kind: "modify_stop", orderId: stopOrderId, price: entry }];
+    return siblingOrderId != null ? [{ kind: "cancel", orderId: siblingOrderId }] : [];
   }
   if (status === "STOPPED" || status === "TP2_HIT") {
     // One leg filled → cancel the resting sibling so it doesn't open a position.
@@ -53,10 +59,18 @@ export function planTrancheExit(transition, events) {
   if (!accept) return null;
   const orders = [...events].reverse().find((e) => e.type === "tranche_orders" && e.setup_id === transition.id);
   if (!orders) return null; // not an auto-mode standalone tranche
+  const runner = runnerEligible(accept);
+  // Which resting order is now orphaned and must be cancelled:
+  //   STOPPED → the stop filled → cancel the limit.
+  //   TP2_HIT → the TP2 limit filled → cancel the stop.
+  //   non-runner TP1_HIT → the TP1 limit filled → cancel the stop.
+  //   runner TP1_HIT → milestone (BE move), no sibling cancel.
   const siblingOrderId = transition.status === "STOPPED" ? orders.limitOrderId
-    : transition.status === "TP2_HIT" ? orders.stopOrderId : null;
+    : transition.status === "TP2_HIT" ? orders.stopOrderId
+    : (transition.status === "TP1_HIT" && !runner) ? orders.stopOrderId
+    : null;
   const actions = brokerActionsForTransition({
-    status: transition.status, grade: accept.grade, entry: accept.entry, side: accept.side,
+    status: transition.status, runner, entry: accept.entry, side: accept.side,
     contracts: Number(accept.size?.contracts ?? accept.size ?? 1) || 1, symbol: accept.symbol,
     stopOrderId: orders.stopOrderId, limitOrderId: orders.limitOrderId, siblingOrderId,
   });
