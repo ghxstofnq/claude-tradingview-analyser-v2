@@ -29,6 +29,7 @@ import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
+import { finalizeOpenReactionDeterministic } from "./live-open-reaction-finalizer.js";
 import { normalizeLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
@@ -458,6 +459,29 @@ async function runClaudeTurnFor(ev, session, phase) {
     recordMetric({ kind: "bar-close", event: "skipped", session, reason: `brief_no_trade_hard:${briefNoTradeReason}` });
     return;
   }
+
+  // Open-reaction window — fully deterministic (2026-06-15), no Claude turn.
+  // At/after minute 14 of the 15-min window, finalize leader + LTF bias +
+  // open verdict from the engine's own evidence — computeLeader (via the
+  // bundle's pair.leader_evidence) + deriveLtfBiasContext — the SAME resolvers
+  // the backtest folds. Earlier bars defer: the verdict is meaningless until
+  // the window has actually run. This runs regardless of LLM auth.
+  if (phase === "open_reaction") {
+    const mipOR = minutesIntoPhase(session, ev, phase);
+    if (mipOR != null && mipOR >= 14) {
+      const r = await finalizeOpenReactionDeterministic({ session, eventTs: ev.ts, minutesIntoPhase: mipOR })
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.warn("[bar-close] open-reaction finalize threw", err?.message || err);
+          return null;
+        });
+      recordMetric({ kind: "bar-close", event: "open_reaction_finalized", session, wrote: r?.wrote ?? false, leader: r?.leader ?? null, bias: r?.bias ?? null });
+    } else {
+      recordMetric({ kind: "bar-close", event: "open_reaction_deferred", session, mip: mipOR });
+    }
+    return;
+  }
+
   // If Claude Code is not authenticated, keep deterministic bar/trade/walker
   // ticking alive but suppress LLM turns. Otherwise a missing local login
   // creates one failed catch-up/wrap/brief attempt per scheduler tick.
@@ -467,18 +491,23 @@ async function runClaudeTurnFor(ev, session, phase) {
   const providerName = resolveLlmProvider({ purpose: "bar-close" }).name;
   const authBlocked = llmTurnAuthBlocked({ providerName, claudeBlocked: !!isClaudeAuthBlocked() });
 
-  // Catch-up: if we entered entry-hunt without a pair-decision (started the
-  // system after 09:45 ET for NY AM / 13:15 for NY PM / 03:15 for London),
-  // the open-reaction window has already passed and surface_leader_decision
-  // never fired. Trigger a one-shot catch-up turn now to pick the leader
-  // from current data so the rest of entry-hunt has the chart pinned and
-  // can run normally.
-  if (!authBlocked && phase === "entry_hunt" && !(await pairDecisionExists())) {
-    await runLeaderCatchupTurn(ev, session).catch((err) => {
-      // eslint-disable-next-line no-console
-      console.warn("[bar-close] leader catch-up threw", err?.message || err);
-    });
-    // pair-decision.json may exist now; preflight will pin chart on next call
+  // Deterministic open-reaction backfill (replaces the LLM leader/ltf-bias
+  // catch-up turns — 2026-06-15). If we reached entry-hunt without a
+  // pair-decision or ltf-bias (system started after the open window, or the
+  // open-reaction finalize hasn't landed yet), resolve leader + bias + open
+  // verdict in CODE — the same resolvers the backtest folds. Runs before
+  // preflight so the chart pins to the chosen leader, and regardless of LLM
+  // auth (the whole point: the chain no longer needs Claude here).
+  if (phase === "entry_hunt") {
+    const sdir0 = await activeSessionDir();
+    const needsBackfill = !(await pairDecisionExists()) || !existsSync(path.join(sdir0, "ltf-bias.md"));
+    if (needsBackfill) {
+      await finalizeOpenReactionDeterministic({ session, eventTs: ev.ts }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn("[bar-close] open-reaction backfill threw", err?.message || err);
+      });
+      // pair-decision.json + ltf-bias.* may exist now; preflight pins the chart.
+    }
   }
 
   await preflightChartState(ev, phase).catch((err) => {
@@ -535,20 +564,14 @@ async function runClaudeTurnFor(ev, session, phase) {
 
   const memory = await readSessionMemory();
   const mip = minutesIntoPhase(session, ev, phase);
-  let hint;
-  if (phase === "open_reaction") {
-    const finalize = mip != null && mip >= 14;
-    const pairLine =
-      `Pair config: pass pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}" to tv_analyze_fast — the dual-symbol bundle is required to compute leader_evidence and to call surface_leader_decision at minute 14.`;
-    hint = `Open-reaction window (+${mip ?? "?"}m of 15). Required action: ${pairLine} Call surface_open_reaction with the latest read (session="${session}"). ${finalize ? `minutes_into_phase >= 14 — also call surface_leader_decision with the values from pair.leader_evidence and surface_ltf_bias to finalize bias. ` : ""}End the turn with surface_no_trade — no setup card during open-reaction.`;
-  } else {
-    // Entry hunt — narration-only (single-brain, 2026-06-12). The walker
-    // chain already surfaced this bar's verdict in code; the model explains
-    // it. The hint must agree with <phase name="entry_hunt"> in the system
-    // prompt — the 2026-05-27 lesson: a hint that contradicts the system
-    // prompt makes the model execute BOTH paths and blow the turn timeout.
-    hint = entryHuntNarrationHint();
-  }
+  // Only entry-hunt reaches here — open_reaction is fully deterministic and
+  // returns above; "off" is filtered by the drainer. Entry hunt is
+  // narration-only (single-brain, 2026-06-12): the walker chain already
+  // surfaced this bar's verdict in code; the model explains it. The hint MUST
+  // agree with <phase name="entry_hunt"> in the system prompt — the
+  // 2026-05-27 lesson: a hint that contradicts the system prompt makes the
+  // model execute BOTH paths and blow the turn timeout.
+  const hint = entryHuntNarrationHint();
   const memoryBlock = memory ? `\n\nSESSION MEMORY (read-only context for this turn):\n${memory}\n` : "";
   const phaseLine = `Phase: ${phase}${mip != null ? ` (+${mip}m)` : ""}. TF tick: ${ev.tf}${ev.is_5m_close ? " (also a 5m close)" : ""}.`;
 
@@ -576,39 +599,17 @@ async function runClaudeTurnFor(ev, session, phase) {
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   });
 
-  // Catch-up routing — if we're past the open-reaction window but ltf-bias.md
-  // is missing, route the model into <phase name="catch_up"> to backfill
-  // pair-decision.json + ltf-bias.md before continuing to entry_hunt. The
-  // existing legacy catch-up path (line ~462) handles the missing
-  // pair-decision.json case specifically; this is the broader chain-aware
-  // routing per spec §5.1.
-  const sdir = await activeSessionDir();
-  const pillar1Exists = existsSync(path.join(sdir, "pillar1.md"));
-  const pillar2Exists = existsSync(path.join(sdir, "pillar2.md"));
-  const ltfBiasExists = existsSync(path.join(sdir, "ltf-bias.md"));
-  const sessionPhase = `${phase}_${session.replace("-", "_")}`;
-  const isCatchUp = shouldRouteToCatchUp({
-    sessionPhase,
-    pillar1Exists,
-    pillar2Exists,
-    ltfBiasExists,
-  });
-  // Quiet-bar gate: during entry hunt (and only outside catch-up), skip the
-  // LLM turn entirely when nothing narration-worthy happened this bar. The
-  // walker chain already surfaced its verdict; the UI's walker panel and
-  // deterministic events update every bar regardless.
-  if (phase === "entry_hunt" && !isCatchUp && !shouldRunNarrationTurn({ truth: walkerTruth, ev })) {
+  // Quiet-bar gate: during entry hunt, skip the LLM narration turn entirely
+  // when nothing narration-worthy happened this bar. The walker chain already
+  // surfaced its verdict; the UI's walker panel and deterministic events
+  // update every bar regardless. (The LLM catch-up routing was removed
+  // 2026-06-15 — the deterministic backfill above resolves leader + bias in
+  // code, so there is no longer a catch_up turn to keep alive on quiet bars.)
+  if (phase === "entry_hunt" && !shouldRunNarrationTurn({ truth: walkerTruth, ev })) {
     recordMetric({ kind: "bar-close", event: "skipped", session, reason: "narration_quiet_bar" });
     return;
   }
-  // When in catch-up mode, REPLACE the per-phase hint with a focused
-  // catch_up directive. Don't pile both on the model — the 90s bar-close
-  // timeout can't accommodate "do catch_up AND walk three entry models".
-  // After ltf-bias.md is written, the next bar falls through to the
-  // normal entry_hunt hint.
-  const text = isCatchUp
-    ? `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}\n**CATCH-UP TURN** — ltf-bias.md is missing past the open-reaction window. Follow <phase name="catch_up"> in the system prompt: read pillar1.md frontmatter (both symbols), read pair-decision.json (leader is already chosen), compute the LTF bias from gates.engine.confirmation.last_bar + gates.engine.most_recent_structure, write ltf-bias.md via surface_ltf_bias with backfilled:true, leader:"<leader>", grade_cap:"B", chain_status:"backfilled:open_reaction". DO NOT walk entry models this bar — entry_hunt fires normally on the next bar. End with surface_no_trade("backfilling ltf-bias").`
-    : `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}${walkerTruthBlock}\n${hint}`;
+  const text = `A new ${ev.tf} bar just closed at ${etTime} ET (utc=${ev.ts}). ${phaseLine}${memoryBlock}${untakenBlock}${walkerTruthBlock}\n${hint}`;
 
   // Metrics: track bar-close turn lifecycle. Was: bar-close (the highest-
   // frequency turn at ~60/hour) emitted ZERO metrics — couldn't answer
@@ -1421,85 +1422,6 @@ async function readPairDecisionLeader() {
     const decision = JSON.parse(txt);
     return decision?.leader || null;
   } catch { return null; }
-}
-
-// One-shot leader-pick turn fired when entering entry-hunt without a
-// pair-decision (system started after the open-reaction window closed,
-// or the open-reaction turns failed to call surface_leader_decision).
-//
-// Asks Claude to capture a paired bundle now, treat current FVG disp_score
-// as the leader_evidence proxy (we lost the chance to measure during the
-// 15-min window), and call surface_leader_decision so the chart can be
-// pinned for the rest of the session.
-async function runLeaderCatchupTurn(ev, session) {
-  // eslint-disable-next-line no-console
-  console.log("[bar-close] leader catch-up: no pair-decision found, firing leader-pick turn");
-  const etTime = new Date(ev.ts).toLocaleString("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-  });
-  const text = `CATCH-UP TURN at ${etTime} ET — missed open-reaction window for the ${session.toUpperCase()} session. Pick leader + finalize LTF bias in ONE turn so entry-hunt can resume next bar.
-
-Steps:
-1. Call mcp__tv__tv_analyze_fast with pair="${PAIR_DEFAULT}", baseline="${baselinePathFor(PAIR_PRIMARY)}", baseline_secondary="${baselinePathFor(PAIR_SECONDARY)}". This produces a fresh paired bundle PLUS a sibling state/last-scan.digest.json (pretty-printed, ~17KB).
-2. Read **state/last-scan.digest.json** (NOT last-scan.json — the full bundle is one giant single line truncated by Read). The digest carries leader_evidence + per-symbol HTF + pillar1 + ltf_context. Pick leader per the reason table:
-   - primary_higher_disp_score (margin ≥ threshold) → primary, chain_status: "clean"
-   - secondary_higher_disp_score (margin ≥ threshold) → secondary, chain_status: "clean"
-   - inconclusive_margin_below_threshold → primary (DEFAULT), chain_status: "degraded:leader_inconclusive"
-   - no_fvgs_created_in_window → primary (DEFAULT), chain_status: "degraded:no_fvgs_in_window"
-   - secondary_engine_missing → primary, chain_status: "degraded:secondary_missing"
-3. Call mcp__tv__surface_leader_decision with session="${session}", primary="${PAIR_PRIMARY}", secondary="${PAIR_SECONDARY}", leader=<chosen>, evidence={primary_disp_score, secondary_disp_score, margin, threshold} (all from brief_digest.leader_evidence), reason=<verbatim from leader_evidence>.
-4. Read state/session/${currentSession().date}/${session}/pillar2.md frontmatter → grab the leader's pillar2_verdict (under \`<leader-key>:\` block, e.g. \`mnq:\` for MNQ1!). If missing or "pending", default to "poor" (catch-up assumption — we didn't grade Pillar 2 live).
-5. Read state/session/${currentSession().date}/${session}/pillar1.md frontmatter → grab the leader's \`htf_destination\` (the brief's anchor, e.g. "above 30119 buy-side").
-6. Compute ltf_bias from the last 5-6 entries of state/session/${currentSession().date}/${session}/bars.jsonl: count bullish vs bearish closes. ≥4 of 6 bullish → "bullish"; ≥4 of 6 bearish → "bearish"; mixed → "mixed"; if engine.meta.stale or no bar data → "stand_aside".
-7. Compute htf_ltf_alignment from htf_destination vs ltf_bias:
-   - htf_destination starts with "above" AND ltf_bias=="bullish" → "aligned"
-   - htf_destination starts with "below" AND ltf_bias=="bearish" → "aligned"
-   - htf_destination starts with "above" AND ltf_bias=="bearish" → "divergent"
-   - htf_destination starts with "below" AND ltf_bias=="bullish" → "divergent"
-   - htf_destination=="balanced", ltf_bias=="mixed"/"stand_aside", or htf_destination missing → "unclear"
-8. Compute entry_model_priority from the decision tree in <phase name="open_reaction"> §B (the same tree the surface.js resolver uses):
-   - pillar2_verdict=="poor" → "undecided"
-   - htf_ltf_alignment=="divergent" → "MSS"
-   - htf_ltf_alignment=="aligned" + recent failure_swing → "MSS"; + recent BoS in bias dir → "Trend"; + opposing inverted FVG → "Inversion"; else → "undecided"
-   - htf_ltf_alignment=="unclear" → "undecided"
-9. Call mcp__tv__surface_ltf_bias with session="${session}", leader=<chosen>, ltf_bias=<computed step 6>, htf_ltf_alignment=<computed step 7>, is_retrace_day=<true if step 7 was "divergent" else false>, entry_model_priority=<computed step 8>, priority_reason="<one line: which input drove the step 8 decision>", grade_cap:"B" (always B for backfilled sessions), chain_status:"backfilled:open_reaction", reasoning="<one short paragraph citing the bar.jsonl entries + pillar1/pillar2 frontmatter values you read>", failure_swings_present=<from step 8 check>, inverted_fvg_present=<from step 8 check>, pillar2_verdict=<from step 4>.
-10. End with mcp__tv__surface_no_trade reason="caught up post-hoc — entry-hunt resumes next bar".
-
-Do NOT walk entry models or call surface_setup. Leader + LTF backfill ONLY.`;
-  recordMetric({ kind: "catch-up", event: "started", session });
-  const startedAtCatchup = Date.now();
-  let erroredCatchup = false;
-  let usageCatchup = null;
-  await userTurn({
-    text,
-    purpose: "catch-up",
-    // Catch-up now does TWO surface calls (leader_decision + ltf_bias)
-    // plus a fast capture + Read + bars.jsonl read. Bumped from default
-    // 300s to 240s — gives the model breathing room but caps risk of
-    // blocking the bar-close queue if something hangs.
-    timeoutMs: 240_000,
-    onEvent: (e) => {
-      if (e.type === "chunk") _send?.("chat:chunk", e);
-      else if (e.type === "tool_call") _send?.("chat:tool_call", e);
-      else if (e.type === "turn_complete") {
-        _send?.("chat:turn_complete", e);
-        markTurnComplete();
-      }
-      else if (e.type === "usage") { usageCatchup = e.usage; }
-      else if (e.type === "error") {
-        erroredCatchup = true;
-        _send?.("app:error", { source: "sdk", message: e.message });
-      }
-    },
-  });
-  recordMetric({
-    kind: "catch-up",
-    event: erroredCatchup ? "failed" : "succeeded",
-    session,
-    durationMs: Date.now() - startedAtCatchup,
-    usage: usageCatchup,
-  });
 }
 
 // Before each Claude turn during entry-hunt, pin the chart to the leader
