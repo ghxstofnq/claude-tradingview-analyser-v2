@@ -1,18 +1,22 @@
 // app/main/execution/tv-adapter.js
 // Execution adapter against the in-app TradingView webview, paper-first.
-// Phase 0: only read-only capabilities are real. Placement verbs throw
-// NOT_IMPLEMENTED_UNTIL_M0 — the M0 spike decides the mechanism, then a
-// follow-up plan implements them. Safety: no order can be placed yet.
-import { evaluate, findWebviewTarget } from "./cdp-webview.js";
+// Placement uses the REST endpoint discovered in the M0 spike:
+//   POST https://papertrading.tradingview.com/trading/place/<accountId>
+//     body (JSON string, content-type application/x-www-form-urlencoded —
+//     a CORS-simple type, NO preflight; application/json would be rejected):
+//     {symbol,type,qty,side,sl,tp,outside_rth:false,outside_rth_tp:false}
+//   POST .../trading/close_position/<accountId>  body {symbol}
+// The fetch runs IN the webview page context (via CDP evaluate) so the
+// TradingView session cookies ride along. Acks arrive over the trading WS.
+import { evaluate } from "./cdp-webview.js";
+import { paperAccountId, rememberAccountId } from "./config.js";
 
-const NOT_YET = "execution placement not implemented — gated on the M0 mechanism spike";
+const HOST = "https://papertrading.tradingview.com";
+const SYMBOL_MAP = { "MNQ1!": "CME_MINI:MNQ1!", "MES1!": "CME_MINI:MES1!" };
+const tvSymbol = (s) => SYMBOL_MAP[s] || s;
+const tvSide = (side) => (side === "long" || side === "buy" ? "buy" : "sell");
 
 export async function brokerConnected() {
-  // A connected broker (incl. TV Paper Trading) renders the account-manager
-  // shell + the order buttons, even when the bottom panel is COLLAPSED
-  // (class js-hidden) — so detect by element presence, not visible text.
-  // The order buttons alone exist as latent scaffolding on a chart with no
-  // broker; requiring the accountManager too is what proves a connection.
   try {
     return await evaluate(`(() => {
       const am = document.querySelector('[class*="accountManager-"], .js-account-manager-header');
@@ -22,10 +26,12 @@ export async function brokerConnected() {
   } catch { return false; }
 }
 
+// Read connection + open position from the account-manager DOM. The bottom
+// panel only LIVE-updates when expanded (collapsed = stale), so a robust
+// live position read needs the panel open or the WS tracker (M4); when the
+// panel is open this returns the structured position. Columns (TV order):
+// Symbol, Side, Qty, AvgFill, TakeProfit, StopLoss, Last, uPnL, uPnL%, ...
 export async function readState() {
-  // Read-only snapshot from the account-manager DOM. Connection + account
-  // name read via textContent (works even when the panel is collapsed).
-  // Full position/order parsing lands in M1 against a live paper position.
   try {
     const snap = await evaluate(`(() => {
       const am = document.querySelector('[class*="accountManager-"], .js-account-manager-header');
@@ -33,21 +39,88 @@ export async function readState() {
       const connected = !!(am && order);
       const nameEl = document.querySelector('[class*="accountName-"]');
       const account = nameEl ? (nameEl.textContent || "").trim().slice(0, 40) : null;
-      const posRows = document.querySelectorAll('[data-name="Paper.positions-table"] tr, .positions tbody tr').length;
-      return { connected, account, openPositionRows: posRows };
+      const tbl = document.querySelector('[data-name="Paper.positions-table"]');
+      const rows = tbl ? [...tbl.querySelectorAll('tr')].map(r => [...r.querySelectorAll('td,th')].map(c => (c.innerText||'').trim())) : [];
+      const dataRows = rows.filter(c => c.length > 6 && /CME|MNQ|MES|:/.test(c[0] || ""));
+      const c = dataRows[0];
+      const num = (s) => { const n = Number(String(s || "").replace(/[, ]/g, "").replace(/[^0-9.+-]/g, "")); return Number.isFinite(n) ? n : null; };
+      const position = c ? {
+        symbol: c[0], side: (c[1] || "").toLowerCase(), qty: num(c[2]),
+        avgFill: num(c[3]), tp: num(c[4]), sl: num(c[5]), last: num(c[6]), uPnlUsd: num(c[7]),
+      } : null;
+      return { connected, account, position, positionCount: dataRows.length };
     })()`);
-    return { connected: !!snap?.connected, account: snap?.account ?? null, position: null, openPositionRows: snap?.openPositionRows ?? 0, workingOrders: [], balance: null };
+    return {
+      connected: !!snap?.connected,
+      account: snap?.account ?? null,
+      position: snap?.position ?? null,
+      positionCount: snap?.positionCount ?? 0,
+      workingOrders: [],
+      balance: null,
+    };
   } catch {
-    return { connected: false, account: null, position: null, openPositionRows: 0, workingOrders: [], balance: null };
+    return { connected: false, account: null, position: null, positionCount: 0, workingOrders: [], balance: null };
   }
 }
 
-export async function placeOrder() { throw new Error(NOT_YET); }
-export async function flatten() { throw new Error(NOT_YET); }
-export async function panic() { throw new Error(NOT_YET); }
-export async function moveStopToBE() { throw new Error(NOT_YET); }
-export async function trail() { throw new Error(NOT_YET); }
-export async function cancel() { throw new Error(NOT_YET); }
-export async function addToPosition() { throw new Error(NOT_YET); }
+// POST a trading action from the page context (cookies ride along). Returns
+// { status, ok, body }. Throws if the webview/account isn't available.
+async function postTrading(pathPart, payload) {
+  const url = HOST + pathPart;
+  const body = JSON.stringify(payload);
+  const expr = `(async () => {
+    try {
+      const r = await fetch(${JSON.stringify(url)}, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        body: ${JSON.stringify(body)},
+        credentials: "include",
+      });
+      return { status: r.status, ok: r.ok, body: (await r.text()).slice(0, 800) };
+    } catch (e) { return { status: 0, ok: false, body: "fetch failed: " + String(e) }; }
+  })()`;
+  return evaluate(expr);
+}
 
-export const tvAdapter = { brokerConnected, readState, placeOrder, flatten, panic, moveStopToBE, trail, cancel, addToPosition, findWebviewTarget };
+// Place entry + OCO SL/TP bracket. order: {symbol, side, type, contracts, entry, stop, tp}.
+export async function placeOrder(order = {}) {
+  const acct = paperAccountId();
+  if (!acct) throw new Error("no paper account id configured (state/execution-config.json)");
+  const type = order.type === "limit" ? "limit" : "market";
+  const payload = {
+    symbol: tvSymbol(order.symbol),
+    type,
+    qty: order.contracts ?? order.qty ?? 1,
+    side: tvSide(order.side),
+    sl: order.stop ?? order.sl,
+    tp: order.tp ?? order.tp1,
+    outside_rth: false,
+    outside_rth_tp: false,
+  };
+  if (type === "limit" && (order.entry != null || order.limitPrice != null)) {
+    payload.limitPrice = order.limitPrice ?? order.entry;
+  }
+  const res = await postTrading(`/trading/place/${acct}`, payload);
+  return { ...res, sent: payload, accountId: acct };
+}
+
+// Close the open position for the order's symbol (market). flatten == close.
+export async function flatten(order = {}) {
+  const acct = paperAccountId();
+  if (!acct) throw new Error("no paper account id configured");
+  const symbol = tvSymbol(order.symbol);
+  const res = await postTrading(`/trading/close_position/${acct}`, { symbol });
+  return { ...res, accountId: acct };
+}
+
+// PANIC: close the symbol's position now. Full close-all (every symbol) +
+// cancel-all is M5; for the thin slice this flattens the active position.
+export async function panic(order = {}) { return flatten(order); }
+
+export async function moveStopToBE() { throw new Error("moveStopToBE not implemented yet (M5)"); }
+export async function trail() { throw new Error("trail not implemented yet (M5)"); }
+export async function cancel() { throw new Error("cancel not implemented yet (M5)"); }
+export async function addToPosition() { throw new Error("addToPosition not implemented yet (M5)"); }
+
+export { rememberAccountId };
+export const tvAdapter = { brokerConnected, readState, placeOrder, flatten, panic, moveStopToBE, trail, cancel, addToPosition };

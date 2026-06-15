@@ -82,6 +82,20 @@ On fill/exit, append a record to `state/trades/<date>.jsonl`: planned (entry/sto
 - **Constraint reversal** — update CLAUDE.md #2 + decisions-log deliberately (a milestone deliverable, not silent).
 - **Prerequisite** — Paper Trading must be connected by the user before M0; the engine surfaces a clear "no broker connected" state until then.
 
+## M0 spike result (2026-06-15) — mechanism = path A (REST replay)
+
+Captured a real paper order via `scripts/spike-tv-paper.mjs`. **Placement is a single clean REST POST from the page context** (the `alerts.js` pattern):
+
+- **Place (entry + OCO SL/TP in one call):** `POST https://papertrading.tradingview.com/trading/place/<accountId>`
+  body (JSON string): `{"symbol":"CME_MINI:MNQ1!","type":"market","qty":1,"side":"buy","sl":<px>,"tp":<px>,"outside_rth":false,"outside_rth_tp":false}`
+- **Flatten:** `POST .../trading/close_position/<accountId>` body `{"symbol":"CME_MINI:MNQ1!"}`
+- **Header gotcha:** content-type is `application/x-www-form-urlencoded; charset=UTF-8` (a CORS-simple type → no preflight). Do NOT use `application/json` (preflight → rejected). Fetch runs in the webview page context with `credentials:"include"` so the TV session rides along.
+- **Acks** stream over the trading WebSocket (`{"m":"order_update"|"journal_update","p":{...,"accountId":<id>,"id":<orderId>,"status":...}}`).
+- **Account id:** stable per user, only streams on activity → stored in `state/execution-config.json` (`paperAccountId`), self-healed from acks. Paper mode exposes NO REST reads (`/trading/accounts`, `/trading/state`, `/trading/orders/<id>` all 404/501).
+- **State read caveat:** the bottom account-manager DOM only LIVE-updates when the panel is expanded; collapsed = stale. Live position read therefore needs the panel open or (M4) a trading-WS position tracker.
+
+**Verified end-to-end on the live paper account (InnerCircleG):** `placeOrder` → 200 + a filled 1-contract long with SL/TP attached (position read back: `CME_MINI:MNQ1! Long 1 @ 30563.25, TP 30663.25, SL 30463.25`); `flatten` → 200 → flat; no leftover working orders. Implemented in `app/main/execution/tv-adapter.js` (`placeOrder`/`flatten`/`panic`) + `config.js`.
+
 ## Out of scope
 
 Any broker beyond TV Paper Trading (for now); portfolio/multi-account; anything behind the LIVE arm until the slice is proven; REVIEW wiring (separate next project — this only writes the fill records it will read).

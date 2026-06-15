@@ -322,3 +322,33 @@ the cutoff is inert for them; refold-gate byte-identical (exit 0).
 **Effect on the out-of-sample weeks:** June 1–5 +12.66R (unchanged, winner
 kept); June 8–12 +12.65 → +14.65R; May 18–22 +11.59 → +12.59R; May 25–29
 +19.11 → +19.16R.
+
+---
+
+## 2026-06-15 — Execution engine: the system may place PAPER orders (reverses "no broker writes")
+
+**Decision (user-authorized).** The dashboard becomes an order-placing surface.
+The execution engine places/modifies/closes orders through TradingView Paper
+Trading on the in-app webview (CDP 9223), **paper-first**, behind a guarded
+type-"LIVE" arm. This **reverses** the prior posture in hard constraints #1
+(the webview was display-only, "the system must not drive it") and #2 ("CLI
+only — every TradingView interaction goes through ./bin/tv"). Both constraints
+were amended with the scoped exception; analysis/replay/Pine still run only on
+TV Desktop (9225) via the CLI.
+
+**Mechanism (M0 spike, captured from a real paper order).** Placement is one
+REST POST from the page context: `POST papertrading.tradingview.com/trading/
+place/<accountId>` with body `{symbol,type,qty,side,sl,tp,outside_rth:false,
+outside_rth_tp:false}` and content-type `application/x-www-form-urlencoded`
+(CORS-simple → no preflight; `application/json` is rejected — same gotcha as
+`alerts.js`). Flatten = `POST .../close_position/<accountId>` body `{symbol}`.
+Acks stream over the trading WS; paper mode exposes no REST reads (all 501).
+
+**Guardrails (always-on, pre-fire — orders fire on accept, no per-order
+confirm).** Valid stop required · whole-micro size within ±$50 (MNQ $2/pt, MES
+$5/pt) · max-$/trade · daily-loss halt. LIVE arm is the one deliberate gate;
+account mode boots PAPER every launch (ephemeral).
+
+**Verified** end-to-end on the live paper account: place → filled long with
+SL/TP bracket → flatten → flat, no leftovers. Spec:
+[docs/superpowers/specs/2026-06-15-execution-engine-design.md](superpowers/specs/2026-06-15-execution-engine-design.md).
