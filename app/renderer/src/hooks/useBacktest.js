@@ -8,7 +8,7 @@
 //   useBacktestRunning()   — slim subscription for exclusive-mode placeholders
 //                            on Prep / Live panels
 
-import { useEffect, useReducer, useCallback, useState } from "react";
+import { useEffect, useReducer, useCallback, useState, useRef } from "react";
 import { nextState } from "../Backtest.helpers.js";
 
 const INITIAL = {
@@ -117,6 +117,11 @@ export function reducer(s, action) {
 
 export function useBacktest() {
   const [state, dispatch] = useReducer(reducer, INITIAL);
+  // Multi-day STUDY queue: a study expands to N (date × session) jobs that
+  // run sequentially through the single-run engine. jobQueueRef holds the
+  // remaining jobs; the DONE effect below advances to the next one.
+  const jobQueueRef = useRef([]);
+  const [jobsRemaining, setJobsRemaining] = useState(0);
 
   // Initial library load + subscribe to events
   useEffect(() => {
@@ -126,6 +131,21 @@ export function useBacktest() {
     const off = window.api?.backtest?.onEvent?.((e) => dispatch({ type: "ENGINE_EVENT", event: e }));
     return off;
   }, []);
+
+  // Advance the study queue when a run finishes. Each run lands in the
+  // library; when the queue empties the user lands on DONE and can open
+  // ANALYTICS to see the aggregate across the runs just produced.
+  useEffect(() => {
+    if (state.ui !== "DONE") return;
+    if (jobQueueRef.current.length === 0) return;
+    const next = jobQueueRef.current.shift();
+    setJobsRemaining(jobQueueRef.current.length);
+    const t = setTimeout(() => {
+      dispatch({ type: "START", cfg: next });
+      window.api?.backtest?.start?.(next);
+    }, 80);
+    return () => clearTimeout(t);
+  }, [state.ui]);
 
   // When DETAIL opens, fetch the run's deep data
   useEffect(() => {
@@ -146,10 +166,24 @@ export function useBacktest() {
 
   return {
     state,
+    jobsRemaining,
     actions: {
       start: useCallback((cfg) => {
+        jobQueueRef.current = [];
+        setJobsRemaining(0);
         dispatch({ type: "START", cfg });
         window.api?.backtest?.start?.(cfg);
+      }, []),
+      // Run a study: jobs = [{date, session, mode, symbol}...]. Runs the
+      // first now; the DONE effect runs the rest sequentially.
+      startStudy: useCallback((jobs) => {
+        const list = Array.isArray(jobs) ? jobs.slice() : [];
+        if (list.length === 0) return;
+        const first = list.shift();
+        jobQueueRef.current = list;
+        setJobsRemaining(list.length);
+        dispatch({ type: "START", cfg: first });
+        window.api?.backtest?.start?.(first);
       }, []),
       stop: useCallback(() => window.api?.backtest?.stop?.(), []),
       accept: useCallback((setupId) => {
