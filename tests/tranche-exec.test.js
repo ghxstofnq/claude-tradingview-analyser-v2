@@ -26,12 +26,12 @@ describe("brokerActionsForTranche (open)", () => {
 });
 
 describe("brokerActionsForTransition (manage)", () => {
-  it("A+ TP1_HIT → modify that tranche's stop to break-even (entry)", () => {
-    const a = brokerActionsForTransition({ status: "TP1_HIT", grade: "A+", entry: 100, stopOrderId: 42 });
+  it("runner TP1_HIT → modify that tranche's stop to break-even (entry)", () => {
+    const a = brokerActionsForTransition({ status: "TP1_HIT", runner: true, entry: 100, stopOrderId: 42 });
     assert.deepEqual(a, [{ kind: "modify_stop", orderId: 42, price: 100 }]);
   });
-  it("B TP1_HIT → no broker action (resting limit already exits)", () => {
-    assert.deepEqual(brokerActionsForTransition({ status: "TP1_HIT", grade: "B" }), []);
+  it("non-runner (B) TP1_HIT → cancel the orphaned stop sibling", () => {
+    assert.deepEqual(brokerActionsForTransition({ status: "TP1_HIT", runner: false, siblingOrderId: 11 }), [{ kind: "cancel", orderId: 11 }]);
   });
   it("STOPPED → cancel the sibling resting limit", () => {
     assert.deepEqual(brokerActionsForTransition({ status: "STOPPED", siblingOrderId: 7 }), [{ kind: "cancel", orderId: 7 }]);
@@ -51,8 +51,12 @@ describe("brokerActionsForTransition (manage)", () => {
 
 describe("planTrancheExit (journal lookup + sibling selection)", () => {
   const events = [
-    { type: "accept", id: "T-1", side: "long", grade: "A+", entry: 100, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "accept", id: "T-1", side: "long", grade: "A+", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
     { type: "tranche_orders", setup_id: "T-1", stopOrderId: 11, limitOrderId: 22 },
+  ];
+  const bEvents = [
+    { type: "accept", id: "T-2", side: "long", grade: "B", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "tranche_orders", setup_id: "T-2", stopOrderId: 31, limitOrderId: 42 },
   ];
   it("returns null when the tranche has no standalone orders (manual trade)", () => {
     const manual = [{ type: "accept", id: "T-9", side: "long", grade: "B", entry: 100 }];
@@ -66,9 +70,13 @@ describe("planTrancheExit (journal lookup + sibling selection)", () => {
     const p = planTrancheExit({ id: "T-1", status: "TP2_HIT" }, events);
     assert.deepEqual(p.actions, [{ kind: "cancel", orderId: 11 }]);
   });
-  it("A+ TP1_HIT → modify the stop to break-even", () => {
+  it("A+ runner TP1_HIT → modify the stop to break-even (keep the TP2 limit)", () => {
     const p = planTrancheExit({ id: "T-1", status: "TP1_HIT" }, events);
     assert.deepEqual(p.actions, [{ kind: "modify_stop", orderId: 11, price: 100 }]);
+  });
+  it("B TP1_HIT → cancel the orphaned stop (the limit filled at TP1)", () => {
+    const p = planTrancheExit({ id: "T-2", status: "TP1_HIT" }, bEvents);
+    assert.deepEqual(p.actions, [{ kind: "cancel", orderId: 31 }]);
   });
   it("latest tranche_orders marker wins (after a BE replacement)", () => {
     const withReplace = [...events, { type: "tranche_orders", setup_id: "T-1", stopOrderId: 33, limitOrderId: 22 }];
@@ -80,7 +88,7 @@ describe("planTrancheExit (journal lookup + sibling selection)", () => {
 
 describe("applyTrancheExit (DI execution)", () => {
   const events = [
-    { type: "accept", id: "T-1", side: "long", grade: "A+", entry: 100, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "accept", id: "T-1", side: "long", grade: "A+", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
     { type: "tranche_orders", setup_id: "T-1", stopOrderId: 11, limitOrderId: 22 },
   ];
   function makeDeps() {
