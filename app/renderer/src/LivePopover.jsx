@@ -25,6 +25,7 @@ import { useHealth } from "./hooks/useHealth.js";
 import { useChat } from "./hooks/useChat.js";
 import { useWalkers } from "./hooks/useWalkers.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
+import { useExecutionState } from "./hooks/useExecutionState.js";
 
 // ── Price with hover data-source tooltip (designer's Px) ─────────────────
 function Px({ v, children, src, tone, big }) {
@@ -408,6 +409,7 @@ function LiveCell({ account, guards, symbol }) {
   const lastBar = useLastBar();
   const chat = useChat();
   const walkers = useWalkers();
+  const exec = useExecutionState();
 
   // Default view follows the data unless the user clicked a tab this session.
   const dataView = activeTrade ? "intrade" : "hunt";
@@ -508,7 +510,15 @@ function LiveCell({ account, guards, symbol }) {
             </div>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
-          <div className="body">{body}</div>
+          <div className="body">
+            {!exec.connected && !exec.loading && (
+              <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)",
+                            color: "var(--amber)", fontSize: 10.5, letterSpacing: ".14em" }}>
+                ⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders
+              </div>
+            )}
+            {body}
+          </div>
         </div>
       )}
     </div>
