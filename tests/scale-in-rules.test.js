@@ -4,6 +4,7 @@ import {
   SCALE_IN_MAX, DEDUP_WINDOW_MS, SCALE_IN_STOP_STREAK,
   greenLightReached, isNearDuplicate, canScaleInto, addsDisabledFromOutcomes,
 } from "../cli/lib/scale-in-rules.js";
+import { foldOpenTrades } from "../cli/lib/trade-outcomes.js";
 
 describe("constants match the backtest", () => {
   it("SCALE_IN_MAX is 5, breaker 2, dedup 10min", () => {
@@ -25,6 +26,43 @@ describe("greenLightReached (50% to TP1)", () => {
   });
   it("false on bad input (entry==tp1)", () => {
     assert.equal(greenLightReached({ side: "long", entry: 100, tp1: 100 }, 100), false);
+  });
+});
+
+describe("greenLightReached honors greenlight_ref (backtest parity)", () => {
+  // Backtest fires green light off 50% to the nearest intraday objective
+  // (greenlight_ref) when present, falling back to tp1 — backtest-engine.js
+  // `GREENLIGHT_INTRADAY ? (a.greenlight_ref ?? a.tp1) : a.tp1`.
+  it("long: uses greenlight_ref when nearer than tp1 (greenlights earlier)", () => {
+    // 50% to ref(104) = 102; 50% to tp1(110) = 105. At 102 the ref-based
+    // rule is true while the tp1-based rule would still be false.
+    const a = { side: "long", entry: 100, tp1: 110, greenlight_ref: 104 };
+    assert.equal(greenLightReached(a, 102), true);
+  });
+  it("short: uses greenlight_ref when present", () => {
+    const a = { side: "short", entry: 110, tp1: 100, greenlight_ref: 106 };
+    assert.equal(greenLightReached(a, 108), true); // 50% to 106 = 108
+  });
+  it("falls back to tp1 when greenlight_ref is null", () => {
+    const a = { side: "long", entry: 100, tp1: 110, greenlight_ref: null };
+    assert.equal(greenLightReached(a, 104), false); // below 50% to tp1
+    assert.equal(greenLightReached(a, 105), true);
+  });
+  it("falls back to tp1 when greenlight_ref is absent", () => {
+    assert.equal(greenLightReached({ side: "long", entry: 100, tp1: 110 }, 105), true);
+  });
+
+  it("round-trip: accept event → foldOpenTrades → anchor green-lights off the ref", () => {
+    // Mirrors the live accept event shape (app/main/trades.js acceptSetup),
+    // which now carries greenlight_ref. foldOpenTrades spreads ...ev, so the
+    // folded anchor exposes it to greenLightReached — the live chain end-to-end.
+    const events = [{
+      type: "accept", id: "t1", side: "long",
+      entry: 100, stop: 95, tp1: 110, tp2: 130, greenlight_ref: 104,
+    }];
+    const [anchor] = foldOpenTrades(events);
+    assert.equal(anchor.greenlight_ref, 104);
+    assert.equal(greenLightReached(anchor, 102), true);  // 50% to ref(104)=102
   });
 });
 

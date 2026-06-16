@@ -6,9 +6,11 @@ export const SCALE_IN_MAX = 5;                  // up to 5 concurrent adds
 export const DEDUP_WINDOW_MS = 10 * 60 * 1000;  // same-side 10-min dedup
 export const SCALE_IN_STOP_STREAK = 2;          // 2 add stop-outs in a row → adds off
 
-// Anchor is "green-lit" once price has travelled >=50% from entry to TP1.
+// Anchor is "green-lit" once price has travelled >=50% from entry to its
+// nearest intraday objective (greenlight_ref), falling back to TP1. Mirrors the
+// backtest's `GREENLIGHT_INTRADAY ? (greenlight_ref ?? tp1) : tp1` (default on).
 export function greenLightReached(anchor, price) {
-  const e = Number(anchor?.entry), t = Number(anchor?.tp1), p = Number(price);
+  const e = Number(anchor?.entry), t = Number(anchor?.greenlight_ref ?? anchor?.tp1), p = Number(price);
   if (![e, t, p].every(Number.isFinite) || e === t) return false;
   const half = anchor.side === "long" ? e + 0.5 * (t - e) : e - 0.5 * (e - t);
   return anchor.side === "long" ? p >= half : p <= half;
