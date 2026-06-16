@@ -347,10 +347,17 @@ function selectTp1(context, side, entry, stop) {
   const level = candidates.find((t) => t.target_class === 'level' && t.rMultiple >= 1.5);
   if (level) return level;
   // Otherwise the nearest target of ANY remaining draw class clearing the 1.5R
-  // floor — HTF swing, opposing-FVG edge, or psych level. For an FVG the
+  // floor — HTF/session draw, opposing-FVG edge, or psych level. For an FVG the
   // near/CE/far edges are distinct candidates, so "nearest clearing the floor"
   // naturally deepens the edge (near → CE → far) as price closes on the gap.
-  const floored = candidates.find((t) => t.rMultiple >= 1.5);
+  // §7 Step 7 ("TP1 = nearest intraday liquidity"): an intraday swing may be
+  // this fallback TP1 only when it is the NEAREST target — never skip nearer
+  // resting liquidity to reach a farther swing of the same intraday kind. That
+  // skip surfaced two stop-out re-entries into the June-11 PM chop (longs into
+  // the top of a 29070-29265 range). Reaching past a too-close target to a
+  // farther HTF/session draw IS allowed — that is the runner logic the model
+  // exists for (June 15: reach past the 30800 swing to the 30896 session draw).
+  const floored = candidates.find((t, i) => t.rMultiple >= 1.5 && (t.target_class !== 'intraday' || i === 0));
   if (floored) return floored;
   // Nothing clears the floor → nearest, so the packet reports tp1_below_1_5r
   // rather than missing_side_consistent_tp1.

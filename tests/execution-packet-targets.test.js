@@ -45,6 +45,34 @@ test("session draw is the only nearby draw → it takes TP1 when nothing closer"
   assert.equal(tp1.price, 30896); // the draw clears the floor and is all we have
 });
 
+test("intraday swing is NOT reached past a nearer sub-1.5R level (June-11 PM chop guard)", () => {
+  // entry 29183.5, stop 29117.25 (risk 66.25). The nearest target PDH 29251 is
+  // a LEVEL at only 1.02R; a farther 1m swing 29302 clears the floor (1.79R).
+  // The fallback must NOT skip the nearer level to reach the farther swing —
+  // that surfaced two stop-out re-entries into the June-11 PM chop. It returns
+  // PDH so the packet reports tp1_below_1_5r and blocks.
+  const c = ctx({
+    pillar3: { structuralStops: [{ kind: "swing_high", price: 29302, swept: false }] },
+    pillar1: { untakenTargets: { above: [{ price: 29251, name: "PDH" }], below: [] } },
+  });
+  const tp1 = selectTp1(c, "long", 29183.5, 29117.25);
+  assert.equal(tp1.price, 29251);
+  assert.ok(tp1.rMultiple < 1.5);
+});
+
+test("a farther session draw IS reached past a nearer sub-1.5R swing (runner logic kept)", () => {
+  // entry 30789.25, stop 30765 (risk 24.25). The nearest 30800 swing is only
+  // 0.44R; the 30896 session draw (htf class) clears the floor at 4.40R. Reaching
+  // past a too-close target to the HTF/session draw IS allowed — the model's
+  // purpose (June 15). Only farther INTRADAY swings are off-limits.
+  const c = ctx({
+    pillar3: { structuralStops: [{ kind: "swing_high", price: 30800, swept: false }] },
+    pillar1: { untakenTargets: { above: [{ price: 30896, name: "NYPM.H", source: "session_draw" }], below: [] } },
+  });
+  const tp1 = selectTp1(c, "long", 30789.25, 30765);
+  assert.equal(tp1.price, 30896);
+});
+
 test("psych fallback when the overhead pool is empty (MNQ 50 → TP1, 100 → TP2)", () => {
   const c = ctx({}); // no intraday, no levels, no draws
   const tp1 = selectTp1(c, "long", 31090, 31070); // risk 20; 31100 is only 0.5R, skip it
