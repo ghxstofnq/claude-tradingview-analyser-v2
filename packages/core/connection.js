@@ -3,7 +3,10 @@ import CDP from 'chrome-remote-interface';
 let client = null;
 let targetInfo = null;
 const CDP_HOST = 'localhost';
-const CDP_PORT = 9225;
+// Default analysis backend is TV Desktop on 9225 (CLAUDE.md #1). A caller can
+// override per-process via TV_CDP_PORT — ORDERS sets it to 9223 to read the
+// in-app webview chart (the one the trader sees + trades).
+const CDP_PORT = Number(process.env.TV_CDP_PORT) || 9225;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 500;
 
