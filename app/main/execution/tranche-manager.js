@@ -4,6 +4,7 @@
 // unit-tested here; the runtime that talks to the journal + broker is added in
 // a later task. Detection rules are the shared, backtest-parity module.
 import { canScaleInto, isNearDuplicate, greenLightReached, addsDisabledFromOutcomes } from "../../../cli/lib/scale-in-rules.js";
+import { sizeFromStop } from "./sizing-core.js";
 
 // Pure decision: what to do with this bar's surfaced packet.
 // Returns { action, reason }. action ∈
@@ -146,14 +147,9 @@ async function buildRealDeps() {
     hasGreenLight: (events, id) => events.some((e) => e.type === "green_light" && e.setup_id === id),
     markGreenLight: async (id) => appendTrade({ type: "green_light", setup_id: id, ts: new Date().toISOString() }),
     sizePacket: (packet, cfg) => {
-      const pv = pointValue(packet.symbol);
-      const stopPts = Math.abs(Number(packet.entry) - Number(packet.stop));
       const target = cfg.guards?.defaultRisk ?? 120;
-      if (!(stopPts > 0)) return { contracts: 0, riskUsd: 0, withinTolerance: false };
-      const riskPerC = stopPts * pv;
-      const contracts = Math.max(1, Math.round(target / riskPerC));
-      const riskUsd = Math.round(contracts * riskPerC);
-      return { contracts, riskUsd, withinTolerance: Math.abs(riskUsd - target) <= 50 };
+      const s = sizeFromStop({ symbol: packet.symbol, entry: packet.entry, stop: packet.stop, riskUsd: target });
+      return { contracts: s.contracts, riskUsd: s.actualRiskUsd, withinTolerance: s.withinTolerance };
     },
     openRiskUsd: (open) => open.reduce((s, t) => {
       const pts = Math.abs(Number(t.entry) - Number(t.stop));
