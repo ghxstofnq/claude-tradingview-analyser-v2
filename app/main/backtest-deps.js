@@ -168,25 +168,16 @@ export const PROD_DEPS = {
       }
     }
     if (!bundle) return null;
+    // Persist the 1H history ON the bundle so the session-level draws are
+    // computed in buildDirectSessionBriefPayloads (the single point the refold
+    // path shares). Re-write brief-bundle.json with it so fold-week/regen can
+    // recompute the draws too — without this a refold loses them.
+    if (h1History) bundle.h1_history = h1History;
+    try { fs.writeFileSync(path.join(runDir, "brief-bundle.json"), JSON.stringify(bundle)); } catch { /* best-effort */ }
     bundle.brief_digest = buildBriefDigest({ pair: { symbols: { [leader]: bundle } } });
     const payloads = buildDirectSessionBriefPayloads({ session, bundle, symbols: [leader] });
     fs.writeFileSync(path.join(runDir, "brief-payloads.json"), JSON.stringify(payloads, null, 2));
-    const context = contextFromBriefPayloads({ session, payloads });
-
-    // Session-level history draws: old persistent session highs/lows that the
-    // engine overwrites (it keeps only the latest per type). Untaken as of the
-    // anchor, merged into the existing untaken-target pool — this is what
-    // surfaces e.g. a PM high from 11 days ago that price still hasn't traded
-    // through. No-lookahead: computed from the replay-correct 1H bars.
-    if (h1History) {
-      const asOfMs = Number(bundle?.quote?.time) * 1000;
-      const price = Number(bundle?.quote?.last);
-      const draws = untakenSessionDraws(h1History, { price, asOfMs });
-      const ut = context.untaken_targets ?? (context.untaken_targets = { untaken_above: [], untaken_below: [] });
-      ut.untaken_above = [...(ut.untaken_above ?? []), ...draws.above];
-      ut.untaken_below = [...(ut.untaken_below ?? []), ...draws.below];
-    }
-    return context;
+    return contextFromBriefPayloads({ session, payloads });
   },
 
   async recordEntries({ context, date, fromEt, toEt, onBar, isStopped }) {

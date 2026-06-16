@@ -6,6 +6,7 @@ import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { surfaceSessionBrief } from "./tools/surface.js";
 import { applyCodexAnalysisToBriefPayloads, runCodexStructuredAnalysis } from "./codex-structured-analysis.js";
 import { biasFromDraw } from "./backtest-context.js";
+import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -116,6 +117,40 @@ function overnightDrawTargets(symbol, digestSymbol) {
     ...(p1.untaken_pools_below ?? []).map((p) => fromPool(p, "below")),
   ].filter((t) => Number.isFinite(t.price)).sort((a, b) => b.price - a.price).slice(0, 3);
   return { untaken_above: above, untaken_below: below };
+}
+
+// Persistent session-history draws (old session highs/lows that the engine
+// overwrites). Computed no-lookahead from the bundle's 1H bars (bundle.h1_history,
+// persisted at record time). Sourced HERE — the single point both the live
+// record path and every refold tool (fold-week/regen) flow through — so a
+// refold recomputes them instead of losing them. Empty when no 1H history
+// (e.g. the live brief, until its 1H capture is wired).
+function sessionHistoryDraws(bundle, symbol) {
+  const h1 = bundle?.h1_history;
+  if (!Array.isArray(h1) || h1.length === 0) return { above: [], below: [] };
+  const q = bundle?.pair?.symbols?.[symbol]?.quote ?? bundle?.quote ?? {};
+  const price = Number(q.last);
+  const asOfMs = Number(q.time) * 1000;
+  if (!Number.isFinite(price) || !Number.isFinite(asOfMs)) return { above: [], below: [] };
+  return untakenSessionDraws(h1, { price, asOfMs });
+}
+
+// Merge the engine's untaken levels/pools with the session-history draws,
+// deduping by price (first wins — the engine row keeps its class on a tie).
+function mergeDraws(ovn, sd) {
+  const dedupe = (rows) => {
+    const seen = new Set();
+    return rows.filter((r) => {
+      const p = Number(r?.price);
+      if (!Number.isFinite(p) || seen.has(Math.round(p * 4))) return false;
+      seen.add(Math.round(p * 4));
+      return true;
+    });
+  };
+  return {
+    untaken_above: dedupe([...(ovn.untaken_above ?? []), ...(sd.above ?? [])]),
+    untaken_below: dedupe([...(ovn.untaken_below ?? []), ...(sd.below ?? [])]),
+  };
 }
 
 function htfBiasRows(symbol, digestSymbol) {
@@ -332,7 +367,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       ...(draw ? { primary_draw: draw, htf_bias_dir: deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) } : {}),
       htf_destination: targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity",
       overnight_block: {
-        ...overnightDrawTargets(symbol, ds),
+        ...mergeDraws(overnightDrawTargets(symbol, ds), sessionHistoryDraws(bundle, symbol)),
         overnight_verdict: computeOvernightVerdict({
           sweeps: ds?.pillar1?.sweeps ?? [],
           htfBias: biasFromDraw(draw),
