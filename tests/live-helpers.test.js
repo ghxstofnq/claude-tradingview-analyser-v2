@@ -201,6 +201,23 @@ describe("deriveAddCandidate", () => {
   it("returns null when price is not finite", () => {
     assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: undefined }), null);
   });
+
+  it("uses the journal anchor's greenlight_ref — green-lights earlier, same as auto", () => {
+    // Anchor entry 100, tp1 120, greenlight_ref 110. 50% to ref(110)=105;
+    // 50% to tp1(120)=110. At 105 the ref-based rule (matching the auto engine)
+    // surfaces the add, while the tp1-only rule would still wait.
+    const anchor = { side: "long", entry: 100, tp1: 120, greenlight_ref: 110 };
+    assert.equal(deriveAddCandidate({ position: longPos, anchor, activeSetup: longSetup, price: 105 }), longSetup);
+    // Without greenlight_ref the anchor falls back to tp1 → 105 is not yet 50%.
+    const noRef = { side: "long", entry: 100, tp1: 120, greenlight_ref: null };
+    assert.equal(deriveAddCandidate({ position: longPos, anchor: noRef, activeSetup: longSetup, price: 105 }), null);
+  });
+
+  it("short anchor honors greenlight_ref", () => {
+    const anchor = { side: "short", entry: 110, tp1: 90, greenlight_ref: 100 };
+    // 50% to ref(100)=105; reached at 105.
+    assert.equal(deriveAddCandidate({ position: shortPos, anchor, activeSetup: shortSetup, price: 105 }), shortSetup);
+  });
 });
 
 describe("trancheStackFromState", () => {

@@ -491,6 +491,7 @@ function LiveCell({ account, guards, symbol }) {
   // Scale-in: a same-side live candidate onto a green-lit open position.
   const addCandidate = deriveAddCandidate({
     position: exec.position,
+    anchor: activeTrade,   // journal anchor carries greenlight_ref (auto-parity)
     activeSetup,
     price: (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastPrice,
   });

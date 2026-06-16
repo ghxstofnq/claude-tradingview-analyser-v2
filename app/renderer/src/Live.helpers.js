@@ -1,5 +1,6 @@
 // Pure helpers for Live.jsx — extracted so they can be unit-tested with
 // `node --test`. Importing this file has no side effects.
+import { greenLightReached } from "../../../cli/lib/scale-in-rules.js";
 
 // Find Pillar 3 ("Entry Model + Confirmation") in a pillar_breakdown array
 // by name substring (case-insensitive). Robust to ordering changes in the
@@ -98,26 +99,34 @@ export function liveGridFromTrade(trade, lastClose) {
 
 // Decide whether a same-side scale-in ("ADD") should surface onto the open
 // position. Per strategy §7 Step 7, you only add to a WINNER: the anchor must
-// be green-lit (price at least 50% of the way to its TP1) and the new live
-// candidate must be the SAME side as the position — never reverse via an add.
+// be green-lit and the new live candidate must be the SAME side as the
+// position — never reverse via an add.
+//
+// Green-light uses the SAME shared rule as the auto tranche engine
+// (greenLightReached: 50% to the anchor's nearest intraday objective
+// greenlight_ref, falling back to TP1) so MANUAL and AUTO add-timing are
+// identical. Pass the journal anchor (carries greenlight_ref); when it's
+// absent we judge off the live position's avgFill/tp.
 //
 // Inputs:
-//   position   — live broker position { side:"buy"|"sell", avgFill, tp, ... }
+//   position    — live broker position { side:"buy"|"sell", avgFill, tp, ... }
+//   anchor      — journal anchor { side, entry, tp1, greenlight_ref } (optional)
 //   activeSetup — the live walker candidate { side:"long"|"short", entry, ... }
-//   price      — current mid price
+//   price       — current mid price
 // Returns the activeSetup (the add candidate) when all conditions hold, else null.
-export function deriveAddCandidate({ position, activeSetup, price } = {}) {
+export function deriveAddCandidate({ position, anchor = null, activeSetup, price } = {}) {
   if (!position || !activeSetup) return null;
   const posSide = position.side === "buy" ? "long" : position.side === "sell" ? "short" : null;
   if (!posSide || activeSetup.side !== posSide) return null;     // same side only
-  const entry = Number(position.avgFill);
-  const tp = Number(position.tp);
-  const px = Number(price);
-  if (![entry, tp, px].every(Number.isFinite) || entry === tp) return null;
-  // Green-lit = at least halfway to TP1 (the anchor is proving itself).
-  const progress = posSide === "long" ? (px - entry) / (tp - entry) : (entry - px) / (entry - tp);
-  if (!(progress >= 0.5)) return null;
-  return activeSetup;
+  const gl = anchor && Number.isFinite(Number(anchor.entry))
+    ? { side: posSide, entry: Number(anchor.entry), tp1: Number(anchor.tp1), greenlight_ref: anchor.greenlight_ref }
+    : { side: posSide, entry: Number(position.avgFill), tp1: Number(position.tp) };
+  // Target must be finite and beyond entry in the trade's direction — a broker
+  // position can momentarily lack a tp; don't judge green-lit off garbage.
+  const target = Number(gl.greenlight_ref ?? gl.tp1);
+  if (!Number.isFinite(gl.entry) || !Number.isFinite(target)) return null;
+  if (posSide === "long" ? target <= gl.entry : target >= gl.entry) return null;
+  return greenLightReached(gl, price) ? activeSetup : null;
 }
 
 // Build the IN-TRADE tranche stack from the open journal trades (each tranche
