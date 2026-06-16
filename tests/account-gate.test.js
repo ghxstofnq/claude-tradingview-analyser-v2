@@ -57,7 +57,7 @@ describe("targetFor", () => {
 describe("deriveActiveAccount", () => {
   it("uses feed accountId + name; type paper when no liveHost", () => {
     const a = deriveActiveAccount({ feed: { accountId: "9256021", accountName: "InnerCircleG" }, config: { paperAccountId: "9256021", liveHost: null } });
-    assert.deepEqual(a, { id: "9256021", type: "paper", name: "InnerCircleG" });
+    assert.deepEqual(a, { id: "9256021", type: "paper", name: "InnerCircleG", broker: "paper" });
   });
   it("falls back to configured paper id when feed has none", () => {
     const a = deriveActiveAccount({ feed: {}, config: { paperAccountId: "9256021", liveHost: null } });
@@ -71,5 +71,23 @@ describe("deriveActiveAccount", () => {
   });
   it("returns null when no id anywhere", () => {
     assert.equal(deriveActiveAccount({ feed: {}, config: {} }), null);
+  });
+  it("active Tradovate broker takes precedence (live type + broker tag)", () => {
+    const a = deriveActiveAccount({
+      feed: { accountId: "9256021", activeBroker: "tradovate", tradovate: { accountId: "D54476869", host: "https://tv-demo.tradovateapi.com" } },
+      config: { paperAccountId: "9256021", liveHost: null },
+    });
+    assert.equal(a.id, "D54476869");
+    assert.equal(a.type, "live");
+    assert.equal(a.broker, "tradovate");
+    assert.equal(a.host, "https://tv-demo.tradovateapi.com");
+  });
+  it("paper when tradovate idle even if last id known", () => {
+    const a = deriveActiveAccount({
+      feed: { accountId: "9256021", accountName: "InnerCircleG", activeBroker: "paper", tradovate: { accountId: "D54476869" } },
+      config: { paperAccountId: "9256021", liveHost: null },
+    });
+    assert.equal(a.id, "9256021");
+    assert.equal(a.broker, "paper");
   });
 });

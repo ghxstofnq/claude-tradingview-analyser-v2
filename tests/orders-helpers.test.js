@@ -20,6 +20,16 @@ describe("orders helpers", () => {
     assert.equal(routingLabel({ confirmed: null, gate: { route: false, needsConfirm: true } }), "confirm account");
     assert.equal(routingLabel({ confirmed: { id: "1", type: "live" }, gate: { route: false } }), "live blocked");
   });
+  it("routingLabel surfaces a pending Tradovate switch by name", () => {
+    assert.equal(
+      routingLabel({ active: { id: "D54476869", type: "live", broker: "tradovate" }, confirmed: { id: "9256021", type: "paper" }, gate: { needsConfirm: true } }),
+      "confirm Tradovate · D54476869",
+    );
+    assert.equal(
+      routingLabel({ confirmed: { id: "D54476869", type: "live", broker: "tradovate" }, gate: { route: true } }),
+      "tradovate · D54476869",
+    );
+  });
   it("blockMessage is human", () => {
     assert.match(blockMessage("no_stop"), /stop/i);
     assert.match(blockMessage("stop_wrong_side"), /side/i);
