@@ -95,6 +95,19 @@ async function reloadChartAndWait({ timeoutMs = 90_000 } = {}) {
   }
 }
 
+// Each replay SESSION must start from a freshly-reloaded chart. Reusing a chart
+// that has already run one replay+stop wedges the SECOND replay.start into the
+// "This symbol doesn't exist" data-session error (confirmed 2026-06-16: single
+// replay cycles are always clean regardless of pacing, but the 2nd cycle on the
+// same chart wedges, and ONLY a page reload — not the replay API — clears the
+// residue). A backtest run does two sessions (anchor brief + recorder), so both
+// reload first. Between sessions the chart is healthy, so the evaluate-based
+// reload works; an already-wedged chart is recovered reactively in runDirectBrief.
+async function freshChartForReplay(leader) {
+  await reloadChartAndWait();
+  await pinChart(leader);
+}
+
 const CDP_RECORDER_DEPS = {
   startReplay: (args) => replay.start(args),
   stepReplay: () => replay.step(),
@@ -120,7 +133,7 @@ export const PROD_DEPS = {
     let bundle = null;
     let h1History = null;
     try {
-      await pinChart(leader);
+      await freshChartForReplay(leader);
       await replay.start({ date, time: REPLAY_ANCHORS[session] ?? "09:30" });
       const out = path.join(runDir, "brief-bundle.json");
       const anchorTime = REPLAY_ANCHORS[session] ?? "09:30";
@@ -181,7 +194,9 @@ export const PROD_DEPS = {
   },
 
   async recordEntries({ context, date, fromEt, toEt, onBar, isStopped }) {
-    await pinChart(context?.leader);
+    // Recorder is the run's SECOND replay session — reload to a pristine chart
+    // first or it wedges (see freshChartForReplay).
+    await freshChartForReplay(context?.leader);
     return recordEntries({
       context, date, fromEt, toEt,
       deps: CDP_RECORDER_DEPS,
