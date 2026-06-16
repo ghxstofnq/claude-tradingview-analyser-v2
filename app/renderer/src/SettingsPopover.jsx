@@ -178,11 +178,11 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
                 <span>Active account is <b>LIVE (real money)</b>. Type <b>LIVE</b> to route to it.</span>
               </div>
               <div className="arm-row">
-                <input className={"arm-input" + (armReady(confirmTxt.trim().toUpperCase()) ? " ok" : "")} value={confirmTxt}
+                <input className={"arm-input" + (isArmReady(confirmTxt.trim().toUpperCase()) ? " ok" : "")} value={confirmTxt}
                   placeholder="type LIVE to confirm" onChange={(e) => setConfirmTxt(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") confirmAccount(); }} />
-                <button className={"arm-confirm" + (armReady(confirmTxt.trim().toUpperCase()) ? "" : " off")}
-                  disabled={!armReady(confirmTxt.trim().toUpperCase())} onClick={confirmAccount}>CONFIRM LIVE</button>
+                <button className={"arm-confirm" + (isArmReady(confirmTxt.trim().toUpperCase()) ? "" : " off")}
+                  disabled={!isArmReady(confirmTxt.trim().toUpperCase())} onClick={confirmAccount}>CONFIRM LIVE</button>
               </div>
             </div>
           )}
