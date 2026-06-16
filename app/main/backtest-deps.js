@@ -15,6 +15,7 @@ import { gradeOpenTrade } from "./backtest-grader.js";
 import { __test as barCloseTruth } from "./bar-close.js";
 import { PAIR_PRIMARY } from "./config.js";
 import { recordEntries } from "../../cli/lib/tape-recorder.js";
+import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
 import { parseIctEngineTable, findIctEngineRows } from "../../cli/lib/ict-engine-parser.js";
 import { buildBriefDigest } from "../../cli/lib/brief-digest.js";
 import * as replay from "../../packages/core/replay.js";
@@ -117,6 +118,7 @@ export const PROD_DEPS = {
     const runDir = resolveRunDir({ stateDir: STATE_DIR, runId });
     const leader = PAIR_PRIMARY;
     let bundle = null;
+    let h1History = null;
     try {
       await pinChart(leader);
       await replay.start({ date, time: REPLAY_ANCHORS[session] ?? "09:30" });
@@ -144,6 +146,19 @@ export const PROD_DEPS = {
         bundle = await analyzePairBundle({ out, pair: null });
         if (wedged(bundle)) throw new Error(`anchor capture wedged after recovery: missing ${bundle.capture_health.missing.join(",")}`);
       }
+      // Raw 1H history for session-level draws — pulled UNDER REPLAY so the bars
+      // are no-lookahead (TV bars respect the replay clock; only the engine table
+      // doesn't). The multi-TF sweep restored the chart to 1m; flip to 1H, pull
+      // ~500 bars (~3 weeks), flip back.
+      try {
+        await chart.setTimeframe({ timeframe: "60" });
+        const h1 = await data.getOhlcv({ count: 500 });
+        h1History = Array.isArray(h1?.bars) ? h1.bars : null;
+        await chart.setTimeframe({ timeframe: "1" });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[backtest] 1H history pull failed:", e.message);
+      }
     } finally {
       try {
         await replay.stop();
@@ -156,7 +171,22 @@ export const PROD_DEPS = {
     bundle.brief_digest = buildBriefDigest({ pair: { symbols: { [leader]: bundle } } });
     const payloads = buildDirectSessionBriefPayloads({ session, bundle, symbols: [leader] });
     fs.writeFileSync(path.join(runDir, "brief-payloads.json"), JSON.stringify(payloads, null, 2));
-    return contextFromBriefPayloads({ session, payloads });
+    const context = contextFromBriefPayloads({ session, payloads });
+
+    // Session-level history draws: old persistent session highs/lows that the
+    // engine overwrites (it keeps only the latest per type). Untaken as of the
+    // anchor, merged into the existing untaken-target pool — this is what
+    // surfaces e.g. a PM high from 11 days ago that price still hasn't traded
+    // through. No-lookahead: computed from the replay-correct 1H bars.
+    if (h1History) {
+      const asOfMs = Number(bundle?.quote?.time) * 1000;
+      const price = Number(bundle?.quote?.last);
+      const draws = untakenSessionDraws(h1History, { price, asOfMs });
+      const ut = context.untaken_targets ?? (context.untaken_targets = { untaken_above: [], untaken_below: [] });
+      ut.untaken_above = [...(ut.untaken_above ?? []), ...draws.above];
+      ut.untaken_below = [...(ut.untaken_below ?? []), ...draws.below];
+    }
+    return context;
   },
 
   async recordEntries({ context, date, fromEt, toEt, onBar, isStopped }) {

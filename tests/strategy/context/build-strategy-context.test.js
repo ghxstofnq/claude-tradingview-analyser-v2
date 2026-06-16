@@ -104,16 +104,3 @@ test('buildStrategyContext: unknown market or session blocks deterministically',
   assert.ok(unknownSession.blockers.includes('unknown_session'));
 });
 
-test('buildStrategyContext: HTF targets propagate to context.pillar1.htfTargets (default empty)', () => {
-  // Default — no htfTargets on the engine → empty pools, never undefined.
-  assert.deepEqual(buildStrategyContext(validBundle()).pillar1.htfTargets, { above: [], below: [] });
-
-  // Present — the bridged HTF swings + opposing-FVG fills flow through.
-  const htfTargets = {
-    above: [{ price: 30896, source: 'htf_swing', tf: 'h4', name: 'h4_HH_high' }],
-    below: [],
-  };
-  const bundle = validBundle();
-  bundle.gates.engine.pillar1.htfTargets = htfTargets;
-  assert.deepEqual(buildStrategyContext(bundle).pillar1.htfTargets, htfTargets);
-});

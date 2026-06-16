@@ -47,9 +47,6 @@ function buildPillar1(engine, blocked, sessionChain = {}) {
     htfDraw: htfDraw ?? null,
     primaryDraw: primaryDraw ?? null,
     untakenTargets: p1.untakenTargets ?? lockedP1.untakenTargets ?? { above: [], below: [] },
-    // HTF (1H/4H) draw targets — swings + opposing-FVG fills — for TP1/TP2
-    // (§7 Step 7). Empty when engine_by_tf is absent (slim polls).
-    htfTargets: p1.htfTargets ?? { above: [], below: [] },
     blockers,
   };
 }

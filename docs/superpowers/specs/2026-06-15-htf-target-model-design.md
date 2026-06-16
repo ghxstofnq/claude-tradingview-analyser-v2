@@ -80,3 +80,35 @@ Mirrors the existing per-symbol pattern (sizing table / pillar2-thresholds). Unc
 
 1. A specific **minimum R** for the FVG-edge escalation, or reuse the existing 1.5R/2R floors? (Default: reuse.)
 2. When **both** an HTF swing and an opposing-FVG fill sit beyond TP1 at similar distance, which wins TP2 — nearest, or a source preference (e.g., FVG full-fill over a raw swing)? (Default: nearest that clears runner R.)
+
+---
+
+## Addendum (2026-06-15) — pivot to session-level history
+
+Validation against the live engine surfaced two things the original HTF-swing/FVG
+plan couldn't handle, and reshaped the design:
+
+1. **The engine's HTF swing/sweep data is not replay-safe.** Read under replay it
+   either peeks ahead (marks levels swept using post-session price) or returns
+   nothing. So 1H/4H swings + opposing-FVG fills sourced from the engine are
+   unreliable in the backtest and break live↔backtest parity. **These are trimmed.**
+2. **The user's real draws are session highs/lows, not engine swings.** The level
+   that exposed the gap (30896) is the **June 4 NY-PM session high** — which the
+   engine only keeps as the *latest* per type, overwriting old ones.
+
+**New primary mechanism: session-level history (`cli/lib/session-levels.js`).**
+Compute the untaken high/low of every prior session (Asia/London/NY-AM/NY-PM) from
+raw 1H candles, **no-lookahead** (only sessions closed before the test bar; "taken"
+recomputed from candles ≤ bar). Untaken highs above price / lows below price feed
+the target pool tagged `source:'session_draw'` → **runner (TP2) class** so a nearer
+intraday swing keeps TP1. Round-number/price-discovery (psych) levels stay (clean,
+computed). The candles respect the replay clock, so this is honest in the backtest.
+
+**Status:** wired into the **backtest** (capture 1H at the replay anchor, merge into
+`untaken_targets`); proven on the 2026-06-15 AM replay (TP1 30800 intraday → TP2
+30896 June-4 PM, no-lookahead). **Live wiring deferred** to a follow-up — it needs a
+periodic 1H raw-bar capture + cache and must be verified during a live session.
+
+**Trimmed:** `htf-targets.js` (engine swing/FVG extraction), `context.pillar1.htfTargets`,
+the `htf_engine_by_tf` threading. Phase 2 (optional): rebuild opposing-FVG-fill
+targets the same no-lookahead way (from candles, not the engine).

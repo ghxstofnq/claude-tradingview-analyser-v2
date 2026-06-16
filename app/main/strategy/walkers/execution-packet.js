@@ -34,13 +34,12 @@ const INTRADAY_TARGET_KINDS = {
 function targetPool(context, side) {
   const dirKey = side === 'long' ? 'above' : 'below';
   const targets = context?.pillar1?.untakenTargets ?? {};
+  // Persistent session-history draws (multi-day-old session highs/lows that
+  // never traded through — source 'session_draw') are HTF runners: preferred
+  // for TP2, never promoted over a nearer intraday swing for TP1. Recent
+  // session levels (from the brief) stay TP1-eligible 'level' class.
   const levels = (targets[dirKey] ?? [])
-    .map((t) => ({ ...t, target_class: 'level' }));
-  // HTF (1H/4H) draw: swing highs/lows + opposing-FVG fills (near/CE/far edges,
-  // already expanded by extractHtfTargets). FVG edges keep their `edge`/`zone`.
-  const htf = context?.pillar1?.htfTargets ?? {};
-  const htfRows = (htf[dirKey] ?? [])
-    .map((t) => ({ ...t, target_class: t.source === 'fvg_fill' ? 'fvg' : 'htf' }));
+    .map((t) => ({ ...t, target_class: t.source === 'session_draw' ? 'htf' : 'level' }));
   const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
   // UNSWEPT swings only — a swept swing holds no resting liquidity and is
   // not a target (user ruling 2026-06-12; same rule the untaken-levels
@@ -49,7 +48,7 @@ function targetPool(context, side) {
   const pivots = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
     .filter((s) => kinds.has(String(s?.kind ?? '')) && s?.swept !== true)
     .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday' }));
-  return [...levels, ...htfRows, ...pivots];
+  return [...levels, ...pivots];
 }
 
 // Price-discovery fallback (§ user ruling 2026-06-15): when the pool above/below

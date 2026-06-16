@@ -30,7 +30,6 @@ import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 import { finalizeOpenReactionDeterministic } from "./live-open-reaction-finalizer.js";
-import { extractHtfTargets } from "./strategy/walkers/htf-targets.js";
 import { normalizeLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
@@ -1169,12 +1168,6 @@ function buildStrategyBundleForRuntime(inputs, ev, session) {
       above: inputs.untaken_targets?.untaken_above ?? [],
       below: inputs.untaken_targets?.untaken_below ?? [],
     },
-    // HTF draw targets (1H/4H swings + opposing-FVG fills) from the multi-TF
-    // engine carried by the baseline-merged scan. Empty on slim polls
-    // (engine_by_tf absent) — the packet builder treats that as no HTF pool.
-    htfTargets: bundle.engine_by_tf
-      ? extractHtfTargets(bundle.engine_by_tf, { price: bundle.quote?.last ?? null })
-      : { above: [], below: [] },
   };
   const meta = engine.meta ?? {};
   engine.meta = {
