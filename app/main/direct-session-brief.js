@@ -6,6 +6,7 @@ import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { surfaceSessionBrief } from "./tools/surface.js";
 import { applyCodexAnalysisToBriefPayloads, runCodexStructuredAnalysis } from "./codex-structured-analysis.js";
 import { biasFromDraw } from "./backtest-context.js";
+import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -116,6 +117,42 @@ function overnightDrawTargets(symbol, digestSymbol) {
     ...(p1.untaken_pools_below ?? []).map((p) => fromPool(p, "below")),
   ].filter((t) => Number.isFinite(t.price)).sort((a, b) => b.price - a.price).slice(0, 3);
   return { untaken_above: above, untaken_below: below };
+}
+
+// Persistent session-history draws (old session highs/lows that the engine
+// overwrites). Computed no-lookahead from the bundle's 1H bars (bundle.h1_history,
+// persisted at record time). Sourced HERE — the single point both the live
+// record path and every refold tool (fold-week/regen) flow through — so a
+// refold recomputes them instead of losing them. Empty when no 1H history
+// (e.g. the live brief, until its 1H capture is wired).
+function sessionHistoryDraws(bundle, symbol) {
+  // Per-symbol 1H first (live pair: only the leader carries h1_history, so MES
+  // gets no draws), then the top-level bundle (backtest: single-symbol leader).
+  const h1 = bundle?.pair?.symbols?.[symbol]?.h1_history ?? bundle?.h1_history;
+  if (!Array.isArray(h1) || h1.length === 0) return { above: [], below: [] };
+  const q = bundle?.pair?.symbols?.[symbol]?.quote ?? bundle?.quote ?? {};
+  const price = Number(q.last);
+  const asOfMs = Number(q.time) * 1000;
+  if (!Number.isFinite(price) || !Number.isFinite(asOfMs)) return { above: [], below: [] };
+  return untakenSessionDraws(h1, { price, asOfMs });
+}
+
+// Merge the engine's untaken levels/pools with the session-history draws,
+// deduping by price (first wins — the engine row keeps its class on a tie).
+function mergeDraws(ovn, sd) {
+  const dedupe = (rows) => {
+    const seen = new Set();
+    return rows.filter((r) => {
+      const p = Number(r?.price);
+      if (!Number.isFinite(p) || seen.has(Math.round(p * 4))) return false;
+      seen.add(Math.round(p * 4));
+      return true;
+    });
+  };
+  return {
+    untaken_above: dedupe([...(ovn.untaken_above ?? []), ...(sd.above ?? [])]),
+    untaken_below: dedupe([...(ovn.untaken_below ?? []), ...(sd.below ?? [])]),
+  };
 }
 
 function htfBiasRows(symbol, digestSymbol) {
@@ -332,7 +369,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       ...(draw ? { primary_draw: draw, htf_bias_dir: deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) } : {}),
       htf_destination: targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity",
       overnight_block: {
-        ...overnightDrawTargets(symbol, ds),
+        ...mergeDraws(overnightDrawTargets(symbol, ds), sessionHistoryDraws(bundle, symbol)),
         overnight_verdict: computeOvernightVerdict({
           sweeps: ds?.pillar1?.sweeps ?? [],
           htfBias: biasFromDraw(draw),
@@ -388,8 +425,24 @@ export function codexBriefAnalysisEnabled(env = process.env) {
   return env.TV_CODEX_BRIEF_ANALYSIS === '1';
 }
 
-export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, codexAnalysisFn = (codexBriefAnalysisEnabled() ? runCodexStructuredAnalysis : null), surfaceFn = surfaceSessionBrief, onEvent } = {}) {
+export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, captureH1Fn = null, leader = PAIR_PRIMARY, codexAnalysisFn = (codexBriefAnalysisEnabled() ? runCodexStructuredAnalysis : null), surfaceFn = surfaceSessionBrief, onEvent } = {}) {
   const bundle = await analyzeFn();
+  // LIVE session-draw history: capture the leader's raw 1H bars and attach them
+  // so sessionHistoryDraws can compute the persistent draws (the backtest sets
+  // h1_history under replay; live has none without this). Best-effort and
+  // leader-only — never blocks the brief. captureH1Fn is null in tests/backtest.
+  if (captureH1Fn) {
+    try {
+      const bars = await captureH1Fn();
+      if (Array.isArray(bars) && bars.length) {
+        if (bundle?.pair?.symbols?.[leader]) bundle.pair.symbols[leader].h1_history = bars;
+        else bundle.h1_history = bars;
+        onEvent?.({ type: "chunk", text: `1H history captured for ${leader} (${bars.length} bars) → session draws live.` });
+      }
+    } catch (err) {
+      onEvent?.({ type: "chunk", text: `1H capture skipped: ${err?.message || err}` });
+    }
+  }
   let payloads = buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade });
   if (payloads.length === 0) throw new Error("direct session brief produced no symbol payloads");
 

@@ -1,4 +1,5 @@
 import { sizeFor, dayOfWeek } from '../../../../cli/lib/sizing.js';
+import { psychLevelsAbove, psychLevelsBelow } from './psych-levels.js';
 
 const TICK_SIZE = 0.25;
 
@@ -31,9 +32,14 @@ const INTRADAY_TARGET_KINDS = {
 };
 
 function targetPool(context, side) {
+  const dirKey = side === 'long' ? 'above' : 'below';
   const targets = context?.pillar1?.untakenTargets ?? {};
-  const levels = (side === 'long' ? (targets.above ?? []) : (targets.below ?? []))
-    .map((t) => ({ ...t, target_class: 'level' }));
+  // Persistent session-history draws (multi-day-old session highs/lows that
+  // never traded through — source 'session_draw') are HTF runners: preferred
+  // for TP2, never promoted over a nearer intraday swing for TP1. Recent
+  // session levels (from the brief) stay TP1-eligible 'level' class.
+  const levels = (targets[dirKey] ?? [])
+    .map((t) => ({ ...t, target_class: t.source === 'session_draw' ? 'htf' : 'level' }));
   const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
   // UNSWEPT swings only — a swept swing holds no resting liquidity and is
   // not a target (user ruling 2026-06-12; same rule the untaken-levels
@@ -43,6 +49,15 @@ function targetPool(context, side) {
     .filter((s) => kinds.has(String(s?.kind ?? '')) && s?.swept !== true)
     .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday' }));
   return [...levels, ...pivots];
+}
+
+// Price-discovery fallback (§ user ruling 2026-06-15): when the pool above/below
+// is empty — at/near/above all-time highs, no overhead liquidity left — target
+// the per-instrument psychological round-level grid (MNQ 50/100, MES 5/10).
+function psychFallback(context, side, entry) {
+  const sym = context?.market;
+  const lvls = side === 'long' ? psychLevelsAbove(sym, entry, 4) : psychLevelsBelow(sym, entry, 4);
+  return lvls.map((l) => ({ ...l, name: `psych_${l.grid}`, target_class: 'psych', cite: 'psych_grid' }));
 }
 
 // No new entries after the late-session cutoff (user ruling 2026-06-13): a
@@ -292,12 +307,15 @@ function inversionStructuralStop(walker, side, entry, context) {
 }
 
 function validTargets(context, side, entry, stop) {
-  return targetPool(context, side)
+  const score = (rows) => rows
     .map((target) => ({ ...target, price: numberOrNull(target?.price ?? target?.level) }))
     .filter((target) => target.price != null && targetIsCorrectSide(target, entry, side))
     .map((target) => ({ ...target, rMultiple: computeRMultiple({ entry, stop, target: target.price }) }))
-    .filter((target) => target.rMultiple != null)
-    .sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
+    .filter((target) => target.rMultiple != null);
+  let valid = score(targetPool(context, side));
+  // Empty overhead = price discovery → fall back to the psych grid.
+  if (valid.length === 0) valid = score(psychFallback(context, side, entry));
+  return valid.sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
 }
 
 // The WEEKLY draw (PWH/PWL) is the §7 Step 7 TP2/runner — "second toward the
@@ -322,20 +340,72 @@ function selectTp1(context, side, entry, stop) {
   // runner. Falls back to the full pool only if there is no other target.
   const intraday = all.filter((t) => !isWeeklyDraw(t));
   const candidates = intraday.length ? intraday : all;
+  // The nearest unswept INTERNAL swing is the default TP1 when it pays ≥2R.
   const swing = candidates.find((t) => t.target_class === 'intraday' && t.rMultiple >= 2.0);
   if (swing) return swing;
+  // A 1.5–2R intraday swing yields to the nearest qualifying SESSION LEVEL.
   const level = candidates.find((t) => t.target_class === 'level' && t.rMultiple >= 1.5);
   if (level) return level;
+  // Otherwise the nearest target of ANY remaining draw class clearing the 1.5R
+  // floor — HTF/session draw, opposing-FVG edge, or psych level. For an FVG the
+  // near/CE/far edges are distinct candidates, so "nearest clearing the floor"
+  // naturally deepens the edge (near → CE → far) as price closes on the gap.
+  // §7 Step 7 ("TP1 = nearest intraday liquidity"): an intraday swing may be
+  // this fallback TP1 only when it is the NEAREST target — never skip nearer
+  // resting liquidity to reach a farther swing of the same intraday kind. That
+  // skip surfaced two stop-out re-entries into the June-11 PM chop (longs into
+  // the top of a 29070-29265 range). Reaching past a too-close target to a
+  // farther HTF/session draw IS allowed — that is the runner logic the model
+  // exists for (June 15: reach past the 30800 swing to the 30896 session draw).
+  const floored = candidates.find((t, i) => t.rMultiple >= 1.5 && (t.target_class !== 'intraday' || i === 0));
+  if (floored) return floored;
+  // Nothing clears the floor → nearest, so the packet reports tp1_below_1_5r
+  // rather than missing_side_consistent_tp1.
   return candidates[0] ?? null;
 }
 
-// TP2 = the next target beyond TP1 toward the HTF draw (§6: "second at or
-// toward the HTF draw") — session levels preferred over further pivots.
-function selectTp2(context, side, entry, stop, tp1Price) {
+// TP2 = the next target beyond TP1 toward the HTF draw (§6/§7 Step 7: "second
+// at or toward the HTF draw"). Tie-break = nearest clearing the runner R (user
+// ruling 2026-06-15). `tp1` may be the TP1 row (preferred — carries zone) or a
+// bare price.
+function selectTp2(context, side, entry, stop, tp1) {
+  const tp1Price = tp1?.price ?? tp1;
   if (tp1Price == null) return null;
   const beyond = validTargets(context, side, entry, stop)
     .filter((t) => Math.abs(t.price - entry) > Math.abs(tp1Price - entry));
-  return beyond.find((t) => t.target_class === 'level') ?? beyond[0] ?? null;
+  // Same-gap full fill: if TP1 is an opposing-FVG edge, TP2 = that gap's far
+  // edge (partial fill → full fill off one gap).
+  if (tp1?.target_class === 'fvg' && tp1?.zone) {
+    const farSame = beyond.find((t) => t.target_class === 'fvg' && t.zone === tp1.zone && t.edge === 'far');
+    if (farSame) return farSame;
+  }
+  // The runner aims at the REAL terminal draw — an engine session level, FVG
+  // fill, or major psych level. A persistent session-history draw (class 'htf',
+  // a multi-day-old session high/low) is a FALLBACK only: used when no real
+  // runner sits beyond TP1, never as a NEARER cap on one. On a trend day the
+  // stale old-session levels sit between price and the real draw (June-9: PDL
+  // 28821), and letting them be TP2 chopped 11R runners down to 6R (corpus
+  // −16R). Session draws extend the picture; they don't truncate it.
+  const isRealRunner = (t) =>
+    t.target_class === 'fvg' || t.target_class === 'level'
+    || (t.target_class === 'psych' && t.grid === 'major');
+  const realRunner = beyond.find(isRealRunner);
+  const sessionDraw = beyond.find((t) => t.target_class === 'htf');
+  return realRunner ?? sessionDraw ?? beyond[0] ?? null;
+}
+
+// The nearest INTRADAY objective (1m swing / session level, never an HTF/
+// session draw or psych grid). This is the trade's first objective — the
+// price the move tags first — and equals what TP1 was before the target model
+// reached past it to the HTF draw. The backtest's scale-in "green light" can
+// key off this instead of TP1 so add-timing stays decoupled from how far the
+// final draw sits (TV_GREENLIGHT_INTRADAY). Nearest clearing 1.5R, else the
+// nearest intraday/level, else null (no intraday objective → caller falls back
+// to TP1).
+function nearestIntradayTarget(context, side, entry, stop) {
+  const all = validTargets(context, side, entry, stop)
+    .filter((t) => !isWeeklyDraw(t) && (t.target_class === 'intraday' || t.target_class === 'level'));
+  return all.find((t) => t.rMultiple >= 1.5) ?? all[0] ?? null;
 }
 
 // Grade per constraint #9 / trading-strategy-2026.md §7 step 7 — A+ only
@@ -430,7 +500,13 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   if (tp1Candidate && tp1Candidate.rMultiple < 1.5) blockers.push('tp1_below_1_5r');
   const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
-    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate.price);
+    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
+  // First intraday objective — the scale-in green-light reference (opt-in via
+  // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
+  // the HTF draw sits. Null when there's no intraday objective.
+  const greenlightTarget = entryPrice == null || !stopCandidate
+    ? null
+    : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price);
 
   // Late-session cutoff: no NEW entry once the confirming bar closes at 15:32
   // ET or later (user ruling 2026-06-13) — too little runway to the 16:00
@@ -506,6 +582,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
       rMultiple: tp2Candidate.rMultiple,
       rawPayload: tp2Candidate,
     } : null,
+    greenlightRef: greenlightTarget ? roundTick(greenlightTarget.price) : null,
     evidence: {
       pdArray: walker?.evidence?.pdArray ?? null,
       confirmation: confirmation ?? null,
@@ -522,3 +599,6 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   return packet;
 }
+
+// Test surface for the pure target-selection helpers.
+export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget };

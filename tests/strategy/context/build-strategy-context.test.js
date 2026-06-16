@@ -103,3 +103,4 @@ test('buildStrategyContext: unknown market or session blocks deterministically',
   assert.equal(unknownSession.sourceHealth.status, 'blocked');
   assert.ok(unknownSession.blockers.includes('unknown_session'));
 });
+

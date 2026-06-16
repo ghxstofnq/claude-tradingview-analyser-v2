@@ -21,6 +21,7 @@ import { computeSize, dayOfWeek } from "../../cli/lib/sizing.js";
 import { getPersistentMemory } from "./persistent-memory.js";
 import { archiveBriefArtifacts } from "./session-memory.js";
 import { runDirectSessionBrief } from "./direct-session-brief.js";
+import { captureLeaderH1 } from "./live-h1-capture.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -347,6 +348,7 @@ async function runDirectBrief(session, { onEvent } = {}) {
   return runDirectSessionBrief({
     session,
     sizingByGrade: await sizingByGradeForToday(),
+    captureH1Fn: captureLeaderH1,
     onEvent,
   });
 }

@@ -2,6 +2,7 @@
  * Core replay mode logic.
  */
 import { evaluate, getReplayApi } from './connection.js';
+import { waitForChartReady } from './wait.js';
 
 function wv(path) {
   return `(function(){ var v = ${path}; return (v && typeof v === 'object' && typeof v.value === 'function') ? v.value() : v; })()`;
@@ -65,8 +66,12 @@ export async function start({ date, time } = {}) {
   }
 
   const started = await evaluate(wv(`${rp}.isReplayStarted()`));
+  // Settle-verify: don't return until the chart has actually loaded replay bars
+  // (not wedged on "symbol doesn't exist"), so the caller's first read/switch
+  // doesn't race the load. Non-fatal — a false here is surfaced via chart_ready.
+  const chartReady = await waitForChartReady(null, null, 8000);
   const currentDate = await evaluate(wv(`${rp}.currentDate()`));
-  return { success: true, replay_started: !!started, date: date || '(first available)', current_date: currentDate };
+  return { success: true, replay_started: !!started, chart_ready: chartReady, date: date || '(first available)', current_date: currentDate };
 }
 
 export async function step() {
@@ -89,37 +94,68 @@ export async function autoplay({ speed } = {}) {
   return { success: true, autoplay_active: !!isAutoplay, delay_ms: currentDelay };
 }
 
-export async function stop() {
+// Detect the "Leave current replay?" confirmation dialog and click its Leave
+// button (one round-trip: detect + click). TV shows this dialog whenever you
+// leave an active replay; if it isn't dismissed the chart stays bound to
+// replay and the very next symbol/TF switch wedges into the "This symbol
+// doesn't exist" data-session error. We never tick "Save this replay" — Leave
+// discards it. Returns true if the dialog was present and Leave was clicked.
+async function clickLeaveReplayDialog() {
+  try {
+    return !!(await evaluate(`
+      (function() {
+        var dlgs = document.querySelectorAll('[class*="dialog"]');
+        var present = false;
+        for (var d = 0; d < dlgs.length; d++) {
+          if (/leave current replay/i.test(dlgs[d].textContent || '')) { present = true; break; }
+        }
+        if (!present) return false;
+        var btns = document.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) {
+          if (/^Leave$/i.test((btns[i].textContent || '').trim())) { btns[i].click(); return true; }
+        }
+        return false;
+      })()
+    `));
+  } catch { return false; }
+}
+
+export async function stop({ deadlineMs = 8000 } = {}) {
   const rp = await getReplayApi();
   const started = await evaluate(wv(`${rp}.isReplayStarted()`));
   if (!started) {
-    // Try to hide toolbar even if not started
+    // Even when not "started", a leftover Leave dialog can block the chart —
+    // dismiss it before hiding the toolbar.
+    await clickLeaveReplayDialog();
     try { await evaluate(`${rp}.hideReplayToolbar()`); } catch {}
     const toolbarVisible = await evaluate(wv(`${rp}.isReplayToolbarVisible()`));
     return { success: true, action: 'already_stopped', replay_started: false, toolbar_visible: !!toolbarVisible };
   }
   await evaluate(`${rp}.stopReplay()`);
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 800));
   try { await evaluate(`${rp}.goToRealtime()`); } catch {}
   try { await evaluate(`${rp}.leaveReplay()`); } catch {}
-  await new Promise(r => setTimeout(r, 300));
-  let leaveConfirmed = false;
-  try {
-    leaveConfirmed = !!(await evaluate(`
-      (function() {
-        var btns = document.querySelectorAll('button');
-        for (var i = 0; i < btns.length; i++) {
-          var text = (btns[i].textContent || '').trim();
-          if (/^Leave$/i.test(text)) { btns[i].click(); return true; }
-        }
-        return false;
-      })()
-    `));
-  } catch {}
-  if (!leaveConfirmed) {
+
+  // POLL for the "Leave current replay?" dialog and click Leave the moment it
+  // appears, then keep polling until replay is actually stopped. leaveReplay()
+  // blocks the page's main thread during the realtime reload, so a single
+  // fixed-delay search races the dialog render — if it's missed the dialog
+  // stays open, replay never leaves, and the chart wedges on the next switch.
+  // Polling removes the race entirely (root cause confirmed 2026-06-16).
+  const deadline = Date.now() + deadlineMs;
+  let leaveClicked = false;
+  let stoppedConfirmed = false;
+  while (Date.now() < deadline) {
+    if (await clickLeaveReplayDialog()) leaveClicked = true;
+    let stillStarted = true;
+    try { stillStarted = !!(await evaluate(wv(`${rp}.isReplayStarted()`))); } catch { /* thread busy mid-reload — retry */ }
+    if (!stillStarted) { stoppedConfirmed = true; break; }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  if (!stoppedConfirmed) {
     try { await evaluate(`${rp}.hideReplayToolbar()`); } catch {}
   }
-  await new Promise(r => setTimeout(r, 500));
+  await new Promise(r => setTimeout(r, 300));
   const state = await evaluate(`
     (function() {
       var r = ${rp};
@@ -131,13 +167,14 @@ export async function stop() {
       };
     })()
   `);
-  const stopped = !state?.is_replay_started || state?.is_replay_toolbar_visible === false;
+  const stopped = !state?.is_replay_started;
   return {
     success: true,
     action: stopped ? 'replay_stopped' : 'replay_stop_requested',
     replay_started: !!state?.is_replay_started,
     toolbar_visible: !!state?.is_replay_toolbar_visible,
     replay_mode: state?.replay_mode ?? null,
+    leave_dialog_clicked: leaveClicked,
   };
 }
 

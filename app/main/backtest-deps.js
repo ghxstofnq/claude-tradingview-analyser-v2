@@ -15,6 +15,7 @@ import { gradeOpenTrade } from "./backtest-grader.js";
 import { __test as barCloseTruth } from "./bar-close.js";
 import { PAIR_PRIMARY } from "./config.js";
 import { recordEntries } from "../../cli/lib/tape-recorder.js";
+import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
 import { parseIctEngineTable, findIctEngineRows } from "../../cli/lib/ict-engine-parser.js";
 import { buildBriefDigest } from "../../cli/lib/brief-digest.js";
 import * as replay from "../../packages/core/replay.js";
@@ -94,6 +95,19 @@ async function reloadChartAndWait({ timeoutMs = 90_000 } = {}) {
   }
 }
 
+// Each replay SESSION must start from a freshly-reloaded chart. Reusing a chart
+// that has already run one replay+stop wedges the SECOND replay.start into the
+// "This symbol doesn't exist" data-session error (confirmed 2026-06-16: single
+// replay cycles are always clean regardless of pacing, but the 2nd cycle on the
+// same chart wedges, and ONLY a page reload — not the replay API — clears the
+// residue). A backtest run does two sessions (anchor brief + recorder), so both
+// reload first. Between sessions the chart is healthy, so the evaluate-based
+// reload works; an already-wedged chart is recovered reactively in runDirectBrief.
+async function freshChartForReplay(leader) {
+  await reloadChartAndWait();
+  await pinChart(leader);
+}
+
 const CDP_RECORDER_DEPS = {
   startReplay: (args) => replay.start(args),
   stepReplay: () => replay.step(),
@@ -117,8 +131,9 @@ export const PROD_DEPS = {
     const runDir = resolveRunDir({ stateDir: STATE_DIR, runId });
     const leader = PAIR_PRIMARY;
     let bundle = null;
+    let h1History = null;
     try {
-      await pinChart(leader);
+      await freshChartForReplay(leader);
       await replay.start({ date, time: REPLAY_ANCHORS[session] ?? "09:30" });
       const out = path.join(runDir, "brief-bundle.json");
       const anchorTime = REPLAY_ANCHORS[session] ?? "09:30";
@@ -144,6 +159,19 @@ export const PROD_DEPS = {
         bundle = await analyzePairBundle({ out, pair: null });
         if (wedged(bundle)) throw new Error(`anchor capture wedged after recovery: missing ${bundle.capture_health.missing.join(",")}`);
       }
+      // Raw 1H history for session-level draws — pulled UNDER REPLAY so the bars
+      // are no-lookahead (TV bars respect the replay clock; only the engine table
+      // doesn't). The multi-TF sweep restored the chart to 1m; flip to 1H, pull
+      // ~500 bars (~3 weeks), flip back.
+      try {
+        await chart.setTimeframe({ timeframe: "60" });
+        const h1 = await data.getOhlcv({ count: 500 });
+        h1History = Array.isArray(h1?.bars) ? h1.bars : null;
+        await chart.setTimeframe({ timeframe: "1" });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[backtest] 1H history pull failed:", e.message);
+      }
     } finally {
       try {
         await replay.stop();
@@ -153,6 +181,12 @@ export const PROD_DEPS = {
       }
     }
     if (!bundle) return null;
+    // Persist the 1H history ON the bundle so the session-level draws are
+    // computed in buildDirectSessionBriefPayloads (the single point the refold
+    // path shares). Re-write brief-bundle.json with it so fold-week/regen can
+    // recompute the draws too — without this a refold loses them.
+    if (h1History) bundle.h1_history = h1History;
+    try { fs.writeFileSync(path.join(runDir, "brief-bundle.json"), JSON.stringify(bundle)); } catch { /* best-effort */ }
     bundle.brief_digest = buildBriefDigest({ pair: { symbols: { [leader]: bundle } } });
     const payloads = buildDirectSessionBriefPayloads({ session, bundle, symbols: [leader] });
     fs.writeFileSync(path.join(runDir, "brief-payloads.json"), JSON.stringify(payloads, null, 2));
@@ -160,7 +194,9 @@ export const PROD_DEPS = {
   },
 
   async recordEntries({ context, date, fromEt, toEt, onBar, isStopped }) {
-    await pinChart(context?.leader);
+    // Recorder is the run's SECOND replay session — reload to a pristine chart
+    // first or it wedges (see freshChartForReplay).
+    await freshChartForReplay(context?.leader);
     return recordEntries({
       context, date, fromEt, toEt,
       deps: CDP_RECORDER_DEPS,

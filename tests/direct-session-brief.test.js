@@ -132,6 +132,37 @@ test("overnight_block.untaken_below carries the sell-side session lows (not abov
   assert.ok(ob.untaken_above.every((l) => l.price >= 29920));
 });
 
+// 2026-06-16 refold-path wiring: persistent session-history draws (old session
+// highs/lows the engine overwrites) must flow through buildDirectSessionBriefPayloads
+// whenever the brief bundle carries 1H history — so a fold-week/regen recomputes
+// the same draws the live record captured (without this, a refold loses the
+// June-4 PM high 30896 that a runner TP2 targets). No 1H history → no extra draws.
+test("session-history draws merge into overnight_block when bundle.h1_history is present", () => {
+  const h1bar = (iso, high, low) => ({ time: Math.floor(Date.parse(iso) / 1000), high, low });
+  const b = bundle();
+  // June 4 NY-PM (13:00–16:00 ET = 17:00–20:00 UTC) prints a 30896 high; price
+  // never trades above it through asOf → it stays an untaken upside draw.
+  b.h1_history = [
+    h1bar("2026-06-04T17:00:00Z", 30850, 30800),
+    h1bar("2026-06-04T18:00:00Z", 30896, 30840),
+    h1bar("2026-06-04T19:00:00Z", 30870, 30830),
+    h1bar("2026-06-05T18:00:00Z", 30720, 30680),
+  ];
+  b.quote = { last: 30600, time: Math.floor(Date.parse("2026-06-08T18:00:00Z") / 1000) };
+  const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
+  const above = payloads[0].overnight_block.untaken_above;
+  const draw = above.find((x) => x.price === 30896);
+  assert.ok(draw, "June 4 PM high 30896 should surface as an untaken upside draw");
+  assert.equal(draw.name, "NYPM.H");
+  assert.equal(draw.source, "session_draw");
+});
+
+test("no session-history draws merge when bundle.h1_history is absent", () => {
+  const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: bundle(), symbols: ["MNQ1!"] });
+  const above = payloads[0].overnight_block.untaken_above;
+  assert.ok(above.every((x) => x.source !== "session_draw"), "no session_draw rows without h1_history");
+});
+
 test("runDirectSessionBrief surfaces direct payloads and emits tool-call events postValidate accepts", async () => {
   const events = [];
   const surfaced = [];
