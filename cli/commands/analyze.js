@@ -547,6 +547,7 @@ register('analyze', {
     'scan-tf': { type: 'string', description: 'Briefly switch chart to this TF (1, 5, 15, 60, 240, D) for the scan, then restore. Pairs with --pillar3-only for the polling cadence. ~2–3s of chart flashing per call.' },
     baseline: { type: 'string', description: 'Path to a previously-captured full bundle. Reuses its bars_by_tf and engine_by_tf instead of re-running the multi-TF chart sweep. Pairs with --pillar3-only for fast candidate evaluation that still has full HTF context. Emits baseline_meta so the consumer can see how old the cached HTF data is.' },
     out: { type: 'string', description: 'Write bundle JSON to this path; stdout prints only {saved_to: <path>}. Use for bundles too large to pipe (>~60KB).' },
+    symbol: { type: 'string', description: 'Pin the analysis chart to this symbol (e.g. "MES1!") before capturing, so the bundle reflects it. Used by the ORDERS manual ticket to follow the trader\'s selected instrument. Ignored under --pair.' },
     pair: { type: 'string', description: 'Run dual-symbol scan. Format: "<primary>,<secondary>" (e.g. "MNQ1!,MES1!"). Captures both symbols; output bundle gains a top-level `pair` block. Behavior depends on pair-decision.json state for the active session.' },
     'baseline-secondary': { type: 'string', description: 'Per-symbol baseline path for the secondary symbol when using --pair. The primary uses --baseline as today.' },
     'fallback-baseline': { type: 'string', description: 'Baseline bundle used to fill individual TFs that still have no fresh engine table after the verified-capture retry pass (strategy §2.4 allows HTF reuse intraday). Defaults to state/baseline-<sym>.json when present. Fills are age-capped (24h), recorded in capture_health, and skipped during replay.' },
@@ -596,6 +597,21 @@ register('analyze', {
         throw new Error(`--pair expects "<primary>,<secondary>"; got '${opts.pair}'`);
       }
       pairConfig = { primary: parts[0], secondary: parts[1] };
+    }
+
+    // 0.41. Single-symbol pin (ORDERS / any caller passing --symbol). Switch the
+    //       analysis chart to the requested symbol before capture so the bundle
+    //       reflects it. Skipped under --pair (which manages its own symbols).
+    //       Mirrors the pair-decision switch below: read current, switch only if
+    //       it differs, settle for the engine re-render.
+    if (opts?.symbol && !pairConfig) {
+      const state0 = await chart.getState();
+      const bare0 = state0.symbol.replace(/^[A-Z_]+:/, '');
+      const want = opts.symbol.replace(/^[A-Z_]+:/, '');
+      if (bare0 !== want) {
+        await chart.setSymbol({ symbol: want });
+        await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+      }
     }
 
     // 0.42. Pair-decision short-circuit. If --pair was passed AND a

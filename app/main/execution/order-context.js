@@ -29,24 +29,36 @@ export function parseBundle(bundle, source) {
 
 function readJson(p) { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } }
 
-export async function getOrderContext({ maxAgeMs = 30_000 } = {}) {
-  // 1) recent last-scan from the live loop
+// Strip the exchange prefix ("CME_MINI:MES1!" → "MES1!").
+const bareSym = (s) => String(s || "").replace(/^[A-Z_]+:/, "");
+// Does a captured bundle's symbol satisfy the requested one? No request → any.
+export function scanMatchesSymbol(scanSymbol, want) {
+  if (!want) return true;
+  return bareSym(scanSymbol) === bareSym(want);
+}
+
+export async function getOrderContext({ maxAgeMs = 30_000, symbol = null, refresh = false } = {}) {
+  // 1) recent last-scan from the live loop — only if it's the requested symbol
+  //    (the live loop may be on a different instrument than the trader's ticket).
   try {
-    if (existsSync(LAST_SCAN) && Date.now() - statSync(LAST_SCAN).mtimeMs < maxAgeMs) {
+    if (!refresh && existsSync(LAST_SCAN) && Date.now() - statSync(LAST_SCAN).mtimeMs < maxAgeMs) {
       const b = readJson(LAST_SCAN);
-      if (b?.gates?.engine) { _cache = parseBundle(b, "last-scan"); return _cache; }
+      if (b?.gates?.engine && scanMatchesSymbol(b?.chart?.symbol, symbol)) { _cache = parseBundle(b, "last-scan"); return _cache; }
     }
   } catch { /* fall through */ }
-  // 2) on-demand pillar3-only analyze against the analysis chart
+  // 2) on-demand pillar3-only analyze, pinned to the requested symbol so the
+  //    bundle reflects the trader's chart (not whatever 9225 was last on).
   try {
-    const r = spawnSync(process.execPath, [path.join(REPO_ROOT, "cli", "index.js"), "analyze", "--pillar3-only", "--out", ORDERS_SCAN], { cwd: REPO_ROOT, timeout: 15_000, encoding: "utf8" });
+    const args = [path.join(REPO_ROOT, "cli", "index.js"), "analyze", "--pillar3-only", "--out", ORDERS_SCAN];
+    if (symbol) args.push("--symbol", symbol);
+    const r = spawnSync(process.execPath, args, { cwd: REPO_ROOT, timeout: 20_000, encoding: "utf8" });
     if (r.status === 0) {
       const b = readJson(ORDERS_SCAN);
       if (b) { _cache = parseBundle(b, "fresh-analyze"); return _cache; }
     }
   } catch { /* fall through */ }
-  // 3) last good cache, marked stale
-  if (_cache) return { ..._cache, stale: true };
+  // 3) last good cache, marked stale — only if it matches the requested symbol
+  if (_cache && scanMatchesSymbol(_cache.symbol, symbol)) return { ..._cache, stale: true };
   return { symbol: null, price: null, candidates: [], draws: { above: [], below: [] }, ts: Date.now(), source: "none", stale: true };
 }
 

@@ -1,7 +1,7 @@
 // tests/order-context.test.js
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseBundle } from "../app/main/execution/order-context.js";
+import { parseBundle, scanMatchesSymbol } from "../app/main/execution/order-context.js";
 
 function bundle() {
   return {
@@ -34,5 +34,21 @@ describe("order-context.parseBundle", () => {
     const ctx = parseBundle({ chart: { symbol: "MNQ1!" }, quote: { last: 21000 } }, "test");
     assert.equal(ctx.stale, true);
     assert.deepEqual(ctx.candidates, []);
+  });
+});
+
+describe("order-context.scanMatchesSymbol", () => {
+  it("matches across exchange prefix + bare forms", () => {
+    assert.equal(scanMatchesSymbol("CME_MINI:MES1!", "MES1!"), true);
+    assert.equal(scanMatchesSymbol("CME_MINI:MES1!", "CME_MINI:MES1!"), true);
+    assert.equal(scanMatchesSymbol("MES1!", "MES1!"), true);
+  });
+  it("rejects a different symbol (the MNQ-vs-MES bug)", () => {
+    assert.equal(scanMatchesSymbol("CME_MINI:MNQ1!", "MES1!"), false);
+    assert.equal(scanMatchesSymbol("CME_MINI:MES1!", "MNQ1!"), false);
+  });
+  it("no requested symbol → any scan matches", () => {
+    assert.equal(scanMatchesSymbol("CME_MINI:MNQ1!", null), true);
+    assert.equal(scanMatchesSymbol("CME_MINI:MNQ1!", ""), true);
   });
 });

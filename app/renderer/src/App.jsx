@@ -274,7 +274,7 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
         <ReviewCell />
         <BacktestCell />
         <ChatCell chats={chats} />
-        <OrdersCell />
+        <OrdersCell symbol={symbol} />
       </div>
       <div className="grp">
         <span className="item"><span className="k">PH</span><span className="v amber">{phase}</span></span>
