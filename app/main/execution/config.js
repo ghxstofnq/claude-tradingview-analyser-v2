@@ -23,6 +23,9 @@ export const DEFAULT_EXEC_CONFIG = {
   maxAdds: 5,                 // SCALE_IN_MAX
   combinedCapUsd: null,       // null = no combined-position cap
   guards: { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120 },
+  confirmedAccount: null,     // { id, type, name } — persisted across restarts (real-broker arming)
+  liveHost: null,             // filled by the discovery spike; null = live routing blocked
+  paperHost: "https://papertrading.tradingview.com",
 };
 
 // Pure deep-merge of patch over base, with the `guards` sub-object merged

@@ -16,7 +16,7 @@ import { appendFill } from "./fills.js";
 const PORT = 9223;
 const RECONNECT_MS = 4000;
 
-const state = { connected: false, position: null, balance: null, accountId: null, lastFillTs: null };
+const state = { connected: false, position: null, balance: null, accountId: null, accountName: null, accountType: null, lastFillTs: null };
 let openTrade = null;     // { symbol, side, qty, entry, sl, tp, openedMs }
 let lastExecPrice = null; // most recent execution price (the exit, at close time)
 let lastRealizedUsd = null;
@@ -26,7 +26,8 @@ let sock = null, reconnectTimer = null, stopped = false;
 export function getTradingState() {
   return {
     connected: state.connected, position: state.position, balance: state.balance,
-    accountId: state.accountId, workingOrders: [...workingOrders.values()],
+    accountId: state.accountId, accountName: state.accountName, accountType: state.accountType,
+    workingOrders: [...workingOrders.values()],
   };
 }
 
@@ -57,6 +58,10 @@ function handleContent(c) {
   if (!c || !c.m) return;
   const p = c.p || {};
   if (c.accountId) { state.accountId = String(c.accountId); rememberAccountId(c.accountId); }
+  // Capture account name + paper/live type when TV signals them (additive — for
+  // active-account tracking / real-broker arming).
+  if (p.accountName || c.accountName) state.accountName = p.accountName || c.accountName;
+  if (p.accountType || c.accountType) state.accountType = p.accountType || c.accountType;
   switch (c.m) {
     case "position_update":
       if (p.side === "empty" || p.qty === 0) {

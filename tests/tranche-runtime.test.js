@@ -19,6 +19,8 @@ function makeDeps(over = {}) {
     accept: async (payload) => { calls.accept.push(payload); return { id: "T-0009" }; },
     openTrancheOrders: async (a) => { calls.openTrancheOrders.push(a); return { stopOrderId: 1, limitOrderId: 2 }; },
     recordSkip: async (r) => { calls.recordSkip.push(r); },
+    accountRoutable: () => ({ route: true }),
+    autoAllowed: () => true,
     ...over,
   };
   return { deps, calls };
@@ -109,6 +111,21 @@ describe("openTrancheNow (manual ADD path)", () => {
     const { deps, calls } = makeDeps({ checkOrder: () => ({ ok: false, code: "SIZE" }) });
     const r = await openTrancheNow({ packet: anchorPacket }, deps);
     assert.equal(r.ok, false);
+    assert.equal(calls.accept.length, 0);
+  });
+});
+
+describe("runTrancheManager respects the account gate + live-auto-pause", () => {
+  it("blocks auto when the account gate says do not route", async () => {
+    const { deps, calls } = makeDeps({ accountRoutable: () => ({ route: false, reason: "account_switch" }) });
+    const r = await runTrancheManager({ bestPacket: anchorPacket, price: 100 }, deps);
+    assert.equal(r.action, "blocked:account_switch");
+    assert.equal(calls.accept.length, 0);
+  });
+  it("blocks auto when live-auto is paused on boot", async () => {
+    const { deps, calls } = makeDeps({ autoAllowed: () => false });
+    const r = await runTrancheManager({ bestPacket: anchorPacket, price: 100 }, deps);
+    assert.equal(r.action, "blocked:live_auto_paused");
     assert.equal(calls.accept.length, 0);
   });
 });

@@ -40,3 +40,17 @@ describe("mergeExecConfig (pure deep-merge of guards)", () => {
     assert.equal(out.paperAccountId, "9256021");
   });
 });
+
+describe("exec config — arming fields", () => {
+  it("defaults: confirmedAccount null, liveHost null, paperHost set", () => {
+    assert.equal(DEFAULT_EXEC_CONFIG.confirmedAccount, null);
+    assert.equal(DEFAULT_EXEC_CONFIG.liveHost, null);
+    assert.equal(DEFAULT_EXEC_CONFIG.paperHost, "https://papertrading.tradingview.com");
+  });
+  it("confirmedAccount persists through a merge (not wiped by an unrelated patch)", () => {
+    const base = mergeExecConfig(DEFAULT_EXEC_CONFIG, { confirmedAccount: { id: "L-1", type: "live", name: "X" } });
+    const out = mergeExecConfig(base, { maxAdds: 4 });
+    assert.equal(out.confirmedAccount.id, "L-1");
+    assert.equal(out.maxAdds, 4);
+  });
+});

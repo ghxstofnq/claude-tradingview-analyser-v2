@@ -54,6 +54,13 @@ export async function runTrancheManager(ctx = {}, deps) {
   const cfg = await d.readExecConfig();
   if (cfg.automationMode === "manual") return { action: "manual" };
 
+  // Account gate (auto path only — manual entries go through the IPC confirm).
+  // Block auto-fire when the active account isn't the confirmed one, or when a
+  // confirmed LIVE account's auto is still paused after a restart.
+  const gate = d.accountRoutable();
+  if (!gate.route) { await d.recordSkip(`blocked:${gate.reason}`); return { action: `blocked:${gate.reason}` }; }
+  if (!d.autoAllowed()) { await d.recordSkip("blocked:live_auto_paused"); return { action: "blocked:live_auto_paused" }; }
+
   const { events, open } = await d.readJournal();
   const anchor = open.find((t) => t.tranche_role === "anchor") || open[0] || null;
   let greenLight = false;
@@ -114,9 +121,10 @@ export async function openTrancheNow({ packet, role = "add" }, deps) {
 // Production deps. Heavy modules (CDP/adapter/journal) imported lazily so the
 // unit test (which injects fakes) never loads electron/ws.
 async function buildRealDeps() {
-  const [{ readExecConfig }, sessions, outcomes, { checkOrder }, fills, exec] = await Promise.all([
+  const [{ readExecConfig }, sessions, outcomes, { checkOrder }, fills, exec, gate, active, autoResume] = await Promise.all([
     import("./config.js"), import("../sessions.js"), import("../../../cli/lib/trade-outcomes.js"),
     import("./guardrails.js"), import("./fills.js"), import("./tranche-exec.js"),
+    import("./account-gate.js"), import("./active-account.js"), import("./auto-resume.js"),
   ]);
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
@@ -132,6 +140,8 @@ async function buildRealDeps() {
 
   return {
     readExecConfig,
+    accountRoutable: () => gate.resolveAccountGate({ active: active.getActiveAccount(), confirmed: readExecConfig().confirmedAccount }),
+    autoAllowed: () => gate.autoFireAllowed({ confirmed: readExecConfig().confirmedAccount, autoResumed: autoResume.getAutoResumed() }),
     readJournal: async () => { const events = await readEvents(); return { events, open: outcomes.foldOpenTrades(events) }; },
     hasGreenLight: (events, id) => events.some((e) => e.type === "green_light" && e.setup_id === id),
     markGreenLight: async (id) => appendTrade({ type: "green_light", setup_id: id, ts: new Date().toISOString() }),
