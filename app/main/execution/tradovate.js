@@ -28,8 +28,20 @@ export function deriveActiveBroker({ tradovateLastSeenMs = null, now = Date.now(
   return "paper";
 }
 
+// Pull the active Tradovate contract symbol from a /quotes?symbols=… request.
+// TradingView quotes the contract the account is on (e.g. MESU6); that's the
+// `instrument` an order POST needs — NOT the chart's "CME_MINI:MES1!".
+function parseInstrument(url) {
+  try {
+    const sym = new URL(url).searchParams.get("symbols");
+    if (!sym) return null;
+    const first = sym.split(",")[0].trim();
+    return first || null;
+  } catch { return null; }
+}
+
 // In-memory store of the latest sniffed Tradovate values.
-const store = { token: null, accountId: null, host: null, lastSeenMs: null };
+const store = { token: null, accountId: null, host: null, instrument: null, lastSeenMs: null };
 
 export function noteTradovateRequest(url, headers) {
   const p = parseTradovateRequest(url, headers);
@@ -37,8 +49,29 @@ export function noteTradovateRequest(url, headers) {
   if (p.accountId) store.accountId = p.accountId;
   if (p.host) store.host = p.host;
   if (p.token) store.token = p.token;
+  const instr = parseInstrument(url);
+  if (instr) store.instrument = instr;
   store.lastSeenMs = Date.now();
   return true;
+}
+
+// Build the form-urlencoded order body Tradovate expects (confirmed by live
+// capture 2026-06-16). The SL/TP bracket rides in the entry POST as absolute
+// price levels; one order, auto-bracketed (no orphan-order problem).
+export function buildTradovateOrderBody({ instrument, qty, side, type = "market", currentAsk, currentBid, stopLoss, takeProfit, limitPrice, stopPrice, durationType = "Day" } = {}) {
+  const p = new URLSearchParams();
+  p.set("instrument", String(instrument));
+  p.set("qty", String(qty));
+  p.set("side", side === "sell" || side === "short" ? "sell" : "buy");
+  p.set("type", type);
+  p.set("durationType", durationType);
+  if (currentAsk != null) p.set("currentAsk", String(currentAsk));
+  if (currentBid != null) p.set("currentBid", String(currentBid));
+  if (type === "limit" && limitPrice != null) p.set("limitPrice", String(limitPrice));
+  if ((type === "stop" || type === "stoplimit") && stopPrice != null) p.set("stopPrice", String(stopPrice));
+  if (stopLoss != null) p.set("stopLoss", String(stopLoss));
+  if (takeProfit != null) p.set("takeProfit", String(takeProfit));
+  return p.toString();
 }
 
 export function getTradovate() { return { ...store }; }
@@ -48,5 +81,5 @@ export function activeBroker(now = Date.now()) {
 
 // test-only reset
 export function __resetTradovate() {
-  store.token = null; store.accountId = null; store.host = null; store.lastSeenMs = null;
+  store.token = null; store.accountId = null; store.host = null; store.instrument = null; store.lastSeenMs = null;
 }

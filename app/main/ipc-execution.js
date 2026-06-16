@@ -106,8 +106,24 @@ export function registerExecutionIpc() {
       if (preview.block) return { ok: false, blocked: true, code: preview.block, preview };
       const gate = await guarded({ hasStop: preview.stop != null, sizing: { withinTolerance: preview.withinTolerance, contracts: preview.contracts, actualRisk: preview.actualRiskUsd }, guards: readExecConfig().guards });
       if (!gate.ok) return { ok: false, blocked: true, ...gate, preview };
+
+      // Route by the active broker. Tradovate orders go to its own REST API
+      // (Bearer-token + bracket-in-the-POST); paper uses the TV paper adapter.
+      const active = getActiveAccount();
+      if (active?.broker === "tradovate") {
+        const acctGate = resolveAccountGate({ active, confirmed: readExecConfig().confirmedAccount });
+        if (!acctGate.route) return { ok: false, blocked: true, code: "confirm_tradovate", preview, gate: acctGate };
+        const { placeTradovateOrder } = await import("./execution/tradovate-adapter.js");
+        const result = await placeTradovateOrder({
+          side: arg.side, type: "market", contracts: preview.contracts,
+          stopLoss: preview.stop, takeProfit: preview.tp ?? undefined,
+          currentAsk: ctx.price, currentBid: ctx.price,
+        });
+        return { ok: !!result.ok, broker: "tradovate", result, preview };
+      }
+
       const result = await tvAdapter.placeOrder({ symbol: ctx.symbol, side: arg.side, type: "market", entry: ctx.price, stop: preview.stop, tp: preview.tp ?? undefined, contracts: preview.contracts });
-      return { ok: true, result, preview };
+      return { ok: true, broker: "paper", result, preview };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
@@ -149,8 +165,14 @@ export function registerExecutionIpc() {
   });
   for (const verb of ["flatten", "panic"]) {
     ipcMain.handle(`execution:${verb}`, async (_e, payload) => {
-      try { return { ok: true, result: await tvAdapter[verb](payload) }; }
-      catch (e) { return { ok: false, error: String(e?.message || e) }; }
+      try {
+        // Route flatten/panic to Tradovate when it's the active broker.
+        if (getActiveAccount()?.broker === "tradovate") {
+          const { closeTradovatePosition } = await import("./execution/tradovate-adapter.js");
+          return { ok: true, broker: "tradovate", result: await closeTradovatePosition(payload || {}) };
+        }
+        return { ok: true, broker: "paper", result: await tvAdapter[verb](payload) };
+      } catch (e) { return { ok: false, error: String(e?.message || e) }; }
     });
   }
 

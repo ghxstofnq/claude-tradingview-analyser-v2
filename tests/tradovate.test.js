@@ -4,7 +4,10 @@ import assert from "node:assert/strict";
 import {
   parseTradovateRequest, deriveActiveBroker,
   noteTradovateRequest, getTradovate, __resetTradovate,
+  buildTradovateOrderBody,
 } from "../app/main/execution/tradovate.js";
+
+function parseForm(s) { return Object.fromEntries(new URLSearchParams(s)); }
 
 const HDRS = { Authorization: "Bearer eyJabc.def.ghi", Accept: "application/json" };
 
@@ -61,5 +64,40 @@ describe("token store", () => {
     noteTradovateRequest("https://tv-demo.tradovateapi.com/accounts/D9/orders", HDRS);
     noteTradovateRequest("https://tv-demo.tradovateapi.com/quotes?symbols=MES", HDRS);
     assert.equal(getTradovate().accountId, "D9");
+  });
+  it("captures the active instrument from the /quotes symbols param", () => {
+    noteTradovateRequest("https://tv-demo.tradovateapi.com/quotes?locale=en&symbols=MESU6&accountId=D54476869", HDRS);
+    assert.equal(getTradovate().instrument, "MESU6");
+    noteTradovateRequest("https://tv-demo.tradovateapi.com/quotes?symbols=MNQU6,ESU6&accountId=D1", HDRS);
+    assert.equal(getTradovate().instrument, "MNQU6"); // first symbol
+  });
+});
+
+describe("buildTradovateOrderBody", () => {
+  it("market order with bracket (matches the captured shape)", () => {
+    const body = buildTradovateOrderBody({ instrument: "MESU6", qty: 1, side: "buy", type: "market", currentAsk: 7592.25, currentBid: 7592, stopLoss: 7589.25, takeProfit: 7604 });
+    const f = parseForm(body);
+    assert.equal(f.instrument, "MESU6");
+    assert.equal(f.qty, "1");
+    assert.equal(f.side, "buy");
+    assert.equal(f.type, "market");
+    assert.equal(f.durationType, "Day");
+    assert.equal(f.currentAsk, "7592.25");
+    assert.equal(f.currentBid, "7592");
+    assert.equal(f.stopLoss, "7589.25");
+    assert.equal(f.takeProfit, "7604");
+  });
+  it("omits bracket fields when not provided", () => {
+    const f = parseForm(buildTradovateOrderBody({ instrument: "MNQU6", qty: 2, side: "sell", type: "market" }));
+    assert.equal(f.stopLoss, undefined);
+    assert.equal(f.takeProfit, undefined);
+    assert.equal(f.qty, "2");
+    assert.equal(f.side, "sell");
+  });
+  it("limit order carries limitPrice", () => {
+    const f = parseForm(buildTradovateOrderBody({ instrument: "MESU6", qty: 1, side: "buy", type: "limit", limitPrice: 7580, stopLoss: 7570 }));
+    assert.equal(f.type, "limit");
+    assert.equal(f.limitPrice, "7580");
+    assert.equal(f.stopLoss, "7570");
   });
 });
