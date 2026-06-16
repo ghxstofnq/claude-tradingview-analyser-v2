@@ -65,6 +65,26 @@ describe("manual-order decisions", () => {
     assert.equal(s.price, 21080.5);
     assert.equal(s.levelPrice, 21080);
   });
+  it("SELL auto stop skips a swing-low above entry, picks the swing high", () => {
+    const cands = [
+      { kind: "swing_low", price: 21010, name: "swing low" },   // above entry but a LOW — not a short stop
+      { kind: "swing_high", price: 21080, name: "swing high" },
+    ];
+    const s = pickAutoStop({ side: "sell", entry: 21000, candidates: cands, symbol: "MNQ1!" });
+    assert.equal(s.kind, "swing_high");
+    assert.equal(s.levelPrice, 21080);
+    const opts = stopSideOptions({ side: "sell", entry: 21000, candidates: cands, symbol: "MNQ1!" });
+    assert.deepEqual(opts.map((o) => o.kind), ["swing_high"]);
+  });
+  it("BUY auto stop skips a swing-high below entry, picks the swing low", () => {
+    const cands = [
+      { kind: "swing_high", price: 20990, name: "swing high" }, // below entry but a HIGH — not a long stop
+      { kind: "swing_low", price: 20940, name: "swing low" },
+    ];
+    const s = pickAutoStop({ side: "buy", entry: 21000, candidates: cands, symbol: "MNQ1!" });
+    assert.equal(s.kind, "swing_low");
+    assert.equal(s.levelPrice, 20940);
+  });
   it("no candidate on the stop side → null", () => {
     const only = [{ kind: "swing_high", price: 21080, ref: "x" }];
     assert.equal(pickAutoStop({ side: "buy", entry: 21000, candidates: [], symbol: "MNQ1!" }), null);

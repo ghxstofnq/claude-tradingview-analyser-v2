@@ -4015,8 +4015,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .rv-note { margin-top: 10px; color: var(--label); font-size: 9.5px; letter-spacing: 0.06em; }
 .bt-popover .rv-note.amber { color: var(--amber); }
 
-/* ORDERS popover */
-.orders-pop { width: 420px; }
+/* ORDERS popover — width from .w-660 (same recipe as PREP) */
+.orders-pop .body { overflow-y: auto; }
 .orders-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
 .orders-pos { font-size: 12px; opacity: 0.9; padding: 4px 6px; background: var(--surface-2); border-radius: 4px; }
 .orders-pos .dim { opacity: 0.5; }
