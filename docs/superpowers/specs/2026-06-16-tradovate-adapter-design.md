@@ -61,14 +61,23 @@ Make the app see + follow the active broker.
   the account/routing labels (Settings BROKER ROUTING, ORDERS routing pill) show
   the Tradovate account when active.
 
-### Stage 2 — order routing (next PR; verified at market open)
+### Stage 2 — order routing (this PR; order format CONFIRMED by live capture)
 
-- **Tradovate adapter.** `placeTradovateOrder({ accountId, token, host, order })`
-  → `POST {host}/accounts/{id}/orders` with `Authorization: Bearer <token>` and
-  the TradingView REST Broker API order body (`instrument`, `qty`, `side`,
-  `type`, `limitPrice?`, `stopPrice?`, `durationType`, bracket `takeProfit?` /
-  `stopLoss?`). Exact field names + the `{ s, d }` response envelope **confirmed
-  by capturing one real demo order POST at market open** before we rely on it.
+**Confirmed order format (live demo capture 2026-06-16):**
+- Place: `POST {host}/accounts/{id}/orders`, `content-type: application/x-www-form-urlencoded`,
+  `Authorization: Bearer <token>`, body
+  `instrument=<MESU6|MNQU6>&qty=<n>&side=<buy|sell>&type=market&durationType=Day&currentAsk=<ask>&currentBid=<bid>&stopLoss=<price>&takeProfit=<price>`
+  (SL/TP optional, ABSOLUTE prices, in the SAME POST → one auto-bracketed order,
+  no orphan-order problem) → `{"s":"ok","d":{"orderId":"…"}}`.
+- Close: `DELETE {host}/accounts/{id}/positions/{positionId}` → `{"s":"ok"}`
+  (positionId from `GET /accounts/{id}/positions`).
+- `instrument` is the Tradovate CONTRACT symbol (MESU6), sniffed from
+  `GET /quotes?symbols=` — NOT the chart's `CME_MINI:MES1!`.
+
+- **Tradovate adapter** (`tradovate-adapter.js`). `placeTradovateOrder(order)` →
+  builds the form body (`buildTradovateOrderBody` in `tradovate.js`) and POSTs it
+  via a webview `evaluate` fetch with the sniffed Bearer token.
+  `closeTradovatePosition()` → GET positions, DELETE each non-zero by id.
 - **Routing.** `resolveTarget` / `tv-adapter` route to the Tradovate adapter when
   the confirmed account's `broker === "tradovate"`, else the existing paper POST.
 - **Positions/fills.** Poll `GET /accounts/{id}/positions` + `/orders` (with the
