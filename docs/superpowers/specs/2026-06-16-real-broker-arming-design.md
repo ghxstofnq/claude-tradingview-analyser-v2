@@ -53,7 +53,7 @@ Every order/flatten/cancel + the auto-fire path first checks `resolveAccountGate
 ### 4. Persist the confirmed account across restarts (user decision, 2026-06-16)
 `confirmedAccount` **persists** across app restarts (it is NOT reset to paper on launch). On restart, routing resumes to the last-confirmed account — including a live one — with no re-confirm. This reverses today's "boot PAPER, clear stale" in `Account.helpers` (that behavior is replaced). A fresh confirm is required only when the active account **changes** from the persisted confirmed one.
 
-**Accepted trade-off (must be documented in-app):** because confirmation persists and live automation is unchanged (decision #2), a restart during a session window with a last-confirmed **live** account and an **auto** mode set will **resume firing real orders unattended**. The user chose this over re-confirming each session. The plan must make this explicit in the UI (the LIVE badge + a "resumed live" notice on boot) so it is never a surprise.
+**Boot guard for live auto (user decision, 2026-06-16):** the confirmed account persists, so **manual** entries to it (including live) resume immediately on restart. But if the confirmed account is **live** AND an **auto** mode is set, **auto-fire is paused on boot until the user taps "resume auto" once** — this removes the only path where a restart resumes unattended real-money firing. Manual entries are unaffected; paper auto resumes normally. Implemented as a boot-time `autoPausedForLive` flag (set on launch when confirmed=live, cleared by the tap); the tranche manager / auto path checks it and no-ops while set. The UI shows a clear "LIVE auto paused — tap to resume" state on boot.
 
 ### 5. UI (`SettingsPopover.jsx` + the account cell, modified)
 - Shows the **active** account (name · id · PAPER/LIVE) and whether it matches the confirmed one.
@@ -75,7 +75,7 @@ A one-time read-only spike, run when a funded broker is connected, confirms: (a)
 - A gate failure never throws across IPC — structured `{ ok:false, blocked, reason }`, like the existing guardrail path.
 
 ## Testing
-- **Pure:** `resolveAccountGate` matrix (no active / match / paper switch / live switch); confirmed-account persistence (survives a simulated restart); `armReady` live-confirm gate. Unit-tested with `node --test`.
+- **Pure:** `resolveAccountGate` matrix (no active / match / paper switch / live switch); confirmed-account persistence (survives a simulated restart); the boot `autoPausedForLive` rule (set when confirmed=live on launch, blocks the auto path until cleared, never affects manual or paper-auto); `armReady` live-confirm gate. Unit-tested with `node --test`.
 - **Integration (paper, no live):** the read-only discovery spike confirms the active-account read on the existing paper account (proves the mechanism without a live broker); a paper "switch confirm" can be exercised by reconfirming the same paper account.
 - **Not testable until a live broker exists:** the live host/id + a real order — explicitly deferred to the sign-off.
 
