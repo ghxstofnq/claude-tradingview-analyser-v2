@@ -142,10 +142,23 @@ export function registerExecutionIpc() {
       // when the feed hasn't connected yet.
       const feed = getTradingState();
       const dom = await tvAdapter.readState();
+      let position = feed.position ?? dom.position ?? null;
+      let account = dom.account ?? feed.accountId ?? null;
+      // Tradovate position comes from its REST API (the WS feed is TV-paper-only).
+      // Surface it as the live position so the IN-TRADE / ORDERS display shows it
+      // and Flatten enables.
+      if (feed.activeBroker === "tradovate") {
+        try {
+          const { readTradovatePosition } = await import("./execution/tradovate-adapter.js");
+          const tpos = await readTradovatePosition();
+          if (tpos) position = tpos;
+          account = feed.tradovate?.accountId ?? account;
+        } catch { /* best-effort */ }
+      }
       const state = {
         connected: feed.connected || dom.connected,
-        account: dom.account ?? feed.accountId ?? null,
-        position: feed.position ?? dom.position ?? null,
+        account,
+        position,
         balance: feed.balance ?? dom.balance ?? null,
         price: dom.price ?? null,
         workingOrders: feed.workingOrders ?? [],

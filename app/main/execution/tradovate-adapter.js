@@ -83,4 +83,28 @@ export async function closeTradovatePosition(/* { instrument } */ arg = {}) {
   return { ...res, ok: (res.closed ?? 0) >= 0 && res.status !== 0 };
 }
 
-export const tradovateAdapter = { placeTradovateOrder, closeTradovatePosition };
+// Read the open Tradovate position (for the IN-TRADE / ORDERS display + to
+// enable Flatten). Node-side fetch with the sniffed Bearer token — the
+// position WS/feed is TV-paper-only, so Tradovate's position comes from its
+// REST API. Returns { symbol, side, qty, avgFill, uPnlUsd, broker } | null.
+export async function readTradovatePosition() {
+  const t = getTradovate();
+  if (!t.host || !t.accountId || !t.token) return null;
+  try {
+    const r = await fetch(`${t.host}/accounts/${t.accountId}/positions?locale=en`, { headers: { authorization: `Bearer ${t.token}` } });
+    const j = await r.json();
+    const list = Array.isArray(j) ? j : (j?.d || []);
+    const p = list.find((x) => Number(x.netPos ?? x.qty ?? 0) !== 0);
+    if (!p) return null;
+    return {
+      symbol: p.instrument || p.symbol || null,
+      side: p.side || (Number(p.netPos ?? p.qty) < 0 ? "sell" : "buy"),
+      qty: Math.abs(Number(p.netPos ?? p.qty)),
+      avgFill: p.avgPrice ?? p.avg_price ?? null,
+      uPnlUsd: p.unrealizedPl ?? p.openPl ?? null,
+      broker: "tradovate",
+    };
+  } catch { return null; }
+}
+
+export const tradovateAdapter = { placeTradovateOrder, closeTradovatePosition, readTradovatePosition };
