@@ -5,7 +5,10 @@
 // tranche-manager.sizePacket exactly — see tests/sizing-core.test.js parity.
 
 export function pointValue(symbol) {
-  return String(symbol || "").startsWith("MES") ? 5 : 2; // MES $5/pt, MNQ $2/pt
+  // Match MES anywhere — the analyze bundle's chart.symbol is exchange-prefixed
+  // ("CME_MINI:MES1!"), so startsWith would miss it (same /MES/ test as the
+  // trading feed). MES $5/pt, MNQ $2/pt.
+  return /MES/.test(String(symbol || "")) ? 5 : 2;
 }
 export function tickSize(/* symbol */) {
   return 0.25; // MNQ / MES tick
