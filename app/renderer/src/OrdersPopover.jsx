@@ -23,6 +23,7 @@ function OrdersBody({ onToast, toast, symbol }) {
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const debounce = useRef(null);
+  const firstLoad = useRef(true);
 
   const loadContext = useCallback(async (refresh = false) => {
     const r = await executionAdapter.orderContext({ refresh, symbol });
@@ -35,11 +36,15 @@ function OrdersBody({ onToast, toast, symbol }) {
     window.api?.execution?.config?.get?.().then((r) => { if (r?.ok) setRisk(r.config?.guards?.defaultRisk ?? 120); });
   }, []);
 
-  // structure context — on mount + whenever the trader's symbol changes; clear
-  // typed levels + the stale preview so MNQ's stop/TP don't linger on MES.
+  // structure context — read from the in-app webview chart on mount + whenever
+  // the trader's symbol changes; clear typed levels + the stale preview so the
+  // old symbol's stop/TP don't linger. On a symbol change, settle briefly first
+  // so the webview finishes switching before we read it.
   useEffect(() => {
     setTypedStop(""); setTypedTp(""); setPreview(null);
-    loadContext(false);
+    if (firstLoad.current) { firstLoad.current = false; loadContext(false); return; }
+    const t = setTimeout(() => loadContext(false), 800);
+    return () => clearTimeout(t);
   }, [loadContext]);
 
   useEffect(() => {

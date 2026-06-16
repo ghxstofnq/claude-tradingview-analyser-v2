@@ -85,13 +85,10 @@ export function registerExecutionIpc() {
   });
   ipcMain.handle("execution:orderPreview", async (_e, arg = {}) => {
     try {
-      const { cachedOrderContext, scanMatchesSymbol } = await import("./execution/order-context.js");
+      const { cachedOrderContext } = await import("./execution/order-context.js");
       const { buildOrderPreview } = await import("./execution/manual-order.js");
       const ctx = cachedOrderContext();
       if (!ctx) return { ok: false, error: "no_context" };
-      // Don't preview against a context for a different symbol — the renderer
-      // re-fetches context on a symbol change; this avoids a wrong-symbol flash.
-      if (arg.symbol && !scanMatchesSymbol(ctx.symbol, arg.symbol)) return { ok: false, error: "symbol_mismatch" };
       const riskUsd = arg.riskUsd ?? readExecConfig().guards?.defaultRisk ?? 120;
       const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd });
       return { ok: true, preview, context: ctx };
@@ -101,9 +98,9 @@ export function registerExecutionIpc() {
     try {
       const { getOrderContext } = await import("./execution/order-context.js");
       const { buildOrderPreview } = await import("./execution/manual-order.js");
-      // Re-pin to the trader's symbol + force a fresh capture before placing, so
-      // the order can never go out for the wrong instrument.
-      const ctx = await getOrderContext({ maxAgeMs: 5_000, symbol: arg.symbol, refresh: true });
+      // Re-read the webview chart fresh before placing, so the order always
+      // matches the instrument + structure currently on screen.
+      const ctx = await getOrderContext();
       const riskUsd = arg.riskUsd ?? readExecConfig().guards?.defaultRisk ?? 120;
       const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd });
       if (preview.block) return { ok: false, blocked: true, code: preview.block, preview };

@@ -5,7 +5,8 @@
 import { getClient, evaluate } from './connection.js';
 
 const CDP_HOST = 'localhost';
-const CDP_PORT = 9225;
+// Override per-process via TV_CDP_PORT (ORDERS uses 9223, the in-app webview).
+const CDP_PORT = Number(process.env.TV_CDP_PORT) || 9225;
 
 /**
  * List all open chart tabs (CDP page targets).
