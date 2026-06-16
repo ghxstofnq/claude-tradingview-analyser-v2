@@ -9,10 +9,24 @@
 // The fetch runs IN the webview page context (via CDP evaluate) so the
 // TradingView session cookies ride along. Acks arrive over the trading WS.
 import { evaluate } from "./cdp-webview.js";
-import { paperAccountId, rememberAccountId } from "./config.js";
+import { rememberAccountId, readExecConfig } from "./config.js";
+import { getActiveAccount } from "./active-account.js";
+import { resolveAccountGate, targetFor } from "./account-gate.js";
 
-const HOST = "https://papertrading.tradingview.com";
 const SYMBOL_MAP = { "MNQ1!": "CME_MINI:MNQ1!", "MES1!": "CME_MINI:MES1!" };
+
+// Resolve the broker target (host + accountId) for the CONFIRMED active account.
+// Throws a structured block when the active account isn't the confirmed one, or
+// when a live account is confirmed but liveHost isn't configured (the discovery
+// spike). This is THE routing gate — every order resolves its target here.
+function resolveTarget() {
+  const cfg = readExecConfig();
+  const gate = resolveAccountGate({ active: getActiveAccount(), confirmed: cfg.confirmedAccount });
+  if (!gate.route) { const e = new Error(gate.reason || "account_not_confirmed"); e.blocked = gate; throw e; }
+  const t = targetFor(cfg.confirmedAccount, cfg);
+  if (!t || !t.host) { const e = new Error("live_endpoint_not_configured"); e.blocked = { route: false, reason: "live_endpoint_not_configured" }; throw e; }
+  return t;
+}
 const tvSymbol = (s) => SYMBOL_MAP[s] || s;
 const tvSide = (side) => (side === "long" || side === "buy" ? "buy" : "sell");
 
@@ -71,8 +85,8 @@ export async function readState() {
 
 // POST a trading action from the page context (cookies ride along). Returns
 // { status, ok, body }. Throws if the webview/account isn't available.
-async function postTrading(pathPart, payload) {
-  const url = HOST + pathPart;
+async function postTrading(host, pathPart, payload) {
+  const url = host + pathPart;
   const body = JSON.stringify(payload);
   const expr = `(async () => {
     try {
@@ -90,8 +104,7 @@ async function postTrading(pathPart, payload) {
 
 // Place entry + OCO SL/TP bracket. order: {symbol, side, type, contracts, entry, stop, tp}.
 export async function placeOrder(order = {}) {
-  const acct = paperAccountId();
-  if (!acct) throw new Error("no paper account id configured (state/execution-config.json)");
+  const t = resolveTarget();
   const type = order.type === "limit" ? "limit" : "market";
   const payload = {
     symbol: tvSymbol(order.symbol),
@@ -107,8 +120,8 @@ export async function placeOrder(order = {}) {
   if (type === "limit" && (order.entry != null || order.limitPrice != null)) {
     payload.price = order.limitPrice ?? order.entry;
   }
-  const res = await postTrading(`/trading/place/${acct}`, payload);
-  return { ...res, sent: payload, accountId: acct };
+  const res = await postTrading(t.host, `/trading/place/${t.accountId}`, payload);
+  return { ...res, sent: payload, accountId: t.accountId };
 }
 
 // Place a STANDALONE order (no bracket): market entry, or a per-tranche resting
@@ -117,8 +130,7 @@ export async function placeOrder(order = {}) {
 // independent tranches are recreated on a netting account. order:
 // {symbol, type:"market"|"stop"|"limit", side, contracts, price?}.
 export async function placeStandalone(order = {}) {
-  const acct = paperAccountId();
-  if (!acct) throw new Error("no paper account id configured");
+  const t = resolveTarget();
   const payload = {
     symbol: tvSymbol(order.symbol),
     type: order.type === "stop" || order.type === "limit" ? order.type : "market",
@@ -127,35 +139,32 @@ export async function placeStandalone(order = {}) {
     outside_rth: false,
   };
   if (payload.type !== "market" && order.price != null) payload.price = order.price;
-  const res = await postTrading(`/trading/place/${acct}`, payload);
-  return { ...res, sent: payload, accountId: acct };
+  const res = await postTrading(t.host, `/trading/place/${t.accountId}`, payload);
+  return { ...res, sent: payload, accountId: t.accountId };
 }
 
 // Modify the open position's bracket (move SL / TP). M0 spike: POST
 // /trading/modify_position/<acct> {symbol, sl, tp} → 200 (new sl/tp ids).
 export async function modifyPosition({ symbol, sl, tp } = {}) {
-  const acct = paperAccountId();
-  if (!acct) throw new Error("no paper account id configured");
-  const res = await postTrading(`/trading/modify_position/${acct}`, { symbol: tvSymbol(symbol), sl, tp });
-  return { ...res, accountId: acct };
+  const t = resolveTarget();
+  const res = await postTrading(t.host, `/trading/modify_position/${t.accountId}`, { symbol: tvSymbol(symbol), sl, tp });
+  return { ...res, accountId: t.accountId };
 }
 
 // Cancel a working order by id. M0 spike: POST /trading/cancel/<acct>
 // {id:<NUMBER>} → 200 (id must be numeric, not a string).
 export async function cancelOrder({ id } = {}) {
-  const acct = paperAccountId();
-  if (!acct) throw new Error("no paper account id configured");
-  const res = await postTrading(`/trading/cancel/${acct}`, { id: Number(id) });
-  return { ...res, accountId: acct };
+  const t = resolveTarget();
+  const res = await postTrading(t.host, `/trading/cancel/${t.accountId}`, { id: Number(id) });
+  return { ...res, accountId: t.accountId };
 }
 
 // Close the open position for the order's symbol (market). flatten == close.
 export async function flatten(order = {}) {
-  const acct = paperAccountId();
-  if (!acct) throw new Error("no paper account id configured");
+  const t = resolveTarget();
   const symbol = tvSymbol(order.symbol);
-  const res = await postTrading(`/trading/close_position/${acct}`, { symbol });
-  return { ...res, accountId: acct };
+  const res = await postTrading(t.host, `/trading/close_position/${t.accountId}`, { symbol });
+  return { ...res, accountId: t.accountId };
 }
 
 // PANIC: close the symbol's position now. Full close-all (every symbol) +
