@@ -174,7 +174,7 @@ export function OrdersCell() {
          onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}>
       <span className="k">ORDERS</span>
       {open && (
-        <div className="bt-popover orders-pop" onClick={(e) => e.stopPropagation()}>
+        <div className="bt-popover w-660 orders-pop" onClick={(e) => e.stopPropagation()}>
           <div className="head">
             <span className="t">ORDERS · manual ticket</span>
             <span className="spacer" style={{ flex: 1 }} />
