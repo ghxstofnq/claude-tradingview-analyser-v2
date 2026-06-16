@@ -12,6 +12,7 @@ import http from "node:http";
 import WebSocket from "ws";
 import { rememberAccountId, TRADES_DIR } from "./config.js";
 import { appendFill } from "./fills.js";
+import { noteTradovateRequest, getTradovate, activeBroker } from "./tradovate.js";
 
 const PORT = 9223;
 const RECONNECT_MS = 4000;
@@ -28,6 +29,11 @@ export function getTradingState() {
     connected: state.connected, position: state.position, balance: state.balance,
     accountId: state.accountId, accountName: state.accountName, accountType: state.accountType,
     workingOrders: [...workingOrders.values()],
+    // Tradovate broker (sniffed from the webview's REST traffic) — null host/id
+    // until it's been seen. activeBroker flips to "tradovate" while its API is
+    // being polled (i.e. it's the account on screen).
+    tradovate: getTradovate(),
+    activeBroker: activeBroker(),
   };
 }
 
@@ -100,6 +106,13 @@ function handleContent(c) {
 
 function onMessage(raw) {
   let o; try { o = JSON.parse(raw); } catch { return; }
+  // Tradovate broker auth + account are sniffed from its REST requests (Bearer
+  // token in the Authorization header + the account id in the path).
+  if (o.method === "Network.requestWillBeSent") {
+    const req = o.params?.request;
+    if (req?.url && /tradovateapi/i.test(req.url)) noteTradovateRequest(req.url, req.headers || {});
+    return;
+  }
   if (o.method !== "Network.webSocketFrameReceived") return;
   const payload = o.params?.response?.payloadData || "";
   if (!payload.includes('"trading"') && !payload.includes("_update")) return;

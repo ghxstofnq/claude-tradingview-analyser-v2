@@ -29,12 +29,22 @@ export function targetFor(confirmed, config = {}) {
   return null;
 }
 
-// Shape the active account from live inputs. type is "live" only once a
-// liveHost is configured AND the feed marks the account live (feed.accountType
-// === "live"); otherwise "paper". Pure.
+// Shape the active account from live inputs. Pure.
+// - A live Tradovate broker (sniffed from the webview's REST traffic) takes
+//   precedence — it's a separate broker with its own account id + host, typed
+//   "live" so switching to it rides the deliberate confirm-on-switch arming.
+// - Otherwise the TV paper account: type is "live" only once a liveHost is
+//   configured AND the feed marks the account live; otherwise "paper".
 export function deriveActiveAccount({ feed = {}, config = {} } = {}) {
+  if (feed.activeBroker === "tradovate" && feed.tradovate?.accountId) {
+    return {
+      id: String(feed.tradovate.accountId), type: "live",
+      name: feed.tradovate.name ?? "Tradovate (demo)",
+      broker: "tradovate", host: feed.tradovate.host ?? null,
+    };
+  }
   const id = feed.accountId ?? config.paperAccountId ?? null;
   if (id == null) return null;
   const type = config.liveHost && feed.accountType === "live" ? "live" : "paper";
-  return { id: String(id), type, name: feed.accountName ?? null };
+  return { id: String(id), type, name: feed.accountName ?? null, broker: "paper" };
 }
