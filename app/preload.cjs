@@ -106,6 +106,11 @@ contextBridge.exposeInMainWorld("api", {
       get() { return ipcRenderer.invoke("execution:config", { action: "get" }); },
       set(patch) { return ipcRenderer.invoke("execution:config", { action: "set", patch }); },
     },
+    account: {
+      get() { return ipcRenderer.invoke("execution:account"); },
+      confirm(typed) { return ipcRenderer.invoke("execution:confirmAccount", { typed }); },
+      resumeAuto() { return ipcRenderer.invoke("execution:resumeAuto"); },
+    },
   },
   walkers: {
     onState(cb) {

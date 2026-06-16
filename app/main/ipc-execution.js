@@ -9,9 +9,19 @@ import { checkOrder } from "./execution/guardrails.js";
 import { readFills, dayRealizedLossUsd, readAllFills } from "./execution/fills.js";
 import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
+import { getActiveAccount } from "./execution/active-account.js";
+import { resolveAccountGate } from "./execution/account-gate.js";
+import { setAutoResumed, getAutoResumed } from "./execution/auto-resume.js";
 
 function tradesDir() { return TRADES_DIR; }
 function today() { return new Date().toISOString().slice(0, 10); }
+
+// Snapshot of the account-arming state for the renderer.
+function accountState() {
+  const active = getActiveAccount();
+  const confirmed = readExecConfig().confirmedAccount;
+  return { active, confirmed, gate: resolveAccountGate({ active, confirmed }), autoResumed: getAutoResumed() };
+}
 
 async function guarded(payload) {
   const fills = readFills(tradesDir(), today());
@@ -20,6 +30,39 @@ async function guarded(payload) {
 }
 
 export function registerExecutionIpc() {
+  // First-run seed: trust the active PAPER account so paper routing works out of
+  // the box. Never auto-seeds a live account — a switch into live always needs a
+  // deliberate confirm.
+  try {
+    const cfg = readExecConfig();
+    if (cfg.confirmedAccount == null) {
+      const active = getActiveAccount();
+      if (active && active.type === "paper") writeExecConfig({ confirmedAccount: active });
+    }
+  } catch { /* best-effort seed */ }
+
+  // Account arming: read active/confirmed + gate; confirm a switch; resume live
+  // auto after a restart.
+  ipcMain.handle("execution:account", async () => {
+    try { return { ok: true, ...accountState() }; }
+    catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+  ipcMain.handle("execution:confirmAccount", async (_e, arg = {}) => {
+    try {
+      const active = getActiveAccount();
+      if (!active) return { ok: false, error: "no_active_account" };
+      const gate = resolveAccountGate({ active, confirmed: readExecConfig().confirmedAccount });
+      // A switch into a live account requires the deliberate type-"LIVE" gate.
+      if (gate.level === "live" && arg?.typed !== "LIVE") return { ok: false, error: "live_confirm_requires_typed_LIVE" };
+      writeExecConfig({ confirmedAccount: active });
+      return { ok: true, ...accountState() };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+  ipcMain.handle("execution:resumeAuto", async () => {
+    setAutoResumed(true);
+    return { ok: true, autoResumed: true };
+  });
+
   // Automation mode + risk knobs + guardrails. The settings popover reads on
   // mount and writes on change; the main-process tranche manager reads this to
   // enforce guardrails on auto-fired orders (no ticket to attach them to).
