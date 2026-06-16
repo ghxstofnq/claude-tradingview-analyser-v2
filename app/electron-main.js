@@ -5,6 +5,7 @@ import { initSdk } from "./main/sdk.js";
 import { registerIpc } from "./main/ipc.js";
 import { registerExecutionIpc } from "./main/ipc-execution.js";
 import { startTradingFeed } from "./main/execution/trading-feed.js";
+import { startTradovateFillPoller } from "./main/execution/tradovate-fills.js";
 import { setSurfaceSink } from "./main/tools/surface.js";
 import { startHealthMonitor } from "./main/health.js";
 import { startAlertPolling } from "./main/alerts.js";
@@ -83,6 +84,7 @@ app.whenReady().then(async () => {
   const ipc = registerIpc(win);
   registerExecutionIpc();
   startTradingFeed();
+  startTradovateFillPoller();
   setSurfaceSink(ipc.send);
   startHealthMonitor(ipc.send);
   startAlertPolling({ send: ipc.send });
