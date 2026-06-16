@@ -394,6 +394,20 @@ function selectTp2(context, side, entry, stop, tp1) {
   return realRunner ?? sessionDraw ?? beyond[0] ?? null;
 }
 
+// The nearest INTRADAY objective (1m swing / session level, never an HTF/
+// session draw or psych grid). This is the trade's first objective — the
+// price the move tags first — and equals what TP1 was before the target model
+// reached past it to the HTF draw. The backtest's scale-in "green light" can
+// key off this instead of TP1 so add-timing stays decoupled from how far the
+// final draw sits (TV_GREENLIGHT_INTRADAY). Nearest clearing 1.5R, else the
+// nearest intraday/level, else null (no intraday objective → caller falls back
+// to TP1).
+function nearestIntradayTarget(context, side, entry, stop) {
+  const all = validTargets(context, side, entry, stop)
+    .filter((t) => !isWeeklyDraw(t) && (t.target_class === 'intraday' || t.target_class === 'level'));
+  return all.find((t) => t.rMultiple >= 1.5) ?? all[0] ?? null;
+}
+
 // Grade per constraint #9 / trading-strategy-2026.md §7 step 7 — A+ only
 // when ALL six elements align: HTF bias + draw (pillar1 pass), overnight
 // context (inside pillar1), NY reaction confirming the read (ltf-bias
@@ -487,6 +501,12 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
     : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
+  // First intraday objective — the scale-in green-light reference (opt-in via
+  // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
+  // the HTF draw sits. Null when there's no intraday objective.
+  const greenlightTarget = entryPrice == null || !stopCandidate
+    ? null
+    : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price);
 
   // Late-session cutoff: no NEW entry once the confirming bar closes at 15:32
   // ET or later (user ruling 2026-06-13) — too little runway to the 16:00
@@ -562,6 +582,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
       rMultiple: tp2Candidate.rMultiple,
       rawPayload: tp2Candidate,
     } : null,
+    greenlightRef: greenlightTarget ? roundTick(greenlightTarget.price) : null,
     evidence: {
       pdArray: walker?.evidence?.pdArray ?? null,
       confirmation: confirmation ?? null,
@@ -580,4 +601,4 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 }
 
 // Test surface for the pure target-selection helpers.
-export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback };
+export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget };

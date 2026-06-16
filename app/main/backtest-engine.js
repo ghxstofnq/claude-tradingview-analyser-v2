@@ -62,6 +62,14 @@ const SESSION_MAX_LOSS_STREAK = 3;
 const SCALE_IN = process.env.TV_SCALEIN !== "0";
 const SCALE_IN_MAX = 5;                 // up to 5 concurrent adds (user 2026-06-13)
 const SCALE_IN_STOP_STREAK = 2;         // 2 add stop-outs in a row → adds off for the session
+// Green-light off the anchor's nearest INTRADAY objective (packet.greenlight_ref)
+// instead of its TP1 — DEFAULT ON (opt out with TV_GREENLIGHT_INTRADAY=0).
+// Decouples add-timing from how far the HTF/session draw sits: the target model
+// can push TP1 out to a far draw, which delayed the green light and dropped adds
+// (June-15). Keying off the nearest intraday objective restores the original add
+// cadence. Corpus-validated +4.82R (helps trend days, costs ~1R on chop days);
+// inert on frozen days (no session draws there, so greenlight_ref == TP1).
+const GREENLIGHT_INTRADAY = process.env.TV_GREENLIGHT_INTRADAY !== "0";
 // Dedup: setups that are the same side + same draw (same TP1) within this
 // window of an already-taken position are "basically the same trade" (e.g.
 // June 2's 10:32 + 10:33, one minute apart) — collapse them to the first, so
@@ -515,6 +523,7 @@ export async function runBacktest({
           stop: payload.stop ?? null,
           tp1: payload.tp1 ?? null,
           tp2: payload.tp2 ?? null,
+          greenlight_ref: payload.greenlight_ref ?? null,
           grade: payload.grade ?? null,
           rationale: payload.rationale ?? null,
           event_ts: entry.event?.ts ?? null,
@@ -579,7 +588,11 @@ export async function runBacktest({
         // The anchor itself keeps its ORIGINAL stop (no break-even move).
         if (SCALE_IN && openTrades.length > 0 && !openTrades[0].greenLight) {
           const a = openTrades[0];
-          const e = Number(a.entry), t = Number(a.tp1);
+          const e = Number(a.entry);
+          // Default: 50% to the anchor's TP1. Opt-in: 50% to its nearest
+          // intraday objective (greenlight_ref) so add-timing is independent of
+          // how far the HTF draw sits. Falls back to TP1 when no intraday ref.
+          const t = Number(GREENLIGHT_INTRADAY ? (a.greenlight_ref ?? a.tp1) : a.tp1);
           if (Number.isFinite(e) && Number.isFinite(t)) {
             const half = a.side === "long" ? e + 0.5 * (t - e) : e - 0.5 * (e - t);
             if (a.side === "long" ? Number(bar.high) >= half : Number(bar.low) <= half) a.greenLight = true;

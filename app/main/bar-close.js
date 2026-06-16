@@ -1249,6 +1249,7 @@ function deterministicPacketToSurfacePayload(packet, ev) {
     tp1_cite: packet.tp1?.evidenceRef ?? 'deterministic.tp1',
     tp2: packet.tp2?.price ?? packet.tp1?.price,
     tp2_cite: packet.tp2?.evidenceRef ?? packet.tp1?.evidenceRef ?? 'deterministic.tp2',
+    greenlight_ref: packet.greenlightRef ?? null,
     grade: packet.grade,
     tf: ev?.tf ?? '1m',
     rr: packet.tp1?.rMultiple ?? null,

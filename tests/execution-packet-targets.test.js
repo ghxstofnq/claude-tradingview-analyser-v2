@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { __test } from "../app/main/strategy/walkers/execution-packet.js";
-const { selectTp1, selectTp2 } = __test;
+const { selectTp1, selectTp2, nearestIntradayTarget } = __test;
 
 const ctx = (over = {}) => ({
   market: "MNQ1!",
@@ -85,6 +85,27 @@ test("a farther session draw IS reached past a nearer sub-1.5R swing (runner log
   });
   const tp1 = selectTp1(c, "long", 30789.25, 30765);
   assert.equal(tp1.price, 30896);
+});
+
+test("nearestIntradayTarget: the first intraday objective, never the session draw (green-light ref)", () => {
+  // entry 30718.5, stop 30670.25 (risk 48.25). The 30800 swing clears 1.5R
+  // (1.69R); the 30896 session draw is farther and is HTF class. The green-light
+  // reference must be the intraday objective (30800), not the draw.
+  const c = ctx({
+    pillar3: { structuralStops: [{ kind: "swing_high", price: 30800, swept: false }] },
+    pillar1: { untakenTargets: { above: [{ price: 30896, name: "NYPM.H", source: "session_draw" }], below: [] } },
+  });
+  const ref = nearestIntradayTarget(c, "long", 30718.5, 30670.25);
+  assert.equal(ref.price, 30800);
+});
+
+test("nearestIntradayTarget: null when the only overhead draw is a session draw", () => {
+  // No intraday swing, no plain level — just the session draw. No intraday
+  // objective → null (the backtest green-light then falls back to TP1).
+  const c = ctx({
+    pillar1: { untakenTargets: { above: [{ price: 30896, name: "NYPM.H", source: "session_draw" }], below: [] } },
+  });
+  assert.equal(nearestIntradayTarget(c, "long", 30727.75, 30688.75), null);
 });
 
 test("psych fallback when the overhead pool is empty (MNQ 50 → TP1, 100 → TP2)", () => {
