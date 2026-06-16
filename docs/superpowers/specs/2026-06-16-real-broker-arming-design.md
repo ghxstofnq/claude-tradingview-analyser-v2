@@ -50,8 +50,10 @@ This is pure and unit-tested. The runtime stores `confirmedAccount` (id + type +
 - `live` → the live host + live id (host filled by the discovery spike; stored in config).
 Every order/flatten/cancel + the auto-fire path first checks `resolveAccountGate`; on `route:false` it does **not** send and surfaces the reason (no_active_account / needsConfirm). So orders only ever go to a confirmed account.
 
-### 4. Boot-to-paper safety
-On launch, `confirmedAccount` resets to the **paper** account (paper is trusted by default; mirrors today's "boot PAPER, clear stale" in `Account.helpers`). Any switch that session — including back into a live account used yesterday — needs a fresh confirm.
+### 4. Persist the confirmed account across restarts (user decision, 2026-06-16)
+`confirmedAccount` **persists** across app restarts (it is NOT reset to paper on launch). On restart, routing resumes to the last-confirmed account — including a live one — with no re-confirm. This reverses today's "boot PAPER, clear stale" in `Account.helpers` (that behavior is replaced). A fresh confirm is required only when the active account **changes** from the persisted confirmed one.
+
+**Accepted trade-off (must be documented in-app):** because confirmation persists and live automation is unchanged (decision #2), a restart during a session window with a last-confirmed **live** account and an **auto** mode set will **resume firing real orders unattended**. The user chose this over re-confirming each session. The plan must make this explicit in the UI (the LIVE badge + a "resumed live" notice on boot) so it is never a surprise.
 
 ### 5. UI (`SettingsPopover.jsx` + the account cell, modified)
 - Shows the **active** account (name · id · PAPER/LIVE) and whether it matches the confirmed one.
@@ -62,7 +64,7 @@ On launch, `confirmedAccount` resets to the **paper** account (paper is trusted 
 A one-time read-only spike, run when a funded broker is connected, confirms: (a) reading the active account + type proactively (connect/switch), (b) the live trading **host** + path, (c) the live account id. It writes `liveHost` to config. **No live order fires until this is done and a live account is confirmed.** Modeled on the paper M0 spike (`scripts/spike-tv-paper.mjs`).
 
 ### Config additions (`execution/config.js`)
-`confirmedAccount: { id, type, name } | null` (boots to paper), `liveHost: string | null` (filled by the spike), `paperHost` (default `papertrading.tradingview.com`). Existing `paperAccountId` + `guards` unchanged. account "mode" is derived from `confirmedAccount.type`, not a separate flag.
+`confirmedAccount: { id, type, name } | null` (**persisted across restarts**; defaults to the paper account only on first run / when never set), `liveHost: string | null` (filled by the spike), `paperHost` (default `papertrading.tradingview.com`). Existing `paperAccountId` + `guards` unchanged. account "mode" is derived from `confirmedAccount.type`, not a separate flag.
 
 ---
 
@@ -73,12 +75,12 @@ A one-time read-only spike, run when a funded broker is connected, confirms: (a)
 - A gate failure never throws across IPC — structured `{ ok:false, blocked, reason }`, like the existing guardrail path.
 
 ## Testing
-- **Pure:** `resolveAccountGate` matrix (no active / match / paper switch / live switch); boot-reset behavior; `armReady` live-confirm gate. Unit-tested with `node --test`.
+- **Pure:** `resolveAccountGate` matrix (no active / match / paper switch / live switch); confirmed-account persistence (survives a simulated restart); `armReady` live-confirm gate. Unit-tested with `node --test`.
 - **Integration (paper, no live):** the read-only discovery spike confirms the active-account read on the existing paper account (proves the mechanism without a live broker); a paper "switch confirm" can be exercised by reconfirming the same paper account.
 - **Not testable until a live broker exists:** the live host/id + a real order — explicitly deferred to the sign-off.
 
 ## Scope / what this builds vs defers
-- **Builds now (inert for live):** active-account tracking, the confirm-on-switch gate, boot-to-paper reset, adapter host/id-by-account, the confirm UI. Because `liveHost` is null until the spike, this changes nothing about live routing until deliberately configured — it is safe to ship paper-only.
+- **Builds now (inert for live):** active-account tracking, the confirm-on-switch gate, persisted confirmed account, adapter host/id-by-account, the confirm UI. Because `liveHost` is null until the spike, this changes nothing about live routing until deliberately configured — it is safe to ship paper-only.
 - **Deferred (separate sign-off):** the discovery spike, `liveHost` configuration, and the first real-money order.
 
 ## Out of scope
