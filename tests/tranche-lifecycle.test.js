@@ -42,6 +42,10 @@ function makeHarness() {
       return { stopOrderId, limitOrderId };
     },
     recordSkip: async () => {},
+    // Real-broker arming gates the auto path; this harness models a healthy,
+    // confirmed, routable account (paper) so the lifecycle proof is unaffected.
+    accountRoutable: () => ({ route: true }),
+    autoAllowed: () => true,
   };
 
   const exitDeps = {
