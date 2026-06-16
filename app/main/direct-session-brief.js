@@ -126,7 +126,9 @@ function overnightDrawTargets(symbol, digestSymbol) {
 // refold recomputes them instead of losing them. Empty when no 1H history
 // (e.g. the live brief, until its 1H capture is wired).
 function sessionHistoryDraws(bundle, symbol) {
-  const h1 = bundle?.h1_history;
+  // Per-symbol 1H first (live pair: only the leader carries h1_history, so MES
+  // gets no draws), then the top-level bundle (backtest: single-symbol leader).
+  const h1 = bundle?.pair?.symbols?.[symbol]?.h1_history ?? bundle?.h1_history;
   if (!Array.isArray(h1) || h1.length === 0) return { above: [], below: [] };
   const q = bundle?.pair?.symbols?.[symbol]?.quote ?? bundle?.quote ?? {};
   const price = Number(q.last);
@@ -423,8 +425,24 @@ export function codexBriefAnalysisEnabled(env = process.env) {
   return env.TV_CODEX_BRIEF_ANALYSIS === '1';
 }
 
-export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, codexAnalysisFn = (codexBriefAnalysisEnabled() ? runCodexStructuredAnalysis : null), surfaceFn = surfaceSessionBrief, onEvent } = {}) {
+export async function runDirectSessionBrief({ session, sizingByGrade = {}, analyzeFn = analyzePairBundle, captureH1Fn = null, leader = PAIR_PRIMARY, codexAnalysisFn = (codexBriefAnalysisEnabled() ? runCodexStructuredAnalysis : null), surfaceFn = surfaceSessionBrief, onEvent } = {}) {
   const bundle = await analyzeFn();
+  // LIVE session-draw history: capture the leader's raw 1H bars and attach them
+  // so sessionHistoryDraws can compute the persistent draws (the backtest sets
+  // h1_history under replay; live has none without this). Best-effort and
+  // leader-only — never blocks the brief. captureH1Fn is null in tests/backtest.
+  if (captureH1Fn) {
+    try {
+      const bars = await captureH1Fn();
+      if (Array.isArray(bars) && bars.length) {
+        if (bundle?.pair?.symbols?.[leader]) bundle.pair.symbols[leader].h1_history = bars;
+        else bundle.h1_history = bars;
+        onEvent?.({ type: "chunk", text: `1H history captured for ${leader} (${bars.length} bars) → session draws live.` });
+      }
+    } catch (err) {
+      onEvent?.({ type: "chunk", text: `1H capture skipped: ${err?.message || err}` });
+    }
+  }
   let payloads = buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade });
   if (payloads.length === 0) throw new Error("direct session brief produced no symbol payloads");
 
