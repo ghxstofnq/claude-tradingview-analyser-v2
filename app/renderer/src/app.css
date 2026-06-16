@@ -4014,3 +4014,28 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .rv-seg.win { margin-left: auto; }
 .bt-popover .rv-note { margin-top: 10px; color: var(--label); font-size: 9.5px; letter-spacing: 0.06em; }
 .bt-popover .rv-note.amber { color: var(--amber); }
+
+/* ORDERS popover */
+.orders-pop { width: 420px; }
+.orders-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.orders-pos { font-size: 12px; opacity: 0.9; padding: 4px 6px; background: var(--surface-2); border-radius: 4px; }
+.orders-pos .dim { opacity: 0.5; }
+.orders-row { display: flex; align-items: center; gap: 8px; }
+.orders-row .lbl { font-size: 10px; letter-spacing: 0.06em; opacity: 0.6; min-width: 42px; }
+.orders-row .val { font-size: 12px; font-variant-numeric: tabular-nums; }
+.orders-row .val.warn, .orders-row .warn { color: var(--amber); }
+.orders-row .spacer { flex: 1; }
+.orders-row .num { width: 90px; background: var(--surface-2); border: 1px solid var(--border-d); color: inherit; padding: 3px 6px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+.orders-row .sel { flex: 1; background: var(--surface-2); border: 1px solid var(--border-d); color: inherit; padding: 3px 6px; border-radius: 4px; }
+.orders-row .route.ok { color: var(--green); }
+.orders-row .route.bad { color: var(--red); }
+.orders-row .pill, .orders-actions .pill { cursor: pointer; }
+.pill.on { background: var(--surface-2); }
+.pill.ghost { opacity: 0.7; }
+.orders-block { font-size: 11px; color: var(--amber); background: rgba(224,162,0,0.08); border: 1px solid rgba(224,162,0,0.3); padding: 5px 8px; border-radius: 4px; }
+.orders-actions { display: flex; gap: 8px; margin-top: 4px; }
+.pill.big { flex: 1; padding: 8px; justify-content: center; text-align: center; }
+.pill.big.green { background: #15402f; color: #4fd3a0; border-color: var(--green); }
+.pill.big.red { background: #421c1c; color: #e88; border-color: var(--red); }
+.pill.big:disabled { opacity: 0.4; cursor: not-allowed; }
+.orders-toast { margin-top: 8px; font-size: 12px; text-align: center; padding: 6px; background: var(--surface-2); border-radius: 4px; }
