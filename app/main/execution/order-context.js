@@ -12,6 +12,11 @@ import { structuralStopCandidates, untakenDraws } from "./manual-order.js";
 
 const ORDERS_SCAN = path.join(REPO_ROOT, "state", "orders-scan.json");
 const WEBVIEW_CDP_PORT = "9223";
+// Spawn the CLI via the bin/tv shell wrapper (runs system `node`), not
+// process.execPath — from the Electron main process the latter is the Electron
+// binary, which doesn't run the script as node when given a custom env. This is
+// the same proven pattern as app/main/tools/tv-process.js.
+const TV_BIN = path.join(REPO_ROOT, "bin", "tv");
 
 let _cache = null;
 
@@ -34,8 +39,7 @@ export async function getOrderContext() {
   // Always read the webview chart fresh — pillar3-only is ~0.5s and doesn't flash
   // the chart (no symbol/TF switch), so the ticket mirrors exactly what's on screen.
   try {
-    const r = spawnSync(process.execPath,
-      [path.join(REPO_ROOT, "cli", "index.js"), "analyze", "--pillar3-only", "--out", ORDERS_SCAN],
+    const r = spawnSync(TV_BIN, ["analyze", "--pillar3-only", "--out", ORDERS_SCAN],
       { cwd: REPO_ROOT, timeout: 15_000, encoding: "utf8", env: { ...process.env, TV_CDP_PORT: WEBVIEW_CDP_PORT } });
     if (r.status === 0) {
       const b = readJson(ORDERS_SCAN);
