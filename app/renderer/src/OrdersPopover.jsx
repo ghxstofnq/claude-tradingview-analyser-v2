@@ -12,7 +12,7 @@ import { formatStopSource, routingLabel, blockMessage } from "./Orders.helpers.j
 const fmt = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
 const sameNum = (a, b) => a !== "" && a != null && Number(a) === Number(b);
 
-function OrdersBody({ onToast, toast }) {
+function OrdersBody({ onToast, toast, symbol }) {
   const [ctx, setCtx] = useState(null);
   const [acct, setAcct] = useState(null);
   const [pos, setPos] = useState(null);
@@ -25,14 +25,21 @@ function OrdersBody({ onToast, toast }) {
   const debounce = useRef(null);
 
   const loadContext = useCallback(async (refresh = false) => {
-    const r = await executionAdapter.orderContext({ refresh });
+    const r = await executionAdapter.orderContext({ refresh, symbol });
     if (r?.ok) setCtx(r.context);
-  }, []);
+  }, [symbol]);
 
+  // account gate + default risk — mount only (don't clobber an inline risk edit).
   useEffect(() => {
-    loadContext(false);
     window.api?.execution?.account?.get?.().then((r) => { if (r?.ok) setAcct(r); });
     window.api?.execution?.config?.get?.().then((r) => { if (r?.ok) setRisk(r.config?.guards?.defaultRisk ?? 120); });
+  }, []);
+
+  // structure context — on mount + whenever the trader's symbol changes; clear
+  // typed levels + the stale preview so MNQ's stop/TP don't linger on MES.
+  useEffect(() => {
+    setTypedStop(""); setTypedTp(""); setPreview(null);
+    loadContext(false);
   }, [loadContext]);
 
   useEffect(() => {
@@ -47,7 +54,7 @@ function OrdersBody({ onToast, toast }) {
     clearTimeout(debounce.current);
     debounce.current = setTimeout(async () => {
       const r = await executionAdapter.orderPreview({
-        side,
+        side, symbol,
         typedStop: typedStop === "" ? null : Number(typedStop),
         typedTp: typedTp === "" ? null : Number(typedTp),
         riskUsd: Number(risk),
@@ -55,13 +62,13 @@ function OrdersBody({ onToast, toast }) {
       if (r?.ok) setPreview(r.preview);
     }, 150);
     return () => clearTimeout(debounce.current);
-  }, [ctx, side, typedStop, typedTp, risk]);
+  }, [ctx, side, typedStop, typedTp, risk, symbol]);
 
   const place = async () => {
     setBusy(true);
     try {
       const r = await executionAdapter.placeManual({
-        side,
+        side, symbol,
         typedStop: typedStop === "" ? null : Number(typedStop),
         typedTp: typedTp === "" ? null : Number(typedTp),
         riskUsd: Number(risk),
@@ -180,7 +187,7 @@ function OrdersBody({ onToast, toast }) {
   );
 }
 
-export function OrdersCell() {
+export function OrdersCell({ symbol }) {
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(null);
   useEffect(() => {
@@ -204,7 +211,7 @@ export function OrdersCell() {
             <span className="spacer" style={{ flex: 1 }} />
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
-          <OrdersBody onToast={setToast} toast={toast} />
+          <OrdersBody onToast={setToast} toast={toast} symbol={symbol} />
         </div>
       )}
     </div>
