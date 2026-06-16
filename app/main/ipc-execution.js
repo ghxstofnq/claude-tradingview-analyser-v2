@@ -134,6 +134,9 @@ export function registerExecutionIpc() {
         price: dom.price ?? null,
         workingOrders: feed.workingOrders ?? [],
         source: feed.position != null || feed.connected ? "ws" : "dom",
+        // Tradovate broker (sniffed from the webview's REST traffic).
+        activeBroker: feed.activeBroker ?? "paper",
+        tradovate: feed.tradovate ?? null,
       };
       return { ok: true, state };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
