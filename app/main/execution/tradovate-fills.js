@@ -1,8 +1,9 @@
 // app/main/execution/tradovate-fills.js
 // Records completed Tradovate round-trips into the fills store so REVIEW shows
 // them (the trading-feed's recordRoundTrip is TV-paper-WS-only). Tradovate has
-// no position WS, so this polls /positions: when an open position transitions to
-// flat, it records a fill with the closing execution price + realized $.
+// no position WS, so this polls /positions to DETECT an open→flat transition,
+// then reconstructs the just-closed round-trip from /executions — sign-correct
+// and side-correct from the actual fills (no position-poll race).
 import { appendFill } from "./fills.js";
 import { TRADES_DIR } from "./config.js";
 import { activeBroker, getTradovate } from "./tradovate.js";
@@ -11,24 +12,49 @@ import { readTradovatePosition } from "./tradovate-adapter.js";
 const pointValue = (sym) => (/MES/.test(sym || "") ? 5 : 2);
 const today = () => new Date().toISOString().slice(0, 10);
 
-// Realized $ for a round-trip (pure). Verified against Tradovate: buy 30374.75 →
-// 30374.00 × 40 MNQ ($2/pt) = -$60.
-export function roundTripUsd({ side, entry, exit, qty, symbol }) {
-  const dir = side === "sell" || side === "short" ? -1 : 1;
-  return Math.round((Number(exit) - Number(entry)) * Number(qty) * pointValue(symbol) * dir * 100) / 100;
+// Reconstruct the most-recently-closed round-trip for `instrument` from the
+// executions list (newest-first; each {instrument,price,qty,side,time}). Walks
+// newest→oldest accumulating signed qty until the net returns to zero — those
+// fills are the round-trip. Realized $ = (sell notional − buy notional) × point
+// value (Tradovate-exact, sign-correct). Pure. Returns
+//   { side, qty, entry, exit, usd, openMs, closeMs } | null
+export function reconstructLastRoundTrip(executions, instrument, pv) {
+  const fills = (executions || []).filter((f) => (f.instrument || f.symbol) === instrument);
+  if (!fills.length) return null;
+  let net = 0; const window = [];
+  for (const f of fills) {
+    net += (f.side === "buy" ? 1 : -1) * Number(f.qty);
+    window.push(f);
+    if (net === 0) break;
+  }
+  if (net !== 0 || !window.length) return null; // no closed round-trip boundary
+  const opener = window[window.length - 1], closer = window[0];
+  const side = opener.side;
+  let buyN = 0, sellN = 0, openN = 0, openQ = 0, closeN = 0, closeQ = 0;
+  for (const f of window) {
+    const q = Number(f.qty), p = Number(f.price);
+    if (f.side === "buy") buyN += q * p; else sellN += q * p;
+    if (f.side === side) { openN += q * p; openQ += q; } else { closeN += q * p; closeQ += q; }
+  }
+  const r2 = (n) => Math.round(n * 100) / 100;
+  return {
+    side, qty: openQ,
+    entry: openQ ? r2(openN / openQ) : Number(opener.price),
+    exit: closeQ ? r2(closeN / closeQ) : Number(closer.price),
+    usd: r2((sellN - buyN) * pv),
+    openMs: opener.time ? opener.time * 1000 : null,
+    closeMs: closer.time ? closer.time * 1000 : null,
+  };
 }
 
-// Most recent execution price for an instrument = the closing fill on a flat.
-async function lastExecutionPrice(instrument) {
+async function fetchExecutions() {
   const t = getTradovate();
-  if (!t.host || !t.accountId || !t.token) return null;
+  if (!t.host || !t.accountId || !t.token) return [];
   try {
     const r = await fetch(`${t.host}/accounts/${t.accountId}/executions?locale=en`, { headers: { authorization: `Bearer ${t.token}` } });
     const j = await r.json();
-    const list = Array.isArray(j) ? j : (j?.d || []);
-    const f = list.find((x) => (x.instrument || x.symbol) === instrument);
-    return f ? Number(f.price) : null;
-  } catch { return null; }
+    return Array.isArray(j) ? j : (j?.d || []);
+  } catch { return []; }
 }
 
 let openTrade = null;
@@ -40,21 +66,19 @@ async function tick() {
     if (activeBroker() !== "tradovate") { openTrade = null; return; }
     const pos = await readTradovatePosition();
     if (pos) {
-      if (!openTrade) openTrade = { instrument: pos.symbol, side: pos.side, qty: pos.qty, entry: pos.avgFill, openedMs: Date.now() };
-      else { openTrade.qty = pos.qty; if (pos.avgFill != null) openTrade.entry = pos.avgFill; }
+      if (!openTrade) openTrade = { instrument: pos.symbol, openedMs: Date.now() };
     } else if (openTrade) {
-      const exit = await lastExecutionPrice(openTrade.instrument);
-      const usd = exit != null && openTrade.entry != null
-        ? roundTripUsd({ side: openTrade.side, entry: openTrade.entry, exit, qty: openTrade.qty, symbol: openTrade.instrument })
-        : null;
-      try {
-        appendFill(TRADES_DIR, today(), {
-          account: "tradovate",
-          symbol: openTrade.instrument, side: openTrade.side, qty: openTrade.qty,
-          planned: { entry: openTrade.entry, stop: null, tp: null },
-          actual: { entry: openTrade.entry, exit, usd, r: null, heldMs: Date.now() - openTrade.openedMs },
-        });
-      } catch { /* fill record best-effort */ }
+      const rt = reconstructLastRoundTrip(await fetchExecutions(), openTrade.instrument, pointValue(openTrade.instrument));
+      if (rt) {
+        try {
+          appendFill(TRADES_DIR, today(), {
+            account: "tradovate",
+            symbol: openTrade.instrument, side: rt.side, qty: rt.qty,
+            planned: { entry: rt.entry, stop: null, tp: null },
+            actual: { entry: rt.entry, exit: rt.exit, usd: rt.usd, r: null, heldMs: rt.openMs && rt.closeMs ? rt.closeMs - rt.openMs : Date.now() - openTrade.openedMs },
+          });
+        } catch { /* fill record best-effort */ }
+      }
       openTrade = null;
     }
   } catch { /* poll best-effort */ }
