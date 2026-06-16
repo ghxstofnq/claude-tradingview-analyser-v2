@@ -1,15 +1,18 @@
 // app/renderer/src/OrdersPopover.jsx
 // ORDERS — manual market-order ticket. Sizes from the per-trade risk in Settings
-// + live ICT structure; auto-picks the stop (typed/dropdown override); TP from
+// + live ICT structure; auto-picks the stop (typed/clickable override); TP from
 // untaken session/PD/PW draws; shows R:R + current position; places to the
 // confirmed account; one-tap Flatten. All math in main (execution:order*).
+// Laid out with the shared Panel/Row system to match PREP/LIVE/REVIEW.
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Panel, Row } from "./Shared.jsx";
 import { executionAdapter } from "./execution/executionAdapter.js";
-import { formatDrawOption, formatStopSource, routingLabel, blockMessage } from "./Orders.helpers.js";
+import { formatStopSource, routingLabel, blockMessage } from "./Orders.helpers.js";
 
 const fmt = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+const sameNum = (a, b) => a !== "" && a != null && Number(a) === Number(b);
 
-function OrdersBody({ onToast }) {
+function OrdersBody({ onToast, toast }) {
   const [ctx, setCtx] = useState(null);
   const [acct, setAcct] = useState(null);
   const [pos, setPos] = useState(null);
@@ -26,14 +29,12 @@ function OrdersBody({ onToast }) {
     if (r?.ok) setCtx(r.context);
   }, []);
 
-  // on mount: context + account gate + risk default + position
   useEffect(() => {
     loadContext(false);
     window.api?.execution?.account?.get?.().then((r) => { if (r?.ok) setAcct(r); });
     window.api?.execution?.config?.get?.().then((r) => { if (r?.ok) setRisk(r.config?.guards?.defaultRisk ?? 120); });
   }, [loadContext]);
 
-  // poll position
   useEffect(() => {
     let live = true;
     const tick = async () => { const r = await executionAdapter.state(); if (live && r?.ok) setPos(r.state?.position ?? null); };
@@ -41,7 +42,6 @@ function OrdersBody({ onToast }) {
     return () => { live = false; clearInterval(id); };
   }, []);
 
-  // recompute preview (debounced) whenever inputs change and a context exists
   useEffect(() => {
     if (!ctx || risk == null) return;
     clearTimeout(debounce.current);
@@ -77,82 +77,106 @@ function OrdersBody({ onToast }) {
   const routable = acct?.gate?.route === true;
   const blocked = preview?.block;
   const canPlace = routable && !blocked && !busy && preview?.contracts >= 1;
+  const stopOptions = preview?.stopOptions ?? [];
+  const tpDraws = preview?.tpDraws ?? [];
+
+  const routeRight = (
+    <span className="ord-head-right">
+      <span className={"ord-route " + (routable ? "ok" : "bad")}>{routingLabel(acct || {})}</span>
+      <span className="pill interactive" title="refresh structure" onClick={() => loadContext(true)}>↻</span>
+    </span>
+  );
 
   return (
-    <div className="orders-body">
-      {/* position line */}
-      <div className="orders-pos">
-        {pos ? (
-          <span>{pos.side?.toUpperCase()} {pos.qty} {pos.symbol} @ {fmt(pos.avgFill)} · uPnL {pos.uPnlUsd != null ? `$${fmt(pos.uPnlUsd)}` : "—"}</span>
-        ) : <span className="dim">flat</span>}
+    <>
+      <div className="body orders-scroll">
+        {/* POSITION */}
+        <Panel title="POSITION" right={pos ? ctx?.symbol : "flat"}>
+          {pos ? (
+            <>
+              <Row k="SIDE / QTY" v={`${(pos.side || "").toUpperCase()} ${pos.qty}`} tone={pos.side === "buy" ? "ok" : "bad"} />
+              <Row k="AVG FILL" v={fmt(pos.avgFill)} />
+              <Row k="uPnL" v={pos.uPnlUsd != null ? `$${fmt(pos.uPnlUsd)}` : "—"} tone={pos.uPnlUsd > 0 ? "ok" : pos.uPnlUsd < 0 ? "bad" : ""} />
+            </>
+          ) : <div className="ord-empty">no open position</div>}
+        </Panel>
+
+        {/* ORDER TICKET */}
+        <Panel title="ORDER" right={routeRight}>
+          <div className="row">
+            <span className="k">SIDE</span>
+            <span className="v ord-sides">
+              <span className={"pill interactive" + (side === "buy" ? " active green" : "")} onClick={() => setSide("buy")}>BUY</span>
+              <span className={"pill interactive" + (side === "sell" ? " active red" : "")} onClick={() => setSide("sell")}>SELL</span>
+            </span>
+          </div>
+          <Row k="SYMBOL" v={ctx?.symbol ?? "—"} tone={ctx?.stale ? "warn" : ""} />
+          <Row k="PRICE" v={fmt(ctx?.price)} />
+          <div className="row">
+            <span className="k">STOP</span>
+            <span className="v ord-field">
+              <input className="ord-in" placeholder={preview?.stopAuto ? String(preview.stopAuto.price) : "type"} value={typedStop} onChange={(e) => setTypedStop(e.target.value)} />
+              <span className="ord-hint">{preview?.stopSource ? `${formatStopSource(preview.stopSource)} · ${fmt(preview.stop)}` : "—"}</span>
+              {typedStop !== "" && <span className="pill interactive" onClick={() => setTypedStop("")}>auto</span>}
+            </span>
+          </div>
+          <div className="row">
+            <span className="k">TP <span className="ord-opt">optional</span></span>
+            <span className="v ord-field">
+              <input className="ord-in" placeholder="none" value={typedTp} onChange={(e) => setTypedTp(e.target.value)} />
+              <span className="ord-hint">{preview?.rr != null ? `${preview.rr}R` : ""}</span>
+              {typedTp !== "" && <span className="pill interactive" onClick={() => setTypedTp("")}>clear</span>}
+            </span>
+          </div>
+          <div className="row">
+            <span className="k">RISK $</span>
+            <span className="v ord-field">
+              <input className="ord-in" value={risk ?? ""} onChange={(e) => setRisk(e.target.value === "" ? "" : Number(e.target.value))} />
+              <span className={"ord-hint" + (preview && !preview.withinTolerance ? " warn" : "")}>
+                {preview ? `${preview.contracts}c · $${fmt(preview.actualRiskUsd)}${preview.rr != null ? ` · ${preview.rr}R` : ""}` : ""}
+              </span>
+            </span>
+          </div>
+          {blocked && <div className="orders-block">{blockMessage(blocked)}</div>}
+        </Panel>
+
+        {/* STOP LEVELS — clickable structure on the stop side */}
+        <Panel title="STOP LEVELS" right={side === "buy" ? "lows below" : "highs above"}>
+          {stopOptions.length ? stopOptions.map((o, i) => (
+            <div key={i} className={"ord-pick" + (sameNum(typedStop, o.stopPrice) ? " sel" : "")} onClick={() => setTypedStop(String(o.stopPrice))}>
+              <span className="nm">{formatStopSource(o.kind)}</span>
+              <span className="lv">{fmt(o.levelPrice)}</span>
+              <span className="ar">stop</span>
+              <span className="sp">{fmt(o.stopPrice)}</span>
+            </div>
+          )) : <div className="ord-empty">no structure on the stop side — type a stop</div>}
+        </Panel>
+
+        {/* TARGET DRAWS — clickable untaken draws on the target side */}
+        <Panel title="TARGET DRAWS" right={side === "buy" ? "above" : "below"}>
+          {tpDraws.length ? tpDraws.map((d, i) => (
+            <div key={i} className={"ord-pick" + (sameNum(typedTp, d.price) ? " sel" : "")} onClick={() => setTypedTp(String(d.price))}>
+              <span className="nm">{d.name}</span>
+              <span className="lv">{fmt(d.price)}</span>
+              <span className="ar" />
+              <span className="sp">{d.rr != null ? `${d.rr}R` : ""}</span>
+            </div>
+          )) : <div className="ord-empty">no untaken draws on the target side</div>}
+        </Panel>
       </div>
 
-      {/* symbol + routing */}
-      <div className="orders-row">
-        <span className="lbl">SYMBOL</span>
-        <span className="val">{ctx?.symbol ?? "—"}{ctx?.stale ? <span className="warn"> · structure stale</span> : null}</span>
-        <span className="spacer" />
-        <span className={"route " + (routable ? "ok" : "bad")}>{routingLabel(acct || {})}</span>
-        <span className="pill ghost" onClick={() => loadContext(true)}>↻</span>
+      {/* pinned footer */}
+      <div className="orders-foot">
+        {!routable && <div className="orders-block">account not routable — confirm an account in Settings</div>}
+        <div className="orders-actions">
+          <button className={"pill big " + (side === "buy" ? "green" : "red")} disabled={!canPlace} onClick={place}>
+            PLACE {side.toUpperCase()}{preview?.contracts >= 1 ? ` ${preview.contracts}c` : ""}
+          </button>
+          <button className="pill big" disabled={!pos} onClick={flatten}>FLATTEN</button>
+        </div>
+        {toast && <div className="orders-toast">{toast}</div>}
       </div>
-
-      {/* side */}
-      <div className="orders-row">
-        <span className="lbl">SIDE</span>
-        <span className={"pill " + (side === "buy" ? "on green" : "")} onClick={() => setSide("buy")}>BUY</span>
-        <span className={"pill " + (side === "sell" ? "on red" : "")} onClick={() => setSide("sell")}>SELL</span>
-        <span className="spacer" />
-        <span className="lbl">PRICE</span><span className="val">{fmt(ctx?.price)}</span>
-      </div>
-
-      {/* stop */}
-      <div className="orders-row">
-        <span className="lbl">STOP</span>
-        <input className="num" placeholder={preview?.stopAuto ? String(preview.stopAuto.price) : "type stop"} value={typedStop} onChange={(e) => setTypedStop(e.target.value)} />
-        <select className="sel" value="" onChange={(e) => { if (e.target.value !== "") setTypedStop(e.target.value); }}>
-          <option value="">{preview?.stopSource ? `auto: ${formatStopSource(preview.stopSource)} ${fmt(preview.stop)}` : "pick level…"}</option>
-          {(preview?.stopOptions ?? []).map((o, i) => (
-            <option key={i} value={o.stopPrice}>{formatStopSource(o.kind)} {fmt(o.levelPrice)} → {fmt(o.stopPrice)}</option>
-          ))}
-        </select>
-        {typedStop !== "" && <span className="pill ghost" onClick={() => setTypedStop("")}>auto</span>}
-      </div>
-
-      {/* tp */}
-      <div className="orders-row">
-        <span className="lbl">TP</span>
-        <input className="num" placeholder="optional" value={typedTp} onChange={(e) => setTypedTp(e.target.value)} />
-        <select className="sel" value="" onChange={(e) => { if (e.target.value !== "") setTypedTp(e.target.value); }}>
-          <option value="">pick draw…</option>
-          {(preview?.tpDraws ?? []).map((d, i) => (
-            <option key={i} value={d.price}>{formatDrawOption(d)}</option>
-          ))}
-        </select>
-        {typedTp !== "" && <span className="pill ghost" onClick={() => setTypedTp("")}>clear</span>}
-      </div>
-
-      {/* risk + size + rr */}
-      <div className="orders-row">
-        <span className="lbl">RISK $</span>
-        <input className="num" value={risk ?? ""} onChange={(e) => setRisk(e.target.value === "" ? "" : Number(e.target.value))} />
-        <span className="spacer" />
-        <span className="lbl">SIZE</span>
-        <span className={"val " + (preview?.withinTolerance ? "" : "warn")}>{preview?.contracts ?? "—"}c · ${fmt(preview?.actualRiskUsd)}</span>
-        <span className="lbl">R:R</span><span className="val">{preview?.rr != null ? `${preview.rr}R` : "—"}</span>
-      </div>
-
-      {/* block banner */}
-      {blocked && <div className="orders-block">{blockMessage(blocked)}</div>}
-      {!routable && <div className="orders-block">Account not routable — confirm an account in Settings.</div>}
-
-      {/* actions */}
-      <div className="orders-actions">
-        <button className={"pill big " + (side === "buy" ? "green" : "red")} disabled={!canPlace} onClick={place}>
-          PLACE {side.toUpperCase()}{preview?.contracts >= 1 ? ` ${preview.contracts}c` : ""}
-        </button>
-        <button className="pill big" disabled={!pos} onClick={flatten}>FLATTEN</button>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -180,10 +204,7 @@ export function OrdersCell() {
             <span className="spacer" style={{ flex: 1 }} />
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
-          <div className="body">
-            <OrdersBody onToast={setToast} />
-            {toast && <div className="orders-toast">{toast}</div>}
-          </div>
+          <OrdersBody onToast={setToast} toast={toast} />
         </div>
       )}
     </div>
