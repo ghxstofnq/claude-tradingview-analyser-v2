@@ -21,6 +21,11 @@ describe("sizing-core", () => {
     assert.equal(tickSize("MNQ1!"), 0.25);
   });
 
+  it("pointValue matches exchange-prefixed symbols (analyze bundle form)", () => {
+    assert.equal(pointValue("CME_MINI:MES1!"), 5);
+    assert.equal(pointValue("CME_MINI:MNQ1!"), 2);
+  });
+
   it("MNQ: 60pt stop, $120 risk → 1 contract @ $120, within tolerance", () => {
     const s = sizeFromStop({ symbol: "MNQ1!", entry: 21000, stop: 20940, riskUsd: 120 });
     assert.equal(s.contracts, 1);
