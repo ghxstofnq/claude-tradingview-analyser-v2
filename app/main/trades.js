@@ -103,6 +103,10 @@ export async function acceptSetup({ setup, send }) {
       stop: setup.stop,
       tp1: setup.tp1,
       tp2: setup.tp2,
+      // Nearest intraday objective — the green-light add-timing anchor. Carried
+      // so foldOpenTrades surfaces it on the anchor for greenLightReached
+      // (backtest parity). Null when the packet has no intraday ref.
+      greenlight_ref: setup.greenlight_ref ?? null,
       invalidation: setup.invalidation,
       rr: setup.rr ?? null,
       size,
