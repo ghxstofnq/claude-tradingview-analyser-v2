@@ -18,6 +18,7 @@ import { HealthPage } from "./Health.jsx";
 import { SettingsPage } from "./Settings.jsx";
 import { ErrorBoundary } from "./ErrorBoundary.jsx";
 import { ChatCell } from "./ChatPopover.jsx";
+import { OrdersCell } from "./OrdersPopover.jsx";
 import { DEFAULT_CHAT_PROVIDER } from "./provider-popover-contract.js";
 
 import { useHealth } from "./hooks/useHealth.js";
@@ -273,6 +274,7 @@ function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
         <ReviewCell />
         <BacktestCell />
         <ChatCell chats={chats} />
+        <OrdersCell />
       </div>
       <div className="grp">
         <span className="item"><span className="k">PH</span><span className="v amber">{phase}</span></span>
@@ -334,6 +336,7 @@ function App() {
       if (e.key === "1") which = "prep";
       else if (e.key === "2") which = "live";
       else if (e.key === "3") which = "review";
+      else if (e.key === "o" || e.key === "O") which = "orders";
       else if (e.key === "Escape") which = "all-close";
       if (which) {
         window.dispatchEvent(new CustomEvent("topbar:open-cell", { detail: { which } }));

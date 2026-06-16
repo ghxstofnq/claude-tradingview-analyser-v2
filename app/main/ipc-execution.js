@@ -73,6 +73,42 @@ export function registerExecutionIpc() {
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
+  // ORDERS popover — manual market-order ticket. orderContext pulls fresh
+  // structure + price (cached); orderPreview is pure over the cache; placeManual
+  // re-fetches fresh, re-validates, runs guardrails, and places to the confirmed
+  // account. All math lives here (single source of truth).
+  ipcMain.handle("execution:orderContext", async (_e, arg = {}) => {
+    try {
+      const { getOrderContext } = await import("./execution/order-context.js");
+      return { ok: true, context: await getOrderContext(arg) };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+  ipcMain.handle("execution:orderPreview", async (_e, arg = {}) => {
+    try {
+      const { cachedOrderContext } = await import("./execution/order-context.js");
+      const { buildOrderPreview } = await import("./execution/manual-order.js");
+      const ctx = cachedOrderContext();
+      if (!ctx) return { ok: false, error: "no_context" };
+      const riskUsd = arg.riskUsd ?? readExecConfig().guards?.defaultRisk ?? 120;
+      const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd });
+      return { ok: true, preview, context: ctx };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+  ipcMain.handle("execution:placeManual", async (_e, arg = {}) => {
+    try {
+      const { getOrderContext } = await import("./execution/order-context.js");
+      const { buildOrderPreview } = await import("./execution/manual-order.js");
+      const ctx = await getOrderContext({ maxAgeMs: 5_000 });
+      const riskUsd = arg.riskUsd ?? readExecConfig().guards?.defaultRisk ?? 120;
+      const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd });
+      if (preview.block) return { ok: false, blocked: true, code: preview.block, preview };
+      const gate = await guarded({ hasStop: preview.stop != null, sizing: { withinTolerance: preview.withinTolerance, contracts: preview.contracts, actualRisk: preview.actualRiskUsd }, guards: readExecConfig().guards });
+      if (!gate.ok) return { ok: false, blocked: true, ...gate, preview };
+      const result = await tvAdapter.placeOrder({ symbol: ctx.symbol, side: arg.side, type: "market", entry: ctx.price, stop: preview.stop, tp: preview.tp ?? undefined, contracts: preview.contracts });
+      return { ok: true, result, preview };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
   ipcMain.handle("execution:fills", async (_e, arg = {}) => {
     try {
       const date = arg?.date || today();

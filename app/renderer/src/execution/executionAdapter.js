@@ -20,6 +20,10 @@ export const executionAdapter = {
   // Scale-in add: opens a standalone tranche (its own stop+target). Supersedes
   // the retired averaging addToPosition.
   openTranche: (p) => call("openTranche", p),
+  // ORDERS manual ticket: fresh structure+price, pure preview, validated place.
+  orderContext: (p) => call("orderContext", p),
+  orderPreview: (p) => call("orderPreview", p),
+  placeManual: (p) => call("placeManual", p),
   state: () => call("state"),
   // Account mode is renderer UI state for now (set in Settings); these are
   // where the engine will retarget the broker account post-spike.

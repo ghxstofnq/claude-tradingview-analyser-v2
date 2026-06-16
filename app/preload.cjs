@@ -102,6 +102,9 @@ contextBridge.exposeInMainWorld("api", {
     trail(payload) { return ipcRenderer.invoke("execution:trail", payload); },
     cancel(payload) { return ipcRenderer.invoke("execution:cancel", payload); },
     openTranche(payload) { return ipcRenderer.invoke("execution:openTranche", payload); },
+    orderContext(opts) { return ipcRenderer.invoke("execution:orderContext", opts || {}); },
+    orderPreview(p) { return ipcRenderer.invoke("execution:orderPreview", p); },
+    placeManual(p) { return ipcRenderer.invoke("execution:placeManual", p); },
     config: {
       get() { return ipcRenderer.invoke("execution:config", { action: "get" }); },
       set(patch) { return ipcRenderer.invoke("execution:config", { action: "set", patch }); },
