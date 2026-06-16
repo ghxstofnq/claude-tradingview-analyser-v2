@@ -379,11 +379,19 @@ function selectTp2(context, side, entry, stop, tp1) {
     const farSame = beyond.find((t) => t.target_class === 'fvg' && t.zone === tp1.zone && t.edge === 'far');
     if (farSame) return farSame;
   }
-  // Prefer the HTF draw: HTF swing / FVG fill / session level / major psych.
-  const preferred = beyond.find((t) =>
-    t.target_class === 'htf' || t.target_class === 'fvg' || t.target_class === 'level'
-    || (t.target_class === 'psych' && t.grid === 'major'));
-  return preferred ?? beyond[0] ?? null;
+  // The runner aims at the REAL terminal draw — an engine session level, FVG
+  // fill, or major psych level. A persistent session-history draw (class 'htf',
+  // a multi-day-old session high/low) is a FALLBACK only: used when no real
+  // runner sits beyond TP1, never as a NEARER cap on one. On a trend day the
+  // stale old-session levels sit between price and the real draw (June-9: PDL
+  // 28821), and letting them be TP2 chopped 11R runners down to 6R (corpus
+  // −16R). Session draws extend the picture; they don't truncate it.
+  const isRealRunner = (t) =>
+    t.target_class === 'fvg' || t.target_class === 'level'
+    || (t.target_class === 'psych' && t.grid === 'major');
+  const realRunner = beyond.find(isRealRunner);
+  const sessionDraw = beyond.find((t) => t.target_class === 'htf');
+  return realRunner ?? sessionDraw ?? beyond[0] ?? null;
 }
 
 // Grade per constraint #9 / trading-strategy-2026.md §7 step 7 — A+ only

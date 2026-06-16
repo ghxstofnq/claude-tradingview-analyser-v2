@@ -10,6 +10,20 @@ const ctx = (over = {}) => ({
   ...over,
 });
 
+test("TP2 = real terminal draw, NOT a nearer session draw (June-9 trend-runner fix)", () => {
+  // Short. Beyond TP1 (29302.5) sits the real engine level PDL 28821 AND a
+  // nearer stale session draw 29113.75. The runner must aim at PDL, never the
+  // session draw that would chop it short (corpus −16R fix).
+  const c = ctx({
+    pillar1: { untakenTargets: { above: [], below: [
+      { price: 28821, name: "PDL" },                              // real level (far)
+      { price: 29113.75, name: "AS.L", source: "session_draw" },  // stale draw (nearer)
+    ] } },
+  });
+  const tp2 = selectTp2(c, "short", 29467.25, 29526, { price: 29302.5 });
+  assert.equal(tp2.price, 28821);
+});
+
 test("persistent session draw becomes TP2 behind a nearer intraday swing TP1 (long)", () => {
   // Session-history draws ride in untakenTargets tagged source:'session_draw'
   // → runner class. A nearer 1m swing takes TP1; the draw runs to TP2.
