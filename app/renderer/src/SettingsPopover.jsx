@@ -53,6 +53,20 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
     setGuards(next);
     window.api?.execution?.config?.set?.({ guards: next }).catch(() => {});
   };
+  // Broker-routing arming: the engine follows the ACTIVE TradingView account but
+  // only routes to the CONFIRMED one; a switch needs a deliberate confirm. Read
+  // the live state from main + poll.
+  const [acct, setAcct] = useState(null);
+  const [confirmTxt, setConfirmTxt] = useState("");
+  const loadAcct = () => window.api?.execution?.account?.get?.().then((r) => { if (r?.ok) setAcct(r); }).catch(() => {});
+  useEffect(() => { loadAcct(); const h = setInterval(loadAcct, 3000); return () => clearInterval(h); }, []);
+  const acctGate = acct?.gate;
+  const confirmAccount = async () => {
+    const r = await window.api?.execution?.account?.confirm?.(confirmTxt.trim().toUpperCase());
+    if (r?.ok) { setConfirmTxt(""); loadAcct(); }
+  };
+  const resumeAuto = async () => { await window.api?.execution?.account?.resumeAuto?.(); loadAcct(); };
+
   const mode = cfg?.automationMode ?? "manual";
   const modeBtn = (v, l) => (
     <button key={v} onClick={() => setCfgPatch({ automationMode: v })}
@@ -146,6 +160,45 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
           <Row k="Per-order confirm" v={<span style={{ color: "var(--amber)" }}>OFF · fires on accept</span>} />
           <Row k="Default order type" v="MARKET" />
           <Row k="Detector" v={<span style={{ color: "var(--green)" }}>● RUNNING</span>} />
+        </div>
+        <div className="section">
+          <div className="sect-hd"><span>BROKER ROUTING</span><span className="meta">FOLLOWS THE ACTIVE ACCOUNT</span></div>
+          <Row k="Active" v={acct?.active
+            ? <span>{acct.active.name || acct.active.id} · <b style={{ color: acct.active.type === "live" ? "var(--red)" : "var(--label)" }}>{(acct.active.type || "").toUpperCase()}</b></span>
+            : <span style={{ color: "var(--amber)" }}>unknown — open the trading panel</span>} />
+          <Row k="Confirmed" v={acct?.confirmed
+            ? <span>{acct.confirmed.name || acct.confirmed.id} · {(acct.confirmed.type || "").toUpperCase()}</span>
+            : <span style={{ color: "var(--amber)" }}>none</span>} />
+          <Row k="Routing" v={acctGate?.route
+            ? <span style={{ color: "var(--green)" }}>● OK</span>
+            : <span style={{ color: "var(--amber)" }}>{acctGate?.reason === "no_active_account" ? "blocked — no active account" : "blocked — confirm the switch"}</span>} />
+          {acctGate?.needsConfirm && acctGate.level === "live" && (
+            <div className="arm-gate">
+              <div className="warn"><span className="hz" />
+                <span>Active account is <b>LIVE (real money)</b>. Type <b>LIVE</b> to route to it.</span>
+              </div>
+              <div className="arm-row">
+                <input className={"arm-input" + (armReady(confirmTxt.trim().toUpperCase()) ? " ok" : "")} value={confirmTxt}
+                  placeholder="type LIVE to confirm" onChange={(e) => setConfirmTxt(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") confirmAccount(); }} />
+                <button className={"arm-confirm" + (armReady(confirmTxt.trim().toUpperCase()) ? "" : " off")}
+                  disabled={!armReady(confirmTxt.trim().toUpperCase())} onClick={confirmAccount}>CONFIRM LIVE</button>
+              </div>
+            </div>
+          )}
+          {acctGate?.needsConfirm && acctGate.level === "paper" && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+              <button className="arm-confirm" onClick={confirmAccount}>ROUTE TO {acct?.active?.name || "ACCOUNT"}</button>
+            </div>
+          )}
+          {acct?.confirmed?.type === "live" && acct?.autoResumed === false && (
+            <div className="arm-gate">
+              <div className="warn live"><span className="hz" />
+                <span>LIVE auto is <b>paused</b> after restart — manual entries work; tap to resume auto-fire.</span>
+              </div>
+              <button className="arm-confirm" onClick={resumeAuto}>RESUME LIVE AUTO</button>
+            </div>
+          )}
         </div>
       </div>
     </div>

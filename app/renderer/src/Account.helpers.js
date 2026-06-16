@@ -1,7 +1,10 @@
 // Account.helpers — pure account/guardrail logic for the ACCOUNT & EXECUTION
-// settings. Account mode is EPHEMERAL (boots PAPER every launch, never persists
-// — a real-money safety rule); guardrails persist. Keys match the v4 mockup:
-// localStorage "workstation:account" (cleared on boot) + "workstation:guards".
+// settings. NOTE: the source of truth for which account orders route to is now
+// the MAIN-process exec config (`confirmedAccount`, persisted) + the BROKER
+// ROUTING panel (active-account follow + confirm-on-switch + boot live-auto-
+// pause). The renderer `account` mode below is display-only legacy and no longer
+// drives routing (the adapter routes by the confirmed account, not this flag).
+// `armReady` is reused for the live confirm gate; guardrails still persist here.
 
 export const GUARD_DEFAULTS = { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120 };
 
