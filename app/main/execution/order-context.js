@@ -6,10 +6,12 @@
 // Caches the last good context in memory for the pure preview path.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { REPO_ROOT } from "./config.js";
 import { structuralStopCandidates, untakenDraws } from "./manual-order.js";
 
+const execFileAsync = promisify(execFile);
 const ORDERS_SCAN = path.join(REPO_ROOT, "state", "orders-scan.json");
 const WEBVIEW_CDP_PORT = "9223";
 // Spawn the CLI via the bin/tv shell wrapper (runs system `node`), not
@@ -38,13 +40,16 @@ function readJson(p) { try { return JSON.parse(readFileSync(p, "utf8")); } catch
 export async function getOrderContext() {
   // Always read the webview chart fresh — pillar3-only is ~0.5s and doesn't flash
   // the chart (no symbol/TF switch), so the ticket mirrors exactly what's on screen.
+  //
+  // ASYNC spawn is mandatory. This runs in the Electron main process, and the
+  // analyze child drives the in-app webview's CDP (9223) — a connection the main
+  // process itself must service. spawnSync would BLOCK the main event loop, so the
+  // webview CDP never gets serviced, the child hangs, and it times out (ETIMEDOUT).
   try {
-    const r = spawnSync(TV_BIN, ["analyze", "--pillar3-only", "--out", ORDERS_SCAN],
-      { cwd: REPO_ROOT, timeout: 15_000, encoding: "utf8", env: { ...process.env, TV_CDP_PORT: WEBVIEW_CDP_PORT } });
-    if (r.status === 0) {
-      const b = readJson(ORDERS_SCAN);
-      if (b) { _cache = parseBundle(b, "webview"); return _cache; }
-    }
+    await execFileAsync(TV_BIN, ["analyze", "--pillar3-only", "--out", ORDERS_SCAN],
+      { cwd: REPO_ROOT, timeout: 20_000, env: { ...process.env, TV_CDP_PORT: WEBVIEW_CDP_PORT } });
+    const b = readJson(ORDERS_SCAN);
+    if (b) { _cache = parseBundle(b, "webview"); return _cache; }
   } catch { /* fall through */ }
   if (_cache) return { ..._cache, stale: true };
   return { symbol: null, price: null, candidates: [], draws: { above: [], below: [] }, ts: Date.now(), source: "none", stale: true };
