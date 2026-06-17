@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeLtfBiasRecord } from "../cli/lib/ltf-bias-record.js";
+import { normalizeLtfBiasRecord, isFinalizedLtfBiasRecord } from "../cli/lib/ltf-bias-record.js";
 
 describe("normalizeLtfBiasRecord", () => {
   it("maps the real ltf-bias.json sidecar to the chain context (the bug: chain read .md frontmatter, which lacks these)", () => {
@@ -41,5 +41,30 @@ describe("normalizeLtfBiasRecord", () => {
     assert.deepEqual(normalizeLtfBiasRecord(null), {});
     assert.deepEqual(normalizeLtfBiasRecord(undefined), {});
     assert.deepEqual(normalizeLtfBiasRecord("nope"), {});
+  });
+});
+
+describe("isFinalizedLtfBiasRecord", () => {
+  it("a STAND-ASIDE finalized record (bias null, but grade_cap + entry_model_priority set) is usable — the June 16 bug: this was discarded for the lossy .md", () => {
+    const c = normalizeLtfBiasRecord({
+      session: "ny-am", ltf_bias: null, htf_ltf_alignment: "unclear",
+      entry_model_priority: "undecided", grade_cap: "B", source: "deterministic-finalizer",
+    });
+    assert.equal(c.bias, null);
+    assert.equal(isFinalizedLtfBiasRecord(c), true);
+  });
+
+  it("a directional record is usable", () => {
+    assert.equal(isFinalizedLtfBiasRecord(normalizeLtfBiasRecord({ ltf_bias: "bullish", grade_cap: "A+" })), true);
+  });
+
+  it("a stub with only alignment is NOT finalized (fall back to .md)", () => {
+    assert.equal(isFinalizedLtfBiasRecord(normalizeLtfBiasRecord({ htf_ltf_alignment: "aligned" })), false);
+  });
+
+  it("empty / garbage → not finalized", () => {
+    assert.equal(isFinalizedLtfBiasRecord(normalizeLtfBiasRecord({})), false);
+    assert.equal(isFinalizedLtfBiasRecord({}), false);
+    assert.equal(isFinalizedLtfBiasRecord(null), false);
   });
 });

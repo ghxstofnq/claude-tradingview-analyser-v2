@@ -18,3 +18,22 @@ export function normalizeLtfBiasRecord(rec) {
     grade_cap: rec.grade_cap ?? null,
   };
 }
+
+// Is this normalized record a FINALIZED open-reaction verdict the chain can
+// trust as source of truth — even when the bias is a legitimate stand-aside
+// (`ltf_bias: null`)?
+//
+// The bug this guards against: the live reader only accepted ltf-bias.json
+// when `bias` was a direction, so on any stand-aside day it discarded the
+// valid JSON (which carries entry_model_priority + grade_cap) and fell back to
+// the .md — which carries neither. The chain then blocked every bar on
+// `missing_entry_model_priority, missing_grade_cap` (June 16 2026: 100% of
+// both NY sessions). The finalizer always writes grade_cap + entry_model_priority
+// regardless of bias, so their presence — not a non-null bias — marks a real
+// record. Only an absent/stub sidecar (no verdict fields at all) should fall
+// back to the human-readable .md. Pure.
+export function isFinalizedLtfBiasRecord(ctx) {
+  if (!ctx || typeof ctx !== "object") return false;
+  const has = (v) => v != null && String(v).trim() !== "";
+  return has(ctx.bias) || has(ctx.grade_cap) || has(ctx.entry_model_priority);
+}
