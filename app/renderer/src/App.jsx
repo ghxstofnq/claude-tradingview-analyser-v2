@@ -219,11 +219,10 @@ function VersionCell() {
 
 function TopBar({ symbol, setSymbol, theme, setTheme,
                   clock,
-                  news, newsOpen, setNewsOpen, newsImminent,
+                  news, newsCount, newsOpen, setNewsOpen, newsImminent,
                   alerts, alertsOpen, setAlertsOpen, onDisarm,
                   guards, setGuards,
                   currentPrice }) {
-  const newsCount = news.length;
   const alertCount = alerts.fired.length + alerts.armed.length;
   return (
     <header className="topbar">
@@ -438,7 +437,8 @@ function App() {
       <TopBar symbol={symbol} setSymbol={setSymbol}
               theme={theme} setTheme={setTheme}
               clock={clock}
-              news={remainingEvents}
+              news={calendarPayload.events || []}
+              newsCount={remainingEvents.length}
               newsOpen={newsOpen} setNewsOpen={setNewsOpen}
               newsImminent={newsImminent}
               alerts={alerts}
