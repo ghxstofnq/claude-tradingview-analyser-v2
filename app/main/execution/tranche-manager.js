@@ -157,7 +157,7 @@ async function buildRealDeps() {
       return s + (Number.isFinite(pts) ? pts * pointValue(t.symbol) * c : 0);
     }, 0),
     consecutiveLossStreak: (events) => outcomes.consecutiveLossStreak(events),
-    dayRealizedLossUsd: () => { try { return fills.dayRealizedLossUsd(fills.readFills(fills.TRADES_DIR ?? undefined, new Date().toISOString().slice(0, 10))); } catch { return 0; } },
+    dayRealizedLossUsd: () => { try { const acct = active.getActiveAccount()?.broker ?? null; return fills.dayRealizedLossUsd(fills.readFills(fills.TRADES_DIR ?? undefined, new Date().toISOString().slice(0, 10)), acct); } catch { return 0; } },
     checkOrder,
     accept: async (payload) => {
       const { acceptSetup } = await import("../trades.js");

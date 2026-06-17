@@ -8,7 +8,7 @@ import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
   buildTrackRecord,
-  buildTrackRecordFromFills,
+  buildTrackRecordByAccount,
   degradedChainStages,
   deriveLedgerState,
   deriveLedgerReason,
@@ -254,14 +254,14 @@ function SessionFillsPanel({ date }) {
 // from real fills or real per-session totals (no fabrication).
 function TrackRecordView({ library }) {
   const { fills } = useFills("all");
-  const F = buildTrackRecordFromFills(fills);
+  const byAccount = buildTrackRecordByAccount(fills);
   const A = buildTrackRecord(library);
   const maxSession = Math.max(1, ...A.by_session.map((s) => Math.abs(s.r)));
   return (
     <div className="work-scroll">
-      {F.n_trades > 0 && (
-        <div className="section">
-          <div className="sect-hd"><span>PERFORMANCE · REAL FILLS</span><span className="meta">{F.n_trades} TRADE{F.n_trades === 1 ? "" : "S"}</span></div>
+      {byAccount.map((F) => (
+        <div className="section" key={F.account}>
+          <div className="sect-hd"><span>PERFORMANCE · {String(F.account).toUpperCase()}</span><span className="meta">{F.n_trades} TRADE{F.n_trades === 1 ? "" : "S"}</span></div>
           <div className="an-hero">
             <div className="htile">
               <span className="k">CUMULATIVE R</span>
@@ -282,7 +282,7 @@ function TrackRecordView({ library }) {
             <div className="c"><span className="k">MAX DD</span><span className="v red">{F.max_drawdown_r.toFixed(1)}R</span></div>
           </div>
         </div>
-      )}
+      ))}
       <div className="section">
         <div className="sect-hd"><span>PERFORMANCE</span><span className="meta">{A.n_sessions} SESSION{A.n_sessions === 1 ? "" : "S"} · REAL FILLS</span></div>
         <div className="an-hero">

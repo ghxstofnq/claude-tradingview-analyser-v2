@@ -11,6 +11,7 @@ import {
   buildLedger,
   buildTrackRecord,
   buildTrackRecordFromFills,
+  buildTrackRecordByAccount,
   todayBadge,
 } from "../app/renderer/src/Review.helpers.js";
 
@@ -58,6 +59,31 @@ describe("buildTrackRecordFromFills", () => {
   it("ignores fills without a numeric realized R; empty → zeros", () => {
     assert.equal(buildTrackRecordFromFills([{ actual: {} }]).n_trades, 0);
     assert.equal(buildTrackRecordFromFills([]).cum_r, 0);
+  });
+});
+
+describe("buildTrackRecordByAccount", () => {
+  const fills = [
+    { account: "paper", actual: { r: 2, usd: 400 } },
+    { account: "paper", actual: { r: -1, usd: -200 } },
+    { account: "tradovate", actual: { r: -1, usd: -300 } },
+    { actual: { r: 1, usd: 100 } }, // unlabelled
+  ];
+  it("separates track records per account — no cross-bleed", () => {
+    const by = buildTrackRecordByAccount(fills);
+    const paper = by.find((a) => a.account === "paper");
+    const trad = by.find((a) => a.account === "tradovate");
+    assert.equal(paper.n_trades, 2);
+    assert.equal(paper.cum_r, 1);   // 2 + (-1); NOT polluted by tradovate's -1
+    assert.equal(trad.n_trades, 1);
+    assert.equal(trad.cum_r, -1);
+  });
+  it("buckets unlabelled fills under 'unknown'; empty input → []", () => {
+    assert.ok(buildTrackRecordByAccount(fills).find((a) => a.account === "unknown"));
+    assert.equal(buildTrackRecordByAccount([]).length, 0);
+  });
+  it("orders the busiest account first", () => {
+    assert.equal(buildTrackRecordByAccount(fills)[0].account, "paper"); // 2 trades > 1
   });
 });
 

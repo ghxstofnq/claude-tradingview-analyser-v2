@@ -187,6 +187,22 @@ export function buildTrackRecordFromFills(fills = []) {
   };
 }
 
+// Per-ACCOUNT track records (paper / tradovate / live separated), so one
+// account's performance never bleeds into another's in REVIEW. Each entry is a
+// full buildTrackRecordFromFills over that account's fills. Accounts with no
+// graded fills are dropped; ordered by trade count (busiest first).
+export function buildTrackRecordByAccount(fills = []) {
+  const groups = {};
+  for (const f of (fills || [])) {
+    const key = f?.account || "unknown";
+    (groups[key] ||= []).push(f);
+  }
+  return Object.entries(groups)
+    .map(([account, list]) => ({ account, ...buildTrackRecordFromFills(list) }))
+    .filter((a) => a.n_trades > 0)
+    .sort((a, b) => b.n_trades - a.n_trades);
+}
+
 export function degradedChainStages(chainAudit) {
   if (!chainAudit || typeof chainAudit !== "object") return [];
   const out = [];
