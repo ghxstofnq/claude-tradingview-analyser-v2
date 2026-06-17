@@ -130,6 +130,20 @@ export function entryHuntFastScanArgs() {
   };
 }
 
+// Chart timeframe for the entry-hunt walker fold. ALWAYS the live base TF (1m),
+// never the event's narration tag. The walker fold is the strategy's 1m setup
+// search (filters-dont-separate: 1m entry is load-bearing; 5m-confirmation
+// tested -55R); `ev.tf === "5m"` only signals a NARRATION cadence. Pinning the
+// analysis chart to 5m on the 5m-boundary event (the queue drains 5m first)
+// made ~1-in-5 walker folds run against the coarse 5m engine table, scrambling
+// 1m walker tracking — London 2026-06-17: live folded 0 setups while an all-1m
+// backtest of the same session folded 5. `ev` is accepted for call-site
+// symmetry and possible future per-event logic; the fold TF is 1m today.
+export function entryHuntChartTf(ev) {
+  void ev;
+  return "1";
+}
+
 // Single-brain entry hunt (2026-06-12). The walker chain is the ONLY setup
 // producer — it surfaces packets/no-trades deterministically before any LLM
 // turn. The per-bar LLM turn is narration-only, and it runs only when there
@@ -1467,9 +1481,11 @@ async function preflightChartState(ev, phase) {
   // → pin the configured primary. "Leave the chart alone" let a crashed
   // pair sweep strand the chart on MES@5m for 23 minutes of garbage folds
   // (2026-06-12 NY-AM); during entry hunt the chart must ALWAYS be on the
-  // leader at the event TF.
+  // leader at the 1m fold TF (NOT the event's 5m narration tag — that pinned
+  // the chart to 5m on every 5m boundary and corrupted ~1-in-5 folds; see
+  // entryHuntChartTf).
   const leader = decision?.leader ?? PAIR_PRIMARY;
-  const timeframe = ev.tf === "5m" ? "5" : "1";
+  const timeframe = entryHuntChartTf(ev);
   const result = await ensureChartState({ symbol: leader, timeframe });
   if (result?.changed) {
     const sinceLast = Date.now() - _lastChartRevertNoticeTs;
