@@ -801,33 +801,26 @@ export const _authCircuitForTests = {
   clear() { _authBlocked = null; },
 };
 
-// Model config. Per Claude Code docs (code.claude.com/docs/en/model-config):
-// the "opus" alias on Max/Team/Enterprise plans auto-resolves to Opus 4.7
-// with 1M context. Opus everywhere; no Sonnet fallback per user decision
-// (2026-05-28).
-const MODEL = "opus";
-const FALLBACK_MODEL = "opus";
+// Model config. Pinned to Sonnet 4.6 per user decision (2026-06-17). Trading
+// decisions are deterministic (the walker chain), so the model only drives the
+// brief / wrap / chat and the per-bar narration commentary — Sonnet 4.6 is
+// faster and cheaper for that. Fallback is the same model (no silent
+// cross-model swap to Opus); set FALLBACK_MODEL = "opus" for an availability
+// fallback if a turn ever needs it.
+const MODEL = "claude-sonnet-4-6";
+const FALLBACK_MODEL = "claude-sonnet-4-6";
 
 function modelForPurpose(_purpose) {
   return { model: MODEL, fallbackModel: FALLBACK_MODEL };
 }
 
-// Effort level: how hard Claude thinks per turn.
+// Effort level: how hard Claude thinks per turn. Levels: low | medium | high | xhigh | max.
 //
-// 2026-05-26 — raised from "high" to "xhigh" per Anthropic's current guidance:
-// "Start with the new xhigh effort level for coding and agentic use cases."
-// Our bar-close turns are both agentic (multiple tool calls) and intelligence-
-// sensitive (walk 3 entry models with per-component citation, emit a graded
-// tool call). xhigh was the initial pick but pushed brief turns past 5 min
-// and bar-close turns to ~50% timeout rate even at 120s. Dropped back to
-// "high" — faster turns, lower spend, slightly less reasoning depth. The
-// new chain (digest at top, structured handoffs in pillar1/2.md frontmatter,
-// deterministic resolvers in cli/lib/) shifts intelligence load off the
-// model: it no longer has to fabricate primary_draw selection or
-// entry_model_priority — those are pre-computed.
-//
-// Levels: low | medium | high | xhigh | max.
-const EFFORT = "medium";
+// 2026-06-17 — "high" per user decision, alongside the Sonnet 4.6 switch
+// (was "medium"). History: xhigh on Opus pushed brief turns past 5 min and
+// bar-close to ~50% timeout even at 120s; medium was the interim. Don't jump
+// back to xhigh without watching turn durations.
+const EFFORT = "high";
 
 /**
  * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close
