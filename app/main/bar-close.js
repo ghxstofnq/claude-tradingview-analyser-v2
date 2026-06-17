@@ -30,7 +30,7 @@ import { ensureChartState } from "./tools/tv-chart.js";
 import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 import { finalizeOpenReactionDeterministic } from "./live-open-reaction-finalizer.js";
-import { normalizeLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
+import { normalizeLtfBiasRecord, isFinalizedLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
 import { activeSessionDir } from "./sessions.js";
@@ -743,7 +743,13 @@ async function readLtfBiasFrontmatter() {
   try {
     const rec = JSON.parse(await fs.readFile(path.join(dir, "ltf-bias.json"), "utf8"));
     const ctx = normalizeLtfBiasRecord(rec);
-    if (hasValue(ctx.bias)) return ctx;
+    // Trust the JSON source of truth whenever it's a finalized verdict — even a
+    // stand-aside (bias null) carries entry_model_priority + grade_cap. The old
+    // `hasValue(ctx.bias)` guard discarded those records and fell back to the
+    // .md (which lacks both fields), blocking every stand-aside session on
+    // missing_entry_model_priority/grade_cap. A null bias here still lets the
+    // per-bar deterministic fallback (deriveLtfBiasContext) earn the direction.
+    if (isFinalizedLtfBiasRecord(ctx)) return ctx;
   } catch { /* no JSON sidecar — fall back to the .md below */ }
   try {
     const txt = await fs.readFile(path.join(dir, "ltf-bias.md"), "utf8");
