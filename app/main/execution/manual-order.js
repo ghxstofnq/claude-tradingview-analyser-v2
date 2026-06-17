@@ -83,7 +83,7 @@ export function rr({ side, entry, stop, tp }) {
   return Math.round((Math.abs(t - e) / risk) * 10) / 10;
 }
 
-export function buildOrderPreview({ side, entry, symbol, candidates, draws, typedStop, typedTp, riskUsd }) {
+export function buildOrderPreview({ side, entry, symbol, candidates, draws, typedStop, typedTp, riskUsd, maxRiskUsd }) {
   const e = num(entry); const long = isLong(side);
   const auto = pickAutoStop({ side, entry: e, candidates, symbol });
   const typed = num(typedStop);
@@ -99,7 +99,16 @@ export function buildOrderPreview({ side, entry, symbol, candidates, draws, type
   else if (long ? stop >= e : stop <= e) block = "stop_wrong_side";
 
   let sizing = { contracts: 0, stopPts: 0, actualRiskUsd: 0, withinTolerance: false };
-  if (!block) { sizing = sizeFromStop({ symbol, entry: e, stop, riskUsd }); if (!sizing.withinTolerance) block = "no_size"; }
+  if (!block) {
+    sizing = sizeFromStop({ symbol, entry: e, stop, riskUsd });
+    const cap = num(maxRiskUsd);
+    // With a cap known (production), allow a rounded-down off-target size and
+    // block only when it can't be sized or busts the cap. Without a cap (unit
+    // tests / callers that don't pass one) keep the conservative tolerance block.
+    if (sizing.contracts < 1) block = "no_size";
+    else if (cap != null) { if (sizing.actualRiskUsd > cap) block = "over_max"; }
+    else if (!sizing.withinTolerance) block = "no_size";
+  }
 
   return {
     symbol, side, entry: e,

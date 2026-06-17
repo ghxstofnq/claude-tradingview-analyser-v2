@@ -133,8 +133,19 @@ describe("buildOrderPreview", () => {
     const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), draws: d(), typedStop: 21050, typedTp: null, riskUsd: 120 });
     assert.equal(p.block, "stop_wrong_side");
   });
-  it("block no_size when even 1 contract busts tolerance (huge stop)", () => {
+  it("block no_size when even 1 contract busts tolerance (huge stop, no cap)", () => {
     const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), draws: d(), typedStop: 20500, typedTp: null, riskUsd: 120 });
     assert.equal(p.block, "no_size");
+  });
+  it("with a cap: rounds an off-target stop DOWN and places (no block)", () => {
+    // 60pt stop, $300 target ($120/c) → 2c @ $240, under the $400 cap.
+    const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), draws: d(), typedStop: 20940, typedTp: null, riskUsd: 300, maxRiskUsd: 400 });
+    assert.equal(p.block, null);
+    assert.equal(p.contracts, 2);
+    assert.equal(p.actualRiskUsd, 240);
+  });
+  it("with a cap: blocks over_max when 1 contract busts the cap (huge stop)", () => {
+    const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), draws: d(), typedStop: 20500, typedTp: null, riskUsd: 300, maxRiskUsd: 400 });
+    assert.equal(p.block, "over_max");
   });
 });

@@ -113,7 +113,7 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
   let block = null;
   if (!hasStop) block = { code: "NO STOP", msg: "Setup has no valid stop — can't compute size. Reject and wait for the next candidate." };
   else if (actualRisk > G.perTradeMax) block = { code: "OVER PER-TRADE MAX", msg: `Computed risk $${actualRisk.toFixed(0)} exceeds the $${G.perTradeMax} per-trade ceiling. Lower the $ risk to send.` };
-  else if (!sized.withinTolerance || contracts < 1) block = { code: "SIZE MISMATCH", msg: `No whole micro count lands within $50 of $${risk}. Adjust the $ risk.` };
+  else if (contracts < 1) block = { code: "SIZE MISMATCH", msg: `No whole micro-contract size could be computed for this stop.` };
 
   const fire = () => {
     if (block) return;

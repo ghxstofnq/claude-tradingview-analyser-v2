@@ -47,6 +47,23 @@ describe("sizing-core", () => {
     assert.equal(s.withinTolerance, false);
   });
 
+  it("round-down: $300 target, 60pt MNQ stop ($120/c) → 2c @ $240 (not 3c @ $360)", () => {
+    // 300/120 = 2.5: round-to-nearest is 3 ($360, $60 over → out of tol). Round
+    // DOWN to 2 ($240, under target) so the setup isn't skipped.
+    const s = sizeFromStop({ symbol: "MNQ1!", entry: 21000, stop: 20940, riskUsd: 300 });
+    assert.equal(s.contracts, 2);
+    assert.equal(s.actualRiskUsd, 240);
+    assert.equal(s.withinTolerance, false);
+  });
+
+  it("round-down: live 105pt MNQ stop ($210/c), $300 target → 1c @ $210 (was a SIZE skip)", () => {
+    // The real 2026-06-17 NY-PM Inversion long (entry 30363.25, stop 30258.25)
+    // that auto skipped blocked:SIZE under round-to-nearest. Now it sizes 1c.
+    const s = sizeFromStop({ symbol: "MNQ1!", entry: 30363.25, stop: 30258.25, riskUsd: 300 });
+    assert.equal(s.contracts, 1);
+    assert.equal(s.actualRiskUsd, 210);
+  });
+
   it("zero/invalid stop distance → 0c, not tradable", () => {
     const s = sizeFromStop({ symbol: "MNQ1!", entry: 21000, stop: 21000, riskUsd: 120 });
     assert.deepEqual(s, { contracts: 0, stopPts: 0, actualRiskUsd: 0, withinTolerance: false });

@@ -21,8 +21,16 @@ export function sizeFromStop({ symbol, entry, stop, riskUsd } = {}) {
   if (!(stopPts > 0) || !(target > 0)) {
     return { contracts: 0, stopPts: 0, actualRiskUsd: 0, withinTolerance: false };
   }
-  const contracts = Math.max(1, Math.round(target / (stopPts * pv)));
-  const actualRiskUsd = Math.round(contracts * stopPts * pv);
+  const riskPerC = stopPts * pv;
+  const nearest = Math.max(1, Math.round(target / riskPerC));
+  const within = Math.abs(Math.round(nearest * riskPerC) - target) <= 50;
+  // Prefer the nearest whole-contract size when it lands within ±$50 of target.
+  // Otherwise round DOWN to the largest count that stays at/under target, so a
+  // setup isn't skipped just because the stop width doesn't divide cleanly. The
+  // floor is 0 when the stop is wider than the whole target — clamp to 1 and let
+  // the OVER_MAX cap (guardrails) reject if even one contract over-risks.
+  const contracts = within ? nearest : Math.max(1, Math.floor(target / riskPerC + 1e-9));
+  const actualRiskUsd = Math.round(contracts * riskPerC);
   return {
     contracts,
     stopPts,

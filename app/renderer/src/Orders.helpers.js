@@ -35,7 +35,8 @@ const BLOCK = {
   no_price: "No live price — refresh the structure read.",
   no_stop: "No stop — pick a level or type one.",
   stop_wrong_side: "Stop is on the wrong side of entry.",
-  no_size: "No whole-contract size lands within $50 of your risk.",
+  no_size: "No whole-contract size could be computed for this stop.",
+  over_max: "Stop too wide — even 1 contract exceeds your per-trade max.",
 };
 export function blockMessage(code) { return code ? (BLOCK[code] ?? code) : ""; }
 

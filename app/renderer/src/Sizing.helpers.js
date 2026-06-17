@@ -18,9 +18,14 @@ export function sizeOrder({ riskUsd, stopPts, pointValue, perTradeMax, tol = 50 
       }
     }
   }
+  const withinTolerance = best != null;
   if (!best) {
-    return { contracts: 0, actualRisk: 0, withinTolerance: false, blockReason: "no_size_within_tolerance" };
+    // Nothing lands within ±$50 — round DOWN to the largest whole contract that
+    // stays at/under target (clamp to 1 when the stop is wider than the whole
+    // target). The per-trade cap is enforced by the caller, not here.
+    const n = Math.max(1, floorN);
+    best = { contracts: n, actualRisk: n * perContract };
   }
   const pctOfMax = perTradeMax > 0 ? Math.round((best.actualRisk / perTradeMax) * 100) : null;
-  return { ...best, withinTolerance: true, pctOfMax };
+  return { ...best, withinTolerance, pctOfMax };
 }

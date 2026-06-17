@@ -17,10 +17,21 @@ test("MES: $250 risk, 10pt stop, $5/pt → picks closest within tol", () => {
   assert.equal(r.withinTolerance, true);
 });
 
-test("blocks when nothing lands within ±$50", () => {
-  const r = sizeOrder({ riskUsd: 20, stopPts: 100, pointValue: 2, perTradeMax: 250 }); // 1c = $200
+test("rounds down to floor when nothing lands within ±$50", () => {
+  // $300 risk, $120/contract (60pt MNQ): 2c=$240, 3c=$360 — neither within $50.
+  // Round DOWN to 2c rather than skipping. Off-tolerance but valid + under cap.
+  const r = sizeOrder({ riskUsd: 300, stopPts: 60, pointValue: 2, perTradeMax: 400 });
+  assert.equal(r.contracts, 2);
+  assert.equal(r.actualRisk, 240);
   assert.equal(r.withinTolerance, false);
-  assert.equal(r.blockReason, "no_size_within_tolerance");
+  assert.equal(r.blockReason, undefined);
+});
+
+test("clamps to 1 contract when the stop is wider than the whole target", () => {
+  const r = sizeOrder({ riskUsd: 20, stopPts: 100, pointValue: 2, perTradeMax: 250 }); // 1c = $200
+  assert.equal(r.contracts, 1);
+  assert.equal(r.actualRisk, 200);
+  assert.equal(r.withinTolerance, false);
 });
 
 test("bad stop blocks", () => {
