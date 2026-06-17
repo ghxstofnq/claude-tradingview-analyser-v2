@@ -15,6 +15,7 @@ import {
   latestBarReadMessage,
   deriveAddCandidate,
   trancheStackFromState,
+  normalizeSide,
 } from "./Live.helpers.js";
 import { stripCitations } from "./Prep.helpers.js";
 import { sizeOrder } from "./Sizing.helpers.js";
@@ -196,7 +197,7 @@ function InTradeView({ position, trade, tranches, lastBar, price, chat, symbol, 
   // grade / id metadata when present.
   const t = trade || {};
   const live = !!position;
-  const side = position ? (position.side === "buy" ? "long" : "short") : (t.side || "long");
+  const side = (position ? normalizeSide(position.side) : null) || t.side || "long";
   const entry = position?.avgFill ?? t.entry;
   const stop = position?.sl ?? t.stop;
   const tp1 = position?.tp ?? t.tp1;
@@ -462,7 +463,7 @@ function LiveCell({ account, guards, symbol }) {
   let badge;
   if (exec.position || activeTrade) {
     const src = exec.position
-      ? { entry: exec.position.avgFill, stop: exec.position.sl, tp1: exec.position.tp, side: exec.position.side === "buy" ? "long" : "short" }
+      ? { entry: exec.position.avgFill, stop: exec.position.sl, tp1: exec.position.tp, side: normalizeSide(exec.position.side) || "long" }
       : activeTrade;
     const badgePrice = (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastBar?.close;
     const pnl = liveGridFromTrade(src, badgePrice)?.pnl;

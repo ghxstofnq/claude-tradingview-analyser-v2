@@ -2,6 +2,20 @@
 // `node --test`. Importing this file has no side effects.
 import { greenLightReached } from "../../../cli/lib/scale-in-rules.js";
 
+// Normalize a position/order "side" to "long" | "short" | null, accepting every
+// vocabulary the execution feeds emit: order side ("buy"/"sell"), TradingView's
+// positions-table Side column read from the DOM ("long"/"short", lowercased at
+// tv-adapter.js:67), and numeric/signed values (1/-1). A binary
+// `=== "buy" ? "long" : "short"` silently flipped a DOM-sourced long to "short";
+// this returns null for flat/unknown so callers can fall back safely.
+export function normalizeSide(side) {
+  if (side == null) return null;
+  const s = String(side).trim().toLowerCase();
+  if (s === "buy" || s === "long" || s === "b" || s === "1" || s === "+1") return "long";
+  if (s === "sell" || s === "short" || s === "s" || s === "-1") return "short";
+  return null;
+}
+
 // Find Pillar 3 ("Entry Model + Confirmation") in a pillar_breakdown array
 // by name substring (case-insensitive). Robust to ordering changes in the
 // prompt — index-based access is fragile.
@@ -116,7 +130,7 @@ export function liveGridFromTrade(trade, lastClose) {
 // Returns the activeSetup (the add candidate) when all conditions hold, else null.
 export function deriveAddCandidate({ position, anchor = null, activeSetup, price } = {}) {
   if (!position || !activeSetup) return null;
-  const posSide = position.side === "buy" ? "long" : position.side === "sell" ? "short" : null;
+  const posSide = normalizeSide(position.side);
   if (!posSide || activeSetup.side !== posSide) return null;     // same side only
   const gl = anchor && Number.isFinite(Number(anchor.entry))
     ? { side: posSide, entry: Number(anchor.entry), tp1: Number(anchor.tp1), greenlight_ref: anchor.greenlight_ref }
