@@ -40,3 +40,24 @@ test("done event still lands on DONE", () => {
   const s = reducer(running, { type: "ENGINE_EVENT", event: { type: "done", summary: { setups: 0 } } });
   assert.equal(s.ui, "DONE");
 });
+
+test("setup_accepted flips the existing setup, never pushes an undefined row", () => {
+  // The engine emits setup_surfaced { setup } first, then setup_accepted
+  // { setupId } (NO full setup). The old reducer lumped them together and
+  // pushed e.setup (undefined) on accept → a garbage row that blanks the card.
+  const running = { ...idle, ui: "AUTO_RUNNING", currentRun: { runId: "r1", setups: [] } };
+  const surfaced = reducer(running, { type: "ENGINE_EVENT", event: { type: "setup_surfaced", runId: "r1", setup: { id: "s1", grade: "A+", side: "long" } } });
+  assert.equal(surfaced.currentRun.setups.length, 1);
+  const accepted = reducer(surfaced, { type: "ENGINE_EVENT", event: { type: "setup_accepted", runId: "r1", setupId: "s1" } });
+  assert.equal(accepted.currentRun.setups.length, 1);          // no undefined pushed
+  assert.equal(accepted.currentRun.setups[0].id, "s1");
+  assert.equal(accepted.currentRun.setups[0].accepted, true);  // status flipped
+  assert.ok(accepted.currentRun.setups.every((x) => x && x.id));
+});
+
+test("setup_accepted for an unknown id is a no-op (no garbage row)", () => {
+  const running = { ...idle, ui: "AUTO_RUNNING", currentRun: { runId: "r1", setups: [{ id: "s1", grade: "B" }] } };
+  const s = reducer(running, { type: "ENGINE_EVENT", event: { type: "setup_accepted", runId: "r1", setupId: "ghost" } });
+  assert.equal(s.currentRun.setups.length, 1);
+  assert.ok(s.currentRun.setups.every((x) => x && x.id));
+});

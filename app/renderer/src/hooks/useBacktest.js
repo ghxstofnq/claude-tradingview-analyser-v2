@@ -49,10 +49,18 @@ export function reducer(s, action) {
       if (e.type === "progress") {
         return { ...s, ui: followEngine, currentRun: { ...(s.currentRun ?? {}), progress: { bar: e.bar, total: e.total, cost: e.cost, phase: e.phase } } };
       }
-      if (e.type === "setup_surfaced" || e.type === "setup_accepted") {
+      if (e.type === "setup_surfaced") {
         const existing = s.currentRun?.setups ?? [];
         const next = existing.some((x) => x.id === e.setup?.id) ? existing : [...existing, e.setup];
         return { ...s, currentRun: { ...(s.currentRun ?? {}), setups: next } };
+      }
+      if (e.type === "setup_accepted") {
+        // The engine emits { setupId } only (no full setup) — setup_surfaced
+        // already added it. Flip the existing row's accepted flag; never push
+        // (the old code pushed e.setup === undefined → a garbage card).
+        const setups = (s.currentRun?.setups ?? []).map((x) =>
+          x.id === e.setupId ? { ...x, accepted: true } : x);
+        return { ...s, currentRun: { ...(s.currentRun ?? {}), setups } };
       }
       if (e.type === "paused") {
         const setups = s.currentRun?.setups ?? [];
