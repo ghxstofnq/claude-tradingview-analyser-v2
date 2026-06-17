@@ -13,6 +13,34 @@
  * @param {number|undefined} quoteTime  unix seconds — for the staleness check
  * @returns {{bar: object|null, age_seconds: number|null}}
  */
+/**
+ * Drop the still-forming (current, incomplete) candle from a `last_5_bars`
+ * array so confirmation facts read the just-CLOSED bar — matching the backtest
+ * tape recorder (`closedBarsOnly` in cli/lib/tape-recorder.js). A live capture
+ * always includes the in-progress candle as the last element (O=H=L=C, ~0
+ * volume); building `confirmation.last_bar` off that flat doji means the walker
+ * can never read a real confirmation candle (and the bridge's in-current-bar
+ * window anchors to the wrong bar), so live surfaces nothing. Root cause found
+ * 2026-06-17 — see docs/intent/live-confirmation-surfacing.md.
+ *
+ * Guarded: only drops when the last bar's period has NOT elapsed relative to
+ * `quoteTime` (i.e. it is genuinely still forming). When the timing can't be
+ * verified, keeps the array unchanged — never drops a real closed bar.
+ * @param {Array|undefined} last5
+ * @param {number|undefined} quoteTime  unix seconds of the latest tick
+ * @returns {Array}
+ */
+export function dropFormingBar(last5, quoteTime) {
+  if (!Array.isArray(last5) || last5.length < 2) return Array.isArray(last5) ? last5.slice() : [];
+  const last = last5[last5.length - 1];
+  const prev = last5[last5.length - 2];
+  const tf = Number(last.time) - Number(prev.time); // bar spacing (seconds)
+  const qt = Number(quoteTime);
+  if (!(tf > 0) || !Number.isFinite(qt)) return last5.slice(); // can't verify → keep
+  const isForming = qt - Number(last.time) < tf; // last bar's period hasn't closed yet
+  return isForming ? last5.slice(0, -1) : last5.slice();
+}
+
 export function lastBarFacts(last5, quoteTime) {
   if (!Array.isArray(last5) || last5.length === 0) return { bar: null, age_seconds: null };
   const lb = last5[last5.length - 1];

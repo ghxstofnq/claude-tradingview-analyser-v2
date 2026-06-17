@@ -4,7 +4,7 @@ import * as data from '@tvmcp/core/data';
 import * as replay from '@tvmcp/core/replay';
 import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser.js';
 import { computeEngineGates } from '../lib/compute-engine-gates.js';
-import { lastBarFacts } from '../lib/last-bar.js';
+import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
 import { computeLeader } from '../lib/compute-leader.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
@@ -508,6 +508,10 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
     data.getPineTables(),
   ]);
   const engine = parseIctEngineTable(findIctEngineRows(tables));
+  // Drop the still-forming candle so confirmation facts read the just-CLOSED
+  // bar (mirrors the backtest tape recorder). Without this, confirmation.last_bar
+  // is a range-0 doji and live surfaces nothing — see docs/intent/live-confirmation-surfacing.md.
+  if (bars?.last_5_bars) bars.last_5_bars = dropFormingBar(bars.last_5_bars, quote?.time);
   const cur = lastBarFacts(bars?.last_5_bars, quote?.time);
   const m5 = lastBarFacts(bars_by_tf?.m5?.last_5_bars, quote?.time);
   const m15 = lastBarFacts(bars_by_tf?.m15?.last_5_bars, quote?.time);
@@ -768,6 +772,9 @@ register('analyze', {
     //    Last-bar confirmation facts are bar-derived (cli/lib/last-bar.js) so
     //    the LLM never does candle math (constraint #7).
     const engine = parseIctEngineTable(findIctEngineRows(tables));
+    // Drop the still-forming candle so confirmation facts read the just-CLOSED
+    // bar (mirrors the backtest tape recorder) — else live surfaces nothing.
+    if (bars?.last_5_bars) bars.last_5_bars = dropFormingBar(bars.last_5_bars, quote?.time);
     const cur = lastBarFacts(bars?.last_5_bars, quote?.time);
     const m5 = lastBarFacts(bars_by_tf?.m5?.last_5_bars, quote?.time);
     const m15 = lastBarFacts(bars_by_tf?.m15?.last_5_bars, quote?.time);
