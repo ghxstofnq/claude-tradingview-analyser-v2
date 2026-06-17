@@ -122,6 +122,16 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("walkers:state", listener);
     },
   },
+  deterministic: {
+    // The deterministic chain's full verdict for each closed bar (verdict,
+    // no-trade reason, blockers, fired packet, walker stages). Drives the BRAIN
+    // feed directly — no Claude in the loop.
+    onPacket(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("deterministic:packet", listener);
+      return () => ipcRenderer.removeListener("deterministic:packet", listener);
+    },
+  },
   alert: {
     arm(price, label) {
       return ipcRenderer.invoke("alert:arm", { price, label });
