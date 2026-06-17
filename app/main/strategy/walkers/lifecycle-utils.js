@@ -71,27 +71,6 @@ export function matchesTrackedPd(walker, row) {
   return rowRef != null && rowRef === walker?.pdArrayRef;
 }
 
-// A confirmation/inversion stamp is fresh if it falls within the current bar's
-// window WIDENED by a small lookback. The old strict single-bar window
-// (stamp ∈ [last_bar.time, +60s]) never matched LIVE: the engine surfaces the
-// confirm/flip 1-2 captures after the triggering bar AND live's last_bar is the
-// FORMING bar, so the stamp always sat 1-2 bars below the window (live fired 0
-// confirmations; the backtest, which captures each bar synchronously, fired).
-// The lookback absorbs that capture lag while still rejecting a genuinely-stale
-// stamp — a flip/confirm from many bars ago is not THIS bar's entry (GXNQ June
-// ruling: "the entry is the inverting candle," not a later retest). Anchored to
-// the current bar (last_bar.time), so it can't drift with the walker's tap. No
-// stamp / no bar identity -> legacy true (hand-built fixtures keep their
-// close-through behavior). The tap-confirmation timeout bounds the wait.
-export const CONFIRMATION_LOOKBACK_MS = 3 * 60_000; // ~3 bars; covers the 1-2 bar surfacing lag
-export function stampWithinConfirmationWindow(stampMs, lastBarTimeSec) {
-  const ms = Number(stampMs);
-  if (!Number.isFinite(ms) || ms <= 0) return true;
-  const barMs = Number(lastBarTimeSec) * 1000;
-  if (!Number.isFinite(barMs) || barMs <= 0) return true;
-  return ms >= barMs - CONFIRMATION_LOOKBACK_MS && ms <= barMs + 60_000;
-}
-
 export function activeModelWalkers(walkers, model) {
   return walkers.filter((walker) => isActiveWalker(walker) && walker.model === model);
 }
