@@ -1,7 +1,25 @@
 // tests/orders-helpers.test.js
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatDrawOption, formatStopSource, routingLabel, blockMessage } from "../app/renderer/src/Orders.helpers.js";
+import { formatDrawOption, formatStopSource, routingLabel, blockMessage, orderResultToast } from "../app/renderer/src/Orders.helpers.js";
+
+describe("orderResultToast", () => {
+  const ctx = { side: "buy", contracts: 3, symbol: "MES1!" };
+  it("success only when the broker confirms (ok:true)", () => {
+    assert.equal(orderResultToast({ ok: true, broker: "paper" }, ctx), "ORDER SENT · BUY 3c MES1!");
+  });
+  it("guard/route block → BLOCKED with the mapped reason", () => {
+    assert.match(orderResultToast({ ok: false, blocked: true, code: "no_stop" }, ctx), /^BLOCKED · No stop/);
+  });
+  it("broker rejection (non-200, not blocked) → ORDER FAILED, not SENT", () => {
+    const t = orderResultToast({ ok: false, broker: "paper", result: { ok: false, status: 400, body: "bad" } }, ctx);
+    assert.match(t, /^ORDER FAILED/);
+    assert.match(t, /400/);
+  });
+  it("thrown/transport error → ORDER FAILED with the error text", () => {
+    assert.match(orderResultToast({ ok: false, error: "fetch failed" }, ctx), /^ORDER FAILED · fetch failed/);
+  });
+});
 
 describe("orders helpers", () => {
   it("formatDrawOption: name · price · R", () => {
