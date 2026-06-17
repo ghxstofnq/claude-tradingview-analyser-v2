@@ -13,6 +13,7 @@ import {
   deriveLedgerState,
   deriveLedgerReason,
   formatGradeShort,
+  todayBadge,
 } from "./Review.helpers.js";
 import { useReview } from "./hooks/useReview.js";
 import { useFills } from "./hooks/useFills.js";
@@ -382,12 +383,11 @@ function ReviewCell() {
   const [view, setView] = useState("SESSION");
   const [picked, setPicked] = useState({});
   const { journal, library } = useReview();
-  const today = library?.[0];                  // assumed sorted newest-first
-  const totalR = today?.total_r ?? null;
+  const { totalR, setups } = todayBadge(library);   // reads stats.net_r / stats.setups
 
   let badge;
   if (totalR == null || totalR === 0) {
-    badge = <span className="count dim">{today?.setups ?? 0}</span>;
+    badge = <span className="count dim">{setups}</span>;
   } else {
     const cls = totalR > 0 ? "green" : "red";
     badge = (

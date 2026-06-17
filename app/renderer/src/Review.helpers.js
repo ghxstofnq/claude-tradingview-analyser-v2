@@ -206,3 +206,13 @@ export function degradedChainStages(chainAudit) {
   visit(chainAudit, "");
   return out;
 }
+
+// Badge numbers for the REVIEW topbar cell from the library (newest-first row).
+// Reads net_r/setups from the row's `stats` block — the row shape is
+// { date, session, grade, stats:{ net_r, setups, ... } }. The old badge read
+// today.total_r / today.setups (top-level, never present) and always showed 0.
+export function todayBadge(library) {
+  const today = Array.isArray(library) ? library[0] : null;
+  const r = today?.stats?.net_r;
+  return { totalR: r == null ? null : Number(r), setups: today?.stats?.setups ?? 0 };
+}

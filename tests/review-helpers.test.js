@@ -11,7 +11,28 @@ import {
   buildLedger,
   buildTrackRecord,
   buildTrackRecordFromFills,
+  todayBadge,
 } from "../app/renderer/src/Review.helpers.js";
+
+describe("todayBadge", () => {
+  // The library row shape is { date, session, grade, stats:{ net_r, setups } }.
+  // The old badge read today.total_r / today.setups (top-level) → always 0.
+  it("reads net_r + setups from the row's stats block", () => {
+    const b = todayBadge([{ date: "2026-06-16", session: "ny-pm", stats: { net_r: 10.12, setups: 6 } }]);
+    assert.equal(b.totalR, 10.12);
+    assert.equal(b.setups, 6);
+  });
+  it("a 0R day reports totalR 0 (dim count), not null", () => {
+    const b = todayBadge([{ stats: { net_r: 0, setups: 3 } }]);
+    assert.equal(b.totalR, 0);
+    assert.equal(b.setups, 3);
+  });
+  it("no library / empty → totalR null, setups 0", () => {
+    assert.deepEqual(todayBadge(null), { totalR: null, setups: 0 });
+    assert.deepEqual(todayBadge([]), { totalR: null, setups: 0 });
+    assert.deepEqual(todayBadge([{}]), { totalR: null, setups: 0 });
+  });
+});
 
 describe("buildTrackRecordFromFills", () => {
   const fills = [
