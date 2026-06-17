@@ -2826,6 +2826,9 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .topbar .status .pop-cell.open .k { color: var(--amber); }
 .topbar .status .cell:has(.th-btn) { padding: 0 2px; gap: 0; }
 .topbar .status .th-btn { border: 0; width: 24px; height: 16px; }
+/* Single theme toggle: no lingering blue focus box on mouse click (keyboard
+   focus still shows a ring via :focus-visible). */
+.topbar .status .th-btn:focus:not(:focus-visible) { outline: none; }
 .topbar .id .cell { align-self: stretch; }
 .topbar .id .bt-popover { left: 0; right: auto; }
 
