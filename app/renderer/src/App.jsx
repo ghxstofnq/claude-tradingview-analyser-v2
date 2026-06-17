@@ -252,10 +252,11 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
           )}
         </div>
         <div className="cell">
-          <button className={"th-btn" + (theme === "dark" ? " on" : "")}
-                  onClick={() => setTheme("dark")}>◐</button>
-          <button className={"th-btn" + (theme === "light" ? " on" : "")}
-                  onClick={() => setTheme("light")}>◑</button>
+          <button className="th-btn"
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+            {theme === "dark" ? "◐" : "◑"}
+          </button>
         </div>
       </div>
     </header>
