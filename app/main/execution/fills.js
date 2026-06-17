@@ -24,9 +24,26 @@ export function readFills(tradesDir, date) {
 }
 
 // Daily realized LOSS as a positive $ number (for the daily-halt guardrail).
-export function dayRealizedLossUsd(fills = []) {
-  const loss = fills.reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0);
+// `account` scopes the sum to one account's fills (e.g. "paper" / "tradovate")
+// so a halt on one account is never charged another account's losses. Null/
+// omitted = all accounts (back-compat). Fills are labelled at write time
+// (trading-feed → "paper", tradovate-fills → "tradovate").
+export function dayRealizedLossUsd(fills = [], account = null) {
+  const scoped = account == null ? fills : fills.filter((f) => f?.account === account);
+  const loss = scoped.reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0);
   return Math.abs(loss);
+}
+
+// Group fills by their `account` label → { [account]: fill[] }. Unlabelled
+// fills bucket under "unknown" so they're never silently merged into a real
+// account's record.
+export function fillsByAccount(fills = []) {
+  const out = {};
+  for (const f of fills) {
+    const key = f?.account || "unknown";
+    (out[key] ||= []).push(f);
+  }
+  return out;
 }
 
 // All fills across every date file under tradesDir, oldest-first (by ts).

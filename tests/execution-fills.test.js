@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendFill, readFills, dayRealizedLossUsd, readAllFills } from "../app/main/execution/fills.js";
+import { appendFill, readFills, dayRealizedLossUsd, readAllFills, fillsByAccount } from "../app/main/execution/fills.js";
 
 let dir;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "fills-")); });
@@ -37,6 +37,24 @@ describe("fills", () => {
   });
   it("readAllFills returns [] for a missing dir", () => {
     assert.deepEqual(readAllFills(join(dir, "nope")), []);
+  });
+  it("scopes the daily loss to one account so accounts don't cross-charge", () => {
+    appendFill(dir, "2026-06-17", { account: "tradovate", actual: { usd: -2549 } });
+    appendFill(dir, "2026-06-17", { account: "paper", actual: { usd: -100 } });
+    const all = readFills(dir, "2026-06-17");
+    assert.equal(dayRealizedLossUsd(all), 2649);              // all accounts (back-compat)
+    assert.equal(dayRealizedLossUsd(all, "paper"), 100);      // paper not charged tradovate's loss
+    assert.equal(dayRealizedLossUsd(all, "tradovate"), 2549);
+  });
+  it("fillsByAccount groups by label; unlabelled bucket under 'unknown'", () => {
+    const g = fillsByAccount([
+      { account: "paper", actual: { usd: 1 } },
+      { account: "tradovate", actual: { usd: 2 } },
+      { actual: { usd: 3 } },
+    ]);
+    assert.equal(g.paper.length, 1);
+    assert.equal(g.tradovate.length, 1);
+    assert.equal(g.unknown.length, 1);
   });
 });
 
