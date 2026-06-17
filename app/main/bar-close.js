@@ -44,6 +44,7 @@ import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // so this file is closer to pure orchestration.
 import { setTickerSink, tickOpenTrades, maybeForceCloseAtEod, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
 import { surfaceSetup, surfaceNoTrade } from "./tools/surface.js";
+import { alertIfPlumbingBlock } from "./health-check.js";
 import { buildStrategyContext } from "./strategy/context/build-strategy-context.js";
 import { runDeterministicWalkerStrategy } from "./strategy/walkers/deterministic-strategy.js";
 import {
@@ -888,6 +889,12 @@ async function runDeterministicPacketTruthForBar(ev, session) {
       // A recent setup can suppress no-trade; that's fine for UI lifecycle.
       if (!/suppressed/i.test(String(err?.message || err))) throw err;
     });
+    // Mid-session health-check: the instant the LIVE chain blocks on a plumbing
+    // (bug) reason, push a loud notification — once per condition per session.
+    // The June blackout blocked every bar for two sessions unnoticed.
+    alertIfPlumbingBlock({ reason, session, send: _send }).then((r) => {
+      if (r?.alerted) recordMetric({ kind: "bar-close", event: "plumbing_block_alert", session, reason });
+    }).catch(() => {});
   }
 
   return truth;
