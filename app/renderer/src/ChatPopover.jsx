@@ -8,6 +8,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { buildProviderSubmitOptions } from "./provider-popover-contract.js";
 import { useWalkers } from "./hooks/useWalkers.js";
+import { useDeterministicBrain } from "./hooks/useDeterministicBrain.js";
+import { walkerTruthToProse } from "./Brain.helpers.js";
 
 const CHANNELS = [
   { k: "claude", l: "CLAUDE" },
@@ -61,22 +63,19 @@ function ChatChannel({ chat, provider, label }) {
   );
 }
 
-// BRAIN — read-only bar-by-bar reasoning, sourced from the claude chat's
-// bar-read messages (newest first).
-function brainMessages(chats) {
-  const msgs = chats?.claude?.messages || [];
-  return msgs.filter((m) => m && m.type === "bar-read" && m.body).slice().reverse();
-}
-function BrainChannel({ chats }) {
-  const items = brainMessages(chats);
+// BRAIN — read-only bar-by-bar reasoning, sourced DIRECTLY from the
+// deterministic chain's per-bar verdict (no Claude in the loop), newest first.
+// Each entry is the engine's own verdict rendered as plain English.
+function BrainChannel({ entries }) {
+  const items = (entries || []).slice().reverse();
   return (
     <div className="claude">
-      <div className="ro-banner"><span className="pulse" />BRAIN · bar-by-bar reasoning · read-only</div>
-      <div className="claude-feed" data-empty-label="no bar-reads yet this session">
-        {items.map((m, i) => (
-          <div key={i} className="ro-msg brain">
-            <div className="h">BRAIN{m.t ? ` · ${m.t} ET` : ""}</div>
-            <div className="b" dangerouslySetInnerHTML={{ __html: m.body }} />
+      <div className="ro-banner"><span className="pulse" />BRAIN · deterministic chain · read-only</div>
+      <div className="claude-feed" data-empty-label="no bar verdicts yet this session">
+        {items.map((e, i) => (
+          <div key={e.ts != null ? `${e.ts}-${i}` : i} className="ro-msg brain">
+            <div className="h">BRAIN{e.t ? ` · ${e.t} ET` : ""}</div>
+            <div className="b">{walkerTruthToProse(e.truth)}</div>
           </div>
         ))}
       </div>
@@ -112,15 +111,15 @@ function WalkersChannel({ walkers }) {
 }
 
 // Peek strip — latest backend thought from the channel you're NOT viewing.
-function ChatPeek({ ch, setCh, chats, walkers }) {
+function ChatPeek({ ch, setCh, brainEntries, walkers }) {
   const target = ch === "brain" ? "walkers" : "brain";
   if (target === "brain") {
-    const b = brainMessages(chats)[0];
+    const b = (brainEntries || [])[brainEntries.length - 1];
     if (!b) return null;
     return (
       <div className="chat-peek" onClick={() => setCh("brain")}>
         <span className="pk-h"><i className="d blue" />BRAIN{b.t ? ` · ${b.t}` : ""}</span>
-        <span className="pk-b" dangerouslySetInnerHTML={{ __html: b.body }} />
+        <span className="pk-b">{walkerTruthToProse(b.truth)}</span>
         <span className="pk-go">▸ OPEN</span>
       </div>
     );
@@ -140,6 +139,7 @@ export function ChatCell({ chats }) {
   const [open, setOpen] = useState(false);
   const [ch, setCh] = useState("claude");
   const walkers = useWalkers();
+  const brainEntries = useDeterministicBrain();
   const claude = chats?.claude;
   const codex = chats?.codex;
   const live = !!(claude?.typing || codex?.typing);
@@ -171,10 +171,10 @@ export function ChatCell({ chats }) {
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <div className="body chat-body">
-            <ChatPeek ch={ch} setCh={setCh} chats={chats} walkers={walkers} />
+            <ChatPeek ch={ch} setCh={setCh} brainEntries={brainEntries} walkers={walkers} />
             {ch === "claude" && <ChatChannel chat={claude} provider="claude" label="CLAUDE" />}
             {ch === "codex" && <ChatChannel chat={codex} provider="codex" label="CODEX" />}
-            {ch === "brain" && <BrainChannel chats={chats} />}
+            {ch === "brain" && <BrainChannel entries={brainEntries} />}
             {ch === "walkers" && <WalkersChannel walkers={walkers} />}
           </div>
         </div>

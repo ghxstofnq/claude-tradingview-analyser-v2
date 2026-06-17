@@ -12,14 +12,15 @@ import {
   selectPillar3,
   pillar3ToConfirmationRows,
   liveGridFromTrade,
-  latestBarReadMessage,
   deriveAddCandidate,
   trancheStackFromState,
   normalizeSide,
 } from "./Live.helpers.js";
 import { stripCitations } from "./Prep.helpers.js";
 import { realAccountView } from "./Account.helpers.js";
+import { walkerTruthToProse } from "./Brain.helpers.js";
 import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
+import { useDeterministicBrain } from "./hooks/useDeterministicBrain.js";
 import { sizeOrder } from "./Sizing.helpers.js";
 import { executionAdapter } from "./execution/executionAdapter.js";
 import { buildOrderRequest } from "./execution/orderRequest.js";
@@ -193,7 +194,7 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
-function InTradeView({ position, trade, tranches, lastBar, price, chat, symbol, addCandidate, onAdd }) {
+function InTradeView({ position, trade, tranches, lastBar, price, symbol, addCandidate, onAdd }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -208,7 +209,8 @@ function InTradeView({ position, trade, tranches, lastBar, price, chat, symbol, 
   const view = { side, entry, stop, tp1, tp2: t.tp2, r_realized: t.r_realized, tp1_hit: t.tp1_hit };
   const livePrice = (typeof price === "number" && Number.isFinite(price)) ? price : lastBar?.close;
   const grid = liveGridFromTrade(view, livePrice);
-  const barRead = latestBarReadMessage(chat?.messages || []);
+  const brain = useDeterministicBrain();
+  const latestBrain = brain.length ? brain[brain.length - 1] : null;
   const grade = t.grade || "—";
   const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : "dim";
   const pointValue = pointValueFor(sym);
@@ -281,10 +283,10 @@ function InTradeView({ position, trade, tranches, lastBar, price, chat, symbol, 
           </div>
         )}
 
-        {barRead && (
+        {latestBrain && (
           <div className="lv-box">
-            <div className="lv-box-hd">BRAIN · NARRATION</div>
-            <div className="ai-prose"><span dangerouslySetInnerHTML={{ __html: barRead.body }} /></div>
+            <div className="lv-box-hd">BRAIN · DETERMINISTIC</div>
+            <div className="ai-prose">{walkerTruthToProse(latestBrain.truth)}</div>
           </div>
         )}
       </Panel>
@@ -539,7 +541,7 @@ function LiveCell({ guards, symbol }) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveView === "intrade") {
     body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} tranches={trancheRows} lastBar={lastBar} price={exec.price} chat={chat} symbol={symbol} addCandidate={addCandidate} onAdd={() => pickView("add")} />
+      ? <InTradeView position={exec.position} trade={activeTrade} tranches={trancheRows} lastBar={lastBar} price={exec.price} symbol={symbol} addCandidate={addCandidate} onAdd={() => pickView("add")} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
