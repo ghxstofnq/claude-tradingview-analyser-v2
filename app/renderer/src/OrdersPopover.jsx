@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Panel, Row } from "./Shared.jsx";
 import { executionAdapter } from "./execution/executionAdapter.js";
-import { formatStopSource, routingLabel, blockMessage } from "./Orders.helpers.js";
+import { formatStopSource, routingLabel, blockMessage, orderResultToast } from "./Orders.helpers.js";
 
 const fmt = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
 const sameNum = (a, b) => a !== "" && a != null && Number(a) === Number(b);
@@ -78,7 +78,7 @@ function OrdersBody({ onToast, toast, symbol }) {
         typedTp: typedTp === "" ? null : Number(typedTp),
         riskUsd: Number(risk),
       });
-      onToast(r?.ok ? `ORDER SENT · ${side.toUpperCase()} ${preview?.contracts}c ${ctx?.symbol}` : `BLOCKED · ${r?.code ? blockMessage(r.code) : (r?.message || r?.error || "rejected")}`);
+      onToast(orderResultToast(r, { side, contracts: preview?.contracts, symbol: ctx?.symbol }));
     } finally { setBusy(false); }
   };
   const flatten = async () => {

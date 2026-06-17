@@ -7,7 +7,6 @@ import {
   selectPillar3,
   pillar3ToConfirmationRows,
   liveGridFromTrade,
-  latestBarReadMessage,
   deriveAddCandidate,
   trancheStackFromState,
   normalizeSide,
@@ -158,37 +157,6 @@ describe("liveGridFromTrade", () => {
   it("returns em-dash placeholders when trade is missing", () => {
     const grid = liveGridFromTrade(null, 21358);
     assert.equal(grid.price.v, "—");
-  });
-});
-
-describe("latestBarReadMessage", () => {
-  it("finds the latest bar-read in a mixed message list", () => {
-    const messages = [
-      { type: "user", body: "hello", t: "09:30" },
-      { type: "bar-read", body: "first read", t: "09:31" },
-      { type: "reply", body: "answer", t: "09:32" },
-      { type: "bar-read", body: "latest read", t: "09:33" },
-      { type: "reply", body: "another answer", t: "09:34" },
-    ];
-    const m = latestBarReadMessage(messages);
-    assert.equal(m.body, "latest read");
-  });
-
-  it("returns null when no bar-read exists", () => {
-    const messages = [
-      { type: "user", body: "hi" },
-      { type: "reply", body: "hi" },
-    ];
-    assert.equal(latestBarReadMessage(messages), null);
-  });
-
-  it("returns null on empty array", () => {
-    assert.equal(latestBarReadMessage([]), null);
-  });
-
-  it("returns null on non-array input", () => {
-    assert.equal(latestBarReadMessage(undefined), null);
-    assert.equal(latestBarReadMessage(null), null);
   });
 });
 

@@ -69,6 +69,27 @@ test("nextState — unknown event keeps state", () => {
   assert.equal(nextState("IDLE", { type: "WAT" }), "IDLE");
 });
 
+test("nextState — RE-RUN (START) from DONE / DETAIL → AUTO_RUNNING", () => {
+  // RE-RUN buttons dispatch START; from DONE it used to rely on the followEngine
+  // quirk, and from DETAIL it stranded the UI. Both now transition explicitly.
+  assert.equal(nextState("DONE", { type: "START", mode: "auto" }), "AUTO_RUNNING");
+  assert.equal(nextState("DETAIL", { type: "START", mode: "auto" }), "AUTO_RUNNING");
+});
+
+test("filterRuns — query matches date / run_id substring", () => {
+  const runs = [
+    { run_id: "r1", date: "2026-06-16", session: "ny-am", mode: "auto" },
+    { run_id: "r2", date: "2026-06-09", session: "ny-pm", mode: "auto" },
+  ];
+  assert.deepEqual(filterRuns(runs, { query: "06-16" }).map((r) => r.run_id), ["r1"]);
+  assert.deepEqual(filterRuns(runs, { query: "r2" }).map((r) => r.run_id), ["r2"]);
+  assert.equal(filterRuns(runs, { query: "zzz" }).length, 0);
+  assert.equal(filterRuns(runs, { query: "" }).length, 2);          // empty = no filter
+  assert.equal(filterRuns(runs, {}).length, 2);                      // absent = no filter
+  // query composes with the existing filters
+  assert.deepEqual(filterRuns(runs, { session: "ny-pm", query: "2026" }).map((r) => r.run_id), ["r2"]);
+});
+
 test("aggregateRuns — totals + per-grade + agreement", () => {
   const runs = [
     {

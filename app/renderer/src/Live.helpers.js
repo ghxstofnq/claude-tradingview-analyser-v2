@@ -171,16 +171,3 @@ export function trancheStackFromState(openTrades, price) {
   rows.sort((a, b) => (a.role === "anchor" ? 0 : 1) - (b.role === "anchor" ? 0 : 1) || (a.seq - b.seq));
   return rows;
 }
-
-// Find the latest "bar-read" message from a useChat-shaped messages array.
-// Each message has shape { type, body, t }. Returns the message or null.
-//
-// The chat history is ordered oldest-first, so we scan from the end.
-export function latestBarReadMessage(messages) {
-  if (!Array.isArray(messages)) return null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m && m.type === "bar-read") return m;
-  }
-  return null;
-}

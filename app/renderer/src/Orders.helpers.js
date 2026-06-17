@@ -38,3 +38,16 @@ const BLOCK = {
   no_size: "No whole-contract size lands within $50 of your risk.",
 };
 export function blockMessage(code) { return code ? (BLOCK[code] ?? code) : ""; }
+
+// Toast text for a placeManual result. Three outcomes:
+//   ok:true            → "ORDER SENT" (broker confirmed)
+//   blocked:true       → "BLOCKED · <reason>" (guard/route, never reached the broker)
+//   else               → "ORDER FAILED · <why>" (broker rejected / transport error)
+// The paper path used to return ok:true regardless of HTTP status, so a failed
+// POST toasted "ORDER SENT" — this distinguishes the broker-failure case.
+export function orderResultToast(r, { side, contracts, symbol } = {}) {
+  if (r?.ok) return `ORDER SENT · ${String(side || "").toUpperCase()} ${contracts ?? "?"}c ${symbol ?? ""}`.trim();
+  if (r?.blocked) return `BLOCKED · ${r.code ? blockMessage(r.code) : (r.message || r.error || "rejected")}`;
+  const why = r?.result?.status ? `HTTP ${r.result.status}` : (r?.error || r?.result?.body || "broker rejected");
+  return `ORDER FAILED · ${String(why).slice(0, 80)}`;
+}

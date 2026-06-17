@@ -415,6 +415,9 @@ function DoneBody({ state, actions }) {
     );
   }
   const winRate = s.setups > 0 ? Math.round((100 * s.wins) / s.setups) : 0;
+  const runId = state.currentRun?.runId;
+  const reRun = () => actions.start({ date: s.date, session: s.session, mode: s.mode });
+  const discard = async () => { if (runId) await actions.deleteRun(runId); actions.runAnother(); };
   return (
     <>
       <div className="section">
@@ -446,8 +449,9 @@ function DoneBody({ state, actions }) {
         </div>
         <div className="actions">
           <button className="btn primary full" onClick={actions.viewAll}>▤  VIEW IN ANALYTICS</button>
-          <button className="btn secondary" onClick={actions.runAnother}>↻ RE-RUN</button>
-          <button className="btn danger" onClick={actions.runAnother}>DISCARD</button>
+          <button className="btn secondary" onClick={reRun}>↻ RE-RUN</button>
+          {runId && <button className="btn secondary" onClick={() => actions.openDetail(runId)}>▸ OPEN DETAIL</button>}
+          <button className="btn danger" onClick={discard}>DISCARD</button>
         </div>
       </div>
 
@@ -473,9 +477,10 @@ function LibraryBody({ state, actions }) {
   const [sessionFilter, setSessionFilter] = useState(null);
   const [modeFilter, setModeFilter] = useState(null);
   const [gradeFilter, setGradeFilter] = useState(null);
+  const [query, setQuery] = useState("");
 
   const filtered = filterRuns(state.library.runs, {
-    session: sessionFilter, mode: modeFilter, grade: gradeFilter,
+    session: sessionFilter, mode: modeFilter, grade: gradeFilter, query,
   });
   const agg = aggregateRuns(state.library.runs);
   const { A, loading } = useAnalytics(state.library.runs, true);
@@ -533,7 +538,8 @@ function LibraryBody({ state, actions }) {
             options={[[null, "ALL"], ["auto", "AUTO"], ["pause", "PAUSE"]]} />
           <div className="search-wrap">
             <input
-              type="text" placeholder="date / note..."
+              type="text" placeholder="date / run id..."
+              value={query} onChange={(e) => setQuery(e.target.value)}
               autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
               name={`bt-lib-q-${Math.random().toString(36).slice(2, 8)}`}
             />
@@ -675,7 +681,7 @@ function DetailBody({ state, actions }) {
 
       <div className="section">
         <div className="actions row">
-          <button className="btn secondary">↻ RE-RUN</button>
+          <button className="btn secondary" onClick={() => actions.start({ date: entry.date, session: entry.session, mode: entry.mode })}>↻ RE-RUN</button>
           <div className="spacer" />
           <button className="btn danger" onClick={() => {
             if (confirm(`Delete run ${entry.run_id}? This removes the folder + summary.`)) {

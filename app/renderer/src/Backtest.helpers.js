@@ -21,6 +21,7 @@ export function nextState(state, event) {
       if (event.type === "COMPLETE") return "DONE";
       return state;
     case "DONE":
+      if (event.type === "START") return "AUTO_RUNNING";   // RE-RUN
       if (event.type === "DISMISS") return "IDLE";
       if (event.type === "VIEW_ALL") return "LIBRARY";
       if (event.type === "OPEN_DETAIL") return "DETAIL";
@@ -34,6 +35,7 @@ export function nextState(state, event) {
       if (event.type === "RUN_ANOTHER") return "IDLE";
       return state;
     case "DETAIL":
+      if (event.type === "START") return "AUTO_RUNNING";   // RE-RUN from detail
       if (event.type === "BACK") return "LIBRARY";
       if (event.type === "DISMISS") return "IDLE";
       if (event.type === "RUN_ANOTHER") return "IDLE";
@@ -62,11 +64,13 @@ export function aggregateRuns(runs) {
   };
 }
 
-export function filterRuns(runs, { session = null, mode = null, grade = null } = {}) {
+export function filterRuns(runs, { session = null, mode = null, grade = null, query = null } = {}) {
+  const q = query ? String(query).trim().toLowerCase() : "";
   return runs.filter((r) => {
     if (session && r.session !== session) return false;
     if (mode && r.mode !== mode) return false;
     if (grade && !runMatchesGrade(r, grade)) return false;
+    if (q && !`${r.date ?? ""} ${r.run_id ?? ""} ${r.session ?? ""}`.toLowerCase().includes(q)) return false;
     return true;
   });
 }

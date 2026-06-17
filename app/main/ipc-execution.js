@@ -123,7 +123,9 @@ export function registerExecutionIpc() {
       }
 
       const result = await tvAdapter.placeOrder({ symbol: ctx.symbol, side: arg.side, type: "market", entry: ctx.price, stop: preview.stop, tp: preview.tp ?? undefined, contracts: preview.contracts });
-      return { ok: true, broker: "paper", result, preview };
+      // Reflect the broker's actual HTTP result (mirrors the Tradovate path) —
+      // a non-200 POST must not report ok:true / "ORDER SENT".
+      return { ok: !!result?.ok, broker: "paper", result, preview };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
