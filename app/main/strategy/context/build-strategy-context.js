@@ -84,46 +84,7 @@ function buildPillar3(engine) {
   const structuralStops = normalizeEvidenceList(engine?.pillar3?.structural_stops ?? engine?.pillar3?.structuralStops ?? engine?.risk?.structural_stops ?? [], 'gates.engine.pillar3.structural_stops');
   const insideFvgs = normalizeEvidenceList(engine?.price_context?.inside_fvgs ?? [], 'gates.engine.price_context.inside_fvgs');
   const insideBprs = normalizeEvidenceList(engine?.price_context?.inside_bprs ?? [], 'gates.engine.price_context.inside_bprs');
-  // Surface ALL confirmation candidates — not just the bridge's single
-  // in-current-bar pick — so each walker matches its OWN zone and applies
-  // recency-vs-tap freshness (lifecycle stampIsFreshForWalker). The old
-  // single-pick + in-current-bar gate dropped every confirmation that surfaced
-  // 1-2 captures late, so live fired 0 confirmations (2026-06-17). Engine-
-  // confirmed rows (CE-retest / MSS) and flipped (inverted) zones (aggressive
-  // Inversion) both go in, each carrying zone bounds + close + the stamp; the
-  // lifecycle decides freshness + zone identity + close-through.
-  const truthy = (v) => v === true || v === 1 || v === '1' || v === 'true';
-  const lastBar = engine?.confirmation?.last_bar ?? null;
-  const lastClose = lastBar?.close ?? null;
-  const candidateRows = rows.flatMap((row) => {
-    if (row.entry_state === 'confirmed' && truthy(row.confirm_close)) {
-      return [{ ...row, zone_top: row.top, zone_bottom: row.bottom, close: lastClose, last_bar: lastBar }];
-    }
-    if (String(row.state ?? '').toLowerCase() === 'inverted'
-      && ['fvg', 'ifvg'].includes(kindOf(row))
-      && Number(row.inverted_ms) > 0) {
-      return [{
-        ...row,
-        entry_state: 'confirmed',
-        confirm_close: 1,
-        confirm_dir: row.dir ?? row.direction,
-        ce_held: 1,
-        chop_15m: truthy(row.chop_15m) ? 1 : 0,
-        zone_top: row.top,
-        zone_bottom: row.bottom,
-        close: lastClose,
-        last_bar: lastBar,
-        source: 'violation_close_context',
-      }];
-    }
-    return [];
-  });
-  // Most-recent first so a walker's `.find` picks the freshest valid match.
-  candidateRows.sort((a, b) => (Number(b.confirm_ms ?? b.inverted_ms) || 0) - (Number(a.confirm_ms ?? a.inverted_ms) || 0));
-  const bridgePick = engine?.confirmation && engine.confirmation.entry_state === 'confirmed'
-    ? [{ ...engine.confirmation, evidenceRef: engine.confirmation.evidenceRef ?? 'gates.engine.confirmation' }]
-    : [];
-  const confirmationRows = [...bridgePick, ...candidateRows];
+  const confirmationRows = engine?.confirmation ? [{ ...engine.confirmation, evidenceRef: engine.confirmation.evidenceRef ?? 'gates.engine.confirmation' }] : [];
   return {
     pdArrays: rows.filter((row) => ['fvg', 'ifvg', 'bpr'].includes(kindOf(row))),
     fvgs: rows.filter((row) => kindOf(row) === 'fvg'),

@@ -448,28 +448,3 @@ test('inversion confirm: inverted_ms inside the confirmation bar still confirms 
   const requests = buildInversionWalkerAdvanceRequests(context, [{ ...walker, stage: 'pd_identified' }]);
   assert.equal(requests.filter((r) => r.stage === 'confirmed').length, 1);
 });
-
-// 2026-06-17: live never confirmed because the engine surfaces the flip 1-2
-// captures after the inverting bar AND live's last_bar is the FORMING bar, so
-// inverted_ms always sat one bar below the strict single-bar window. The
-// confirmation window is widened by CONFIRMATION_LOOKBACK_MS (~3 bars) so a
-// late-surfacing flip still confirms — while the 37-min-stale case above stays
-// rejected. Proven on live NY-AM: old code folded 0 packets, fixed code fires.
-test('inversion confirm: a flip surfacing 2 bars late still confirms (capture-lag tolerance, 2026-06-17)', () => {
-  const spawnPd = { evidenceRef: 'zone:29033.25-29044', kind: 'fvg', dir: 'bull', state: 'fresh', top: 29044, bottom: 29033.25 };
-  const walker = createWalker({ context: freshContext(), model: 'Inversion', side: 'short', pdArray: spawnPd });
-  const context = freshContext({
-    pillar3: {
-      // flip stamped at 11:20; confirmation surfaced at the 11:22 forming bar (2 bars late)
-      pdArrays: [{ ...spawnPd, kind: 'ifvg', dir: 'bear', state: 'inverted', inverted_ms: 1781103120000 }], // 11:20
-      confirmationRows: [{
-        evidenceRef: 'zone:29033.25-29044', entry_state: 'confirmed', confirm_close: 1,
-        ce_held: 1, chop_15m: 0, confirm_dir: 'bear', close: 29027.75,
-        zone_top: 29044, zone_bottom: 29033.25,
-        last_bar: { time: 1781103240, open: 29030, high: 29032, low: 29018, close: 29027.75, direction: 'bearish', body_ratio: 0.6 }, // 11:22 (2 bars after the flip)
-      }],
-    },
-  });
-  const requests = buildInversionWalkerAdvanceRequests(context, [{ ...walker, stage: 'pd_identified' }]);
-  assert.equal(requests.filter((r) => r.stage === 'confirmed').length, 1);
-});
