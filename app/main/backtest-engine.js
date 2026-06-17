@@ -756,12 +756,18 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
   // `setups` counts what the chain SURFACED — a rejected setup still
   // happened; only acceptance routes it into the outcome walk.
   const totalSetups = surfaced.length;
-  // A win is a profit target — TP1 (B trades) or TP2 (A+ runners).
-  const isWin = (t) => t.outcome === "tp1_hit" || t.outcome === "tp2_hit";
+  // A win is any trade that booked positive R — a TP1/TP2 hit, OR a 16:00
+  // force-close that was in profit (user ruling 2026-06-17: a profitable EOD
+  // close is a win, a losing one a loss). Matches the dashboard's R-based
+  // definition (cli/lib/backtest-analytics.js).
+  const isWin = (t) => t.outcome === "tp1_hit" || t.outcome === "tp2_hit"
+    || (t.outcome === "closed_1600" && Number(t.realized_r) > 0);
+  const isLoss = (t) => t.outcome === "stop_hit"
+    || (t.outcome === "closed_1600" && Number(t.realized_r) < 0);
   const wins = closedTrades.filter(isWin).length;
-  const losses = closedTrades.filter((t) => t.outcome === "stop_hit").length;
-  // Trades force-closed at 16:00 (user ruling 2026-06-13) — neither a TP1 nor
-  // a stop; their SIGNED R still rolls into total_r below.
+  const losses = closedTrades.filter(isLoss).length;
+  // Trades force-closed at 16:00 (user ruling 2026-06-13) — kept as an
+  // informational count; they're now ALSO classified win/loss by signed R above.
   const closed_eod = closedTrades.filter((t) => t.outcome === "closed_1600").length;
   // Realized R model (user correction 2026-06-12): each closed trade books
   // its actual multiple — TP1 hits pay |exit-entry|/|entry-stop| (>=2R for
@@ -819,6 +825,8 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
     } : {}),
   };
 }
+
+export const __test = { buildSummary };
 
 // Wait for a {type:"decision", choice:"accept"|"reject"} command on the bus.
 // Resolves early on {type:"stop"} so the engine unwinds cleanly.
