@@ -1,5 +1,6 @@
 import { runWalkerEngine } from './walker-engine.js';
 import { isActiveWalker } from './walker-state.js';
+import { stampWithinConfirmationWindow } from './lifecycle-utils.js';
 
 function directionForSide(side) {
   if (side === 'long') return { pd: ['bull', 'bullish'], swing: ['bull', 'bullish'], sweepSide: 'sell', confirm: ['bull', 'bullish'] };
@@ -218,7 +219,9 @@ export function buildMssWalkerAdvanceRequests(context, walkers = []) {
     }
 
     const confirmed = confirmationRows.find((row) =>
-      isValidConfirmationForSide(row, walker.side) && confirmationMatchesZone(walker, row));
+      isValidConfirmationForSide(row, walker.side)
+      && confirmationMatchesZone(walker, row)
+      && stampWithinConfirmationWindow(row.confirm_ms, row?.last_bar?.time));
     if ((walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed) {
       requests.push({
         id: walker.id,

@@ -10,6 +10,7 @@ import {
   rowBottom,
   rowTop,
   sideForPdDirection,
+  stampWithinConfirmationWindow,
   stateIsTradable,
 } from './lifecycle-utils.js';
 
@@ -73,7 +74,7 @@ export function buildInversionWalkerSpawnRequests(context) {
 // carries inverted_ms and the confirmation carries its bar, the flip must
 // stamp THAT bar; stale flips are retests, not entries. Rows without the
 // stamps (hand-built fixtures) keep the legacy close-through behavior.
-function invertedOnThisBar(context, walker, row) {
+function invertedFreshForWalker(context, walker, row) {
   const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
   const top = Number(pd.top);
   const bottom = Number(pd.bottom);
@@ -84,9 +85,11 @@ function invertedOnThisBar(context, walker, row) {
     .find((r) => near(Number(r?.top), top) && near(Number(r?.bottom), bottom));
   const invMs = Number(current?.inverted_ms);
   if (!Number.isFinite(invMs) || invMs <= 0) return true; // no stamp → legacy
-  const barMs = Number(row?.last_bar?.time) * 1000;
-  if (!Number.isFinite(barMs)) return true; // no bar identity → legacy
-  return invMs >= barMs && invMs < barMs + 60_000;
+  // Fresh iff the flip falls within the current bar widened by the surfacing
+  // lookback — NOT a stale flip from many bars ago (GXNQ: "entry is the
+  // inverting candle"). Old code used a strict 1-bar window which live never
+  // hit (flip surfaces 1-2 captures late; last_bar is the forming bar).
+  return stampWithinConfirmationWindow(invMs, row?.last_bar?.time);
 }
 
 export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
@@ -96,7 +99,7 @@ export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
   for (const walker of activeModelWalkers(walkers, 'Inversion')) {
     const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side)
       && fullCloseThrough(row, walker)
-      && invertedOnThisBar(context, walker, row));
+      && invertedFreshForWalker(context, walker, row));
     if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed) {
       requests.push({
         id: walker.id,
