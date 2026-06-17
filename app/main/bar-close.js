@@ -634,7 +634,7 @@ async function runClaudeTurnFor(ev, session, phase) {
     // runs: most-recent bar of each TF replaces older ones.
     timeoutMs: 180_000,
     onEvent: (e) => {
-      if (e.type === "chunk") _send?.("chat:chunk", e);
+      if (e.type === "chunk") _send?.("chat:chunk", { ...e, purpose: "bar-close" });
       else if (e.type === "tool_call") {
         _send?.("chat:tool_call", e);
         // For diagnostics — capture the file_path for Read/Edit calls so
@@ -652,7 +652,7 @@ async function runClaudeTurnFor(ev, session, phase) {
         });
       }
       else if (e.type === "turn_complete") {
-        _send?.("chat:turn_complete", e);
+        _send?.("chat:turn_complete", { ...e, purpose: "bar-close" });
         markTurnComplete();
         // Clear detector candidate — next turn re-stages its own.
         import("./tools/surface.js").then(({ clearTurnAuditState }) => clearTurnAuditState()).catch(() => {});
