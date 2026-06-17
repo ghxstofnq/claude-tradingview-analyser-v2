@@ -3504,19 +3504,20 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
    PAPER / LIVE ACCOUNT BADGE — always visible in the topbar.
    LIVE is intentionally loud: red, filled, pulsing.
    ═══════════════════════════════════════════════════════════════════════ */
+/* Resting/paper account reads as plain text in the cell (like ALERTS / NEWS) —
+   no inner chip. The .cell left-border + pop-cell hover/open is the only frame;
+   LIVE re-adds an emphasis box below. */
 .topbar .acct-badge {
   display: inline-flex; align-items: center; gap: 7px;
-  height: 18px; padding: 0 9px;
-  border: 1px solid var(--border-d);
   font-size: 9px; letter-spacing: 0.18em; white-space: nowrap;
   align-self: center;
 }
 .acct-badge .d { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .acct-badge .sub { color: var(--label); letter-spacing: 0.1em; font-size: 8.5px; }
-.topbar .acct-badge.paper { color: var(--amber); border-color: var(--border-d); }
+.topbar .acct-badge.paper { color: var(--amber); }
 .acct-badge.paper .d { background: var(--amber); }
 .topbar .acct-badge.live {
-  color: var(--red); border-color: var(--red);
+  color: var(--red); border: 1px solid var(--red); padding: 1px 8px;
   background: rgba(224, 82, 74, 0.14); font-weight: 600;
   box-shadow: 0 0 0 1px rgba(224, 82, 74, 0.25) inset;
 }
@@ -3798,8 +3799,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
    ═══════════════════════════════════════════════════════════════════════ */
 .topbar .status .acct-cell { position: relative; cursor: pointer; display: inline-flex; align-items: center; }
 .topbar .acct-badge .gear { color: var(--label-dim); font-size: 8px; margin-left: 1px; }
-.topbar .acct-cell:hover .acct-badge.paper { border-color: var(--amber); }
-.topbar .acct-cell.open .acct-badge.paper { border-color: var(--amber); background: rgba(235, 187, 61, 0.06); }
+/* Hover/open affordance is the cell's left border (shared .pop-cell rule) —
+   no redundant inner-badge border. LIVE keeps its emphasis ring when open. */
 .topbar .acct-cell.open .acct-badge.live { box-shadow: 0 0 0 1px var(--red) inset; }
 
 .bt-popover.settings-pop {
