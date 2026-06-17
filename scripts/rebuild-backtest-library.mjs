@@ -35,7 +35,14 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 function findRun(date, session) {
   const tag = `-${session.replace("ny-", "")}-${date}`;
-  return fs.readdirSync(BT).filter((d) => d.includes(tag)).sort().pop();
+  // Pick the newest COMPLETE folder — regen needs brief-bundle.json. Tape-only
+  // refold folders (e.g. a refold batch that saved no bundle) sort newest but
+  // crash regen; skip them so we fall back to the last full record.
+  return fs.readdirSync(BT)
+    .filter((d) => d.includes(tag))
+    .filter((d) => fs.existsSync(path.join(BT, d, session, "brief-bundle.json"))
+      && fs.existsSync(path.join(BT, d, session, "tape.json")))
+    .sort().pop();
 }
 function regen(runDir, session) {
   const rec = JSON.parse(fs.readFileSync(path.join(runDir, "brief-payloads.json"), "utf8"));
