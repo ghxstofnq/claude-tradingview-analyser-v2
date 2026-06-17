@@ -13,9 +13,11 @@ import {
 } from '../app/renderer/src/provider-popover-contract.js';
 
 describe('provider popover contract', () => {
-  test('starts with Codex first and keeps Claude second as fallback', () => {
-    assert.equal(DEFAULT_CHAT_PROVIDER, 'codex');
-    assert.equal(normalizeChatProvider(), 'codex');
+  test('defaults to Claude (matches backend DEFAULT_PROVIDER), exposes both cells', () => {
+    // 2026-06-17: default flipped codex→claude to match llm-provider.js
+    // DEFAULT_PROVIDER='claude' (Codex brief/wrap turns were timing out).
+    assert.equal(DEFAULT_CHAT_PROVIDER, 'claude');
+    assert.equal(normalizeChatProvider(), 'claude');
     assert.deepEqual(CHAT_PROVIDER_CELLS.map((cell) => cell.provider), ['codex', 'claude']);
     assert.deepEqual(CHAT_PROVIDER_CELLS.map((cell) => cell.label), ['CODEX', 'CLAUDE']);
   });

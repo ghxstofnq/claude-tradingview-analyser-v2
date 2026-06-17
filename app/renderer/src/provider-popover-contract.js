@@ -1,4 +1,7 @@
-export const DEFAULT_CHAT_PROVIDER = 'codex';
+// Default chat provider. Aligned with the backend DEFAULT_PROVIDER='claude'
+// (2026-06-12) — Codex brief/wrap turns were timing out at 600s, so Claude is
+// the default everywhere; Codex remains one explicit switch away.
+export const DEFAULT_CHAT_PROVIDER = 'claude';
 
 export const CHAT_PROVIDER_CELLS = Object.freeze([
   Object.freeze({

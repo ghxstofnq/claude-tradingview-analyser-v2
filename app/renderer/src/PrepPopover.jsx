@@ -15,7 +15,7 @@ import {
   stripCitations,
 } from "./Prep.helpers.js";
 import { useSessionBrief, formatAge } from "./hooks/useSessionBrief.js";
-import { armAlertReal, useAlertStateListener } from "./hooks/useAlerts.js";
+import { armAlertReal, disarmAlertReal, normalizeArmed, useAlertStateListener, useAlertFiredListener } from "./hooks/useAlerts.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
 
 // ───────────────────────────────────────────────────────────────────────
@@ -223,31 +223,33 @@ function PrepBody({ symbol, currentPrice }) {
   }, [symbol, setSelectedSymbol]);
 
   // Alert armed / fired state — wire the TV alert ring so the bell icons in
-  // STEP 2 reflect the actual armed/fired set.
-  const [armed, setArmed] = useState(new Set());
-  const [fired] = useState(new Set());
+  // STEP 2 reflect the actual armed/fired set. `armed` is a Map price→id so we
+  // can disarm by id (the IPC deletes by id); `fired` is a Set of prices.
+  const [armed, setArmed] = useState(new Map());
+  const [fired, setFired] = useState(new Set());
   useAlertStateListener((ev) => {
-    setArmed(new Set((ev?.armed || []).map((a) => a.price)));
+    setArmed(new Map(normalizeArmed(ev).map((a) => [a.price, a.id])));
+  });
+  useAlertFiredListener((ev) => {
+    const price = Number(ev?.price);
+    if (Number.isFinite(price)) setFired((s) => new Set([...s, price]));
   });
 
   const onArm = async (level) => {
-    try {
-      await armAlertReal({ price: level.price, label: level.name });
-      setArmed((s) => new Set([...s, level.price]));
-    } catch (err) {
+    // armAlertReal takes positional (price, label) — passing an object made the
+    // price NaN and silently no-op'd. Only mark armed on a confirmed create.
+    const r = await armAlertReal(level.price, level.name);
+    if (r?.ok) {
+      setArmed((s) => new Map(s).set(level.price, r.id ?? null));
+    } else {
       // eslint-disable-next-line no-console
-      console.warn("[prep] arm failed", err?.message || err);
+      console.warn("[prep] arm failed", r?.error || "unknown");
     }
   };
   const onDisarm = async (level) => {
-    // Disarm is by id in the alerts wiring; we don't have it from the level.
-    // Best correct behavior here: pop the price from the renderer's set;
-    // main resyncs the armed set on the next alerts:state push.
-    setArmed((s) => {
-      const next = new Set(s);
-      next.delete(level.price);
-      return next;
-    });
+    const id = armed.get(level.price);
+    if (id != null) await disarmAlertReal(id);   // deletes the real TV alert
+    setArmed((s) => { const next = new Map(s); next.delete(level.price); return next; });
   };
 
   const pillarGrade = brief?.pillar_grade;

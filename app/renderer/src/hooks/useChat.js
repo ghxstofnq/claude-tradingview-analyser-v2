@@ -8,6 +8,14 @@
 import { useEffect, useRef, useState } from "react";
 import { shouldProviderHandleEvent } from "../provider-popover-contract.js";
 
+// Which autonomous turn purposes are per-bar NARRATION that should render into
+// the BRAIN feed (as `bar-read` messages). brief/wrap/review/chat are NOT — their
+// prose must not leak into BRAIN. chat:chunk events are purpose-tagged by the
+// sender (bar-close.js) so the renderer can route them.
+export function isNarrationPurpose(purpose) {
+  return purpose === "bar-close" || purpose === "catch-up" || purpose === "catch_up";
+}
+
 // #20 Gate verbose console logging behind a localStorage flag so
 // production runs aren't noisy. Set `localStorage.debug_chat = "1"` in
 // devtools to re-enable.
@@ -53,6 +61,7 @@ export function useChat({ provider = "claude" } = {}) {
   // stream). Drives the CLAUDE dot's green-when-working state.
   const [workingPurposes, setWorkingPurposes] = useState(new Set());
   const streamingIdxRef = useRef(null);   // index of the in-flight reply message
+  const barReadIdxRef = useRef(null);     // index of the in-flight BRAIN bar-read row
   // Map of purpose → index of its currently-streaming activity row, so
   // tool_call / end events append to the right row instead of creating
   // duplicates.
@@ -71,11 +80,27 @@ export function useChat({ provider = "claude" } = {}) {
       dlog("[useChat] chunk", JSON.stringify(ev?.text || "").slice(0, 80));
       setMessages((prev) => {
         const idx = streamingIdxRef.current;
-        if (idx == null) return prev;
-        const next = prev.slice();
-        const cur = next[idx];
-        if (!cur) return prev;
-        next[idx] = { ...cur, body: (cur.body || "") + escapeHtml(ev.text) };
+        if (idx != null) {
+          // User-typed turn: append to the in-flight reply.
+          const next = prev.slice();
+          const cur = next[idx];
+          if (!cur) return prev;
+          next[idx] = { ...cur, body: (cur.body || "") + escapeHtml(ev.text) };
+          return next;
+        }
+        // Autonomous turn with no user stream: only per-bar NARRATION renders
+        // into BRAIN as a bar-read row (brief/wrap chunks carry no purpose →
+        // dropped, as before). Accumulate the turn's chunks into one row.
+        if (!isNarrationPurpose(ev?.purpose)) return prev;
+        const bIdx = barReadIdxRef.current;
+        if (bIdx != null && prev[bIdx]) {
+          const next = prev.slice();
+          next[bIdx] = { ...next[bIdx], body: (next[bIdx].body || "") + escapeHtml(ev.text) };
+          return next;
+        }
+        const next = trimHistory(prev.slice());
+        next.push({ type: "bar-read", t: nowStamp(), body: escapeHtml(ev.text) });
+        barReadIdxRef.current = next.length - 1;
         return next;
       });
     });
@@ -103,6 +128,8 @@ export function useChat({ provider = "claude" } = {}) {
           return next;
         });
       }
+      // Close the BRAIN bar-read accumulator so the next bar starts a fresh row.
+      if (isNarrationPurpose(ev?.purpose)) barReadIdxRef.current = null;
       streamingIdxRef.current = null;
       setTyping(false);
       setQueuedBehind(null);
