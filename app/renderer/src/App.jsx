@@ -23,7 +23,7 @@ import { DEFAULT_CHAT_PROVIDER } from "./provider-popover-contract.js";
 
 import { useHealth } from "./hooks/useHealth.js";
 import { useVersion } from "./hooks/useVersion.js";
-import { useAlertFiredListener, useAlertStateListener } from "./hooks/useAlerts.js";
+import { useAlertFiredListener, useAlertStateListener, normalizeArmed, disarmAlertReal } from "./hooks/useAlerts.js";
 import { useClock } from "./hooks/useClock.js";
 import { useLastBar } from "./hooks/useLastBar.js";
 import { useChat } from "./hooks/useChat.js";
@@ -166,15 +166,15 @@ function AlertsPopover({ alerts, onClose, onDisarm }) {
         <div className="empty">no alerts yet</div>
       )}
       {alerts.fired.map((a, i) => (
-        <div className="alert-row" key={"f" + i}>
+        <div className="alert-row" key={a.id != null ? "f" + a.id : "f" + i}>
           <span><b>{a.name}</b> @ {a.price}</span>
           <span className="t">FIRED {a.t}</span>
         </div>
       ))}
-      {alerts.armed.map((a) => (
-        <div className="alert-row" key={a.name}>
+      {alerts.armed.map((a, i) => (
+        <div className="alert-row" key={a.id != null ? "a" + a.id : "a" + i}>
           <span><b>{a.name}</b> @ {a.price}</span>
-          <span className="disarm" onClick={() => onDisarm(a.name)}>DISARM</span>
+          <span className="disarm" onClick={() => onDisarm(a.id)}>DISARM</span>
         </div>
       ))}
     </div>
@@ -349,13 +349,16 @@ function App() {
   const [alerts, setAlerts] = useState({ armed: [], fired: [] });
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [toast, setToast] = useState(null);
-  const disarm = (name) => setAlerts((s) => ({
-    ...s,
-    armed: s.armed.filter((a) => a.name !== name),
-  }));
+  // Disarm by id (the IPC deletes the real TV alert by id). Optimistically drop
+  // the row; the next alerts:state poll reconciles.
+  const disarm = async (id) => {
+    if (id != null) await disarmAlertReal(id);
+    setAlerts((s) => ({ ...s, armed: s.armed.filter((a) => a.id !== id) }));
+  };
 
   useAlertStateListener((ev) => {
-    const armed = (ev?.armed || []).map((a) => ({
+    const armed = normalizeArmed(ev).map((a) => ({
+      id: a.id,
       name: a.label && a.label.trim() ? a.label : `@ ${a.price}`,
       price: a.price,
     }));
@@ -366,7 +369,7 @@ function App() {
     const t = ev.fired_at?.slice(11, 19) || "";
     setAlerts((s) => ({
       ...s,
-      fired: [{ name, price: ev.price, t }, ...s.fired],
+      fired: [{ id: ev.id, name, price: ev.price, t }, ...s.fired],
       armed: s.armed.filter((a) => a.price !== ev.price),
     }));
     setToast({ name, price: ev.price });
