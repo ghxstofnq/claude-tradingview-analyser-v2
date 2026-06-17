@@ -1,6 +1,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lastBarFacts } from '../cli/lib/last-bar.js';
+import { lastBarFacts, dropFormingBar } from '../cli/lib/last-bar.js';
+
+const CLOSED = { time: 1000, open: 100, high: 110, low: 95, close: 108 };
+const FORMING = { time: 1060, open: 108, high: 108, low: 108, close: 108 }; // O=H=L=C, just opened
+
+test('dropFormingBar removes the still-forming last candle', () => {
+  // quote 15s into the 60s forming bar -> period not elapsed -> drop it
+  const out = dropFormingBar([CLOSED, FORMING], 1075);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], CLOSED);
+});
+
+test('dropFormingBar keeps a fully-closed last bar', () => {
+  // quote 65s past the last bar -> its period elapsed -> not forming -> keep
+  const out = dropFormingBar([CLOSED, FORMING], 1125);
+  assert.equal(out.length, 2);
+});
+
+test('dropFormingBar keeps the array when timing cannot be verified', () => {
+  assert.deepEqual(dropFormingBar([CLOSED, FORMING], undefined), [CLOSED, FORMING]);
+  assert.deepEqual(dropFormingBar([CLOSED], 1075), [CLOSED]); // <2 bars
+  assert.deepEqual(dropFormingBar(undefined, 1075), []);
+});
+
+test('dropFormingBar fix: lastBarFacts then reads the real closed candle, not a doji', () => {
+  const dropped = dropFormingBar([CLOSED, FORMING], 1075);
+  const { bar } = lastBarFacts(dropped, 1075);
+  assert.equal(bar.direction, 'bullish');   // the real closed candle, not the flat forming doji
+  assert.ok(bar.range > 0);
+});
 
 test('lastBarFacts returns nulls for an empty or missing array', () => {
   assert.deepEqual(lastBarFacts([], 100), { bar: null, age_seconds: null });
