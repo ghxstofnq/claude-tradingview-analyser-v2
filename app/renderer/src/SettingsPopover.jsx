@@ -6,8 +6,9 @@
 // persist there. Arming sets UI state now; the executionAdapter retargets the
 // broker when the execution engine lands.
 import React, { useState, useEffect, useRef } from "react";
-import { armReady as isArmReady } from "./Account.helpers.js";
+import { armReady as isArmReady, realAccountView } from "./Account.helpers.js";
 import { useExecutionState } from "./hooks/useExecutionState.js";
+import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
 
 function Row({ k, v }) {
   return (
@@ -28,14 +29,8 @@ function GuardField({ label, hint, value, onChange }) {
   );
 }
 
-function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
-  const live = account === "live";
-  const [arming, setArming] = useState(false);
-  const [txt, setTxt] = useState("");
-  const ready = isArmReady(txt.trim().toUpperCase());
-  const arm = () => { if (!ready) return; setAccount("live"); setArming(false); setTxt(""); };
+function SettingsPopover({ guards, setGuards, onClose }) {
   const exec = useExecutionState();
-  const broker = live ? "Tradovate · LIVE" : "Tradovate · DEMO";
 
   // Execution config (automation mode + risk knobs) lives in main so auto-fire
   // can read it. Load on mount; every change persists to both renderer state
@@ -61,6 +56,11 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
   const loadAcct = () => window.api?.execution?.account?.get?.().then((r) => { if (r?.ok) setAcct(r); }).catch(() => {});
   useEffect(() => { loadAcct(); const h = setInterval(loadAcct, 3000); return () => clearInterval(h); }, []);
   const acctGate = acct?.gate;
+  // Truthful account view (what orders actually route to) — replaces the old
+  // ephemeral renderer flag that could show a LIVE badge while routing stayed paper.
+  const view = realAccountView(acct);
+  const live = view.live;
+  const broker = view.name || (live ? "Live account" : "Paper Trading");
   const confirmAccount = async () => {
     const r = await window.api?.execution?.account?.confirm?.(confirmTxt.trim().toUpperCase());
     if (r?.ok) { setConfirmTxt(""); loadAcct(); }
@@ -90,30 +90,7 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
             <span className={"acct-chip " + (live ? "live" : "paper")}><span className="d" />{live ? "LIVE" : "PAPER"}</span>
             <span className="acct-broker">{broker}</span>
           </div>
-          {!live && !arming && (
-            <button className="arm-btn" onClick={() => setArming(true)}>▲  ARM LIVE TRADING…</button>
-          )}
-          {!live && arming && (
-            <div className="arm-gate">
-              <div className="warn"><span className="hz" />
-                <span>LIVE routes <b>real orders</b> to the broker. Tickets fire on accept with <b>no per-order confirm</b>. Type <b>LIVE</b> to arm.</span>
-              </div>
-              <div className="arm-row">
-                <input className={"arm-input" + (ready ? " ok" : "")} value={txt} placeholder="type LIVE to arm" autoFocus
-                  onChange={(e) => setTxt(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") arm(); }} />
-                <button className="arm-cancel" onClick={() => { setArming(false); setTxt(""); }}>CANCEL</button>
-                <button className={"arm-confirm" + (ready ? "" : " off")} disabled={!ready} onClick={arm}>ARM</button>
-              </div>
-            </div>
-          )}
-          {live && (
-            <div className="arm-gate">
-              <div className="warn live"><span className="hz" />
-                <span>LIVE is armed — orders hit the broker for real. Day P&amp;L counts against the loss limit.</span>
-              </div>
-              <button className="disarm-btn" onClick={() => setAccount("paper")}>■  RETURN TO PAPER</button>
-            </div>
-          )}
+          <div className="guard-foot">Arm &amp; confirm routing in <b>BROKER ROUTING</b> below — this reflects what orders route to.</div>
         </div>
         <div className="section">
           <div className="sect-hd"><span>RISK GUARDRAILS</span><span className="meta">ENFORCED ON EVERY TICKET</span></div>
@@ -205,7 +182,7 @@ function SettingsPopover({ account, setAccount, guards, setGuards, onClose }) {
   );
 }
 
-export function AccountCell({ account, setAccount, guards, setGuards }) {
+export function AccountCell({ guards, setGuards }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -213,7 +190,8 @@ export function AccountCell({ account, setAccount, guards, setGuards }) {
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, []);
-  const live = account === "live";
+  const { acct } = useBrokerAccount();
+  const live = realAccountView(acct).live;
   return (
     <div className={"cell pop-cell acct-cell" + (open ? " open" : "")} ref={ref}
       onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}
@@ -222,7 +200,7 @@ export function AccountCell({ account, setAccount, guards, setGuards }) {
         <span className="d" />{live ? "LIVE" : "PAPER"}<span className="sub">{live ? "REAL" : "SIM"}</span>
         <span className="gear">▾</span>
       </span>
-      {open && <SettingsPopover account={account} setAccount={setAccount} guards={guards} setGuards={setGuards} onClose={() => setOpen(false)} />}
+      {open && <SettingsPopover guards={guards} setGuards={setGuards} onClose={() => setOpen(false)} />}
     </div>
   );
 }

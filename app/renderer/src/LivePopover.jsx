@@ -15,8 +15,11 @@ import {
   latestBarReadMessage,
   deriveAddCandidate,
   trancheStackFromState,
+  normalizeSide,
 } from "./Live.helpers.js";
 import { stripCitations } from "./Prep.helpers.js";
+import { realAccountView } from "./Account.helpers.js";
+import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
 import { sizeOrder } from "./Sizing.helpers.js";
 import { executionAdapter } from "./execution/executionAdapter.js";
 import { buildOrderRequest } from "./execution/orderRequest.js";
@@ -196,7 +199,7 @@ function InTradeView({ position, trade, tranches, lastBar, price, chat, symbol, 
   // grade / id metadata when present.
   const t = trade || {};
   const live = !!position;
-  const side = position ? (position.side === "buy" ? "long" : "short") : (t.side || "long");
+  const side = (position ? normalizeSide(position.side) : null) || t.side || "long";
   const entry = position?.avgFill ?? t.entry;
   const stop = position?.sl ?? t.stop;
   const tp1 = position?.tp ?? t.tp1;
@@ -427,7 +430,7 @@ function BacktestRunningPlaceholder({ session }) {
 }
 
 // ── LiveCell — topbar cell + 660px tabbed popover ────────────────────────
-function LiveCell({ account, guards, symbol }) {
+function LiveCell({ guards, symbol }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState("hunt");   // hunt | ticket | intrade | add
   const [ticketAdd, setTicketAdd] = useState(false);
@@ -441,6 +444,10 @@ function LiveCell({ account, guards, symbol }) {
   const chat = useChat();
   const walkers = useWalkers();
   const exec = useExecutionState();
+  // Real account orders route to (paper/live) — for the ticket badge + journal
+  // metadata. Routing itself is enforced main-side by the confirmed account.
+  const { acct } = useBrokerAccount();
+  const accountType = realAccountView(acct).type;
 
   // Default view follows the data unless the user clicked a tab this session.
   // A live broker position (execution feed) OR a journal trade → IN-TRADE.
@@ -462,7 +469,7 @@ function LiveCell({ account, guards, symbol }) {
   let badge;
   if (exec.position || activeTrade) {
     const src = exec.position
-      ? { entry: exec.position.avgFill, stop: exec.position.sl, tp1: exec.position.tp, side: exec.position.side === "buy" ? "long" : "short" }
+      ? { entry: exec.position.avgFill, stop: exec.position.sl, tp1: exec.position.tp, side: normalizeSide(exec.position.side) || "long" }
       : activeTrade;
     const badgePrice = (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastBar?.close;
     const pnl = liveGridFromTrade(src, badgePrice)?.pnl;
@@ -510,7 +517,7 @@ function LiveCell({ account, guards, symbol }) {
     try {
       if (ticketSetup) {
         const req = buildOrderRequest({
-          setup: ticketSetup, sizing: order.sizing, guards, account, symbol, type: order.type,
+          setup: ticketSetup, sizing: order.sizing, guards, account: accountType, symbol, type: order.type,
         });
         if (ticketAdd) {
           // Scale-in: open the add as its OWN standalone tranche (own stop +
@@ -536,7 +543,7 @@ function LiveCell({ account, guards, symbol }) {
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
-      ? <TicketView setup={ticketSetup} isAdd={ticketAdd} account={account} guards={guards} symbol={symbol}
+      ? <TicketView setup={ticketSetup} isAdd={ticketAdd} account={accountType} guards={guards} symbol={symbol}
                     tradeId={activeTrade?.id} onFire={onTicketFire} onCancel={() => pickView(ticketAdd ? "add" : "hunt")} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no candidate to ticket ]</div>;
   } else if (effectiveView === "add") {

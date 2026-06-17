@@ -6,7 +6,9 @@
 // Decide whether to route, or surface a confirm, given the active vs confirmed account.
 export function resolveAccountGate({ active, confirmed } = {}) {
   if (!active) return { route: false, needsConfirm: false, level: null, reason: "no_active_account" };
-  if (confirmed && active.id === confirmed.id) return { route: true, needsConfirm: false, level: null, reason: null };
+  // Match on id AND type — the same account id can be re-typed paper→live once a
+  // liveHost is configured; id-only matching would route to live with no confirm.
+  if (confirmed && active.id === confirmed.id && active.type === confirmed.type) return { route: true, needsConfirm: false, level: null, reason: null };
   return { route: false, needsConfirm: true, level: active.type === "live" ? "live" : "paper", reason: "account_switch" };
 }
 

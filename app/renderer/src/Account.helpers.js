@@ -8,6 +8,17 @@
 
 export const GUARD_DEFAULTS = { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120 };
 
+// Derive the TRUTHFUL account view from the main-process broker state
+// (execution.account.get → { active, confirmed, ... }). The CONFIRMED account
+// is what orders actually route to; fall back to the active account, then paper.
+// Replaces the old ephemeral renderer `account` flag, which could show a red
+// LIVE badge while routing stayed paper.
+export function realAccountView(acct) {
+  const a = acct?.confirmed || acct?.active || null;
+  const type = a?.type === "live" ? "live" : "paper";
+  return { type, live: type === "live", name: a?.name || a?.id || null };
+}
+
 // Always boot to PAPER and clear any stale persisted account — arming LIVE must
 // never survive a reload/restart.
 export function bootAccount(store = localStorage) {

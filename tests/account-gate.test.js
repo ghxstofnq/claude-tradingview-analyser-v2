@@ -24,6 +24,15 @@ describe("resolveAccountGate", () => {
     const g = resolveAccountGate({ active: paper, confirmed: null });
     assert.equal(g.needsConfirm, true); assert.equal(g.level, "paper");
   });
+  it("same id but type flips paper→live → re-confirm at live level (no silent live route)", () => {
+    // deriveActiveAccount can re-type the SAME account id paper→live once a
+    // liveHost is configured. Matching on id alone would route to live without
+    // a deliberate confirm — close that with a type check.
+    const g = resolveAccountGate({ active: { id: "9256021", type: "live", name: "X" }, confirmed: { id: "9256021", type: "paper", name: "X" } });
+    assert.equal(g.route, false);
+    assert.equal(g.needsConfirm, true);
+    assert.equal(g.level, "live");
+  });
 });
 
 describe("autoFireAllowed (boot live-auto-pause)", () => {

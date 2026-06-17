@@ -10,7 +10,7 @@ import { PrepCell } from "./PrepPopover.jsx";
 import { LiveCell } from "./LivePopover.jsx";
 import { ReviewCell } from "./ReviewPopover.jsx";
 import { AccountCell } from "./SettingsPopover.jsx";
-import { bootAccount, loadGuards, saveGuards } from "./Account.helpers.js";
+import { loadGuards, saveGuards } from "./Account.helpers.js";
 import { SystemPage } from "./System.jsx";
 import { RiskPage } from "./Risk.jsx";
 import { FixturesPage } from "./Fixtures.jsx";
@@ -221,7 +221,7 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
                   clock,
                   news, newsOpen, setNewsOpen, newsImminent,
                   alerts, alertsOpen, setAlertsOpen, onDisarm,
-                  account, setAccount, guards, setGuards,
+                  guards, setGuards,
                   currentPrice }) {
   const newsCount = news.length;
   const alertCount = alerts.fired.length + alerts.armed.length;
@@ -230,7 +230,7 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
       <div className="id"><span className="wm">G<span className="accent">X</span>OFNQ</span></div>
       <div className="status">
         <VersionCell />
-        <AccountCell account={account} setAccount={setAccount} guards={guards} setGuards={setGuards} />
+        <AccountCell guards={guards} setGuards={setGuards} />
         <div className={"cell pop-cell" + (alertCount > 0 ? " has-alerts" : "")}
              onClick={() => setAlertsOpen((o) => !o)}>
           <span className="k">ALERTS</span>
@@ -264,13 +264,13 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
 }
 
 function StatusLine({ state, focus, cycle, killzone, lastBar, loopStatus, phase,
-                      symbol, currentPrice, account, guards,
+                      symbol, currentPrice, guards,
                       chats, activeProvider, setActiveProvider, openProvider, setOpenProvider }) {
   return (
     <div className="statusline">
       <div className="grp">
         <PrepCell symbol={symbol} currentPrice={currentPrice} />
-        <LiveCell account={account} guards={guards} symbol={symbol} />
+        <LiveCell guards={guards} symbol={symbol} />
         <ReviewCell />
         <BacktestCell />
         <ChatCell chats={chats} />
@@ -299,9 +299,8 @@ function App() {
   // Mode tabs removed 2026-05-28; PREP/LIVE/REVIEW are popovers in the topbar.
   const [symbol, setSymbol] = useState("MNQ1!");
 
-  // Account mode is ephemeral — boots PAPER every launch, never persists (a
-  // real-money safety rule); guardrails persist. (dashboard-v2)
-  const [account, setAccount] = useState(() => bootAccount());
+  // Guardrails persist; the account orders route to is owned by main (the
+  // confirmed broker account) and surfaced read-only via useBrokerAccount.
   const [guards, setGuards] = useState(() => loadGuards());
   useEffect(() => { saveGuards(guards); }, [guards]);
 
@@ -442,7 +441,7 @@ function App() {
               alerts={alerts}
               alertsOpen={alertsOpen} setAlertsOpen={setAlertsOpen}
               onDisarm={disarm}
-              account={account} setAccount={setAccount} guards={guards} setGuards={setGuards}
+              guards={guards} setGuards={setGuards}
               currentPrice={currentPrice} />
 
       {/* Persistent chart-host — mounted ONCE at the App root. Util pages
@@ -482,7 +481,6 @@ function App() {
       <StatusLine
         symbol={symbol}
         currentPrice={currentPrice}
-        account={account}
         guards={guards}
         state={"CHART"}
         focus={symbol}

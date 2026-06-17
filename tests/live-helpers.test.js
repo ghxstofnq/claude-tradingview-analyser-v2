@@ -10,7 +10,39 @@ import {
   latestBarReadMessage,
   deriveAddCandidate,
   trancheStackFromState,
+  normalizeSide,
 } from "../app/renderer/src/Live.helpers.js";
+
+describe("normalizeSide", () => {
+  it("maps order vocabulary buy/sell → long/short", () => {
+    assert.equal(normalizeSide("buy"), "long");
+    assert.equal(normalizeSide("sell"), "short");
+  });
+
+  it("maps TradingView position vocabulary long/short (the DOM-read 'Side' column)", () => {
+    // tv-adapter.js:67 lowercases TV's positions-table Side column ("Long"/"Short").
+    // The old `=== "buy" ? "long" : "short"` check flipped a long to "short".
+    assert.equal(normalizeSide("long"), "long");
+    assert.equal(normalizeSide("short"), "short");
+    assert.equal(normalizeSide("Long"), "long");
+    assert.equal(normalizeSide("SHORT"), "short");
+  });
+
+  it("maps numeric / signed feed values", () => {
+    assert.equal(normalizeSide(1), "long");
+    assert.equal(normalizeSide(-1), "short");
+    assert.equal(normalizeSide("1"), "long");
+    assert.equal(normalizeSide("-1"), "short");
+  });
+
+  it("returns null for flat / unknown / empty", () => {
+    assert.equal(normalizeSide("empty"), null);
+    assert.equal(normalizeSide(""), null);
+    assert.equal(normalizeSide(null), null);
+    assert.equal(normalizeSide(undefined), null);
+    assert.equal(normalizeSide("garbage"), null);
+  });
+});
 
 describe("selectPillar3", () => {
   const pillars = [
@@ -176,6 +208,16 @@ describe("deriveAddCandidate", () => {
 
   it("returns null when sides differ (no reversing via add)", () => {
     assert.equal(deriveAddCandidate({ position: longPos, activeSetup: shortSetup, price: 106 }), null);
+  });
+
+  it("recognizes a DOM-sourced position side ('long'/'short'), not just 'buy'/'sell'", () => {
+    // When the WS feed hasn't connected, exec.position comes from the DOM read,
+    // whose side is "long"/"short". The add must still surface on a same-side,
+    // green-lit long — previously this returned null (only buy/sell handled).
+    const domLongPos = { side: "long", qty: 1, avgFill: 100, sl: 95, tp: 110 };
+    assert.equal(deriveAddCandidate({ position: domLongPos, activeSetup: longSetup, price: 105 }), longSetup);
+    const domShortPos = { side: "short", qty: 1, avgFill: 110, sl: 115, tp: 100 };
+    assert.equal(deriveAddCandidate({ position: domShortPos, activeSetup: shortSetup, price: 105 }), shortSetup);
   });
 
   it("returns null when the anchor is not green-lit (<50% to TP1)", () => {
