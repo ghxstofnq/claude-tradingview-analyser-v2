@@ -536,7 +536,7 @@ function LiveCell({ guards, symbol }) {
           // the outcome ticker like any tranche.
           res = await executionAdapter.openTranche({ ...ticketSetup, symbol, tranche_role: "add" });
         } else {
-          await accept(ticketSetup);
+          await accept({ ...ticketSetup, symbol });
           res = await executionAdapter.placeOrder(req);
         }
         // Surface a failed/blocked placement instead of silently advancing to

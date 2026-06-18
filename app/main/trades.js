@@ -96,6 +96,9 @@ export async function acceptSetup({ setup, send }) {
       id,
       setup_id: setup.id,
       ts: new Date().toISOString(),
+      // Chart symbol — lets the broker-exit reconciler match this trade to the
+      // real Tradovate round-trip by root (MNQ1! ↔ MNQU6).
+      symbol: setup.symbol ?? null,
       side: setup.direction,
       model: setup.model,
       grade: setup.grade,

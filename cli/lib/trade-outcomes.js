@@ -167,17 +167,48 @@ export function closeTradesAtEod(trades, bar) {
   return { transitions, updated };
 }
 
+// Real broker exit (user ruling 2026-06-18): when the live broker position for
+// an instrument goes flat, the matching open journal trade(s) close at the REAL
+// fill price — broker truth, not the bar simulator. This is what lets the
+// tracker know the trader exited or got tapped at break-even: R is measured off
+// ORIGINAL risk (orig_stop, retained after a BE move), so a BE-stop tap books
+// ~0R instead of the original-stop loss. Matches by symbol ROOT (MNQ1! ↔ MNQU6,
+// via the injected rootOf) and side; a symbol-less legacy trade matches on side
+// alone (the session is single-symbol). `side` is the round-trip direction in
+// long/short terms (buy→long, sell→short) — pass it pre-normalized.
+export function closeTradesAtBrokerExit(trades, { instrument, exit, side, rootOf, ts } = {}) {
+  const transitions = [];
+  const updated = [];
+  const root = rootOf ? rootOf(instrument) : instrument;
+  const when = ts || new Date().toISOString();
+  for (const t of trades) {
+    const rootMatch = (t.symbol == null || !rootOf) ? true : (rootOf(t.symbol) === root);
+    const sideMatch = side == null || t.side === side;
+    if (t.state !== "closed" && rootMatch && sideMatch) {
+      const riskStop = Number.isFinite(Number(t.orig_stop)) ? t.orig_stop : t.stop;
+      transitions.push({
+        id: t.id, ts: when, status: "CLOSED_BROKER",
+        exit, r_realized: rMultiple({ ...t, stop: riskStop }, exit),
+      });
+      updated.push({ ...t, state: "closed", outcome: "CLOSED_BROKER" });
+    } else {
+      updated.push(t);
+    }
+  }
+  return { transitions, updated };
+}
+
 // Trailing consecutive losing trades in a session's trades.jsonl (user ruling
 // 2026-06-13: halt new entries after 3 in a row). A loss is a STOPPED or a
-// 16:00 close booked underwater; any winning/scratch close resets the streak.
-// TP1_HIT/TP2_HIT/CLOSED_BE never count as losses (a B TP1 is a win; an A+ TP1
-// milestone is always followed by a real close that does count).
+// 16:00/broker close booked underwater; any winning/scratch close resets the
+// streak. TP1_HIT/TP2_HIT/CLOSED_BE never count as losses (a B TP1 is a win; an
+// A+ TP1 milestone is always followed by a real close that does count).
 export function consecutiveLossStreak(events) {
   const closes = [];
   for (const ev of events) {
     if (ev.type !== "outcome") continue;
     if (ev.status === "STOPPED") closes.push({ ts: ev.ts, loss: true });
-    else if (ev.status === "CLOSED_EOD") closes.push({ ts: ev.ts, loss: Number(ev.r_realized) < 0 });
+    else if (ev.status === "CLOSED_EOD" || ev.status === "CLOSED_BROKER") closes.push({ ts: ev.ts, loss: Number(ev.r_realized) < 0 });
     else if (["TP1_HIT", "TP2_HIT", "CLOSED_BE"].includes(ev.status)) closes.push({ ts: ev.ts, loss: false });
   }
   closes.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
@@ -202,7 +233,7 @@ export function foldOpenTrades(events) {
         if (runnerEligible(t)) { t.tp1_hit = true; t.orig_stop = t.stop; t.stop = t.entry; }
         else { t.state = "closed"; t.outcome = "TP1_HIT"; }
       }
-      else if (["TP2_HIT", "STOPPED", "INVALIDATED", "CLOSED_EOD", "EXPIRED_EOD"].includes(ev.status)) {
+      else if (["TP2_HIT", "STOPPED", "INVALIDATED", "CLOSED_EOD", "EXPIRED_EOD", "CLOSED_BROKER"].includes(ev.status)) {
         t.state = "closed";
         t.outcome = ev.status;
       }
