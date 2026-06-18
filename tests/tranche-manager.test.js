@@ -1,6 +1,20 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { planTrancheAction } from "../app/main/execution/tranche-manager.js";
+import { planTrancheAction, tradovateOrderFromPacket } from "../app/main/execution/tranche-manager.js";
+
+describe("tradovateOrderFromPacket (auto → Tradovate bracket routing)", () => {
+  it("maps a long packet → buy market order with stop/target bracket", () => {
+    const o = tradovateOrderFromPacket({ side: "long", entry: 100, stop: 95, tp1: 110 }, 3);
+    assert.deepEqual(o, { side: "buy", type: "market", contracts: 3, stopLoss: 95, takeProfit: 110, currentAsk: 100, currentBid: 100 });
+  });
+  it("maps a short packet → sell", () => {
+    assert.equal(tradovateOrderFromPacket({ side: "short", entry: 100, stop: 105, tp1: 90 }, 2).side, "sell");
+  });
+  it("accepts buy/sell sides verbatim", () => {
+    assert.equal(tradovateOrderFromPacket({ side: "buy" }, 1).side, "buy");
+    assert.equal(tradovateOrderFromPacket({ side: "sell" }, 1).side, "sell");
+  });
+});
 
 const anchorPacket = { side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 };
 const base = {
