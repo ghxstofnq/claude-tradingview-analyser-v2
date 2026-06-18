@@ -3812,6 +3812,17 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   display: flex; flex-direction: column; height: auto;
 }
 .bt-popover.settings-pop .body { overflow-y: auto; }
+/* Settings sections are ONE cohesive panel (separator lines), not the card
+   style (.body > .section: full border + 10px margin) used by other popovers —
+   that stacked discrete bordered boxes on top of each other. */
+.bt-popover.settings-pop .body > .section {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+  padding: 12px 14px;
+}
+.bt-popover.settings-pop .body > .section:last-child { border-bottom: 0; }
 
 .bt-popover .acct-state { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .bt-popover .acct-chip { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 11px;
