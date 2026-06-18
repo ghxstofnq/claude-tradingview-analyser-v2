@@ -3519,11 +3519,11 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .acct-badge .sub { color: var(--label); letter-spacing: 0.1em; font-size: 8.5px; }
 .topbar .acct-badge.paper { color: var(--amber); }
 .acct-badge.paper .d { background: var(--amber); }
-.topbar .acct-badge.live {
-  color: var(--red); border: 1px solid var(--red); padding: 1px 8px;
-  background: rgba(224, 82, 74, 0.14); font-weight: 600;
-  box-shadow: 0 0 0 1px rgba(224, 82, 74, 0.25) inset;
-}
+/* LIVE emphasis is the CELL's own frame turning red (one box) — not a second
+   bordered chip inside it. The inner chip read as "two boxes" next to paper's
+   single-frame look. */
+.topbar .acct-badge.live { color: var(--red); font-weight: 600; }
+.topbar .status .acct-cell.live { border-color: var(--red); background: rgba(224, 82, 74, 0.10); }
 .acct-badge.live .d { background: var(--red); box-shadow: 0 0 6px var(--red); animation: claudePulse 1.4s ease-in-out infinite; }
 .acct-badge.live .sub { color: var(--red); opacity: 0.8; }
 

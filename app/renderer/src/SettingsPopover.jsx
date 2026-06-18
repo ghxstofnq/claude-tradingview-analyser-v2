@@ -193,7 +193,7 @@ export function AccountCell({ guards, setGuards }) {
   const { acct } = useBrokerAccount();
   const live = realAccountView(acct).live;
   return (
-    <div className={"cell pop-cell acct-cell" + (open ? " open" : "")} ref={ref}
+    <div className={"cell pop-cell acct-cell" + (live ? " live" : "") + (open ? " open" : "")} ref={ref}
       onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}
       title="account & execution settings">
       <span className={"acct-badge " + (live ? "live" : "paper")}>
