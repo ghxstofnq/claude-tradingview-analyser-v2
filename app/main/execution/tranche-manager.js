@@ -6,6 +6,23 @@
 import { canScaleInto, isNearDuplicate, greenLightReached, addsDisabledFromOutcomes } from "../../../cli/lib/scale-in-rules.js";
 import { sizeFromStop } from "./sizing-core.js";
 
+// Pure: map a surfaced packet → Tradovate bracket-order args. A Tradovate order
+// carries its OWN stop/target in one POST (native bracket), so a tranche is a
+// single bracketed market order — not the 3-leg standalone the TV paper path
+// needs for the netting workaround. Exported for unit tests so the real-money
+// routing is covered without placing an order.
+export function tradovateOrderFromPacket(packet = {}, contracts) {
+  return {
+    side: (packet.side === "long" || packet.side === "buy") ? "buy" : "sell",
+    type: "market",
+    contracts,
+    stopLoss: packet.stop,
+    takeProfit: packet.tp1,
+    currentAsk: packet.entry,
+    currentBid: packet.entry,
+  };
+}
+
 // Pure decision: what to do with this bar's surfaced packet.
 // Returns { action, reason }. action ∈
 //   none | blocked:halt | open_anchor | surface |
@@ -165,6 +182,17 @@ async function buildRealDeps() {
       return acceptSetup({ setup: { ...payload, direction: payload.direction ?? payload.side } });
     },
     openTrancheOrders: async ({ packet, contracts, trancheId }) => {
+      // Route by the active broker, same as the manual placeManual path. A
+      // Tradovate account (incl. demo — type "live") places ONE bracketed
+      // market order via its REST adapter; TV paper uses the 3-leg standalone
+      // (netting workaround). Guardrails already ran upstream in runTrancheManager.
+      const broker = active.getActiveAccount()?.broker ?? null;
+      if (broker === "tradovate") {
+        const { placeTradovateOrder } = await import("./tradovate-adapter.js");
+        const r = await placeTradovateOrder(tradovateOrderFromPacket(packet, contracts));
+        await appendTrade({ type: "tranche_orders", broker: "tradovate", setup_id: trancheId, orderId: r?.orderId ?? null, ok: !!r?.ok, ts: new Date().toISOString() });
+        return { broker: "tradovate", orderId: r?.orderId ?? null, ok: !!r?.ok };
+      }
       const { tvAdapter } = await import("./tv-adapter.js");
       const actions = exec.brokerActionsForTranche({
         side: packet.side, grade: packet.grade, contracts,
@@ -175,7 +203,7 @@ async function buildRealDeps() {
       const idOf = (r) => { try { return Number(JSON.parse(r.body).id); } catch { return null; } };
       const stopOrderId = idOf(results[1]);
       const limitOrderId = idOf(results[2]);
-      await appendTrade({ type: "tranche_orders", setup_id: trancheId, stopOrderId, limitOrderId, ts: new Date().toISOString() });
+      await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId, limitOrderId, ts: new Date().toISOString() });
       return { stopOrderId, limitOrderId };
     },
     recordSkip: async (reason) => {
