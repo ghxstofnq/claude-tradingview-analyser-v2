@@ -1,7 +1,7 @@
 # SMT relative-strength leader selection — design spec
 
 **Date:** 2026-06-18
-**Status:** draft — awaiting user review before implementation
+**Status:** approved — all open decisions resolved (2026-06-18); ready for implementation plan
 **Source intent:** confirmed via `interview-me` (2026-06-18 session). Triggered by a live loss: NY-AM defaulted to MNQ on missing MES data and took 3 losing MNQ shorts while MES was the clean short.
 
 > Repo convention: feature specs live in `docs/superpowers/specs/` (not a root `SPEC.md`). This follows the existing ~20 specs in the decision log.
@@ -98,6 +98,6 @@ Today's root cause was `secondary_engine_missing` — MES engine data absent at 
 - General capture-reliability work beyond guaranteeing both symbols in this window.
 
 ## 10. Open decisions (confirm on review)
-1. **Reference extreme:** use the specific overnight level being reacted to (Asia vs London) — proposal: the nearest untaken overnight high above price for a short context (low below for long), from `session_levels`. Acceptable, or pin to London (`LO_H/LO_L`) only?
-2. **Pivot confirmation:** use the engine's `swings` (swing-tier) pivot as "confirmed." Acceptable, or also require a displacement/close-through to count it confirmed?
+1. **Reference extreme — RESOLVED:** the nearest untaken overnight level (Asia *or* London) being reacted to — nearest untaken high above price for a short context, low below for long — from `session_levels`. (Not pinned to London only.)
+2. **Pivot confirmation — RESOLVED:** the engine's `swings` swing-tier pivot counts as "confirmed" (in place, not the forming bar). No additional displacement/close-through gate.
 3. **Near-tie definition — RESOLVED (full graded gap):** ATR-normalized strength per symbol; divergence when the gap between the two ≥ `SMT_GAP_BAND` (proposed start 0.25 ATR, calibrated). Fires even when both crossed/both failed if one is clearly stronger. The band is the single tunable and operationalizes "actually similar." **Open sub-item:** the starting band value (0.25 ATR) needs calibration against the fixture/tape corpus before it's trusted.
