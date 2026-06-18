@@ -185,8 +185,26 @@ export function registerExecutionIpc() {
   ipcMain.handle("execution:place", async (_e, payload) => {
     const gate = await guarded(payload);
     if (!gate.ok) return { ok: false, blocked: true, ...gate };
-    try { return { ok: true, result: await tvAdapter.placeOrder(payload) }; }
-    catch (e) { return { ok: false, error: String(e?.message || e) }; }
+    try {
+      // Route by active broker, same as placeManual / flatten / panic. The
+      // surfaced setup already carries its own entry/stop/tp, so place THAT
+      // bracket — don't re-derive from chart structure (that's placeManual's
+      // job). Without this branch the setup-accept fire path only ever hit TV
+      // paper, so firing a setup while on Tradovate placed nothing.
+      const active = getActiveAccount();
+      if (active?.broker === "tradovate") {
+        const acctGate = resolveAccountGate({ active, confirmed: readExecConfig().confirmedAccount });
+        if (!acctGate.route) return { ok: false, blocked: true, code: "confirm_tradovate", gate: acctGate };
+        const { placeTradovateOrder } = await import("./execution/tradovate-adapter.js");
+        const { tradovateOrderArgsFromPayload } = await import("./execution/tradovate.js");
+        const result = await placeTradovateOrder(tradovateOrderArgsFromPayload(payload));
+        return { ok: !!result?.ok, broker: "tradovate", result };
+      }
+      // Paper: reflect the broker's real HTTP result — a non-200 POST must not
+      // report ok:true (mirrors placeManual).
+      const result = await tvAdapter.placeOrder(payload);
+      return { ok: !!result?.ok, broker: "paper", result };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
   for (const verb of ["flatten", "panic"]) {
     ipcMain.handle(`execution:${verb}`, async (_e, payload) => {
