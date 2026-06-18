@@ -94,6 +94,18 @@ LTF bias logic:
 - LTF NY open reaction = “today’s path to or away from that destination.”
 - He actively uses NY reaction to determine **whether today is an extension day or a retrace day** relative to HTF structure.
 
+### 2.3.1 Pair relative strength (SMT) – which asset to trade
+
+When trading the **MNQ/MES pair**, the same NY open-reaction read also decides *which* of the two correlated futures to take.
+
+- At the overnight/open reference high (or low) being reacted to, compare the two instruments against **their own** reference (the price scales differ — never compare raw MNQ vs MES prices).
+- The instrument that **fails to confirm** the other's new extreme is the weaker (lagging) one. By ICT SMT, the **lagging market is the cleaner trade**: **short the laggard, long the leader.**
+- This is a **selection** layer, **not** an entry trigger. SMT picks the instrument + the bias direction; the actual entry still requires that instrument's own entry model (MSS / Trend / Inversion) + structure-shift confirmation per §3 / §5.
+- **No clear divergence** (both confirm, or both fail — they are *measurably* similar) → no relative-strength edge → default to the primary instrument (MNQ).
+- **Divergence unreadable** (a symbol's data is missing / no confirmed pivot by the end of the window) → **stand aside**; never default-and-trade.
+
+The strength comparison is computed in code (constraint #7), graded by an ATR-normalized gap so "measurably similar" is a real reading, not a guess.
+
 ### 2.4 Multi‑timeframe alignment vs flexibility
 
 He classifies trades by **alignment quality**:
