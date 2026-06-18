@@ -219,9 +219,14 @@ export function registerExecutionIpc() {
         const adapter = await import("./execution/tradovate-adapter.js");
         const tpos = await adapter.readTradovatePosition();
         if (!tpos) return { ok: false, error: "no open position" };
-        const stopOrder = (await adapter.readTradovateOrders()).find((o) => o.kind === "stop");
-        if (!stopOrder) return { ok: false, error: "no working stop order to move" };
-        return { broker: "tradovate", ...(await adapter.modifyTradovateStop({ orderId: stopOrder.id, stopPrice: tick(tpos.avgFill) })) };
+        // Move EVERY working stop (scale-in tranches each carry their own stop)
+        // to net break-even, not just the first one.
+        const stops = (await adapter.readTradovateOrders()).filter((o) => o.kind === "stop");
+        if (!stops.length) return { ok: false, error: "no working stop order to move" };
+        const be = tick(tpos.avgFill);
+        const results = [];
+        for (const s of stops) results.push(await adapter.modifyTradovateStop({ orderId: s.id, stopPrice: be }));
+        return { broker: "tradovate", ok: results.every((r) => r.ok), moved: results.length, stopPrice: be, results };
       }
       const pos = getTradingState().position;
       if (!pos) return { ok: false, error: "no open position" };
@@ -238,17 +243,23 @@ export function registerExecutionIpc() {
         const adapter = await import("./execution/tradovate-adapter.js");
         const tpos = await adapter.readTradovatePosition();
         if (!tpos) return { ok: false, error: "no open position" };
-        const stopOrder = (await adapter.readTradovateOrders()).find((o) => o.kind === "stop");
-        if (!stopOrder) return { ok: false, error: "no working stop order to move" };
+        const stops = (await adapter.readTradovateOrders()).filter((o) => o.kind === "stop");
+        if (!stops.length) return { ok: false, error: "no working stop order to move" };
         const entry = tpos.avgFill;
         const price = arg?.price ?? entry;
-        const cur = stopOrder.price ?? entry;
-        let sl = cur;
-        if (price != null && entry != null) {
-          if (String(tpos.side || "").toLowerCase() === "buy") sl = Math.max(cur, entry + Math.max(0, (price - entry) * 0.5));
-          else sl = Math.min(cur, entry - Math.max(0, (entry - price) * 0.5));
+        const isLong = String(tpos.side || "").toLowerCase() === "buy";
+        // Trail target from the net entry; move EVERY stop, never loosening any.
+        const results = [];
+        for (const s of stops) {
+          const cur = s.price ?? entry;
+          let sl = cur;
+          if (price != null && entry != null) {
+            if (isLong) sl = Math.max(cur, entry + Math.max(0, (price - entry) * 0.5));
+            else sl = Math.min(cur, entry - Math.max(0, (entry - price) * 0.5));
+          }
+          results.push(await adapter.modifyTradovateStop({ orderId: s.id, stopPrice: tick(sl) }));
         }
-        return { broker: "tradovate", ...(await adapter.modifyTradovateStop({ orderId: stopOrder.id, stopPrice: tick(sl) })), newSl: tick(sl) };
+        return { broker: "tradovate", ok: results.every((r) => r.ok), moved: results.length, results };
       }
       const pos = getTradingState().position;
       if (!pos) return { ok: false, error: "no open position" };
