@@ -99,26 +99,28 @@ export function computeSessionGate({ quote, replayStatus }) {
     sessionPhase = 'pre_session_ny_am';
     phaseStartMin = etMinutesTotal >= 5 * 60 ? 5 * 60 : 0;
     nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
-  } else if (etMinutesTotal < 9 * 60 + 45) {
+  } else if (etMinutesTotal < 10 * 60) {
+    // Open-reaction now spans the full 15→30 min window (strategy §2.3.1 / §7
+    // Step 4) so the SMT leader can re-evaluate and lock by minute 30.
     sessionPhase = 'open_reaction_ny_am';
     phaseStartMin = 9 * 60 + 30; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 12 * 60) {
     sessionPhase = 'entry_hunt_ny_am';
-    phaseStartMin = 9 * 60 + 45; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+    phaseStartMin = 10 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 13 * 60) {
     sessionPhase = 'post_ny_am';
     phaseStartMin = 12 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 13 * 60 + 30) {
     sessionPhase = 'pre_session_ny_pm';
     phaseStartMin = 13 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
-  } else if (etMinutesTotal < 13 * 60 + 45) {
+  } else if (etMinutesTotal < 14 * 60) {
     sessionPhase = 'open_reaction_ny_pm';
     phaseStartMin = 13 * 60 + 30;
     nextKillzoneMin = 3 * 60 + 24 * 60;  // tomorrow's London Open
     nextKillzoneLabel = 'London Open (next day)';
   } else if (etMinutesTotal < 16 * 60) {
     sessionPhase = 'entry_hunt_ny_pm';
-    phaseStartMin = 13 * 60 + 45;
+    phaseStartMin = 14 * 60;
     nextKillzoneMin = 3 * 60 + 24 * 60;
     nextKillzoneLabel = 'London Open (next day)';
   } else if (etMinutesTotal < 17 * 60) {
@@ -153,7 +155,7 @@ export function computeSessionGate({ quote, replayStatus }) {
   // Outside NY phases, leaving the fields null means analyze.js skips
   // compute-leader. That matches the strategy chain's intent: leader
   // picks only happen relative to the most recent NY open-reaction.
-  const OPEN_REACTION_MIN = 15; // window length matches compute-leader's 15-min slice
+  const OPEN_REACTION_MIN = 30; // full 15→30 min open-reaction window (SMT leader re-evaluation, §2.3.1)
   const etMidnightMs = ts - (etMinutesTotal * 60_000 + Number(parts.second || 0) * 1000);
   let openWindowStartMin = null;
   if (/_ny_am$/.test(sessionPhase) || sessionPhase === 'pre_session_ny_am') {
