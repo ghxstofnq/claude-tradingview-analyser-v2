@@ -458,12 +458,15 @@ export async function runBacktest({
         }
       }
       // §2.3 "never marries a bias" + §7 Step 5: after the open window, a
-      // SWING-tier MSS confirming against the current bias realigns the
-      // fold to the structure's direction (mirrors the live resolver).
+      // SWING-tier MSS — or a swing-tier BoS with displacement — confirming
+      // against the current bias realigns the fold to the structure's
+      // direction (mirrors the live resolver; see live-ltf-resolver.js for the
+      // 2026-06-18 BoS-skipped case the MSS-only filter missed).
       if (synthesizedContext && openReaction && Number.isFinite(entryMs) && entryMs > orWindow.endMs && openReaction.ltf_bias) {
         const swings = entry?.inputs?.bundle?.gates?.engine?.pillar3?.structures_by_tier?.swing ?? [];
         const mss = swings
-          .filter((s) => s?.event === "mss" && (s?.confirmed_ms ?? 0) > orWindow.endMs &&
+          .filter((s) => (s?.event === "mss" || (s?.event === "bos" && s?.displacement === true))
+            && (s?.confirmed_ms ?? 0) > orWindow.endMs &&
             (s?.confirmed_ms ?? 0) > lastRealignMs && (s?.confirmed_ms ?? 0) <= entryMs)
           .reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);
         const structBias = mss?.dir === "bear" ? "bearish" : mss?.dir === "bull" ? "bullish" : null;

@@ -249,6 +249,25 @@ test("post-freeze swing MSS against the bias realigns the fold context", async (
   assert.equal(summary.open_reaction.interaction, "mss_realignment");
 });
 
+// 2026-06-18 parity: a swing-tier BoS WITH displacement realigns the fold the
+// same as an MSS — the structural-turn signal the MSS-only filter skipped.
+// (A no-displacement BoS must stay inert — see the live-ltf-resolver guard.)
+test("post-freeze swing BoS with displacement realigns the fold context", async () => {
+  const cont = sweepAt("09:40", { target: "LO.H", rejected: false }); // bullish divergent open
+  const bosBearMs = Date.parse(isoAtEt("10:40"));
+  const bosSwing = { swing: [{ event: "bos", dir: "bear", tier: "swing", displacement: true, confirmed_ms: bosBearMs }] };
+  const lateBar = entryAt("10:45", { sweeps: [cont] });
+  lateBar.inputs.bundle.gates.engine.pillar3.structures_by_tier = bosSwing;
+  const after = entryAt("10:50", { sweeps: [cont] });
+  after.inputs.bundle.gates.engine.pillar3.structures_by_tier = bosSwing;
+  const entries = [entryAt("09:46", { sweeps: [cont] }), lateBar, after];
+  const capture = [];
+  const { summary } = await run({ entries, capture });
+
+  assert.equal(capture[1].bias, "bearish");
+  assert.equal(summary.open_reaction.interaction, "mss_realignment");
+});
+
 // User ruling 2026-06-12 (§2.3 "never marries a bias"): a quiet open leaves
 // the LTF bias pending — the first post-window swing-tier structure earns
 // the day its direction at B cap (neutral overnight = one weaker element).
