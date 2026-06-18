@@ -894,11 +894,12 @@ register('analyze', {
         leader: null,    // set by surface_leader_decision, not by tv analyze
       };
 
-      // Loud warning when the secondary engine is missing so the user can
-      // load the ICT Engine indicator on the secondary chart and retry.
-      if (leader.reason === 'secondary_engine_missing') {
+      // Loud warning when the SMT read is unreadable (missing secondary engine
+      // or no confirmed open-reaction pivot) so the user can load the ICT Engine
+      // on both charts and retry. The leader stands aside until then (§2.3.1).
+      if (smt.reason === 'smt_unreadable_data') {
         process.stderr.write(
-          `warning: ICT Engine missing on ${pairConfig.secondary}. Leader pick will be inconclusive until the engine is loaded on both charts.\n`,
+          `warning: SMT read unreadable on ${pairConfig.secondary} (missing ICT Engine or no confirmed open-reaction pivot). Leader stands aside until both charts have the engine + a pivot.\n`,
         );
       }
     }
