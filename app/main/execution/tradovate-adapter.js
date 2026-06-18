@@ -8,7 +8,7 @@
 //     stopLoss?,takeProfit?  → {"s":"ok","d":{"orderId":"…"}}
 //   DELETE {host}/accounts/{id}/positions/{positionId} → {"s":"ok"}
 import { evaluate } from "./cdp-webview.js";
-import { getTradovate, buildTradovateOrderBody } from "./tradovate.js";
+import { getTradovate, buildTradovateOrderBody, instrumentForChart, tvRootOf } from "./tradovate.js";
 
 function requireConn() {
   const t = getTradovate();
@@ -24,8 +24,18 @@ function requireConn() {
 // order: { side, type?, contracts/qty, stopLoss?, takeProfit?, currentAsk?, currentBid?, instrument? }
 export async function placeTradovateOrder(order = {}) {
   const t = requireConn();
-  const instrument = order.instrument || t.instrument;
-  if (!instrument) throw new Error("tradovate_instrument_unknown");
+  // Derive the contract from the CHART symbol — never the raw sniffed
+  // instrument, which the pair's MES quotes pollute (orders were landing on MES
+  // while the chart was MNQ). Block on any root mismatch so an order can never
+  // hit the wrong product.
+  let instrument = order.instrument;
+  if (!instrument) instrument = order.symbol ? instrumentForChart(order.symbol, t.instrument) : t.instrument;
+  if (!instrument) throw new Error(`tradovate_instrument_unresolved (chart=${order.symbol ?? "?"} sniffed=${t.instrument ?? "?"})`);
+  if (order.symbol && tvRootOf(instrument) !== tvRootOf(order.symbol)) {
+    const e = new Error(`tradovate_symbol_mismatch: would place ${instrument} but chart is ${order.symbol}`);
+    e.blocked = { route: false, reason: "symbol_mismatch" };
+    throw e;
+  }
   const body = buildTradovateOrderBody({
     instrument,
     qty: order.contracts ?? order.qty ?? 1,

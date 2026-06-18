@@ -13,6 +13,7 @@ import { sizeFromStop } from "./sizing-core.js";
 // routing is covered without placing an order.
 export function tradovateOrderFromPacket(packet = {}, contracts) {
   return {
+    symbol: packet.symbol,
     side: (packet.side === "long" || packet.side === "buy") ? "buy" : "sell",
     type: "market",
     contracts,

@@ -4,8 +4,30 @@ import assert from "node:assert/strict";
 import {
   parseTradovateRequest, deriveActiveBroker,
   noteTradovateRequest, getTradovate, __resetTradovate,
-  buildTradovateOrderBody,
+  buildTradovateOrderBody, instrumentForChart, tvRootOf,
 } from "../app/main/execution/tradovate.js";
+
+describe("instrumentForChart — orders follow the CHART symbol, never the stale sniff", () => {
+  it("keeps the sniffed contract when its root already matches the chart", () => {
+    assert.equal(instrumentForChart("MNQ1!", "MNQU6"), "MNQU6");
+    assert.equal(instrumentForChart("CME_MINI:MES1!", "MESU6"), "MESU6");
+  });
+  it("swaps a stale root onto the chart root, keeping the live month (the bug)", () => {
+    // chart MNQ but sniff polluted to MESU6 → place MNQU6, not MES
+    assert.equal(instrumentForChart("MNQ1!", "MESU6"), "MNQU6");
+    assert.equal(instrumentForChart("MES1!", "MNQZ7"), "MESZ7");
+  });
+  it("returns null when it can't confidently resolve (caller then blocks)", () => {
+    assert.equal(instrumentForChart("MNQ1!", null), null);
+    assert.equal(instrumentForChart("MNQ1!", "ESZ7"), null);   // unknown root
+    assert.equal(instrumentForChart(null, "MNQU6"), null);
+  });
+  it("tvRootOf extracts MNQ/MES from chart + contract forms", () => {
+    assert.equal(tvRootOf("CME_MINI:MNQ1!"), "MNQ");
+    assert.equal(tvRootOf("MESU6"), "MES");
+    assert.equal(tvRootOf("ESZ7"), null);
+  });
+});
 
 function parseForm(s) { return Object.fromEntries(new URLSearchParams(s)); }
 

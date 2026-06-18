@@ -121,6 +121,7 @@ export function registerExecutionIpc() {
         if (!acctGate.route) return { ok: false, blocked: true, code: "confirm_tradovate", preview, gate: acctGate };
         const { placeTradovateOrder } = await import("./execution/tradovate-adapter.js");
         const result = await placeTradovateOrder({
+          symbol: ctx.symbol,
           side: arg.side, type: "market", contracts: preview.contracts,
           stopLoss: preview.stop, takeProfit: preview.tp ?? undefined,
           currentAsk: ctx.price, currentBid: ctx.price,
