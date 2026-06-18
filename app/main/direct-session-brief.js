@@ -175,7 +175,14 @@ function htfBiasRows(symbol, digestSymbol) {
 
 function pillar2Status(digestSymbol) {
   const p2 = digestSymbol?.pillar2 ?? {};
-  const checks = [p2.current_tf, p2.m5, p2.m15].filter(Boolean);
+  // §7 Step 3 grades Pillar 2 on 5m/15m candle anatomy ("not dominated by
+  // dojis/wicks"); the chart's current-TF row is a non-authoritative live gauge
+  // (2026-05-20 decision), NOT a grading input. Counting it tipped a clean MNQ
+  // session to "poor" off a stale/odd current-TF row (598pt 3h range + 12h-old
+  // leg) while 5m read normal. Use 5m/15m only; fall back to current_tf solely
+  // when both LTF rows are absent (degraded capture).
+  const ltf = [p2.m5, p2.m15].filter(Boolean);
+  const checks = ltf.length ? ltf : [p2.current_tf].filter(Boolean);
   const bad = checks.filter((check) => /poor|chop|doji/i.test(`${check.range_quality ?? ""} ${check.displacement ?? ""} ${check.candle ?? ""}`)).length;
   if (!checks.length) return { verdict: "poor", status: "fail" };
   if (bad >= 2) return { verdict: "poor", status: "fail" };
