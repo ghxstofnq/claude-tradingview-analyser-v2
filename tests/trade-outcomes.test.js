@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tickTrades, foldOpenTrades, closeTradesAtEod, consecutiveLossStreak } from "../cli/lib/trade-outcomes.js";
+import { tickTrades, foldOpenTrades, closeTradesAtEod, consecutiveLossStreak, closeTradesAtBrokerExit } from "../cli/lib/trade-outcomes.js";
+
+// Symbol-root matcher used in production (MNQ1! / MNQU6 → MNQ).
+const rootOf = (s) => (String(s || "").toUpperCase().match(/(MNQ|MES)/) || [])[1] || null;
 
 // A+ so the runner path (TP1 → BE → TP2) is exercised; tp2 120 sits beyond
 // tp1 110. A B-grade trade banks fully at TP1 (covered separately below).
@@ -248,4 +251,64 @@ test("foldOpenTrades — an A+ TP1_HIT pulls stop to entry but trade stays open"
   assert.equal(open.length, 1);
   assert.equal(open[0].stop, 100);     // moved to break-even
   assert.equal(open[0].tp1_hit, true);
+});
+
+// ── Real broker exit reconcile (user ruling 2026-06-18) ────────────────
+test("closeTradesAtBrokerExit: matching open short closes at the real fill with signed R", () => {
+  // short, risk 81.75 (entry 30402, stop 30483.75); real exit 30340 = +0.76R
+  const t = { id: "T-1", symbol: "MNQ1!", side: "short", state: "filled", entry: 30402, stop: 30483.75 };
+  const out = closeTradesAtBrokerExit([t], { instrument: "MNQU6", exit: 30340, side: "short", rootOf });
+  assert.equal(out.transitions.length, 1);
+  assert.equal(out.transitions[0].status, "CLOSED_BROKER");
+  assert.equal(out.transitions[0].exit, 30340);
+  assert.equal(out.transitions[0].r_realized, 0.76);
+  assert.equal(out.updated[0].state, "closed");
+  assert.equal(out.updated[0].outcome, "CLOSED_BROKER");
+});
+
+test("closeTradesAtBrokerExit: a BE-stop tap books ~0R off ORIGINAL risk, not the original-stop loss", () => {
+  // TP1 already armed the runner: orig_stop retained, live stop at entry (BE).
+  const t = { id: "T-1", symbol: "MNQ1!", side: "short", state: "filled", entry: 30402, stop: 30402, orig_stop: 30483.75, tp1_hit: true };
+  const out = closeTradesAtBrokerExit([t], { instrument: "MNQU6", exit: 30402, side: "short", rootOf });
+  assert.equal(out.transitions[0].r_realized, 0);   // scratch, not -1
+});
+
+test("closeTradesAtBrokerExit: an opposite-side manual scalp does NOT close the open setup", () => {
+  const t = { id: "T-1", symbol: "MNQ1!", side: "short", state: "filled", entry: 30402, stop: 30483.75 };
+  const out = closeTradesAtBrokerExit([t], { instrument: "MNQU6", exit: 30340, side: "long", rootOf });
+  assert.equal(out.transitions.length, 0);
+  assert.equal(out.updated[0].state, "filled");     // still open
+});
+
+test("closeTradesAtBrokerExit: a different-root round-trip (MES) leaves an MNQ trade open", () => {
+  const t = { id: "T-1", symbol: "MNQ1!", side: "short", state: "filled", entry: 30402, stop: 30483.75 };
+  const out = closeTradesAtBrokerExit([t], { instrument: "MESU6", exit: 7540, side: "short", rootOf });
+  assert.equal(out.transitions.length, 0);
+});
+
+test("closeTradesAtBrokerExit: a symbol-less legacy trade matches on side alone", () => {
+  const t = { id: "T-1", side: "short", state: "filled", entry: 30402, stop: 30483.75 };
+  const out = closeTradesAtBrokerExit([t], { instrument: "MNQU6", exit: 30340, side: "short", rootOf });
+  assert.equal(out.transitions.length, 1);
+  assert.equal(out.transitions[0].status, "CLOSED_BROKER");
+});
+
+test("foldOpenTrades treats CLOSED_BROKER as terminal", () => {
+  const events = [
+    { type: "accept", id: "T-1", symbol: "MNQ1!", side: "short", entry: 30402, stop: 30483.75 },
+    { type: "outcome", status: "FILLED", id: "T-1" },
+    { type: "outcome", status: "CLOSED_BROKER", id: "T-1", exit: 30340, r_realized: 0.76 },
+  ];
+  assert.equal(foldOpenTrades(events).length, 0);
+});
+
+test("consecutiveLossStreak: a CLOSED_BROKER below water counts as a loss; a scratch resets", () => {
+  assert.equal(consecutiveLossStreak([
+    { type: "outcome", status: "CLOSED_BROKER", ts: "1", r_realized: -1 },
+    { type: "outcome", status: "CLOSED_BROKER", ts: "2", r_realized: -0.5 },
+  ]), 2);
+  assert.equal(consecutiveLossStreak([
+    { type: "outcome", status: "CLOSED_BROKER", ts: "1", r_realized: -1 },
+    { type: "outcome", status: "CLOSED_BROKER", ts: "2", r_realized: 0 },   // BE scratch resets
+  ]), 0);
 });

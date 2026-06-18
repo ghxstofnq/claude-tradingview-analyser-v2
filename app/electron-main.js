@@ -84,7 +84,7 @@ app.whenReady().then(async () => {
   const ipc = registerIpc(win);
   registerExecutionIpc();
   startTradingFeed();
-  startTradovateFillPoller();
+  startTradovateFillPoller({ send: ipc.send });
   setSurfaceSink(ipc.send);
   startHealthMonitor(ipc.send);
   startAlertPolling({ send: ipc.send });

@@ -4,13 +4,43 @@
 // no position WS, so this polls /positions to DETECT an open→flat transition,
 // then reconstructs the just-closed round-trip from /executions — sign-correct
 // and side-correct from the actual fills (no position-poll race).
+import fs from "node:fs/promises";
+import path from "node:path";
 import { appendFill } from "./fills.js";
 import { TRADES_DIR } from "./config.js";
-import { activeBroker, getTradovate } from "./tradovate.js";
+import { activeBroker, getTradovate, tvRootOf } from "./tradovate.js";
 import { readTradovatePosition } from "./tradovate-adapter.js";
+import { activeSessionDir } from "../sessions.js";
+import { foldOpenTrades, closeTradesAtBrokerExit } from "../../../cli/lib/trade-outcomes.js";
 
 const pointValue = (sym) => (/MES/.test(sym || "") ? 5 : 2);
 const today = () => new Date().toISOString().slice(0, 10);
+
+let _send = null;
+export function setTradovateFillsSink(send) { _send = send; }
+
+// Reconcile the journal setup-trade with the real broker exit: when the
+// Tradovate position goes flat, close the matching open journal trade(s) at the
+// REAL fill price. Without this the bar-simulator keeps grading the setup
+// against its original stop and never learns the trader exited / hit BE.
+async function reconcileJournalOnClose(rt, instrument) {
+  try {
+    const dir = await activeSessionDir();
+    const file = path.join(dir, "trades.jsonl");
+    const txt = await fs.readFile(file, "utf8").catch(() => "");
+    if (!txt.trim()) return;
+    const events = txt.trim().split("\n").filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    const open = foldOpenTrades(events);
+    if (!open.length) return;
+    const side = rt.side === "buy" ? "long" : "short";
+    const { transitions } = closeTradesAtBrokerExit(open, { instrument, exit: rt.exit, side, rootOf: tvRootOf });
+    for (const tr of transitions) {
+      await fs.appendFile(file, JSON.stringify({ type: "outcome", source: "tradovate", ...tr }) + "\n", "utf8");
+      _send?.("trade:outcome", tr);
+    }
+  } catch { /* reconcile best-effort — never break fill recording */ }
+}
 
 // Reconstruct the most-recently-closed round-trip for `instrument` from the
 // executions list (newest-first; each {instrument,price,qty,side,time}). Walks
@@ -78,14 +108,16 @@ async function tick() {
             actual: { entry: rt.entry, exit: rt.exit, usd: rt.usd, r: null, heldMs: rt.openMs && rt.closeMs ? rt.closeMs - rt.openMs : Date.now() - openTrade.openedMs },
           });
         } catch { /* fill record best-effort */ }
+        await reconcileJournalOnClose(rt, openTrade.instrument);
       }
       openTrade = null;
     }
   } catch { /* poll best-effort */ }
 }
 
-export function startTradovateFillPoller({ intervalMs = 4000 } = {}) {
+export function startTradovateFillPoller({ intervalMs = 4000, send } = {}) {
   stopped = false;
+  if (send) _send = send;
   if (timer) return;
   timer = setInterval(tick, intervalMs);
 }
