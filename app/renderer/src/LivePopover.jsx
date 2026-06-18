@@ -426,6 +426,7 @@ function LiveCell({ guards, symbol }) {
   const [view, setView] = useState("hunt");   // hunt | ticket | intrade | add
   const [ticketAdd, setTicketAdd] = useState(false);
   const [userPickedView, setUserPickedView] = useState(false);
+  const [fireMsg, setFireMsg] = useState(null);   // placement failure banner
 
   const backtest = useBacktestRunning();
   const health = useHealth();
@@ -521,23 +522,36 @@ function LiveCell({ guards, symbol }) {
   // Accept from HUNT → size in TICKET; fire in TICKET → real accept + (stub) order → IN-TRADE.
   const onHuntAccept = () => { setTicketAdd(false); setUserPickedView(true); setView("ticket"); };
   const onTicketFire = async (order) => {
+    setFireMsg(null);
     try {
       if (ticketSetup) {
         const req = buildOrderRequest({
           setup: ticketSetup, sizing: order.sizing, guards, account: accountType, symbol, type: order.type,
         });
+        let res;
         if (ticketAdd) {
           // Scale-in: open the add as its OWN standalone tranche (own stop +
           // target), not an average-in. The main-process tranche path journals
           // the accept (tagged add) and lays the bracket; exits are managed by
           // the outcome ticker like any tranche.
-          executionAdapter.openTranche({ ...ticketSetup, symbol, tranche_role: "add" });
+          res = await executionAdapter.openTranche({ ...ticketSetup, symbol, tranche_role: "add" });
         } else {
           await accept(ticketSetup);
-          executionAdapter.placeOrder(req);
+          res = await executionAdapter.placeOrder(req);
+        }
+        // Surface a failed/blocked placement instead of silently advancing to
+        // IN-TRADE — otherwise a rejected order looks like a live trade.
+        if (!res?.ok) {
+          const why = res?.blocked ? (res.code || res.reason || "blocked by guardrails")
+            : (res?.error || res?.result?.body || "broker rejected the order");
+          setFireMsg(`ORDER NOT PLACED — ${why}`);
+          return;
         }
       }
-    } catch { /* best-effort */ }
+    } catch (e) {
+      setFireMsg(`ORDER NOT PLACED — ${String(e?.message || e)}`);
+      return;
+    }
     setTicketAdd(false); setUserPickedView(true); setView("intrade");
   };
 
@@ -592,6 +606,12 @@ function LiveCell({ guards, symbol }) {
               <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)",
                             color: "var(--amber)", fontSize: 10.5, letterSpacing: ".14em" }}>
                 ⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders
+              </div>
+            )}
+            {fireMsg && (
+              <div onClick={() => setFireMsg(null)} style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)",
+                            background: "var(--surface-2)", color: "var(--red)", fontSize: 10.5, letterSpacing: ".14em", cursor: "pointer" }}>
+                ⚠ {fireMsg}
               </div>
             )}
             {body}

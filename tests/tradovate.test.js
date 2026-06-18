@@ -5,7 +5,9 @@ import {
   parseTradovateRequest, deriveActiveBroker,
   noteTradovateRequest, getTradovate, __resetTradovate,
   buildTradovateOrderBody, buildTradovateModifyBody, instrumentForChart, tvRootOf,
+  tradovateOrderArgsFromPayload,
 } from "../app/main/execution/tradovate.js";
+import { buildOrderRequest } from "../app/renderer/src/execution/orderRequest.js";
 
 describe("buildTradovateModifyBody — BE/TRAIL stop reprice (endpoint+body captured 2026-06-18)", () => {
   it("builds the PUT body the panel sends: id + instrument + qty + stopPrice + quote", () => {
@@ -135,5 +137,42 @@ describe("buildTradovateOrderBody", () => {
     assert.equal(f.type, "limit");
     assert.equal(f.limitPrice, "7580");
     assert.equal(f.stopLoss, "7570");
+  });
+});
+
+// Regression: firing an accepted setup on Tradovate must place a bracket that
+// carries the stop + tp. The bug was the fire path speaking paper-only, so the
+// order (and its stop) never reached Tradovate. This locks the whole data path
+// from the surfaced setup → execution:place payload → Tradovate order body.
+describe("tradovateOrderArgsFromPayload — accepted setup keeps its stop/tp", () => {
+  const setup = { side: "sell", entry: 30402, stop: 30483.75, tp1: 30092.25 };
+  const sizing = { contracts: 2, withinTolerance: true };
+  const guards = { perTradeMax: 400, dailyLimit: 6000 };
+
+  it("maps the buildOrderRequest payload to placeTradovateOrder args (stop/tp/contracts preserved)", () => {
+    const req = buildOrderRequest({ setup, sizing, guards, account: "tradovate", symbol: "MNQ1!", type: "market" });
+    const args = tradovateOrderArgsFromPayload(req);
+    assert.equal(args.side, "sell");
+    assert.equal(args.type, "market");
+    assert.equal(args.contracts, 2);
+    assert.equal(args.stopLoss, 30483.75);
+    assert.equal(args.takeProfit, 30092.25);
+    assert.equal(args.symbol, "MNQ1!");
+  });
+
+  it("the resulting Tradovate order body still includes the stop bracket", () => {
+    const req = buildOrderRequest({ setup, sizing, guards, account: "tradovate", symbol: "MNQ1!", type: "market" });
+    const args = tradovateOrderArgsFromPayload(req);
+    const f = parseForm(buildTradovateOrderBody({ instrument: "MNQU6", qty: args.contracts, ...args }));
+    assert.equal(f.stopLoss, "30483.75");
+    assert.equal(f.takeProfit, "30092.25");
+    assert.equal(f.side, "sell");
+  });
+
+  it("carries limitPrice for a limit fire", () => {
+    const req = buildOrderRequest({ setup, sizing, guards, account: "tradovate", symbol: "MNQ1!", type: "limit" });
+    const args = tradovateOrderArgsFromPayload(req);
+    assert.equal(args.type, "limit");
+    assert.equal(args.limitPrice, 30402);
   });
 });

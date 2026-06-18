@@ -62,6 +62,24 @@ export function instrumentForChart(chartSymbol, sniffed) {
   return month ? chartRoot + month : null;                 // root swap, same month
 }
 
+// Map a surfaced-setup order payload (the buildOrderRequest shape sent over
+// execution:place) into placeTradovateOrder args. Keeps the setup's own
+// entry/stop/tp — the bracket must carry the stop, which is exactly what was
+// being dropped when the fire path only spoke paper.
+export function tradovateOrderArgsFromPayload(payload = {}) {
+  return {
+    symbol: payload.symbol,
+    side: payload.side,
+    type: payload.type === "limit" ? "limit" : "market",
+    contracts: payload.contracts,
+    stopLoss: payload.stop,
+    takeProfit: payload.tp ?? undefined,
+    limitPrice: payload.entry,
+    currentAsk: payload.entry,
+    currentBid: payload.entry,
+  };
+}
+
 // In-memory store of the latest sniffed Tradovate values.
 const store = { token: null, accountId: null, host: null, instrument: null, lastSeenMs: null };
 
