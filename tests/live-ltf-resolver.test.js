@@ -87,7 +87,7 @@ test("post-window swing MSS agreeing with the bias does not change it", () => {
   assert.equal(r.source, "deterministic-resolver");
 });
 
-test("a swing BOS (not MSS) never flips the bias", () => {
+test("a swing BOS without displacement never flips the bias", () => {
   const sweeps = [{ target: "LO.H", price: 29700, side: "buy", swept_ms: W.startMs + 8 * 60_000, rejected: false }];
   const bosBear = { event: "bos", dir: "bear", tier: "swing", confirmed_ms: W.endMs + 40 * 60_000 };
   const r = deriveLtfBiasContext({
@@ -95,7 +95,26 @@ test("a swing BOS (not MSS) never flips the bias", () => {
     brief: BRIEF, session: SESSION,
     eventTs: new Date(W.endMs + 45 * 60_000).toISOString(),
   });
-  assert.equal(r.bias, "bullish"); // failed_break override applies? no — bos agrees? bos bear opposes bullish continuation…
+  // continuation up over LO.H reads bullish-divergent; a no-displacement BoS is
+  // too weak to realign, so the open-reaction bias stands.
+  assert.equal(r.bias, "bullish");
+  assert.equal(r.source, "deterministic-resolver");
+});
+
+// 2026-06-18 NY-AM: a swing-tier BoS WITH displacement against the bias is a
+// structural turn (a higher high / lower low) and realigns the day — the case
+// the MSS-only filter skipped while two more shorts stacked into the reversal.
+test("a swing BOS with displacement realigns the bias", () => {
+  const sweeps = [{ target: "LO.H", price: 29700, side: "buy", swept_ms: W.startMs + 8 * 60_000, rejected: false }];
+  const bosBearDisp = { event: "bos", dir: "bear", tier: "swing", displacement: true, confirmed_ms: W.endMs + 40 * 60_000 };
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps, swing: bosBearDisp }),
+    brief: BRIEF, session: SESSION,
+    eventTs: new Date(W.endMs + 45 * 60_000).toISOString(),
+  });
+  // bullish-divergent open flips bearish-aligned on the displacement BoS
+  assert.equal(r.bias, "bearish");
+  assert.equal(r.source, "deterministic-resolver:realigned");
 });
 
 // §2.3 "never marries a bias" + user ruling 2026-06-12: a quiet open leaves

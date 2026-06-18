@@ -90,11 +90,17 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
     }
   }
   // §2.3 "never marries a bias" + §7 Step 5 (MSS = the LTF turning): a
-  // SWING-tier MSS confirming AFTER the open window, against the current
-  // bias, realigns the day to the structure's direction.
+  // SWING-tier MSS — or a swing-tier BoS with displacement — confirming AFTER
+  // the open window, against the current bias, realigns the day to the
+  // structure's direction. A swing-tier BoS up is a higher high against a
+  // bearish bias: the same structural turn, just labelled continuation of the
+  // new leg (2026-06-18 NY-AM: a swing BoS bull at 10:23 confirmed the reversal
+  // 4 min before two more shorts stacked into it; the MSS-only filter skipped
+  // it). Displacement gates out marginal drift-overs.
   let realigned = false;
   const postWindowMss = latestOf(swingStructs.filter((s) =>
-    s?.event === "mss" && (s?.confirmed_ms ?? 0) > window.endMs && (s?.confirmed_ms ?? 0) <= ms));
+    (s?.event === "mss" || (s?.event === "bos" && s?.displacement === true))
+    && (s?.confirmed_ms ?? 0) > window.endMs && (s?.confirmed_ms ?? 0) <= ms));
   if (postWindowMss && verdict.ltf_bias) {
     const structBias = postWindowMss.dir === "bear" ? "bearish" : postWindowMss.dir === "bull" ? "bullish" : null;
     if (structBias && structBias !== verdict.ltf_bias) {
