@@ -24,8 +24,48 @@ test('writes and reads back a valid decision', async () => {
   await writePairDecision(dir, payload);
   const read = await readPairDecision(dir, '2026-05-25');
   assert.equal(read.leader, 'MNQ1!');
-  assert.equal(read.schema, 1);
+  assert.equal(read.schema, 2);
   assert.equal(read.evidence.margin, 0.28);
+});
+
+test('round-trips the SMT v2 fields (method, bias_dir, divergence, gap, standaside)', async () => {
+  const dir = await mkdtmp();
+  await writePairDecision(dir, {
+    date: '2026-06-18',
+    session: 'ny-am',
+    primary: 'MNQ1!',
+    secondary: 'MES1!',
+    leader: 'MES1!',
+    method: 'smt',
+    bias_dir: 'short',
+    divergence: true,
+    gap: 1.12,
+    standaside: false,
+    decided_at: '2026-06-18T13:50:00Z',
+    evidence: { 'MNQ1!': { strength: 0.7 }, 'MES1!': { strength: -0.42 } },
+    reason: 'smt_divergence',
+  });
+  const read = await readPairDecision(dir, '2026-06-18');
+  assert.equal(read.method, 'smt');
+  assert.equal(read.bias_dir, 'short');
+  assert.equal(read.divergence, true);
+  assert.equal(read.gap, 1.12);
+  assert.equal(read.standaside, false);
+  assert.equal(read.leader, 'MES1!');
+  assert.equal(read.evidence['MES1!'].strength, -0.42);
+});
+
+test('stand-aside decision round-trips (no leader, flagged)', async () => {
+  const dir = await mkdtmp();
+  await writePairDecision(dir, {
+    date: '2026-06-18', session: 'ny-am', primary: 'MNQ1!', secondary: 'MES1!',
+    leader: null, method: 'smt', standaside: true, reason: 'smt_unreadable_data',
+    decided_at: '2026-06-18T14:00:00Z',
+  });
+  const read = await readPairDecision(dir, '2026-06-18');
+  assert.equal(read.standaside, true);
+  assert.equal(read.leader, null);
+  assert.equal(read.reason, 'smt_unreadable_data');
 });
 
 test('returns null when file does not exist', async () => {
