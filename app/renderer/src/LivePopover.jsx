@@ -6,7 +6,7 @@
 // execution-engine spec lands). Tabs let the trader preview each view; the
 // default view follows the data (activeTrade → IN-TRADE, else HUNT).
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Panel, Row } from "./Shared.jsx";
 import {
   selectPillar3,
@@ -30,7 +30,6 @@ import { noTradeStatusLabel } from "./hooks/useActiveSetup.helpers.js";
 import { useLastBar } from "./hooks/useLastBar.js";
 import { useHealth } from "./hooks/useHealth.js";
 import { useChat } from "./hooks/useChat.js";
-import { useWalkers } from "./hooks/useWalkers.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
 import { useExecutionState } from "./hooks/useExecutionState.js";
 
@@ -56,32 +55,6 @@ function sizeLabel(s) {
 const RISK_KEY = "workstation:lastRisk";
 function loadRiskOr(d) { try { const v = localStorage.getItem(RISK_KEY); return v ? +v : d; } catch { return d; } }
 function saveRisk(v) { try { localStorage.setItem(RISK_KEY, String(v)); } catch { /* ignore */ } }
-
-// ── WALKER STATUS (engine state above the candidate) ─────────────────────
-function WalkerStatusPanel({ walkers }) {
-  if (!walkers || walkers.length === 0) return null;
-  return (
-    <div style={{ background: "var(--surface-0)", border: "1px solid var(--border-d)", padding: "12px 14px", marginBottom: 10 }}>
-      <div style={{ color: "var(--label-dim)", fontSize: 9, letterSpacing: ".24em", marginBottom: 10 }}>WALKER STATUS</div>
-      {walkers.map((w) => {
-        const ageM = w.last_advanced_at ? Math.round((Date.now() - w.last_advanced_at) / 60000) : null;
-        return (
-          <div key={w.id} style={{ fontSize: 10.5, marginBottom: 6 }}>
-            <div style={{ color: "var(--value)" }}>{w.panel_id} · {w.model} · {w.variant} · {(w.size_multiplier ?? 1).toFixed(1)}× size</div>
-            <div style={{ color: "var(--label-dim)" }}>▸ {w.stage}{ageM != null ? ` (${ageM}m)` : ""}</div>
-            {w.displacement_fvg && (
-              <div style={{ color: "var(--label)" }}>
-                watching FVG {w.displacement_fvg.low}–{w.displacement_fvg.high}
-                {w.hypothetical_r_to_stop != null ? ` · R-to-stop ${w.hypothetical_r_to_stop}` : ""}
-                {w.hypothetical_r_to_tp1 != null ? ` · R-to-TP1 ${w.hypothetical_r_to_tp1}` : ""}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // Pull the latest Claude reply / bar-read prose, citation-stripped.
 function latestReadText(messages) {
@@ -295,14 +268,13 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, addCan
 }
 
 // ── ENTRY HUNT (and ADD) — vladder + confirmation + brain read ──────────
-function EntryHuntView({ setup, isAdd, tradeId, lastBarPrice, walkers, chat, noTrade, noTradeReason, onAccept, onReject }) {
+function EntryHuntView({ setup, isAdd, tradeId, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject }) {
   const read = latestReadText(chat?.messages || []);
   if (!setup) {
     const prose = { color: "var(--prose)", fontSize: 11, lineHeight: 1.55, overflowWrap: "anywhere", wordBreak: "break-word" };
     const sh = noTrade?.sourceHealth;
     return (
       <div className="work-scroll">
-        {!isAdd && <WalkerStatusPanel walkers={walkers} />}
         <Panel title={isAdd ? "ADD CANDIDATE" : "ENTRY CANDIDATE"} right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
           <div className="lv-box" style={{ marginTop: 0 }}>
             <div className="lv-box-hd">{noTradeReason ? "NO-TRADE REASON" : "STATUS"}</div>
@@ -368,7 +340,6 @@ function EntryHuntView({ setup, isAdd, tradeId, lastBarPrice, walkers, chat, noT
   const stTxt = { pass: "yes", weak: "weak", fail: "fail", missing: "—", pending: "pending" };
   return (
     <div className="work-scroll">
-      {!isAdd && <WalkerStatusPanel walkers={walkers} />}
       <Panel title={isAdd ? "ADD CANDIDATE" : "ENTRY CANDIDATE"}
         right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
           {isAdd && <span className="add-badge">ADD</span>}
@@ -444,7 +415,6 @@ function LiveCell({ guards, symbol }) {
   const { activeSetup, noTrade, noTradeReason } = useActiveSetup();
   const lastBar = useLastBar();
   const chat = useChat();
-  const walkers = useWalkers();
   const exec = useExecutionState();
   // Real account orders route to (paper/live) — for the ticket badge + journal
   // metadata. Routing itself is enforced main-side by the confirmed account.
@@ -465,6 +435,23 @@ function LiveCell({ guards, symbol }) {
     window.addEventListener("topbar:open-cell", onOpen);
     return () => window.removeEventListener("topbar:open-cell", onOpen);
   }, []);
+
+  // Auto-open the popover the moment a NEW setup surfaces, so the trader can
+  // confirm/reject it without hunting for the cell. Keyed on the setup id so it
+  // fires once per surface (not every render); resets when the setup clears so a
+  // re-surface re-opens. Forces the HUNT view, where accept/reject lives.
+  const lastSurfacedId = useRef(null);
+  useEffect(() => {
+    const id = activeSetup?.id;
+    if (id && id !== lastSurfacedId.current) {
+      lastSurfacedId.current = id;
+      setOpen(true);
+      setUserPickedView(true);
+      setView("hunt");
+    } else if (!id) {
+      lastSurfacedId.current = null;
+    }
+  }, [activeSetup?.id]);
 
   // Cell badge: green/red P&L when in a position (live broker or journal),
   // amber HUNT when hunting, else dim.
@@ -550,12 +537,12 @@ function LiveCell({ guards, symbol }) {
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no candidate to ticket ]</div>;
   } else if (effectiveView === "add") {
     body = <EntryHuntView setup={addCandidate} isAdd tradeId={activeTrade?.id} lastBarPrice={lastPrice}
-                          walkers={walkers} chat={chat}
+                          chat={chat}
                           noTrade={!addCandidate} noTradeReason={addCandidate ? undefined : "no scale-in candidate yet"}
                           onAccept={() => { setTicketAdd(true); setUserPickedView(true); setView("ticket"); }}
                           onReject={() => pickView("intrade")} />;
   } else {
-    body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} walkers={walkers} chat={chat}
+    body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
                           noTrade={noTrade} noTradeReason={noTradeReason}
                           onAccept={onHuntAccept} onReject={() => pickView("hunt")} />;
   }
