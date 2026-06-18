@@ -129,7 +129,10 @@ export const PROD_DEPS = {
   // is computed in-process from the single bundle instead of by --pair.
   async runDirectBrief({ runId, session, date }) {
     const runDir = resolveRunDir({ stateDir: STATE_DIR, runId });
-    const leader = PAIR_PRIMARY;
+    // Leader defaults to the configured primary, but BACKTEST_LEADER lets a
+    // run target the other symbol — used to backtest each side of the pair
+    // independently (SMT laggard validation: did shorting MES win where MNQ lost?).
+    const leader = process.env.BACKTEST_LEADER || PAIR_PRIMARY;
     let bundle = null;
     let h1History = null;
     try {

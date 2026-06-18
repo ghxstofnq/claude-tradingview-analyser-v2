@@ -17,6 +17,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 
 - [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) — the three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation), the multi-timeframe framework (HTF Daily/4H/1H + Overnight Asia/London + NY open reaction), A+ vs B grading, and the 7-step trading checklist. **No trade unless all three pillars align.**
 - [docs/strategy/entry-models.md](docs/strategy/entry-models.md) — the three entry models in detail: **MSS (reversal after liquidity grab)**, **Trend (continuation in direction of displacement)**, **Inversion (failed opposing PD array)**. Each with core components, A+ example, stop placement, and target logic.
+- [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) **§2.3.1 (pair relative strength / SMT)** governs **MNQ/MES leader selection** — short the laggard, long the leader, decided in the NY open-reaction window; selection only, not an entry trigger.
 
 **Consult these before** any strategy-related work: structuring analysis output, defining what counts as a setup, building the tracker / scanner / backtester, encoding grading logic, choosing what to read from the analyze JSON bundle, or proposing changes to `/analyze`. When proposing a strategy-related change, cite the relevant strategy file.
 

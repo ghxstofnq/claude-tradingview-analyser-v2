@@ -5,10 +5,10 @@ import * as replay from '@tvmcp/core/replay';
 import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser.js';
 import { computeEngineGates } from '../lib/compute-engine-gates.js';
 import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
-import { computeLeader } from '../lib/compute-leader.js';
+import { computeSmtLeader } from '../lib/smt-leader.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
-import { captureMultiTfWithHealth, applyBaselineFallback } from '../lib/tf-capture.js';
+import { captureMultiTfWithHealth, applyBaselineFallback, pollEnginePresent, enginePresent } from '../lib/tf-capture.js';
 
 /**
  * tv analyze — bundles chart state, quote, multi-TF bars, and the ICT Engine
@@ -99,26 +99,28 @@ export function computeSessionGate({ quote, replayStatus }) {
     sessionPhase = 'pre_session_ny_am';
     phaseStartMin = etMinutesTotal >= 5 * 60 ? 5 * 60 : 0;
     nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
-  } else if (etMinutesTotal < 9 * 60 + 45) {
+  } else if (etMinutesTotal < 10 * 60) {
+    // Open-reaction now spans the full 15→30 min window (strategy §2.3.1 / §7
+    // Step 4) so the SMT leader can re-evaluate and lock by minute 30.
     sessionPhase = 'open_reaction_ny_am';
     phaseStartMin = 9 * 60 + 30; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 12 * 60) {
     sessionPhase = 'entry_hunt_ny_am';
-    phaseStartMin = 9 * 60 + 45; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
+    phaseStartMin = 10 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 13 * 60) {
     sessionPhase = 'post_ny_am';
     phaseStartMin = 12 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
   } else if (etMinutesTotal < 13 * 60 + 30) {
     sessionPhase = 'pre_session_ny_pm';
     phaseStartMin = 13 * 60; nextKillzoneMin = 13 * 60 + 30; nextKillzoneLabel = 'NY PM';
-  } else if (etMinutesTotal < 13 * 60 + 45) {
+  } else if (etMinutesTotal < 14 * 60) {
     sessionPhase = 'open_reaction_ny_pm';
     phaseStartMin = 13 * 60 + 30;
     nextKillzoneMin = 3 * 60 + 24 * 60;  // tomorrow's London Open
     nextKillzoneLabel = 'London Open (next day)';
   } else if (etMinutesTotal < 16 * 60) {
     sessionPhase = 'entry_hunt_ny_pm';
-    phaseStartMin = 13 * 60 + 45;
+    phaseStartMin = 14 * 60;
     nextKillzoneMin = 3 * 60 + 24 * 60;
     nextKillzoneLabel = 'London Open (next day)';
   } else if (etMinutesTotal < 17 * 60) {
@@ -153,7 +155,7 @@ export function computeSessionGate({ quote, replayStatus }) {
   // Outside NY phases, leaving the fields null means analyze.js skips
   // compute-leader. That matches the strategy chain's intent: leader
   // picks only happen relative to the most recent NY open-reaction.
-  const OPEN_REACTION_MIN = 15; // window length matches compute-leader's 15-min slice
+  const OPEN_REACTION_MIN = 30; // full 15→30 min open-reaction window (SMT leader re-evaluation, §2.3.1)
   const etMidnightMs = ts - (etMinutesTotal * 60_000 + Number(parts.second || 0) * 1000);
   let openWindowStartMin = null;
   if (/_ny_am$/.test(sessionPhase) || sessionPhase === 'pre_session_ny_am') {
@@ -507,7 +509,24 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
     data.getStudyValues(),
     data.getPineTables(),
   ]);
-  const engine = parseIctEngineTable(findIctEngineRows(tables));
+  // Verified read of the secondary's current-TF engine. A single shot here lost
+  // the SMT comparison when the engine table lagged the symbol switch
+  // (secondary_engine_missing, 2026-06-18 NY-AM). Poll until present (≤4s); a
+  // genuine miss falls through to the SMT stand-aside, never a silent MNQ.
+  let engine = parseIctEngineTable(findIctEngineRows(tables));
+  let engine_attempts = 1;
+  if (!enginePresent(engine)) {
+    const r = await pollEnginePresent({
+      readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
+      sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
+    });
+    if (r.engine) engine = r.engine;
+    engine_attempts = 1 + r.attempts;
+  }
+  capture_health = {
+    ...(capture_health || {}),
+    engine_current_tf: { present: enginePresent(engine), attempts: engine_attempts },
+  };
   // Drop the still-forming candle so confirmation facts read the just-CLOSED
   // bar (mirrors the backtest tape recorder). Without this, confirmation.last_bar
   // is a range-0 doji and live surfaces nothing — see docs/intent/live-confirmation-surfacing.md.
@@ -824,11 +843,12 @@ register('analyze', {
       const windowStartMs = sessionGate?.open_window_start_ms;
       const windowEndMs = sessionGate?.open_window_end_ms;
 
-      const leader = computeLeader({
+      const smt = computeSmtLeader({
         primary: pairConfig.primary,
         secondary: pairConfig.secondary,
         primaryEngine: engine,
         secondaryEngine: secondaryBundle.engine,
+        context: "auto",
         windowStartMs: windowStartMs ?? Number.POSITIVE_INFINITY,
         windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
       });
@@ -854,29 +874,32 @@ register('analyze', {
           [pairConfig.secondary]: secondaryBundle,
         },
         leader_evidence: {
-          primary_disp_score: leader.primary_disp_score,
-          secondary_disp_score: leader.secondary_disp_score,
-          margin: leader.margin,
-          threshold: leader.threshold,
-          reason: leader.reason,
-          // cite-or-reject anchors. The exact FVG index isn't plumbed
-          // through compute-leader in v1 — paths point at the array.
-          primary_fvg_path: leader.primary_disp_score > 0
-            ? `pair.symbols.${pairConfig.primary}.engine.fvgs`
-            : null,
-          secondary_fvg_path: leader.secondary_disp_score > 0
-            ? `pair.symbols.${pairConfig.secondary}.engine.fvgs`
-            : null,
+          method: "smt",
+          // Proposed pick under `smt_leader` — the open-reaction finalizer (not
+          // tv analyze) locks it into pair-decision.json with the 15→30 window
+          // timing policy. SMT is selection-only (strategy §2.3.1).
+          smt_leader: smt.leader,
+          divergence: smt.divergence,
+          bias_dir: smt.bias_dir,
+          gap: smt.gap,
+          band: smt.band,
+          context: smt.context,
+          done: smt.done,
+          criteria: smt.criteria,
+          reason: smt.reason,
+          strengths: smt.strengths,
+          evidence: smt.evidence,
         },
         leader_decided: false,
         leader: null,    // set by surface_leader_decision, not by tv analyze
       };
 
-      // Loud warning when the secondary engine is missing so the user can
-      // load the ICT Engine indicator on the secondary chart and retry.
-      if (leader.reason === 'secondary_engine_missing') {
+      // Loud warning when the SMT read is unreadable (missing secondary engine
+      // or no confirmed open-reaction pivot) so the user can load the ICT Engine
+      // on both charts and retry. The leader stands aside until then (§2.3.1).
+      if (smt.reason === 'smt_unreadable_data') {
         process.stderr.write(
-          `warning: ICT Engine missing on ${pairConfig.secondary}. Leader pick will be inconclusive until the engine is loaded on both charts.\n`,
+          `warning: SMT read unreadable on ${pairConfig.secondary} (missing ICT Engine or no confirmed open-reaction pivot). Leader stands aside until both charts have the engine + a pivot.\n`,
         );
       }
     }

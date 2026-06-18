@@ -8,7 +8,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const FILE_NAME = 'pair-decision.json';
-const SCHEMA = 1;
+// v2 (2026-06-18): SMT leader selection — payloads now carry method:"smt",
+// bias_dir, divergence, gap, standaside, and per-symbol evidence. Write/read
+// are field-agnostic (spread), so a v1 file still reads back unchanged.
+const SCHEMA = 2;
 
 // Atomic write: serialize first (throws bubble up before any disk write),
 // then write to a sibling .tmp file and rename. Prevents partial-file

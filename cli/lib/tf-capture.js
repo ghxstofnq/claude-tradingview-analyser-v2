@@ -32,6 +32,40 @@ export function tfMatchesMeta(tvResolution, metaTf) {
   return metaTf === tvResolution || metaTf === TV_TO_META_TF[tvResolution];
 }
 
+/** Is the parsed engine usable evidence (schema supported + ≥1 row type)? */
+export function enginePresent(engine) {
+  if (!engine || engine.schema_supported !== true) return false;
+  const nonEmpty = (a) => Array.isArray(a) && a.length > 0;
+  return nonEmpty(engine.levels) || nonEmpty(engine.fvgs) || nonEmpty(engine.swings) || nonEmpty(engine.structures);
+}
+
+/**
+ * Poll readEngine() until the parsed table is present (enginePresent), up to a
+ * deadline. After a symbol switch the engine table can lag a beat; a single-shot
+ * read recorded secondary_engine_missing (2026-06-18 NY-AM → the SMT picker
+ * couldn't compare → silent MNQ default). This gives the secondary's current-TF
+ * engine the same verified-read treatment the multi-TF sweep already has.
+ * Returns { engine, attempts, present }. readEngine + sleep are injected so the
+ * loop is unit-testable without CDP.
+ */
+export async function pollEnginePresent({ readEngine, sleep, pollIntervalMs = DEFAULT_POLL_INTERVAL_MS, deadlineMs = DEFAULT_DEADLINE_MS } = {}) {
+  const maxAttempts = Math.max(1, Math.ceil(deadlineMs / pollIntervalMs));
+  let engine = null;
+  let attempts = 0;
+  while (attempts < maxAttempts) {
+    attempts += 1;
+    try {
+      const candidate = await readEngine();
+      if (enginePresent(candidate)) return { engine: candidate, attempts, present: true };
+      engine = candidate ?? engine;
+    } catch {
+      // transient read failure — keep polling until the deadline
+    }
+    if (attempts < maxAttempts) await sleep(pollIntervalMs);
+  }
+  return { engine, attempts, present: false };
+}
+
 /**
  * Switch to one TF and poll until the engine table is verifiably for that TF
  * (meta.tf matches + schema supported). Never accepts a stale or absent table

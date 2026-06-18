@@ -491,10 +491,18 @@ async function runClaudeTurnFor(ev, session, phase) {
           return null;
         });
       recordMetric({ kind: "bar-close", event: "open_reaction_finalized", session, wrote: r?.wrote ?? false, leader: r?.leader ?? null, bias: r?.bias ?? null });
+      // Lock landed (clear divergence ≥15m, or 30m near-tie → MNQ) with a final
+      // bias → begin entry_hunt this bar, don't wait out the clock. Stand-aside
+      // and still-resolving stay in open_reaction.
+      if (openReactionResolvedToHunt(r)) {
+        phase = "entry_hunt";
+      } else {
+        return;
+      }
     } else {
       recordMetric({ kind: "bar-close", event: "open_reaction_deferred", session, mip: mipOR });
+      return;
     }
-    return;
   }
 
   // If Claude Code is not authenticated, keep deterministic bar/trade/walker
@@ -517,11 +525,20 @@ async function runClaudeTurnFor(ev, session, phase) {
     const sdir0 = await activeSessionDir();
     const needsBackfill = !(await pairDecisionExists()) || !existsSync(path.join(sdir0, "ltf-bias.md"));
     if (needsBackfill) {
-      await finalizeOpenReactionDeterministic({ session, eventTs: ev.ts }).catch((err) => {
+      // We're already in entry_hunt → the open-reaction window is definitionally
+      // over, so resolve at the 30m hard stop (near-tie → MNQ, unreadable →
+      // stand aside). Without minutesIntoPhase the policy would just "wait".
+      await finalizeOpenReactionDeterministic({ session, eventTs: ev.ts, minutesIntoPhase: 30 }).catch((err) => {
         // eslint-disable-next-line no-console
         console.warn("[bar-close] open-reaction backfill threw", err?.message || err);
       });
       // pair-decision.json + ltf-bias.* may exist now; preflight pins the chart.
+    }
+    // SMT stand-aside gate (§2.3.1): an unreadable open-reaction read locked
+    // standaside — no leader, no edge. Do NOT walk PAIR_PRIMARY. Stand down.
+    if (entryHuntStandAside(await readPairDecision())) {
+      recordMetric({ kind: "bar-close", event: "entry_hunt_standaside", session });
+      return;
     }
   }
 
@@ -1443,13 +1460,23 @@ export const __test = {
 // Read the chosen leader symbol from pair-decision.json. Returns null if
 // the file is missing, malformed, or leader is null (inconclusive). Used
 // by the entry-hunt prompt to point Claude at the leader's baseline.
-async function readPairDecisionLeader() {
+async function readPairDecision() {
   const dir = await activeSessionDir();
   try {
     const txt = await fs.readFile(path.join(dir, "pair-decision.json"), "utf8");
-    const decision = JSON.parse(txt);
-    return decision?.leader || null;
+    return JSON.parse(txt);
   } catch { return null; }
+}
+
+async function readPairDecisionLeader() {
+  return (await readPairDecision())?.leader || null;
+}
+
+// The SMT walk gate: a stand-aside decision (unreadable open-reaction read,
+// §2.3.1) means NO relative-strength edge and NO leader — the chain must not
+// fall back to PAIR_PRIMARY and trade. Pure for the unit test.
+export function entryHuntStandAside(decision) {
+  return !!decision?.standaside;
 }
 
 // Before each Claude turn during entry-hunt, pin the chart to the leader
@@ -1549,6 +1576,19 @@ async function readSessionMemory() {
   return readMemory(dir, { tailBars: MEMORY_BARS_TAIL, tailSetups: MEMORY_SETUPS_TAIL });
 }
 
+// After finalizing the open reaction, decide whether the leader is locked with
+// a final bias so this (and later) bars begin entry_hunt before the 30-min
+// boundary — "lock early → hunt early". Stand-aside is NOT tradeable: it stays
+// in open_reaction so the walker keeps standing aside (no PAIR_PRIMARY hunt).
+export function openReactionResolvedToHunt(finalizeResult) {
+  const r = finalizeResult || {};
+  if (r.standaside) return false;
+  if (r.reason === "already_final") return true;
+  if (r.locked !== true) return false;
+  const b = r.bias == null ? "" : String(r.bias).trim().toLowerCase();
+  return b !== "" && b !== "pending" && b !== "stand_aside";
+}
+
 function phaseFor(session, ev) {
   if (session === "idle") return "off";
   const t = new Date(ev.ts);
@@ -1559,9 +1599,13 @@ function phaseFor(session, ev) {
   const mm = Number(ny.find((p) => p.type === "minute")?.value || 0);
   const mins = hh * 60 + mm;
 
-  if (session === "ny-am") return mins < 9 * 60 + 45 ? "open_reaction" : "entry_hunt";
-  if (session === "ny-pm") return mins < 13 * 60 + 15 ? "open_reaction" : "entry_hunt";
-  if (session === "london") return mins < 3 * 60 + 15 ? "open_reaction" : "entry_hunt";
+  // Open-reaction now spans the full 30-min window (strategy §2.3.1 / §7 Step
+  // 4) so the SMT leader can re-evaluate and lock by minute 30. A clean early
+  // lock still flips to entry_hunt before the boundary — see the open_reaction
+  // branch in runClaudeTurnFor (openReactionResolvedToHunt).
+  if (session === "ny-am") return mins < 10 * 60 ? "open_reaction" : "entry_hunt";
+  if (session === "ny-pm") return mins < 13 * 60 + 30 ? "open_reaction" : "entry_hunt";
+  if (session === "london") return mins < 3 * 60 + 30 ? "open_reaction" : "entry_hunt";
   return "off";
 }
 

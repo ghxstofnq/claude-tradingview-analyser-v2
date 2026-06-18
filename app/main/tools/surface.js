@@ -570,7 +570,7 @@ ${watch || "- _no watchlist provided_"}
 // open-reaction phase. Once this file exists, tv analyze --pair short-
 // circuits to single-symbol on the leader for the rest of the session.
 export async function surfaceLeaderDecision(payload) {
-  const { primary, secondary, leader, evidence, reason, session } = payload;
+  const { primary, secondary, leader, evidence, reason, session, method, bias_dir, divergence, gap, standaside } = payload;
   if (!primary || !secondary) throw new Error("surface_leader_decision requires primary and secondary");
   if (!session) throw new Error("surface_leader_decision requires session ('london' | 'ny-am' | 'ny-pm')");
   const { date } = currentSession();
@@ -581,13 +581,20 @@ export async function surfaceLeaderDecision(payload) {
     primary,
     secondary,
     leader: leader || null,
+    // SMT v2 (strategy §2.3.1): the relative-strength fields. standaside=true
+    // means the read was unreadable — no leader, the chain stands aside.
+    method: method || null,
+    bias_dir: bias_dir || null,
+    divergence: divergence ?? null,
+    gap: gap ?? null,
+    standaside: standaside ?? false,
     decided_at: new Date().toISOString(),
     evidence: evidence || null,
     reason: reason || null,
   };
   await writePairDecision(sessionDir, record);
   emitToolCall("surface_leader_decision", record);
-  return { ok: true, leader: record.leader };
+  return { ok: true, leader: record.leader, standaside: record.standaside };
 }
 
 // Read this session's memory files so a wrap turn (or any caller) can build a
