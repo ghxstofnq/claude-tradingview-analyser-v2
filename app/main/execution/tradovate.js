@@ -40,6 +40,28 @@ function parseInstrument(url) {
   } catch { return null; }
 }
 
+// Resolve the Tradovate contract for the CHART symbol. store.instrument is the
+// LAST-quoted symbol sniffed from REST traffic — and the system quotes BOTH the
+// pair's symbols (MNQ + MES), so it goes stale on the wrong product (orders
+// opened on MES while the chart was MNQ). Keep the sniffed contract's MONTH
+// (live, correct roll) but force the chart's ROOT, so the order always matches
+// the chart. MNQ/MES are continuous front-month micros on the same roll → the
+// month code is shared → a root swap is exact. Outside that known pair → null,
+// and the caller blocks rather than guess.
+export function tvRootOf(sym) {
+  const m = String(sym || "").toUpperCase().match(/(MNQ|MES)/);
+  return m ? m[1] : null;
+}
+export function instrumentForChart(chartSymbol, sniffed) {
+  const chartRoot = tvRootOf(chartSymbol);
+  const sniffedRoot = tvRootOf(sniffed);
+  if (!chartRoot || !sniffedRoot) return null;
+  if (sniffedRoot === chartRoot) return String(sniffed);   // sniff already correct
+  const u = String(sniffed).toUpperCase();
+  const month = u.slice(u.indexOf(sniffedRoot) + sniffedRoot.length);  // e.g. "U6"
+  return month ? chartRoot + month : null;                 // root swap, same month
+}
+
 // In-memory store of the latest sniffed Tradovate values.
 const store = { token: null, accountId: null, host: null, instrument: null, lastSeenMs: null };
 
