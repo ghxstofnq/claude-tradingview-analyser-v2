@@ -36,7 +36,7 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
 
-  ipcMain.handle("backtest:start", async (_evt, { date, session, mode }) => {
+  ipcMain.handle("backtest:start", async (_evt, { date, session, mode, symbol }) => {
     if (currentRunPromise) throw new Error("a backtest is already running");
     if (!date || !session || !mode) throw new Error("date, session, mode required");
 
@@ -45,7 +45,7 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
 
     currentRunPromise = (async () => {
       try {
-        return await runBacktest({ date, session, mode, bus: currentBus, stateDir: STATE_DIR, deps });
+        return await runBacktest({ date, session, mode, symbol, bus: currentBus, stateDir: STATE_DIR, deps });
       } finally {
         currentBus = null;
         currentRunPromise = null;
