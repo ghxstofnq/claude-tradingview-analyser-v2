@@ -269,19 +269,21 @@ function weekdaysBetween(a, b) {
   return n;
 }
 
-// Expand a study into sequential jobs — one per (weekday × selected session).
-// symbol is passed through as a hint; the engine runs its configured pair.
+// Expand a study into sequential jobs — one per (weekday × selected session ×
+// symbol). The engine reads `symbol` to pick the leader; BOTH expands to an
+// MNQ job and an MES job so each leader is folded in turn.
 function expandStudy({ symbol, start, end, sessions, mode }) {
   const s = new Date(start + "T00:00"), e = new Date(end + "T00:00");
   if (isNaN(s) || isNaN(e) || e < s) return [];
   const order = ["london", "ny-am", "ny-pm"];
   const sel = order.filter((k) => sessions[k]);
+  const syms = symbol === "both" ? ["mnq", "mes"] : [symbol];
   const jobs = [];
   for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
     const wd = d.getDay();
     if (wd < 1 || wd > 5) continue;
     const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    for (const session of sel) jobs.push({ date, session, mode, symbol });
+    for (const session of sel) for (const sym of syms) jobs.push({ date, session, mode, symbol: sym });
   }
   return jobs;
 }

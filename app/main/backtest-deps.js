@@ -13,7 +13,7 @@ import { loadDayContext, contextFromBriefPayloads } from "./backtest-context.js"
 import { analyzePairBundle, buildDirectSessionBriefPayloads } from "./direct-session-brief.js";
 import { gradeOpenTrade } from "./backtest-grader.js";
 import { __test as barCloseTruth } from "./bar-close.js";
-import { PAIR_PRIMARY } from "./config.js";
+import { PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 import { recordEntries } from "../../cli/lib/tape-recorder.js";
 import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
 import { parseIctEngineTable, findIctEngineRows } from "../../cli/lib/ict-engine-parser.js";
@@ -29,6 +29,16 @@ export const STATE_DIR = path.join(REPO_ROOT, "state");
 const SYMBOL_SETTLE_MS = 600;
 
 const REPLAY_ANCHORS = { "ny-am": "09:30", "ny-pm": "13:00", london: "03:00" };
+
+// Map the popover symbol selector ("mnq"/"mes"/"both", or a full ticker) to the
+// leader to backtest. null = use the engine default (configured primary). The
+// popover sends this per job; before this it was dropped and every run was MNQ.
+export function leaderForSymbol(symbol) {
+  const s = String(symbol ?? "").toUpperCase();
+  if (s.includes("MES")) return PAIR_SECONDARY;
+  if (s.includes("MNQ")) return PAIR_PRIMARY;
+  return null;
+}
 
 // chart.getState right after a replay + pair sweep can throw transiently
 // ("chart may still be loading") — retry briefly before giving up.
@@ -127,9 +137,12 @@ export const PROD_DEPS = {
   // replay, which reloads the whole chart per TF — the second symbol's
   // capture came back empty on every TF (observed 2026-06-12). The digest
   // is computed in-process from the single bundle instead of by --pair.
-  async runDirectBrief({ runId, session, date }) {
+  async runDirectBrief({ runId, session, date, symbol }) {
     const runDir = resolveRunDir({ stateDir: STATE_DIR, runId });
-    const leader = PAIR_PRIMARY;
+    // The popover's MNQ/MES/BOTH selector forwards `symbol` ("mnq"/"mes"/"both")
+    // here. Map it to the leader to backtest; null (both/unknown) keeps the
+    // configured primary. BACKTEST_LEADER env still overrides for headless runs.
+    const leader = leaderForSymbol(symbol) || process.env.BACKTEST_LEADER || PAIR_PRIMARY;
     let bundle = null;
     let h1History = null;
     try {

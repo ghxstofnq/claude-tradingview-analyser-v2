@@ -183,7 +183,7 @@ function resolveOpenReactionLeg({ entry, context, window, session, windowCloses 
 }
 
 export async function runBacktest({
-  date, session, mode,
+  date, session, mode, symbol,
   bus,
   stateDir = "state",
   deps,
@@ -326,7 +326,7 @@ export async function runBacktest({
     if (context) {
       contextSource = "day_state";
     } else if (deps.runDirectBrief) {
-      context = await deps.runDirectBrief({ runId, session, date });
+      context = await deps.runDirectBrief({ runId, session, date, symbol });
       if (context) {
         contextSource = "direct_brief";
         chainStatus = "backfilled:brief_only";
