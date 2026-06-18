@@ -8,7 +8,7 @@
 //     stopLoss?,takeProfit?  → {"s":"ok","d":{"orderId":"…"}}
 //   DELETE {host}/accounts/{id}/positions/{positionId} → {"s":"ok"}
 import { evaluate } from "./cdp-webview.js";
-import { getTradovate, buildTradovateOrderBody, instrumentForChart, tvRootOf } from "./tradovate.js";
+import { getTradovate, buildTradovateOrderBody, buildTradovateModifyBody, instrumentForChart, tvRootOf } from "./tradovate.js";
 
 function requireConn() {
   const t = getTradovate();
@@ -145,24 +145,65 @@ export async function readTradovateOrders() {
       side: String(o.action ?? o.side ?? "").toLowerCase().includes("sell") ? "sell" : "buy",
       kind: kindOf(o),
       price: Number(o.stopPrice ?? o.price ?? o.limitPrice ?? o.triggerPrice) || null,
+      instrument: o.instrument ?? o.symbol ?? null,
+      qty: Number(o.orderQty ?? o.qty ?? o.cumQty ?? o.remainingQty) || null,
     })).filter((o) => o.id != null);
   } catch { return []; }
 }
 
+// Latest quote (ask/bid) for an instrument — the modify body carries them.
+async function readTradovateQuote(instrument) {
+  const t = getTradovate();
+  if (!t.host || !t.accountId || !t.token || !instrument) return {};
+  try {
+    const r = await fetch(`${t.host}/quotes?locale=en&symbols=${encodeURIComponent(instrument)}&accountId=${t.accountId}`, { headers: { authorization: `Bearer ${t.token}` } });
+    const j = await r.json();
+    const q = Array.isArray(j) ? j[0] : (j?.d?.[0] ?? j);
+    return { ask: q?.ask ?? q?.askPrice ?? q?.last ?? null, bid: q?.bid ?? q?.bidPrice ?? q?.last ?? null };
+  } catch { return {}; }
+}
+
 // Cancel every working order on the account (the CANCEL button). DELETE per
-// order id — same REST family as closeTradovatePosition's position DELETE.
+// order id — run IN the webview page context (cookies ride along), same write
+// path as placeTradovateOrder / closeTradovatePosition.
 export async function cancelTradovateOrders() {
   const t = getTradovate();
   if (!t.host || !t.accountId || !t.token) return { ok: false, error: "tradovate_not_connected" };
   const orders = await readTradovateOrders();
-  const out = [];
-  for (const o of orders) {
-    try {
-      const r = await fetch(`${t.host}/accounts/${t.accountId}/orders/${o.id}`, { method: "DELETE", headers: { authorization: `Bearer ${t.token}` } });
-      out.push({ id: o.id, status: r.status });
-    } catch (e) { out.push({ id: o.id, status: 0, error: String(e?.message || e) }); }
-  }
-  return { ok: true, cancelled: out.length, results: out };
+  const base = `${t.host}/accounts/${t.accountId}/orders`;
+  const expr = `(async () => {
+    const auth = { headers: { authorization: ${JSON.stringify("Bearer " + t.token)} }, credentials: "include" };
+    const ids = ${JSON.stringify(orders.map((o) => o.id))};
+    const out = [];
+    for (const id of ids) { try { const r = await fetch(${JSON.stringify(base)} + "/" + id + "?locale=en", { method: "DELETE", ...auth }); out.push({ id, status: r.status }); } catch (e) { out.push({ id, status: 0, error: String(e) }); } }
+    return { results: out };
+  })()`;
+  const res = await evaluate(expr);
+  return { ok: (res?.results?.length ?? 0) >= 0, cancelled: res?.results?.length ?? 0, results: res?.results ?? [] };
 }
 
-export const tradovateAdapter = { placeTradovateOrder, closeTradovatePosition, readTradovatePosition, readTradovateOrders, cancelTradovateOrders };
+// Reprice the protective stop in place (BE / TRAIL). PUT /accounts/<id>/orders/
+// <orderId> with the order's instrument+qty + the new stopPrice — endpoint +
+// body confirmed by live capture 2026-06-18. Runs in the webview page context
+// (cookies), same write path as place/cancel.
+export async function modifyTradovateStop({ orderId, stopPrice }) {
+  const t = getTradovate();
+  if (!t.host || !t.accountId || !t.token) return { ok: false, error: "tradovate_not_connected" };
+  const orders = await readTradovateOrders();
+  const ord = orders.find((o) => String(o.id) === String(orderId)) || orders.find((o) => o.kind === "stop");
+  if (!ord) return { ok: false, error: "stop_order_not_found" };
+  const { ask, bid } = await readTradovateQuote(ord.instrument);
+  const body = buildTradovateModifyBody({ orderId: ord.id, instrument: ord.instrument, qty: ord.qty, stopPrice, currentAsk: ask, currentBid: bid });
+  const url = `${t.host}/accounts/${t.accountId}/orders/${ord.id}?locale=en`;
+  const expr = `(async () => {
+    try {
+      const r = await fetch(${JSON.stringify(url)}, { method: "PUT", headers: { "content-type": "application/x-www-form-urlencoded", authorization: ${JSON.stringify("Bearer " + t.token)} }, body: ${JSON.stringify(body)}, credentials: "include" });
+      return { status: r.status, body: (await r.text()).slice(0, 400) };
+    } catch (e) { return { status: 0, body: "fetch failed: " + String(e) }; }
+  })()`;
+  const res = await evaluate(expr);
+  let parsed = null; try { parsed = JSON.parse(res.body); } catch { /* non-JSON */ }
+  return { ok: res.status >= 200 && res.status < 300 && parsed?.s !== "error", status: res.status, body: res.body, orderId: ord.id, stopPrice, sent: { url, body } };
+}
+
+export const tradovateAdapter = { placeTradovateOrder, closeTradovatePosition, readTradovatePosition, readTradovateOrders, cancelTradovateOrders, modifyTradovateStop };

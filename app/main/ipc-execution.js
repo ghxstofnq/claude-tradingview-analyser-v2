@@ -16,15 +16,6 @@ import { setAutoResumed, getAutoResumed } from "./execution/auto-resume.js";
 function tradesDir() { return TRADES_DIR; }
 function today() { return new Date().toISOString().slice(0, 10); }
 
-// BE/TRAIL move a live stop — a Tradovate order MODIFY whose REST endpoint is
-// not yet verified (the place/cancel endpoints are; modify isn't). Rather than
-// guess on a real prop account, refuse with a clear message. FLATTEN + CANCEL
-// (verified DELETE) work; manage the stop in the Tradovate panel meanwhile.
-const TRADOVATE_MODIFY_BLOCK = {
-  ok: false, blocked: true, code: "tradovate_modify_unverified",
-  message: "BE/TRAIL on Tradovate needs the order-modify endpoint (not yet verified — won't guess on a live account). Use CANCEL, or adjust the stop in the Tradovate panel.",
-};
-
 // Snapshot of the account-arming state for the renderer.
 function accountState() {
   const active = getActiveAccount();
@@ -224,7 +215,14 @@ export function registerExecutionIpc() {
   // BE: move the stop to the entry (break-even) via modify_position.
   ipcMain.handle("execution:moveStopToBE", async () => {
     try {
-      if (getActiveAccount()?.broker === "tradovate") return TRADOVATE_MODIFY_BLOCK;
+      if (getActiveAccount()?.broker === "tradovate") {
+        const adapter = await import("./execution/tradovate-adapter.js");
+        const tpos = await adapter.readTradovatePosition();
+        if (!tpos) return { ok: false, error: "no open position" };
+        const stopOrder = (await adapter.readTradovateOrders()).find((o) => o.kind === "stop");
+        if (!stopOrder) return { ok: false, error: "no working stop order to move" };
+        return { broker: "tradovate", ...(await adapter.modifyTradovateStop({ orderId: stopOrder.id, stopPrice: tick(tpos.avgFill) })) };
+      }
       const pos = getTradingState().position;
       if (!pos) return { ok: false, error: "no open position" };
       const r = await tvAdapter.modifyPosition({ symbol: pos.symbol, sl: tick(pos.avgFill), tp: pos.tp });
@@ -236,7 +234,22 @@ export function registerExecutionIpc() {
   // price by 50% of the unrealized gain, never the wrong direction.
   ipcMain.handle("execution:trail", async (_e, arg = {}) => {
     try {
-      if (getActiveAccount()?.broker === "tradovate") return TRADOVATE_MODIFY_BLOCK;
+      if (getActiveAccount()?.broker === "tradovate") {
+        const adapter = await import("./execution/tradovate-adapter.js");
+        const tpos = await adapter.readTradovatePosition();
+        if (!tpos) return { ok: false, error: "no open position" };
+        const stopOrder = (await adapter.readTradovateOrders()).find((o) => o.kind === "stop");
+        if (!stopOrder) return { ok: false, error: "no working stop order to move" };
+        const entry = tpos.avgFill;
+        const price = arg?.price ?? entry;
+        const cur = stopOrder.price ?? entry;
+        let sl = cur;
+        if (price != null && entry != null) {
+          if (String(tpos.side || "").toLowerCase() === "buy") sl = Math.max(cur, entry + Math.max(0, (price - entry) * 0.5));
+          else sl = Math.min(cur, entry - Math.max(0, (entry - price) * 0.5));
+        }
+        return { broker: "tradovate", ...(await adapter.modifyTradovateStop({ orderId: stopOrder.id, stopPrice: tick(sl) })), newSl: tick(sl) };
+      }
       const pos = getTradingState().position;
       if (!pos) return { ok: false, error: "no open position" };
       const dom = await tvAdapter.readState();
