@@ -117,4 +117,52 @@ export async function readTradovatePosition() {
   } catch { return null; }
 }
 
-export const tradovateAdapter = { placeTradovateOrder, closeTradovatePosition, readTradovatePosition };
+// Read the working orders on the Tradovate account (the position's bracket:
+// the protective stop + the take-profit limit). Node-side fetch with the
+// sniffed Bearer token, mirroring readTradovatePosition. Shape-tolerant — the
+// TV-proxied order objects vary. Returns [{ id, side, kind, price }] for
+// working orders only (so the IN-TRADE panel can show Stop / TP1, which the
+// position object alone doesn't carry).
+export async function readTradovateOrders() {
+  const t = getTradovate();
+  if (!t.host || !t.accountId || !t.token) return [];
+  try {
+    const r = await fetch(`${t.host}/accounts/${t.accountId}/orders?locale=en`, { headers: { authorization: `Bearer ${t.token}` } });
+    const j = await r.json();
+    const list = Array.isArray(j) ? j : (j?.d || []);
+    const isWorking = (o) => {
+      const s = String(o.ordStatus ?? o.status ?? o.orderStatus ?? "").toLowerCase();
+      return s === "" || s.includes("work") || s.includes("pend") || s.includes("accept");
+    };
+    const kindOf = (o) => {
+      const ty = String(o.orderType ?? o.type ?? "").toLowerCase();
+      if (ty.includes("stop")) return "stop";
+      if (ty.includes("limit")) return "limit";
+      return "other";
+    };
+    return list.filter(isWorking).map((o) => ({
+      id: o.id ?? o.orderId ?? null,
+      side: String(o.action ?? o.side ?? "").toLowerCase().includes("sell") ? "sell" : "buy",
+      kind: kindOf(o),
+      price: Number(o.stopPrice ?? o.price ?? o.limitPrice ?? o.triggerPrice) || null,
+    })).filter((o) => o.id != null);
+  } catch { return []; }
+}
+
+// Cancel every working order on the account (the CANCEL button). DELETE per
+// order id — same REST family as closeTradovatePosition's position DELETE.
+export async function cancelTradovateOrders() {
+  const t = getTradovate();
+  if (!t.host || !t.accountId || !t.token) return { ok: false, error: "tradovate_not_connected" };
+  const orders = await readTradovateOrders();
+  const out = [];
+  for (const o of orders) {
+    try {
+      const r = await fetch(`${t.host}/accounts/${t.accountId}/orders/${o.id}`, { method: "DELETE", headers: { authorization: `Bearer ${t.token}` } });
+      out.push({ id: o.id, status: r.status });
+    } catch (e) { out.push({ id: o.id, status: 0, error: String(e?.message || e) }); }
+  }
+  return { ok: true, cancelled: out.length, results: out };
+}
+
+export const tradovateAdapter = { placeTradovateOrder, closeTradovatePosition, readTradovatePosition, readTradovateOrders, cancelTradovateOrders };

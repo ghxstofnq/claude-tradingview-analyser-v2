@@ -16,6 +16,15 @@ import { setAutoResumed, getAutoResumed } from "./execution/auto-resume.js";
 function tradesDir() { return TRADES_DIR; }
 function today() { return new Date().toISOString().slice(0, 10); }
 
+// BE/TRAIL move a live stop — a Tradovate order MODIFY whose REST endpoint is
+// not yet verified (the place/cancel endpoints are; modify isn't). Rather than
+// guess on a real prop account, refuse with a clear message. FLATTEN + CANCEL
+// (verified DELETE) work; manage the stop in the Tradovate panel meanwhile.
+const TRADOVATE_MODIFY_BLOCK = {
+  ok: false, blocked: true, code: "tradovate_modify_unverified",
+  message: "BE/TRAIL on Tradovate needs the order-modify endpoint (not yet verified — won't guess on a live account). Use CANCEL, or adjust the stop in the Tradovate panel.",
+};
+
 // Snapshot of the account-arming state for the renderer.
 function accountState() {
   const active = getActiveAccount();
@@ -153,14 +162,17 @@ export function registerExecutionIpc() {
       const dom = await tvAdapter.readState();
       let position = feed.position ?? dom.position ?? null;
       let account = dom.account ?? feed.accountId ?? null;
-      // Tradovate position comes from its REST API (the WS feed is TV-paper-only).
-      // Surface it as the live position so the IN-TRADE / ORDERS display shows it
-      // and Flatten enables.
+      let tvOrders = null;
+      // Tradovate position + working orders come from its REST API (the WS feed
+      // is TV-paper-only). Surface the position so IN-TRADE/ORDERS show it +
+      // Flatten enables; surface the working orders so IN-TRADE can show the
+      // bracket's Stop / TP1 (the position object alone carries neither).
       if (feed.activeBroker === "tradovate") {
         try {
-          const { readTradovatePosition } = await import("./execution/tradovate-adapter.js");
+          const { readTradovatePosition, readTradovateOrders } = await import("./execution/tradovate-adapter.js");
           const tpos = await readTradovatePosition();
           if (tpos) position = tpos;
+          tvOrders = await readTradovateOrders();
           account = feed.tradovate?.accountId ?? account;
         } catch { /* best-effort */ }
       }
@@ -170,7 +182,7 @@ export function registerExecutionIpc() {
         position,
         balance: feed.balance ?? dom.balance ?? null,
         price: dom.price ?? null,
-        workingOrders: feed.workingOrders ?? [],
+        workingOrders: tvOrders ?? feed.workingOrders ?? [],
         source: feed.position != null || feed.connected ? "ws" : "dom",
         // Tradovate broker (sniffed from the webview's REST traffic).
         activeBroker: feed.activeBroker ?? "paper",
@@ -212,6 +224,7 @@ export function registerExecutionIpc() {
   // BE: move the stop to the entry (break-even) via modify_position.
   ipcMain.handle("execution:moveStopToBE", async () => {
     try {
+      if (getActiveAccount()?.broker === "tradovate") return TRADOVATE_MODIFY_BLOCK;
       const pos = getTradingState().position;
       if (!pos) return { ok: false, error: "no open position" };
       const r = await tvAdapter.modifyPosition({ symbol: pos.symbol, sl: tick(pos.avgFill), tp: pos.tp });
@@ -223,6 +236,7 @@ export function registerExecutionIpc() {
   // price by 50% of the unrealized gain, never the wrong direction.
   ipcMain.handle("execution:trail", async (_e, arg = {}) => {
     try {
+      if (getActiveAccount()?.broker === "tradovate") return TRADOVATE_MODIFY_BLOCK;
       const pos = getTradingState().position;
       if (!pos) return { ok: false, error: "no open position" };
       const dom = await tvAdapter.readState();
@@ -241,6 +255,12 @@ export function registerExecutionIpc() {
   // CANCEL: cancel every working order (e.g. an unfilled limit entry).
   ipcMain.handle("execution:cancel", async () => {
     try {
+      // Route to Tradovate when it's the active broker (its working orders live
+      // in its REST API, not the TV-paper WS feed).
+      if (getActiveAccount()?.broker === "tradovate") {
+        const { cancelTradovateOrders } = await import("./execution/tradovate-adapter.js");
+        return { broker: "tradovate", ...(await cancelTradovateOrders()) };
+      }
       const wos = getTradingState().workingOrders || [];
       if (wos.length === 0) return { ok: true, cancelled: 0 };
       const results = [];
