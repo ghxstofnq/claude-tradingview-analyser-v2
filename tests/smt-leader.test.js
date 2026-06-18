@@ -130,6 +130,31 @@ test("auto context picks the reacted side (highs present, no lows → short)", (
   assert.equal(r.leader, "MES1!");
 });
 
+// Band calibration: SMT_GAP_BAND is the single tunable that defines "measurably
+// similar". This sweeps it over a fixed table of ATR-normalized strength gaps
+// and asserts the chosen default (0.25) separates clear divergence from
+// near-tie as intended — a regression guard if anyone retunes the band.
+// (Calibration against the live tape corpus is the remaining manual step.)
+test("band calibration: 0.25 ATR separates divergence from near-tie", () => {
+  // atr 10, integer highs → strength = (high-100)/10, so gaps sit clearly
+  // between band values (no float knife-edge). gap = |pHigh - sHigh| / 10.
+  const mk = (band, pHigh, sHigh) => computeSmtLeader({
+    primary: "MNQ1!", secondary: "MES1!",
+    primaryEngine: highSym({ ref: 100, high: pHigh, atr: 10 }),
+    secondaryEngine: highSym({ ref: 100, high: sHigh, atr: 10 }),
+    context: "short", band, ...win,
+  });
+  // Clear divergence (gap 1.0) diverges at the default; a 0.1 gap is a near-tie.
+  assert.equal(mk(0.25, 110, 100).divergence, true,  "1.0-ATR gap diverges at 0.25");
+  assert.equal(mk(0.25, 101, 100).divergence, false, "0.1-ATR gap is a near-tie at 0.25");
+  // The band is the separating knob: a 0.2 gap is a near-tie at 0.25 but a
+  // divergence once the band tightens to 0.1.
+  assert.equal(mk(0.25, 102, 100).divergence, false, "0.2-ATR gap near-tie at 0.25");
+  assert.equal(mk(0.1, 102, 100).divergence, true,  "same 0.2 gap diverges at 0.1");
+  // The 0.25 default sits between: rejects a 0.2-ATR gap, accepts a real 0.3.
+  assert.equal(mk(0.25, 103, 100).divergence, true);
+});
+
 test("evidence carries citeable engine paths + the numbers", () => {
   const r = computeSmtLeader({
     primary: "MNQ1!", secondary: "MES1!",
