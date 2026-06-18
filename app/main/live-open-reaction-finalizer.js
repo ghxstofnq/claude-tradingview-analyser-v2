@@ -19,10 +19,43 @@
 
 import { PAIR_PRIMARY, PAIR_SECONDARY } from "./config.js";
 
+// The open-reaction window (strategy §2.3.1 / §7 Step 4): check the SMT read
+// each bar from minute 15; lock early when conclusive; hard stop at minute 30.
+const WINDOW_OPEN_MIN = 15;
+const WINDOW_HARD_STOP_MIN = 30;
+
 function isFinalBias(value) {
   if (value == null) return false;
   const s = String(value).trim().toLowerCase();
   return s !== "" && s !== "pending" && s !== "stand_aside";
+}
+
+/**
+ * Pure timing policy for locking the SMT leader. Decides, from the window
+ * minute + the analyze SMT evidence, whether to lock now, keep waiting, or
+ * stand aside. Never defaults to PAIR_PRIMARY on missing data.
+ *
+ * Returns { action, leader?, standaside?, reason? } where action ∈
+ *   none       — a leader is already locked (don't re-lock)
+ *   wait       — pre-window (<15m) or still resolving (15–30m, not done)
+ *   lock       — clear divergence (any bar ≥15m) OR measured near-tie at 30m → MNQ
+ *   standaside — 30m hard stop with unreadable data (missing / no pivot)
+ */
+export function planLeaderLock({ existingLeader, minutesIntoPhase, evidence } = {}) {
+  if (existingLeader) return { action: "none" };
+  const m = Number(minutesIntoPhase);
+  const ev = evidence || {};
+  if (!(Number.isFinite(m) && m >= WINDOW_OPEN_MIN)) return { action: "wait", reason: "pre_window" };
+  if (ev.done && ev.smt_leader) {
+    return { action: "lock", leader: ev.smt_leader, standaside: false, reason: ev.reason || "smt_divergence" };
+  }
+  if (!(m >= WINDOW_HARD_STOP_MIN)) return { action: "wait", reason: "resolving" };
+  const crit = ev.criteria || {};
+  if (!crit.data_present || !crit.pivots_confirmed) {
+    return { action: "standaside", reason: ev.reason || "smt_unreadable_data" };
+  }
+  // Measured near-tie at the hard stop — no relative-strength edge → MNQ.
+  return { action: "lock", leader: PAIR_PRIMARY, standaside: false, reason: ev.reason || "no_divergence_measured" };
 }
 
 /**
@@ -58,25 +91,59 @@ export async function finalizeOpenReactionDeterministic({ session, eventTs, minu
   // Resolve leader + the leader's single-symbol bundle. When pair-decision.json
   // already exists the CLI short-circuits --pair to a single-symbol leader
   // bundle (no `pair` block) — handle both shapes.
-  let leader = existingLeader || null;
-  let leaderBundle = null;
-  if (bundle.pair?.symbols) {
-    const evidence = bundle.pair.leader_evidence || null;
-    leader = existingLeader || evidence?.leader || PAIR_PRIMARY;
-    leaderBundle = bundle.pair.symbols[leader] || bundle.pair.symbols[PAIR_PRIMARY] || null;
-    if (!existingLeader) {
-      await d.writeLeaderDecision({
-        primary: bundle.pair.primary || PAIR_PRIMARY,
-        secondary: bundle.pair.secondary || PAIR_SECONDARY,
-        leader,
-        evidence,
-        reason: evidence?.reason || null,
-        session,
-      });
-    }
-  } else {
-    leader = existingLeader || bundle.symbol || PAIR_PRIMARY;
-    leaderBundle = bundle;
+  const evidence = bundle.pair?.symbols ? (bundle.pair.leader_evidence || null) : null;
+  const primary = bundle.pair?.primary || PAIR_PRIMARY;
+  const secondary = bundle.pair?.secondary || PAIR_SECONDARY;
+  // Provisional leader (for the bias read) until the lock fires — the SMT
+  // proposal if present, else the primary. NEVER trades off this; it only
+  // decides which symbol's bundle the bias resolver reads.
+  let leader = existingLeader
+    || (bundle.pair?.symbols ? (evidence?.smt_leader || PAIR_PRIMARY) : (bundle.symbol || PAIR_PRIMARY));
+  let leaderBundle = bundle.pair?.symbols
+    ? (bundle.pair.symbols[leader] || bundle.pair.symbols[PAIR_PRIMARY] || null)
+    : bundle;
+
+  // Timing policy: lock the leader only when the SMT read is conclusive
+  // (≥15m) or at the 30m hard stop. Stand aside on unreadable data — never a
+  // silent PAIR_PRIMARY default (strategy §2.3.1).
+  const plan = planLeaderLock({ existingLeader, minutesIntoPhase, evidence });
+  let standaside = false;
+  if (plan.action === "lock") {
+    leader = plan.leader;
+    if (bundle.pair?.symbols) leaderBundle = bundle.pair.symbols[leader] || leaderBundle;
+    await d.writeLeaderDecision({
+      primary, secondary, leader, session,
+      method: "smt", bias_dir: evidence?.bias_dir ?? null,
+      divergence: evidence?.divergence ?? null, gap: evidence?.gap ?? null,
+      standaside: false, evidence, reason: plan.reason,
+    });
+  } else if (plan.action === "standaside") {
+    standaside = true;
+    await d.writeLeaderDecision({
+      primary, secondary, leader: null, session,
+      method: "smt", standaside: true, evidence, reason: plan.reason,
+    });
+    await d.notify?.({
+      title: "SMT leader unreadable — standing aside",
+      body: `${session}: ${plan.reason} (both symbols' open-window data required)`,
+    });
+  }
+  // action "wait" / "none": no leader decision written this bar.
+
+  if (standaside) {
+    await d.writeOpenReaction({
+      session, minutes_into_phase: minutesIntoPhase,
+      latest_read: `SMT unreadable at the 30m hard stop — standing aside (${plan.reason}).`,
+      bias_direction: "stand_aside",
+      watching: "no relative-strength edge readable; both symbols' open-window data required",
+    });
+    await d.writeLtfBias({
+      session, ltf_bias: "stand_aside", htf_ltf_alignment: "unclear", is_retrace_day: false,
+      entry_model_priority: "undecided", grade_cap: "no-trade",
+      reasoning: `SMT leader unreadable (${plan.reason}) — stand aside per §2.3.1`,
+      source: "smt-standaside",
+    });
+    return { wrote: true, leader: null, bias: "stand_aside", locked: false, standaside: true, reason: plan.reason };
   }
   if (!leaderBundle) return { wrote: false, reason: "no_leader_bundle" };
 
@@ -115,7 +182,10 @@ export async function finalizeOpenReactionDeterministic({ session, eventTs, minu
     source: ctx?.source ?? "deterministic-finalizer",
   });
 
-  return { wrote: true, leader, bias, alignment: ctx?.htf_ltf_alignment ?? null };
+  return {
+    wrote: true, leader, bias, alignment: ctx?.htf_ltf_alignment ?? null,
+    locked: plan.action === "lock", reason: plan.reason ?? null,
+  };
 }
 
 // Lazily wire the production effects. Dynamic imports keep the heavy modules
@@ -185,6 +255,9 @@ async function buildRealDeps() {
     writeLeaderDecision: (p) => surfaceLeaderDecision(p),
     writeLtfBias: (p) => surfaceLtfBias(p),
     writeOpenReaction: (p) => surfaceOpenReaction(p),
+    notify: async (n) => {
+      try { const { notifySystem } = await import("./notify.js"); await notifySystem(n); } catch { /* notify best-effort */ }
+    },
     _currentSession: currentSession,
   };
 }
