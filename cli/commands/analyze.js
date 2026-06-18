@@ -5,7 +5,7 @@ import * as replay from '@tvmcp/core/replay';
 import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser.js';
 import { computeEngineGates } from '../lib/compute-engine-gates.js';
 import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
-import { computeLeader } from '../lib/compute-leader.js';
+import { computeSmtLeader } from '../lib/smt-leader.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
 import { captureMultiTfWithHealth, applyBaselineFallback } from '../lib/tf-capture.js';
@@ -824,11 +824,12 @@ register('analyze', {
       const windowStartMs = sessionGate?.open_window_start_ms;
       const windowEndMs = sessionGate?.open_window_end_ms;
 
-      const leader = computeLeader({
+      const smt = computeSmtLeader({
         primary: pairConfig.primary,
         secondary: pairConfig.secondary,
         primaryEngine: engine,
         secondaryEngine: secondaryBundle.engine,
+        context: "auto",
         windowStartMs: windowStartMs ?? Number.POSITIVE_INFINITY,
         windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
       });
@@ -854,19 +855,21 @@ register('analyze', {
           [pairConfig.secondary]: secondaryBundle,
         },
         leader_evidence: {
-          primary_disp_score: leader.primary_disp_score,
-          secondary_disp_score: leader.secondary_disp_score,
-          margin: leader.margin,
-          threshold: leader.threshold,
-          reason: leader.reason,
-          // cite-or-reject anchors. The exact FVG index isn't plumbed
-          // through compute-leader in v1 — paths point at the array.
-          primary_fvg_path: leader.primary_disp_score > 0
-            ? `pair.symbols.${pairConfig.primary}.engine.fvgs`
-            : null,
-          secondary_fvg_path: leader.secondary_disp_score > 0
-            ? `pair.symbols.${pairConfig.secondary}.engine.fvgs`
-            : null,
+          method: "smt",
+          // Proposed pick under `smt_leader` — the open-reaction finalizer (not
+          // tv analyze) locks it into pair-decision.json with the 15→30 window
+          // timing policy. SMT is selection-only (strategy §2.3.1).
+          smt_leader: smt.leader,
+          divergence: smt.divergence,
+          bias_dir: smt.bias_dir,
+          gap: smt.gap,
+          band: smt.band,
+          context: smt.context,
+          done: smt.done,
+          criteria: smt.criteria,
+          reason: smt.reason,
+          strengths: smt.strengths,
+          evidence: smt.evidence,
         },
         leader_decided: false,
         leader: null,    // set by surface_leader_decision, not by tv analyze
