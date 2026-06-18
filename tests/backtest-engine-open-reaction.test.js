@@ -8,6 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpStateDir } from "./helpers/tmp-state.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -87,7 +88,7 @@ function makeDeps({ entries, capture }) {
 }
 
 async function run({ entries, capture }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-or-"));
+  const dir = tmpStateDir("bt-or-");
   const bus = new EventEmitter();
   const result = await runBacktest({
     date: DATE, session: SESSION, mode: "auto",
@@ -170,7 +171,7 @@ test("day-state context is never overridden by the resolver", async () => {
     untaken_targets: { untaken_above: [], untaken_below: [] },
     brief_digest: { htf_destination: {}, primary_draw: {} },
   };
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-or-"));
+  const dir = tmpStateDir("bt-or-");
   const bus = new EventEmitter();
   const deps = makeDeps({ entries, capture });
   deps.loadDayContext = async () => recorded;

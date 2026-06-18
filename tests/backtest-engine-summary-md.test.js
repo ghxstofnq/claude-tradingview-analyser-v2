@@ -7,6 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpStateDir } from "./helpers/tmp-state.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -30,7 +31,7 @@ function deps() {
 }
 
 test("completed run writes summary.md with chain_audit frontmatter", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-md-"));
+  const dir = tmpStateDir("bt-md-");
   const bus = new EventEmitter();
   const { runId } = await runBacktest({
     date: "2026-06-09", session: "ny-am", mode: "auto", bus, stateDir: dir, deps: deps(),
@@ -45,7 +46,7 @@ test("completed run writes summary.md with chain_audit frontmatter", async () =>
 });
 
 test("fold result fills the tape's proposed expectation (still verified:false)", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-md-"));
+  const dir = tmpStateDir("bt-md-");
   const bus = new EventEmitter();
   const d = deps();
   d.recordEntries = async () => ({

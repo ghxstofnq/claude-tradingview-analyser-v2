@@ -5,6 +5,7 @@
 //
 // Usage: node scripts/fold-backtest-corpus.mjs [absoluteBacktestDir]
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
@@ -27,8 +28,16 @@ async function foldRun(runDir, date, session) {
     truthFn: barCloseTruth.buildDeterministicPacketTruthFromInputs,
     gradeFn: gradeOpenTrade,
   };
-  const { summary } = await runBacktest({ date: tape.date ?? date, session, mode: "auto", bus, stateDir: "/tmp/fold-bt-corpus", deps });
-  return summary.total_r ?? 0;
+  // Fresh stateDir per run, removed right after — otherwise every run's output
+  // (multi-MB tape/packets) piles up under a fixed path (folding the corpus
+  // leaked ~3G into /tmp). We only need summary.total_r.
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "fold-bt-"));
+  try {
+    const { summary } = await runBacktest({ date: tape.date ?? date, session, mode: "auto", bus, stateDir, deps });
+    return summary.total_r ?? 0;
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
 }
 
 const dirs = fs.readdirSync(BT).filter((d) => /^2026\d{4}-/.test(d) && !fs.lstatSync(path.join(BT, d)).isSymbolicLink()).sort();
