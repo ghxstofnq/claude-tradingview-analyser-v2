@@ -96,6 +96,22 @@ export function buildTradovateOrderBody({ instrument, qty, side, type = "market"
   return p.toString();
 }
 
+// Build the form body for a Tradovate order MODIFY (PUT /accounts/<id>/orders/
+// <orderId>) — confirmed by live capture 2026-06-18: moving a stop sends
+// currentAsk, currentBid, durationType, id, instrument, qty, stopPrice. Used by
+// BE/TRAIL to reprice the protective stop in place (no re-bracket, no orphan).
+export function buildTradovateModifyBody({ orderId, instrument, qty, stopPrice, currentAsk, currentBid, durationType = "Day" } = {}) {
+  const p = new URLSearchParams();
+  if (currentAsk != null) p.set("currentAsk", String(currentAsk));
+  if (currentBid != null) p.set("currentBid", String(currentBid));
+  p.set("durationType", durationType);
+  p.set("id", String(orderId));
+  if (instrument != null) p.set("instrument", String(instrument));
+  if (qty != null) p.set("qty", String(qty));
+  p.set("stopPrice", String(stopPrice));
+  return p.toString();
+}
+
 export function getTradovate() { return { ...store }; }
 export function activeBroker(now = Date.now()) {
   return deriveActiveBroker({ tradovateLastSeenMs: store.lastSeenMs, now });

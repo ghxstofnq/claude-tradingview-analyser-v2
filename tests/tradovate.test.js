@@ -4,8 +4,22 @@ import assert from "node:assert/strict";
 import {
   parseTradovateRequest, deriveActiveBroker,
   noteTradovateRequest, getTradovate, __resetTradovate,
-  buildTradovateOrderBody, instrumentForChart, tvRootOf,
+  buildTradovateOrderBody, buildTradovateModifyBody, instrumentForChart, tvRootOf,
 } from "../app/main/execution/tradovate.js";
+
+describe("buildTradovateModifyBody — BE/TRAIL stop reprice (endpoint+body captured 2026-06-18)", () => {
+  it("builds the PUT body the panel sends: id + instrument + qty + stopPrice + quote", () => {
+    const b = buildTradovateModifyBody({ orderId: 544915171722, instrument: "MESU6", qty: 14, stopPrice: 7543.25, currentAsk: 7536.5, currentBid: 7536.25 });
+    const p = Object.fromEntries(new URLSearchParams(b));
+    assert.equal(p.id, "544915171722");
+    assert.equal(p.instrument, "MESU6");
+    assert.equal(p.qty, "14");
+    assert.equal(p.stopPrice, "7543.25");
+    assert.equal(p.durationType, "Day");
+    assert.equal(p.currentAsk, "7536.5");
+    assert.equal(p.currentBid, "7536.25");
+  });
+});
 
 describe("instrumentForChart — orders follow the CHART symbol, never the stale sniff", () => {
   it("keeps the sniffed contract when its root already matches the chart", () => {
