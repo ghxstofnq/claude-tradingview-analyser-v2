@@ -39,16 +39,27 @@ The SMT reference is the **overnight extreme NY is reacting to**, per §2.3 — 
 ### 3.3 "Done" criteria (all must hold, checked each bar ≥ min 15)
 1. **Both symbols' window data present** — each has a parsed engine bundle for the window (the capture gap that broke today must be closed; see §6).
 2. **Confirmed pivot on both** — each symbol printed a confirmed swing-high (or swing-low) pivot in reaction to its reference, from `gates.engine.pillar3.swings` (a pivot that is in place, not the still-forming current bar). `leg_high/leg_low` may seed the running extreme; the pivot confirms it.
-3. **Clear divergence (categorical, not a magic margin)** — at the reacted extreme, exactly **one** symbol took/held beyond its reference while the **other** made a lower high (failed) / higher low. Both-took or both-failed = no divergence.
+3. **Clear divergence (graded gap, ATR-normalized)** — measure each symbol's reach past its **own** reference in ATR units (scales differ — never raw points):
 
-### 3.4 Outputs on a clear divergence
-- **Bearish SMT** (at the highs: one took its overnight high, the other made a lower high) → bias short, **leader = the failer** (short the laggard).
-- **Bullish SMT** (at the lows: one took its overnight low, the other made a higher low) → bias long, **leader = the leader** (long the stronger).
-- Write the leader + a human-readable reason (e.g., `"MNQ took LO.H 30615; MES made a lower high 7560 vs LO.H 7565 → short MES"`).
+   ```
+   strength_i = (window_high_i − reference_high_i) / atr_i      // short context (at the highs)
+   strength_i = (reference_low_i − window_low_i) / atr_i        // long context (at the lows), sign-flipped
+   gap = | strength_strong − strength_weak |
+   ```
+   - `atr_i` = the engine's Wilder ATR for that symbol (`gates.engine.pillar2.*.atr_14`); computed in code, never by the LLM.
+   - Positive strength = took/held beyond reference (led); negative = failed (laggard).
+   - **`gap ≥ SMT_GAP_BAND`** → clear divergence. The graded gap means this fires even when *both* crossed their line (both positive) but one is clearly stronger, and when *both* failed (both negative) but one is clearly weaker — not only the strict one-took/one-failed case.
+   - **`gap < SMT_GAP_BAND`** → measured near-tie → MNQ.
+   - `SMT_GAP_BAND` is a named constant (proposed start **0.25 ATR**), calibrated against fixtures/tapes — see §7. This is the single tunable; it operationalizes "actually similar."
+
+### 3.4 Outputs on a clear divergence (gap ≥ band)
+- **Bearish SMT** (reacted extreme is the overnight high) → bias short, **leader = the lower-strength symbol** (short the laggard).
+- **Bullish SMT** (reacted extreme is the overnight low) → bias long, **leader = the higher-strength symbol** (long the leader).
+- Write the leader + a human-readable reason with the numbers, e.g. `"short context: MNQ +0.70 ATR over LO.H 30615, MES −0.42 ATR under LO.H 7565, gap 1.12 ATR ≥ 0.25 → short MES (laggard)"`.
 
 ### 3.5 Fallbacks at min 30
-- **Measured near-tie / in-sync** (both took, or both failed; criteria 1–2 met, 3 not) → lock **MNQ**, reason `no_divergence_measured`.
-- **Missing / unreadable data** (criterion 1 fails) → **stand aside + flag** (no leader lock, no setups walked, native notification), reason `smt_unreadable_data`. Never lock MNQ here.
+- **Measured near-tie** (criteria 1–2 met, `gap < SMT_GAP_BAND`) → lock **MNQ**, reason `no_divergence_measured` (carry the measured gap so the lock is auditable, not a guess).
+- **Missing / unreadable data** (criterion 1 fails, or no confirmed pivot on a symbol by min 30) → **stand aside + flag** (no leader lock, no setups walked, native notification), reason `smt_unreadable_data`. Never lock MNQ here.
 
 ## 4. Data sources (no LLM arithmetic — constraint #7)
 All comparisons computed in code from the parsed engine bundle:
@@ -69,7 +80,8 @@ All comparisons computed in code from the parsed engine bundle:
 Today's root cause was `secondary_engine_missing` — MES engine data absent at decision time, so no comparison was possible. The SMT picker is worthless without both symbols. The finalizer must capture/poll **both** symbols across the window (the dual-symbol bundle the brief already builds), verified per the existing `capture_health` machinery. If the secondary genuinely can't be captured by min 30 → `smt_unreadable_data` stand-aside (§3.5), not an MNQ default. (Reuse the verified multi-TF capture / `tf-capture.js` retry pattern.)
 
 ## 7. Testing strategy
-- **Unit (`tests/smt-leader.test.js`):** bearish SMT (MNQ took high / MES lower high → short MES); bullish SMT mirror; both-took → MNQ near-tie; both-failed → MNQ near-tie; secondary missing → standaside (never MNQ); not-done before pivots confirm; early-lock the bar criteria first hold; hard-stop at min 30.
+- **Unit (`tests/smt-leader.test.js`):** bearish SMT one-took/one-failed (gap ≫ band → short the laggard); bullish mirror; **both-crossed but one clearly stronger** (gap ≥ band → still short the weaker); both-crossed near-tie (gap < band → MNQ, gap recorded); both-failed near-tie (gap < band → MNQ); ATR normalization (same raw-point gap → different verdict at MNQ vs MES scale); secondary missing → standaside (never MNQ); no confirmed pivot by min 30 → standaside; not-done before pivots confirm; early-lock the first bar criteria hold; hard-stop at min 30.
+- **Band calibration:** a small table-test sweeping `SMT_GAP_BAND` against the fixture/tape corpus to confirm the chosen value separates real divergence days from near-ties (start 0.25 ATR, adjust from evidence before trusting live).
 - **Pair-decision schema round-trip:** new fields persist + read back.
 - **Replay/tape:** add/repurpose a paired tape for a divergence day to prove the finalizer locks the laggard end-to-end (deterministic, $0). Today's NY-AM is a candidate once MES capture is reconstructable.
 - **Gates:** `npm run smoke:fixtures` 22/22, full unit suite green.
@@ -88,4 +100,4 @@ Today's root cause was `secondary_engine_missing` — MES engine data absent at 
 ## 10. Open decisions (confirm on review)
 1. **Reference extreme:** use the specific overnight level being reacted to (Asia vs London) — proposal: the nearest untaken overnight high above price for a short context (low below for long), from `session_levels`. Acceptable, or pin to London (`LO_H/LO_L`) only?
 2. **Pivot confirmation:** use the engine's `swings` (swing-tier) pivot as "confirmed." Acceptable, or also require a displacement/close-through to count it confirmed?
-3. **Near-tie definition:** categorical (both-took or both-failed) with **no** numeric margin — matches "actually similar, not guessing." Confirm you don't want a points/percentage band on top.
+3. **Near-tie definition — RESOLVED (full graded gap):** ATR-normalized strength per symbol; divergence when the gap between the two ≥ `SMT_GAP_BAND` (proposed start 0.25 ATR, calibrated). Fires even when both crossed/both failed if one is clearly stronger. The band is the single tunable and operationalizes "actually similar." **Open sub-item:** the starting band value (0.25 ATR) needs calibration against the fixture/tape corpus before it's trusted.
