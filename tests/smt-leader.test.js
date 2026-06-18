@@ -119,6 +119,27 @@ test("no confirmed pivot in window → not done, unreadable", () => {
   assert.equal(r.reason, "smt_unreadable_data");
 });
 
+// §2.3.1 measures the window's NEW EXTREME; internal-tier pivots form in-window
+// where swing-tier almost never does (0 across the frozen June 8-12 MNQ week).
+// An internal-tier in-window pivot must now be readable, not stood-aside.
+test("internal-tier in-window pivot is readable (was wrongly ignored)", () => {
+  const internalHigh = ({ ref, high, atr }) => eng({
+    levels: [{ name: "AS.H", price: ref, swept: high > ref }],
+    swings: [{ price: high, is_high: true, tier: "internal", bar_ms: IN }],
+    atr,
+  });
+  const r = computeSmtLeader({
+    primary: "MNQ1!", secondary: "MES1!",
+    primaryEngine: internalHigh({ ref: 30615, high: 30650, atr: 50 }),  // +0.70 ATR (held its high)
+    secondaryEngine: internalHigh({ ref: 7565, high: 7555, atr: 12 }),  // -0.83 ATR (failed its high)
+    context: "short", ...win,
+  });
+  assert.equal(r.criteria.pivots_confirmed, true);   // internal-tier now counts
+  assert.equal(r.divergence, true);
+  assert.equal(r.bias_dir, "short");
+  assert.equal(r.leader, "MES1!");                   // short the laggard
+});
+
 test("auto context picks the reacted side (highs present, no lows → short)", () => {
   const r = computeSmtLeader({
     primary: "MNQ1!", secondary: "MES1!",

@@ -22,13 +22,18 @@ function atrOf(engine) {
   return Number.isFinite(a) && a > 0 ? a : null;
 }
 
-// The confirmed swing-tier pivot (decision #2: engine swing-tier = confirmed)
-// of the requested side, within the window, at its extreme value.
+// The window's price extreme on the requested side — §2.3.1 "fails to confirm
+// the other's new extreme". This is the most extreme in-window structure pivot
+// of ANY tier. Swing-tier pivots almost never confirm inside the 30-min open
+// window (verified: 0 across the entire frozen June 8-12 MNQ week), so the
+// original swing-tier-only filter made SMT read `smt_unreadable_data` and stand
+// aside every single day. Internal-tier pivots DO form in-window (1-5/day) and
+// mark the same turning points; the extreme across both tiers is the window's
+// new high/low that SMT measures against the overnight reference.
 function windowPivot(engine, side, ws, we) {
   const swings = Array.isArray(engine?.swings) ? engine.swings : [];
   let best = null, bestIdx = -1;
   swings.forEach((s, i) => {
-    if (s.tier !== "swing") return;
     if (side === "high" ? !s.is_high : s.is_high) return;
     const ms = Number(s.bar_ms);
     if (Number.isFinite(ms) && (ms < ws || ms > we)) return; // outside the open-reaction window
