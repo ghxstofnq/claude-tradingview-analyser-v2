@@ -93,6 +93,34 @@ function bundle() {
   };
 }
 
+test("pillar2 grades on 5m/15m only — a current_tf doji must NOT tip a clean session to poor", () => {
+  // 2026-06-18 London MNQ: current_tf candle doji_wick (the chart's current-TF
+  // gauge — §7 Step 3 grades 5m/15m, not current_tf), 5m normal, 15m doji_wick.
+  // Counting current_tf gave 2 bad → "poor" → no-trade and locked the leader out
+  // of London. Excluding it: 1 bad (15m) → "marginal" → tradeable.
+  const b = bundle();
+  b.brief_digest.symbols["MNQ1!"].pillar2 = {
+    current_tf: { range_quality: "good", displacement: "acceptable", candle: "doji_wick" },
+    m5: { range_quality: "good", displacement: "acceptable", candle: "normal" },
+    m15: { range_quality: "good", displacement: "clean", candle: "doji_wick" },
+  };
+  const [mnq] = buildDirectSessionBriefPayloads({ session: "london", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(mnq.pillar2_verdict, "marginal");
+  assert.notEqual(mnq.pillar_grade, "no-trade");
+});
+
+test("pillar2 still fails when BOTH authoritative TFs (5m + 15m) are doji-dominated", () => {
+  const b = bundle();
+  b.brief_digest.symbols["MNQ1!"].pillar2 = {
+    current_tf: { range_quality: "good", displacement: "clean", candle: "normal" },
+    m5: { range_quality: "good", displacement: "acceptable", candle: "doji_wick" },
+    m15: { range_quality: "good", displacement: "acceptable", candle: "doji_wick" },
+  };
+  const [mnq] = buildDirectSessionBriefPayloads({ session: "london", bundle: b, symbols: ["MNQ1!"] });
+  assert.equal(mnq.pillar2_verdict, "poor");
+  assert.equal(mnq.pillar_grade, "no-trade");
+});
+
 test("buildDirectSessionBriefPayloads emits two valid surface_session_brief payloads from digest without LLM tool calls", () => {
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: bundle(), sizingByGrade: { B: { r_size: 0.75 } } });
   assert.equal(payloads.length, 2);
