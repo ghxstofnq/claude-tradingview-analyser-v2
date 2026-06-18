@@ -190,6 +190,20 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, addCan
   const dollarRisk = (entry != null && stop != null && qty != null)
     ? (Math.abs(entry - stop) * pointValue * qty).toFixed(0)
     : null;
+  // Tradovate positions carry no stop on the position object, so the R-based
+  // P&L above is null (blank). Fall back to the broker's unrealized $ (or pts ×
+  // $/pt × qty) so the P&L cell shows a real number.
+  if (grid.pnl.v === "—" && qty != null) {
+    const usd = position?.uPnlUsd != null
+      ? Number(position.uPnlUsd)
+      : (Number.isFinite(entry) && Number.isFinite(livePrice))
+        ? (side === "long" ? livePrice - entry : entry - livePrice) * pointValue * qty
+        : null;
+    if (usd != null && Number.isFinite(usd)) {
+      const r = Math.round(usd);
+      grid.pnl = { v: `${r >= 0 ? "+" : "−"}$${Math.abs(r).toLocaleString("en-US")}`, sub: "unrealized", tone: r > 0 ? "green" : r < 0 ? "red" : "" };
+    }
+  }
   const mng = (fn) => () => { try { executionAdapter[fn]({ symbol: position?.symbol || symbol, tradeId: t.id }); } catch { /* best-effort */ } };
   return (
     <div className="work-scroll">
@@ -240,7 +254,6 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, addCan
             <button className="itbtn flatten" onClick={mng("flatten")}>▣ FLATTEN</button>
             <button className="itbtn be" onClick={mng("moveStopToBE")}>⇲ BE</button>
           </div>
-          <button className="panic" onClick={mng("panic")}>PANIC — FLATTEN ALL</button>
           <div className="itbtns-sec">
             <button className="itbtn-sec" onClick={mng("trail")}>TRAIL</button>
             <button className="itbtn-sec" onClick={mng("cancel")}>CANCEL</button>
