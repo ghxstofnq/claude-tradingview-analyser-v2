@@ -9,6 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpStateDir } from "./helpers/tmp-state.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -38,7 +39,7 @@ async function runIn(dir, deps) {
 }
 
 test("crashed run persists an error summary and index entry", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-fail-"));
+  const dir = tmpStateDir("bt-fail-");
   const deps = baseDeps({
     recordEntries: async () => { throw new Error("CDP went away"); },
   });
@@ -55,14 +56,14 @@ test("crashed run persists an error summary and index entry", async () => {
 });
 
 test("deps.cleanup runs after a successful run", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-fail-"));
+  const dir = tmpStateDir("bt-fail-");
   let cleaned = 0;
   await runIn(dir, baseDeps({ cleanup: async () => { cleaned += 1; } }));
   assert.equal(cleaned, 1);
 });
 
 test("deps.cleanup runs after a crashed run", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-fail-"));
+  const dir = tmpStateDir("bt-fail-");
   let cleaned = 0;
   const deps = baseDeps({
     recordEntries: async () => { throw new Error("boom"); },
@@ -73,7 +74,7 @@ test("deps.cleanup runs after a crashed run", async () => {
 });
 
 test("cleanup failures never mask the run result", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-fail-"));
+  const dir = tmpStateDir("bt-fail-");
   const { summary } = await runIn(dir, baseDeps({
     cleanup: async () => { throw new Error("cleanup exploded"); },
   }));

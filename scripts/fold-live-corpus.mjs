@@ -6,6 +6,7 @@
 //
 // Usage: node scripts/fold-live-corpus.mjs [stateSessionDir]
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
@@ -57,15 +58,22 @@ async function foldOne({ date, session, dir }) {
     truthFn: barCloseTruth.buildDeterministicPacketTruthFromInputs,
     gradeFn: gradeOpenTrade,
   };
-  const { summary } = await runBacktest({ date, session, mode: "auto", bus, stateDir: "/tmp/fold-live-corpus", deps });
-  return {
-    leader,
-    bias: context?.session_state?.pillar1?.htfBias ?? "?",
-    interaction: summary.open_reaction?.interaction ?? "-",
-    r: summary.total_r ?? 0,
-    wl: `${summary.wins}/${summary.losses}`,
-    halted: summary.session_halted ? "HALT" : "",
-  };
+  // Fresh stateDir per session, removed right after — a fixed path piled up
+  // every session's output (folding all live sessions leaked ~2.7G into /tmp).
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "fold-live-"));
+  try {
+    const { summary } = await runBacktest({ date, session, mode: "auto", bus, stateDir, deps });
+    return {
+      leader,
+      bias: context?.session_state?.pillar1?.htfBias ?? "?",
+      interaction: summary.open_reaction?.interaction ?? "-",
+      r: summary.total_r ?? 0,
+      wl: `${summary.wins}/${summary.losses}`,
+      halted: summary.session_halted ? "HALT" : "",
+    };
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
 }
 
 const rows = sessionsWithInputs();

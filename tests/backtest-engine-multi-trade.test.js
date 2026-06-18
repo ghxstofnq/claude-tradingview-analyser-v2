@@ -5,6 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpStateDir } from "./helpers/tmp-state.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +30,7 @@ function pkt(id, entry) {
 }
 
 test("AUTO trades one position at a time; setups surfaced meanwhile are skipped, next after close opens", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-multi-"));
+  const dir = tmpStateDir("bt-multi-");
   const bus = new EventEmitter();
   const entries = [
     entryAt("2026-06-09T13:58:00.000Z", 29700), // packet A surfaces + opens
@@ -76,7 +77,7 @@ test("AUTO trades one position at a time; setups surfaced meanwhile are skipped,
 // R multiple (|tp1-entry|/|entry-stop|), not a flat +1R — swing TP1s pay
 // >=2R by rule. Stops book -1R.
 test("total_r sums realized R multiples, not flat win counts", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-r-"));
+  const dir = tmpStateDir("bt-r-");
   const bus = new EventEmitter();
   const entries = [
     entryAt("2026-06-09T13:58:00.000Z", 29700), // opens: entry 29700, stop 29710, tp1 29675 → 2.5R short
@@ -118,7 +119,7 @@ test("total_r sums realized R multiples, not flat win counts", async () => {
 // setups are recorded as session_halted (June 11 AM chop: 9 straight
 // stops = -9R; with the halt it ends at -3R).
 test("session halts at -3R: the fourth setup after three stops is not traded", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bt-halt-"));
+  const dir = tmpStateDir("bt-halt-");
   const bus = new EventEmitter();
   const mk = (iso, close) => entryAt(iso, close);
   const entries = [

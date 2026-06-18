@@ -6,6 +6,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { tmpStateDir } from "./helpers/tmp-state.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -47,7 +48,7 @@ is_retrace_day: false
 
 describe("loadDayContext", () => {
   test("builds the live-shaped context from a recorded day's brief + ltf-bias", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bt-ctx-"));
+    const root = tmpStateDir("bt-ctx-");
     writeDay({ root, date: "2026-06-09", session: "ny-am", brief: BRIEF, ltfBias: LTF_BIAS });
 
     const ctx = await loadDayContext({ date: "2026-06-09", session: "ny-am", sessionRoot: root });
@@ -64,14 +65,14 @@ describe("loadDayContext", () => {
   });
 
   test("returns null when the day folder has no brief or no ltf-bias", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bt-ctx-"));
+    const root = tmpStateDir("bt-ctx-");
     writeDay({ root, date: "2026-06-10", session: "ny-am", brief: BRIEF, ltfBias: null });
     assert.equal(await loadDayContext({ date: "2026-06-10", session: "ny-am", sessionRoot: root }), null);
     assert.equal(await loadDayContext({ date: "2026-01-01", session: "ny-am", sessionRoot: root }), null);
   });
 
   test("prefers the leader-specific brief file when present", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bt-ctx-"));
+    const root = tmpStateDir("bt-ctx-");
     const dir = writeDay({ root, date: "2026-06-09", session: "ny-am", brief: { ...BRIEF, pillar_grade: "no-trade" }, ltfBias: LTF_BIAS });
     fs.writeFileSync(path.join(dir, "brief-MNQ1!.json"), JSON.stringify(BRIEF));
     const ctx = await loadDayContext({ date: "2026-06-09", session: "ny-am", sessionRoot: root });

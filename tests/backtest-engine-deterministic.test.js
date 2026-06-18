@@ -9,6 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpStateDir } from "./helpers/tmp-state.js";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -38,10 +39,6 @@ function makeDeps({ entries, context = null }) {
   };
 }
 
-function tmpStateDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "bt-engine-"));
-}
-
 function collectEvents(bus) {
   const events = [];
   bus.on("backtest:event", (e) => events.push(e));
@@ -49,7 +46,7 @@ function collectEvents(bus) {
 }
 
 test("AUTO mode: June 9 tape folds to the Inversion short through the real chain — one opportunity, one open position", async () => {
-  const stateDir = tmpStateDir();
+  const stateDir = tmpStateDir("bt-engine-");
   const bus = new EventEmitter();
   const events = collectEvents(bus);
   const { deps } = makeDeps({ entries: JUNE9.entries });
@@ -103,7 +100,7 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
 });
 
 test("outcome grading: a later bar through TP1 then TP2 resolves the A+ runner as a TP2 win", async () => {
-  const stateDir = tmpStateDir();
+  const stateDir = tmpStateDir("bt-engine-");
   const bus = new EventEmitter();
   const events = collectEvents(bus);
 
@@ -135,7 +132,7 @@ test("outcome grading: a later bar through TP1 then TP2 resolves the A+ runner a
 });
 
 test("PAUSE mode: pauses on the packet and a reject decision records the rejection", async () => {
-  const stateDir = tmpStateDir();
+  const stateDir = tmpStateDir("bt-engine-");
   const bus = new EventEmitter();
   const events = collectEvents(bus);
   bus.on("backtest:event", (e) => {
@@ -161,7 +158,7 @@ test("PAUSE mode: pauses on the packet and a reject decision records the rejecti
 });
 
 test("no day context and no brief context → run completes honestly as no_trade data gap", async () => {
-  const stateDir = tmpStateDir();
+  const stateDir = tmpStateDir("bt-engine-");
   const bus = new EventEmitter();
   const events = collectEvents(bus);
   const deps = {
@@ -182,7 +179,7 @@ test("no day context and no brief context → run completes honestly as no_trade
 });
 
 test("stop command during recording aborts cleanly with a summary", async () => {
-  const stateDir = tmpStateDir();
+  const stateDir = tmpStateDir("bt-engine-");
   const bus = new EventEmitter();
   const { deps } = makeDeps({ entries: JUNE9.entries });
   deps.recordEntries = async ({ onBar, isStopped }) => {
