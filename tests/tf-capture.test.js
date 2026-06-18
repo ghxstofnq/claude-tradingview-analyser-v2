@@ -5,11 +5,45 @@ import {
   captureTfWithRetry,
   captureMultiTfWithHealth,
   applyBaselineFallback,
+  enginePresent,
+  pollEnginePresent,
 } from '../cli/lib/tf-capture.js';
 
 // ---------------------------------------------------------------- helpers
 
 const noopSleep = async () => {};
+
+test('enginePresent: true only when schema supported AND has ≥1 row type', () => {
+  assert.equal(enginePresent({ schema_supported: true, levels: [{ name: 'AS.H' }] }), true);
+  assert.equal(enginePresent({ schema_supported: true, fvgs: [{}], levels: [] }), true);
+  assert.equal(enginePresent({ schema_supported: true, levels: [], fvgs: [], swings: [], structures: [] }), false);
+  assert.equal(enginePresent({ schema_supported: false, levels: [{ name: 'AS.H' }] }), false);
+  assert.equal(enginePresent(null), false);
+});
+
+test('pollEnginePresent: returns present after a lagging read settles (counts attempts)', async () => {
+  let n = 0;
+  const readEngine = async () => (++n < 3 ? { schema_supported: true, levels: [] } : { schema_supported: true, levels: [{ name: 'AS.H' }] });
+  const r = await pollEnginePresent({ readEngine, sleep: noopSleep, pollIntervalMs: 1, deadlineMs: 10 });
+  assert.equal(r.present, true);
+  assert.equal(r.attempts, 3);
+  assert.ok(r.engine.levels.length > 0);
+});
+
+test('pollEnginePresent: gives up present:false after the deadline (never invents data)', async () => {
+  const readEngine = async () => ({ schema_supported: true, levels: [] }); // never present
+  const r = await pollEnginePresent({ readEngine, sleep: noopSleep, pollIntervalMs: 1, deadlineMs: 4 });
+  assert.equal(r.present, false);
+  assert.ok(r.attempts >= 1);
+});
+
+test('pollEnginePresent: tolerates transient read throws', async () => {
+  let n = 0;
+  const readEngine = async () => { if (++n === 1) throw new Error('CDP blip'); return { schema_supported: true, swings: [{}] }; };
+  const r = await pollEnginePresent({ readEngine, sleep: noopSleep, pollIntervalMs: 1, deadlineMs: 10 });
+  assert.equal(r.present, true);
+  assert.equal(r.attempts, 2);
+});
 
 function freshEngine(metaTf) {
   return {

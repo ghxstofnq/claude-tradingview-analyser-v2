@@ -8,7 +8,7 @@ import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
 import { computeSmtLeader } from '../lib/smt-leader.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
-import { captureMultiTfWithHealth, applyBaselineFallback } from '../lib/tf-capture.js';
+import { captureMultiTfWithHealth, applyBaselineFallback, pollEnginePresent, enginePresent } from '../lib/tf-capture.js';
 
 /**
  * tv analyze — bundles chart state, quote, multi-TF bars, and the ICT Engine
@@ -509,7 +509,24 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
     data.getStudyValues(),
     data.getPineTables(),
   ]);
-  const engine = parseIctEngineTable(findIctEngineRows(tables));
+  // Verified read of the secondary's current-TF engine. A single shot here lost
+  // the SMT comparison when the engine table lagged the symbol switch
+  // (secondary_engine_missing, 2026-06-18 NY-AM). Poll until present (≤4s); a
+  // genuine miss falls through to the SMT stand-aside, never a silent MNQ.
+  let engine = parseIctEngineTable(findIctEngineRows(tables));
+  let engine_attempts = 1;
+  if (!enginePresent(engine)) {
+    const r = await pollEnginePresent({
+      readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
+      sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
+    });
+    if (r.engine) engine = r.engine;
+    engine_attempts = 1 + r.attempts;
+  }
+  capture_health = {
+    ...(capture_health || {}),
+    engine_current_tf: { present: enginePresent(engine), attempts: engine_attempts },
+  };
   // Drop the still-forming candle so confirmation facts read the just-CLOSED
   // bar (mirrors the backtest tape recorder). Without this, confirmation.last_bar
   // is a range-0 doji and live surfaces nothing — see docs/intent/live-confirmation-surfacing.md.
