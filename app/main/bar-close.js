@@ -525,11 +525,20 @@ async function runClaudeTurnFor(ev, session, phase) {
     const sdir0 = await activeSessionDir();
     const needsBackfill = !(await pairDecisionExists()) || !existsSync(path.join(sdir0, "ltf-bias.md"));
     if (needsBackfill) {
-      await finalizeOpenReactionDeterministic({ session, eventTs: ev.ts }).catch((err) => {
+      // We're already in entry_hunt → the open-reaction window is definitionally
+      // over, so resolve at the 30m hard stop (near-tie → MNQ, unreadable →
+      // stand aside). Without minutesIntoPhase the policy would just "wait".
+      await finalizeOpenReactionDeterministic({ session, eventTs: ev.ts, minutesIntoPhase: 30 }).catch((err) => {
         // eslint-disable-next-line no-console
         console.warn("[bar-close] open-reaction backfill threw", err?.message || err);
       });
       // pair-decision.json + ltf-bias.* may exist now; preflight pins the chart.
+    }
+    // SMT stand-aside gate (§2.3.1): an unreadable open-reaction read locked
+    // standaside — no leader, no edge. Do NOT walk PAIR_PRIMARY. Stand down.
+    if (entryHuntStandAside(await readPairDecision())) {
+      recordMetric({ kind: "bar-close", event: "entry_hunt_standaside", session });
+      return;
     }
   }
 
@@ -1451,13 +1460,23 @@ export const __test = {
 // Read the chosen leader symbol from pair-decision.json. Returns null if
 // the file is missing, malformed, or leader is null (inconclusive). Used
 // by the entry-hunt prompt to point Claude at the leader's baseline.
-async function readPairDecisionLeader() {
+async function readPairDecision() {
   const dir = await activeSessionDir();
   try {
     const txt = await fs.readFile(path.join(dir, "pair-decision.json"), "utf8");
-    const decision = JSON.parse(txt);
-    return decision?.leader || null;
+    return JSON.parse(txt);
   } catch { return null; }
+}
+
+async function readPairDecisionLeader() {
+  return (await readPairDecision())?.leader || null;
+}
+
+// The SMT walk gate: a stand-aside decision (unreadable open-reaction read,
+// §2.3.1) means NO relative-strength edge and NO leader — the chain must not
+// fall back to PAIR_PRIMARY and trade. Pure for the unit test.
+export function entryHuntStandAside(decision) {
+  return !!decision?.standaside;
 }
 
 // Before each Claude turn during entry-hunt, pin the chart to the leader

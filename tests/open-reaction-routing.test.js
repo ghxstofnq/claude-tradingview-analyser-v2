@@ -1,7 +1,14 @@
 // tests/open-reaction-routing.test.js — the "lock early → hunt early" gate.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openReactionResolvedToHunt } from "../app/main/bar-close.js";
+import { openReactionResolvedToHunt, entryHuntStandAside } from "../app/main/bar-close.js";
+
+test("entryHuntStandAside: a standaside decision blocks the walk; a real leader does not", () => {
+  assert.equal(entryHuntStandAside({ standaside: true, leader: null, reason: "smt_unreadable_data" }), true);
+  assert.equal(entryHuntStandAside({ standaside: false, leader: "MES1!" }), false);
+  assert.equal(entryHuntStandAside({ leader: "MNQ1!" }), false);
+  assert.equal(entryHuntStandAside(null), false);
+});
 
 test("a fresh lock with a final bias activates entry_hunt this bar", () => {
   assert.equal(openReactionResolvedToHunt({ wrote: true, locked: true, bias: "bearish" }), true);
