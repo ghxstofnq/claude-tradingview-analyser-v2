@@ -167,7 +167,7 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
-function InTradeView({ position, trade, tranches, lastBar, price, symbol, addCandidate, onAdd }) {
+function InTradeView({ position, trade, tranches, lastBar, price, symbol, workingOrders, addCandidate, onAdd }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -175,8 +175,13 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, addCan
   const live = !!position;
   const side = (position ? normalizeSide(position.side) : null) || t.side || "long";
   const entry = position?.avgFill ?? t.entry;
-  const stop = position?.sl ?? t.stop;
-  const tp1 = position?.tp ?? t.tp1;
+  // A Tradovate position carries no stop/tp on the position object — they live
+  // in its working orders (the bracket). Pull Stop from the working stop order
+  // and TP1 from the working limit order so the panel isn't blank.
+  const stopOrder = (workingOrders || []).find((o) => o?.kind === "stop");
+  const tpOrder = (workingOrders || []).find((o) => o?.kind === "limit");
+  const stop = position?.sl ?? stopOrder?.price ?? t.stop;
+  const tp1 = position?.tp ?? tpOrder?.price ?? t.tp1;
   const qty = position?.qty ?? t.size?.contracts ?? null;
   const sym = String(position?.symbol || symbol || "").replace("CME_MINI:", "");
   const view = { side, entry, stop, tp1, tp2: t.tp2, r_realized: t.r_realized, tp1_hit: t.tp1_hit };
@@ -541,7 +546,7 @@ function LiveCell({ guards, symbol }) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveView === "intrade") {
     body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} tranches={trancheRows} lastBar={lastBar} price={exec.price} symbol={symbol} addCandidate={addCandidate} onAdd={() => pickView("add")} />
+      ? <InTradeView position={exec.position} trade={activeTrade} tranches={trancheRows} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders} addCandidate={addCandidate} onAdd={() => pickView("add")} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
