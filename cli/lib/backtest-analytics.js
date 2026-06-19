@@ -11,7 +11,10 @@ export function aggregate(trades = []) {
   const cumR = round2(rs.reduce((s, v) => s + v, 0));
   const wins = rs.filter((r) => r > 0);
   const losses = rs.filter((r) => r < 0);
-  const winRate = n ? Math.round((100 * wins.length) / n) : 0;
+  // Break-even scratches (R = 0) are not held against the win-rate: win% is over
+  // DECIDED trades (wins + losses), not all trades. BE still dilutes expectancy.
+  const decided = wins.length + losses.length;
+  const winRate = decided ? Math.round((100 * wins.length) / decided) : 0;
   const avgWin = wins.length ? round2(wins.reduce((s, v) => s + v, 0) / wins.length) : 0;
   const avgLoss = losses.length ? round2(losses.reduce((s, v) => s + v, 0) / losses.length) : 0;
   const expectancy = n ? round2(cumR / n) : 0;

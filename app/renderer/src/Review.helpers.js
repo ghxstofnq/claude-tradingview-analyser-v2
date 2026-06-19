@@ -171,7 +171,9 @@ export function buildTrackRecordFromFills(fills = []) {
   const cumUsd = Math.round(usds.reduce((s, v) => s + v, 0));
   const wins = rs.filter((r) => r > 0);
   const losses = rs.filter((r) => r < 0);
-  const winRate = n ? Math.round((100 * wins.length) / n) : 0;
+  // BE scratches don't count against win-rate — win% is over decided trades.
+  const decided = wins.length + losses.length;
+  const winRate = decided ? Math.round((100 * wins.length) / decided) : 0;
   const avgWin = wins.length ? r2(wins.reduce((s, v) => s + v, 0) / wins.length) : 0;
   const avgLoss = losses.length ? r2(losses.reduce((s, v) => s + v, 0) / losses.length) : 0;
   const expectancy = n ? r2(cumR / n) : 0;

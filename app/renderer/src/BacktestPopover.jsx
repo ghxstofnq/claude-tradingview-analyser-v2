@@ -406,7 +406,8 @@ function DoneBody({ state, actions }) {
       </div>
     );
   }
-  const winRate = s.setups > 0 ? Math.round((100 * s.wins) / s.setups) : 0;
+  const decided = (s.wins ?? 0) + (s.losses ?? 0); // BE scratches excluded from win-rate
+  const winRate = decided > 0 ? Math.round((100 * s.wins) / decided) : 0;
   const runId = state.currentRun?.runId;
   const reRun = () => actions.start({ date: s.date, session: s.session, mode: s.mode });
   const discard = async () => { if (runId) await actions.deleteRun(runId); actions.runAnother(); };
@@ -773,7 +774,8 @@ function DetailBody({ state, actions }) {
 
   const openEvents = setups.filter((s) => s.type === "open");
   const outcomes = setups.filter((s) => s.type === "outcome");
-  const winRate = entry.setups > 0 ? Math.round((100 * entry.wins) / entry.setups) : 0;
+  const decided = (entry.wins ?? 0) + (entry.losses ?? 0); // BE scratches excluded from win-rate
+  const winRate = decided > 0 ? Math.round((100 * entry.wins) / decided) : 0;
   const agreement = entry.your_agreement ?? { agreed: 0, disagreed: 0, ungraded: 0 };
   const agreementTotal = agreement.agreed + agreement.disagreed;
   const agreementPct = agreementTotal === 0 ? "—" : Math.round((100 * agreement.agreed) / agreementTotal) + "%";
