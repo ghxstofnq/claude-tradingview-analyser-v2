@@ -193,7 +193,9 @@ export async function foldSymbol({ symbol, stateDir, dates }) {
     total += res.total_r;
     per_day.push({ date: entry.date, session: entry.session, r: res.total_r });
     run_details.push({
-      entry: { date: entry.date, session: entry.session, open_reaction: res.open_reaction },
+      // Prefer the run's RECORDED open-reaction (carries htf_ltf_alignment) so the
+      // BIAS ALIGNMENT cut renders — same source the pre-baseline dashboard used.
+      entry: { date: entry.date, session: entry.session, open_reaction: entry.open_reaction ?? res.open_reaction },
       setups: res.setups,
     });
     const trades = tradesFromSetups(res.setups);
