@@ -142,6 +142,23 @@ test("filterRuns — by grade NO (= zero setups)", () => {
   assert.equal(filterRuns(runs, { grade: "NO" }).length, 1);
 });
 
+test("filterRuns — by symbol (per-instrument analytics scoping)", () => {
+  const runs = [
+    { run_id: "a", symbol: "MNQ1!", session: "ny-am" },
+    { run_id: "b", symbol: "MES1!", session: "ny-am" },
+    { run_id: "c", symbol: "MNQ1!", session: "ny-pm" },
+    { run_id: "d", session: "ny-am" }, // untagged legacy run
+  ];
+  assert.deepEqual(filterRuns(runs, { symbol: "MNQ1!" }).map((r) => r.run_id), ["a", "c"]);
+  assert.deepEqual(filterRuns(runs, { symbol: "MES1!" }).map((r) => r.run_id), ["b"]);
+  // Untagged runs match NEITHER instrument (never shown under a fabricated symbol).
+  assert.equal(filterRuns(runs, { symbol: "MNQ1!" }).some((r) => r.run_id === "d"), false);
+  // symbol composes with the other filters.
+  assert.deepEqual(filterRuns(runs, { symbol: "MNQ1!", session: "ny-pm" }).map((r) => r.run_id), ["c"]);
+  // absent symbol = no symbol filter (all runs).
+  assert.equal(filterRuns(runs, {}).length, 4);
+});
+
 test("formatRunForRow — shortens session label", () => {
   const row = formatRunForRow({ session: "ny-am", date: "2026-05-20", total_r: 8.5 });
   assert.equal(row.session_short, "AM");

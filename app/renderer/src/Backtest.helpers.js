@@ -129,9 +129,10 @@ export function aggregateRuns(runs) {
   };
 }
 
-export function filterRuns(runs, { session = null, mode = null, grade = null, query = null } = {}) {
+export function filterRuns(runs, { symbol = null, session = null, mode = null, grade = null, query = null } = {}) {
   const q = query ? String(query).trim().toLowerCase() : "";
   return runs.filter((r) => {
+    if (symbol && r.symbol !== symbol) return false;
     if (session && r.session !== session) return false;
     if (mode && r.mode !== mode) return false;
     if (grade && !runMatchesGrade(r, grade)) return false;

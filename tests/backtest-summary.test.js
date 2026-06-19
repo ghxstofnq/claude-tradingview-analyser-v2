@@ -54,3 +54,18 @@ describe("buildSummary win/loss classification", () => {
     assert.equal(s.closed_eod, 0);
   });
 });
+
+describe("buildSummary symbol tag (per-symbol analytics)", () => {
+  it("carries the run's instrument into the summary + index entry", () => {
+    const s = buildSummary({
+      runId: "T", date: "2026-06-16", session: "ny-am", mode: "auto", symbol: "MES1!",
+      startedAt: Date.now(), surfaced: [], closedTrades: [], openTrades: [],
+      chainStatus: "clean", contextSource: "direct_brief",
+    });
+    assert.equal(s.symbol, "MES1!");
+  });
+  it("defaults to null when unknown — never a fabricated symbol", () => {
+    const s = summarize([{ outcome: "tp1_hit", realized_r: 2 }]);
+    assert.equal(s.symbol, null);
+  });
+});

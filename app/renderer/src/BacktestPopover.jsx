@@ -24,6 +24,10 @@ const BT_SWITCHER = [
 export function BacktestCell() {
   const [open, setOpen] = useState(false);
   const { state, actions } = useBacktest();
+  // Instrument view — scopes the configure form's recents and the analytics to
+  // one symbol. Persists while the popover is open; the configure SYMBOL
+  // selector (mnq/mes/both) is a separate choice (what to RUN).
+  const [symbolView, setSymbolView] = useState("MNQ1!");
 
   // Outside-click to close — same trick as the other pop-cells use via
   // .pop-cell onClick toggling. Children stopPropagation so clicks inside
@@ -46,12 +50,18 @@ export function BacktestCell() {
           onClick={(e) => e.stopPropagation()}
         >
           <Header state={state} actions={actions} onClose={close} />
+          {(state.ui === "IDLE" || state.ui === "LIBRARY") && (
+            <div className="bt-sym-bar">
+              <span className="bt-sym-label">INSTRUMENT</span>
+              <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
+            </div>
+          )}
           <div className="body">
-            {state.ui === "IDLE" && <IdleBody state={state} actions={actions} />}
+            {state.ui === "IDLE" && <IdleBody state={state} actions={actions} symbolView={symbolView} />}
             {state.ui === "AUTO_RUNNING" && <RunningBody state={state} actions={actions} />}
             {state.ui === "PAUSE_AWAITING" && <PauseBody state={state} actions={actions} />}
             {state.ui === "DONE" && <DoneBody state={state} actions={actions} />}
-            {state.ui === "LIBRARY" && <LibraryBody state={state} actions={actions} />}
+            {state.ui === "LIBRARY" && <LibraryBody state={state} actions={actions} symbolView={symbolView} />}
             {state.ui === "DETAIL" && <DetailBody state={state} actions={actions} />}
           </div>
         </div>
@@ -159,7 +169,7 @@ function BadgeForState({ state }) {
 // ─────────────────────────────────────────────────────────────────────
 // IDLE body — configure a new run + recent 5
 // ─────────────────────────────────────────────────────────────────────
-function IdleBody({ state, actions }) {
+function IdleBody({ state, actions, symbolView }) {
   const presets = presetRanges();
   const STUDY_PRESETS = [
     { id: "today", label: "TODAY", start: presets.today[0], end: presets.today[1] },
@@ -173,8 +183,9 @@ function IdleBody({ state, actions }) {
   const [end, setEnd] = useState(presets.lastweek[1]);
   const [sessions, setSessions] = useState({ "ny-am": true, "ny-pm": false, "london": true });
   const [mode, setMode] = useState("auto");
-  const agg = aggregateRuns(state.library.runs);
-  const recent = state.library.runs.slice(0, 5);
+  const symRuns = filterRuns(state.library.runs, { symbol: symbolView });
+  const agg = aggregateRuns(symRuns);
+  const recent = symRuns.slice(0, 5);
 
   const applyPreset = (p) => { setPreset(p.id); if (p.start) { setStart(p.start); setEnd(p.end); } };
   const editDate = (which, v) => { setPreset("custom"); which === "start" ? setStart(v) : setEnd(v); };
@@ -254,7 +265,7 @@ function IdleBody({ state, actions }) {
           <RunRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
         ))}
         <div className="view-all" onClick={actions.viewAll}>
-          VIEW ANALYTICS · {state.library.runs.length} RUNS  →
+          VIEW ANALYTICS · {symRuns.length} RUNS  →
         </div>
       </div>
     </>
@@ -448,17 +459,20 @@ function DoneBody({ state, actions }) {
 // ─────────────────────────────────────────────────────────────────────
 // LIBRARY body — aggregate dashboard + filters + sortable table
 // ─────────────────────────────────────────────────────────────────────
-function LibraryBody({ state, actions }) {
+function LibraryBody({ state, actions, symbolView }) {
   const [sessionFilter, setSessionFilter] = useState(null);
   const [modeFilter, setModeFilter] = useState(null);
   const [gradeFilter, setGradeFilter] = useState(null);
   const [query, setQuery] = useState("");
 
-  const filtered = filterRuns(state.library.runs, {
+  // Scope everything to the active instrument first; the table filters narrow
+  // within it. Analytics + aggregate read only this symbol's runs.
+  const symRuns = filterRuns(state.library.runs, { symbol: symbolView });
+  const filtered = filterRuns(symRuns, {
     session: sessionFilter, mode: modeFilter, grade: gradeFilter, query,
   });
-  const agg = aggregateRuns(state.library.runs);
-  const { A, loading } = useAnalytics(state.library.runs, true);
+  const agg = aggregateRuns(symRuns);
+  const { A, loading } = useAnalytics(symRuns, true);
   const agreementPct = (() => {
     const a = agg.agreement;
     const total = (a?.agreed ?? 0) + (a?.disagreed ?? 0);
@@ -472,7 +486,7 @@ function LibraryBody({ state, actions }) {
       <div className="section">
         <div className="sect-hd">
           <span>AGGREGATE</span>
-          <span className="meta">ALL RUNS</span>
+          <span className="meta">{symbolView === "MES1!" ? "MES" : "MNQ"} · {agg.total_runs} RUNS</span>
         </div>
         <div className="agg-grid">
           <div className="lcell">
