@@ -81,16 +81,38 @@ deltas are robust because the gate reads fixed per-bar tape data).
 
 ## Corpus reality (as of 2026-06-19)
 
-The MNQ backtest runs are currently **tape-only** (no brief bundle) → fold-week
-SKIPs them; they must be **re-recorded** with the full format before fold-week
-can use them. The MES runs are full-format. The live corpus (`state/session`) is
-full-format MNQ but only ~1 week. Until MNQ is re-recorded, MNQ folds run through
-the fallback (approximate) — say so when you report MNQ numbers.
+MNQ + MES are BOTH full-format now (the MNQ briefs were re-captured via
+`scripts/recapture-mnq-briefs.mjs`), 58 am+pm runs each on an identical
+timeline (May 11 – Jun 18). Faithful fold-week baselines: **MNQ +117.05R**,
+**MES +67.87R**. The live corpus (`state/session`) is full-format MNQ.
+
+## Saving a test to the BACKTEST popover (TESTS section)
+
+After folding a change old-vs-new, persist the result so it lives in the app,
+not terminal scrollback. The popover has a faithful-baseline dashboard + a TESTS
+section; both update via:
+
+- `scripts/save-fold-baseline.mjs <SYM>` — write the faithful per-run totals into
+  `index.json` + summaries (legacy path). The **RE-FOLD BASELINE** button in the
+  popover does the same plus writes `state/backtest/baseline/<slug>.json` (the
+  dashboard's source) and snapshots the prior baseline into history.
+- `scripts/save-fold-test.mjs <SYM> "<label>" [dates...]` — fold the CURRENT
+  working code (the treatment) and diff it against the accepted baseline file,
+  writing `state/backtest/tests/<id>.json` (status `pending`). Set the change's
+  env gate before running so the diff is the change's effect. Accept/reject +
+  reason is set from the popover and is a **record, not a code-swap** — adopting
+  the change is still the normal edit → merge → RE-FOLD path. The baseline files
+  are read by the popover, so the dashboard + tests are per-symbol and faithful.
 
 ## Scripts (committed)
 
 - `scripts/fold-week.mjs` — **canonical**: self-healing regen + AM→PM carry,
   `--symbol` + `--bt` + literal dates.
+- `scripts/save-fold-baseline.mjs` / `app/main/backtest-baseline.js` `foldSymbol`
+  — fold a whole symbol corpus (all registered runs) the canonical way; feeds the
+  popover's faithful baseline.
+- `scripts/save-fold-test.mjs` — fold current code vs the accepted baseline,
+  write a TESTS artifact for the popover.
 - `scripts/fold-backtest-corpus.mjs` — fallback for tape-only runs (approximate).
 - `scripts/fold-live-corpus.mjs` — faithful live-session fold (opt-in only).
 - `tests/day-tape.test.js` + `tests/tapes/*.tape.json` — frozen-tape immutability

@@ -2,10 +2,12 @@
 // Topbar BACKTEST cell + anchored popover. Six bodies switch by state.ui.
 // Logic + IPC bridge live in hooks/useBacktest.js; this file is presentation.
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useBacktest } from "./hooks/useBacktest.js";
-import { useAnalytics } from "./hooks/useAnalytics.js";
+import { useBaseline } from "./hooks/useBaseline.js";
+import { useTests } from "./hooks/useTests.js";
 import Analytics from "./Analytics.jsx";
+import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
@@ -18,7 +20,7 @@ import {
 // engine-driven states only light up when the run is in them.
 const BT_SWITCHER = [
   ["IDLE", "NEW"], ["AUTO_RUNNING", "RUN"], ["PAUSE_AWAITING", "PAUSE"],
-  ["DONE", "DONE"], ["LIBRARY", "ANALYTICS"],
+  ["DONE", "DONE"], ["LIBRARY", "ANALYTICS"], ["TESTS", "TESTS"],
 ];
 
 export function BacktestCell() {
@@ -46,7 +48,7 @@ export function BacktestCell() {
       <BadgeForState state={state} />
       {open && (
         <div
-          className={"bt-popover " + (state.ui === "LIBRARY" ? "w-analytics" : "w-660 bt-fixed")}
+          className={"bt-popover " + (state.ui === "LIBRARY" || state.ui === "TESTS" ? "w-analytics" : "w-660 bt-fixed")}
           onClick={(e) => e.stopPropagation()}
         >
           <Header state={state} actions={actions} onClose={close} />
@@ -62,6 +64,7 @@ export function BacktestCell() {
             {state.ui === "PAUSE_AWAITING" && <PauseBody state={state} actions={actions} />}
             {state.ui === "DONE" && <DoneBody state={state} actions={actions} />}
             {state.ui === "LIBRARY" && <LibraryBody state={state} actions={actions} symbolView={symbolView} />}
+            {state.ui === "TESTS" && <TestsBody symbolView={symbolView} />}
             {state.ui === "DETAIL" && <DetailBody state={state} actions={actions} />}
           </div>
         </div>
@@ -98,14 +101,17 @@ function Header({ state, actions, onClose }) {
     PAUSE_AWAITING: { cls: "pause", x: "─",  dismissable: false },
     DONE:           { cls: "done",  x: "×",  dismissable: true },
     LIBRARY:        { cls: "",      x: "×",  dismissable: true },
+    TESTS:          { cls: "",      x: "×",  dismissable: true },
   }[state.ui] ?? { cls: "", x: "×", dismissable: true };
 
   // Navigate via the switcher: NEW resets to IDLE, ANALYTICS opens the
-  // library; engine-driven states (RUN/PAUSE/DONE) aren't manually entered.
+  // library, TESTS opens the fold-tests; engine-driven states (RUN/PAUSE/DONE)
+  // aren't manually entered.
   const goState = (s) => {
     if (s === state.ui) return;
     if (s === "IDLE") actions.runAnother();
     else if (s === "LIBRARY") actions.viewAll();
+    else if (s === "TESTS") actions.viewTests();
   };
 
   return (
@@ -117,7 +123,7 @@ function Header({ state, actions, onClose }) {
       <span className="live-tabs" style={{ marginLeft: 10 }} onClick={(e) => e.stopPropagation()}>
         {BT_SWITCHER.map(([s, l]) => (
           <span key={s}
-                className={"tab" + (state.ui === s ? " on" : "") + (s === "IDLE" || s === "LIBRARY" ? "" : " dim")}
+                className={"tab" + (state.ui === s ? " on" : "") + (s === "IDLE" || s === "LIBRARY" || s === "TESTS" ? "" : " dim")}
                 onClick={() => goState(s)}>{l}</span>
         ))}
       </span>
@@ -456,6 +462,164 @@ function DoneBody({ state, actions }) {
   );
 }
 
+// Signed R + folded-when formatters for the baseline panels.
+const fmtR = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(Number(n) || 0).toFixed(1) + "R";
+const fmtFoldTime = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+};
+
+// FAITHFUL BASELINE header — folded-when + sessions + sha + RE-FOLD button.
+function BaselineHeader({ baseline, loading, refolding, onRefold, symbolView }) {
+  const sym = symbolView === "MES1!" ? "MES" : "MNQ";
+  const meta = loading
+    ? "loading…"
+    : baseline
+      ? `${baseline.corpus?.n_sessions ?? 0} sessions · folded ${fmtFoldTime(baseline.built_at)}${baseline.code_sha ? " · " + baseline.code_sha : ""}`
+      : "not folded yet — hit RE-FOLD";
+  return (
+    <div className="section">
+      <div className="sect-hd">
+        <span>FAITHFUL BASELINE · {sym}</span>
+        <span className="meta">{meta}</span>
+      </div>
+      <div className="bl-actions">
+        <button className="btn secondary" disabled={refolding} onClick={onRefold}>
+          {refolding ? "RE-FOLDING…" : "RE-FOLD BASELINE"}
+        </button>
+        {baseline && (
+          <span className={"bl-total " + (baseline.total_r >= 0 ? "green" : "red")}>{fmtR(baseline.total_r)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// BASELINE HISTORY — prior accepted baselines, newest first, Δ vs current.
+function BaselineHistory({ history = [], current }) {
+  const [open, setOpen] = useState(false);
+  if (!history.length) return null;
+  const rows = history.slice().reverse();
+  return (
+    <div className="section">
+      <div className="sect-hd" style={{ cursor: "pointer" }} onClick={() => setOpen((o) => !o)}>
+        <span>BASELINE HISTORY</span>
+        <span className="meta">{history.length} prior · {open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <table className="lib-table">
+          <thead>
+            <tr><th>FOLDED</th><th>SESSIONS</th><th>TOTAL</th><th>Δ NOW</th><th>REASON</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((h, i) => {
+              const delta = current != null ? Math.round((current - h.total_r) * 100) / 100 : null;
+              return (
+                <tr key={i}>
+                  <td>{fmtFoldTime(h.built_at)}</td>
+                  <td>{h.corpus_n ?? "—"}</td>
+                  <td className={h.total_r >= 0 ? "green" : "red"}>{fmtR(h.total_r)}</td>
+                  <td className={delta == null ? "" : delta >= 0 ? "green" : "red"}>{delta == null ? "—" : fmtR(delta)}</td>
+                  <td className="meta">{h.reason ?? "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+const testStatusCls = (s) => (s === "accepted" ? "ok" : s === "rejected" ? "bad" : "pend");
+
+// ─────────────────────────────────────────────────────────────────────
+// TESTS body — fold-tests vs the accepted baseline, accept/reject + reason
+// ─────────────────────────────────────────────────────────────────────
+function TestsBody({ symbolView }) {
+  const { tests, loading, setVerdict, getTest, removeTest } = useTests(symbolView);
+  const sym = symbolView === "MES1!" ? "MES" : "MNQ";
+  const [expandedId, setExpandedId] = useState(null);
+  const [full, setFull] = useState(null);
+  const [reasonDraft, setReasonDraft] = useState({});
+
+  const toggle = async (id) => {
+    if (expandedId === id) { setExpandedId(null); setFull(null); return; }
+    setExpandedId(id); setFull(null);
+    setFull(await getTest(id));
+  };
+  const setReason = (id, v) => setReasonDraft((d) => ({ ...d, [id]: v }));
+
+  return (
+    <div className="section">
+      <div className="sect-hd">
+        <span>FOLD TESTS · {sym}</span>
+        <span className="meta">{loading ? "loading…" : `${tests.length} · vs accepted baseline`}</span>
+      </div>
+
+      {!loading && tests.length === 0 && (
+        <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 2px", lineHeight: 1.5 }}>
+          no tests yet — run <code>scripts/save-fold-test.mjs {symbolView} "label"</code> (set an env gate
+          first to test a change) to fold it against the accepted baseline.
+        </div>
+      )}
+
+      {tests.map((t) => (
+        <div className="test-item" key={t.id}>
+          <div className={"test-row" + (expandedId === t.id ? " open" : "")} onClick={() => toggle(t.id)}>
+            <span className="caret">{expandedId === t.id ? "▾" : "▸"}</span>
+            <span className="t-label" title={t.label}>{t.label}</span>
+            <span className={"t-delta " + (t.delta >= 0 ? "green" : "red")}>{fmtR(t.delta)}</span>
+            <span className="t-tot">{fmtR(t.treatment_total)} vs {fmtR(t.baseline_total)}</span>
+            {!t.corpus_match && <span className="t-status warn" title="folded set differs from the baseline — delta mixes code + corpus">CORPUS≠</span>}
+            <span className={"t-status " + testStatusCls(t.status)}>{String(t.status).toUpperCase()}</span>
+          </div>
+
+          {expandedId === t.id && (
+            <div className="test-expand" onClick={(e) => e.stopPropagation()}>
+              {t.reason && <div className="t-reason">“{t.reason}”</div>}
+
+              {t.status === "pending" && (
+                <div className="t-verdict">
+                  <input className="t-reason-input" placeholder="reason for accept / reject…"
+                    value={reasonDraft[t.id] ?? ""} onChange={(e) => setReason(t.id, e.target.value)} />
+                  <button className="t-btn ok" onClick={() => setVerdict(t.id, "accepted", reasonDraft[t.id] || null)}>ACCEPT</button>
+                  <button className="t-btn bad" onClick={() => setVerdict(t.id, "rejected", reasonDraft[t.id] || null)}>REJECT</button>
+                </div>
+              )}
+
+              <table className="lib-table">
+                <thead><tr><th>DATE</th><th>SESSION</th><th>BASE</th><th>TEST</th><th>Δ</th></tr></thead>
+                <tbody>
+                  {t.per_day.map((d, i) => (
+                    <tr key={i}>
+                      <td>{d.date}</td><td>{d.session}</td>
+                      <td>{d.baseline_r == null ? "—" : fmtR(d.baseline_r)}</td>
+                      <td>{d.treatment_r == null ? "—" : fmtR(d.treatment_r)}</td>
+                      <td className={d.delta >= 0 ? "green" : "red"}>{fmtR(d.delta)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {full
+                ? <Analytics A={buildAnalytics(full.treatment_run_details ?? [])} loading={false} />
+                : <div className="meta" style={{ padding: "6px 0" }}>loading detail…</div>}
+
+              <div className="t-foot">
+                <span className="meta">folded {fmtFoldTime(t.created_at)}{t.code_sha ? " · " + t.code_sha : ""}</span>
+                <button className="t-link" onClick={() => removeTest(t.id)}>delete</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // LIBRARY body — aggregate dashboard + filters + sortable table
 // ─────────────────────────────────────────────────────────────────────
@@ -472,7 +636,10 @@ function LibraryBody({ state, actions, symbolView }) {
     session: sessionFilter, mode: modeFilter, grade: gradeFilter, query,
   });
   const agg = aggregateRuns(symRuns);
-  const { A, loading } = useAnalytics(symRuns, true);
+  // Dashboard reads the FAITHFUL fold-week baseline (regen + AM->PM carry), not
+  // a live re-fold of raw setups.jsonl. Same Analytics component, honest data.
+  const { baseline, history, loading, refolding, refold } = useBaseline(symbolView);
+  const A = useMemo(() => buildAnalytics(baseline?.run_details ?? []), [baseline]);
   const agreementPct = (() => {
     const a = agg.agreement;
     const total = (a?.agreed ?? 0) + (a?.disagreed ?? 0);
@@ -481,7 +648,12 @@ function LibraryBody({ state, actions, symbolView }) {
 
   return (
     <>
-      <Analytics A={A} loading={loading} />
+      <BaselineHeader baseline={baseline} loading={loading} refolding={refolding}
+        onRefold={() => refold()} symbolView={symbolView} />
+
+      <Analytics A={A} loading={loading || refolding} />
+
+      <BaselineHistory history={history} current={baseline?.total_r ?? null} />
 
       <div className="section">
         <div className="sect-hd">

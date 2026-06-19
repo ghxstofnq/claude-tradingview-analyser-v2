@@ -100,6 +100,9 @@ export function reducer(s, action) {
     case "VIEW_ALL":
       return { ...s, ui: nextState(s.ui, action) };
 
+    case "VIEW_TESTS":
+      return { ...s, ui: nextState(s.ui, action) };
+
     case "ROW_CLICK":
       return { ...s, ui: nextState(s.ui, action), selectedRunId: action.runId };
 
@@ -203,6 +206,7 @@ export function useBacktest() {
         dispatch({ type: "DECISION", choice: "reject" });
       }, []),
       viewAll: useCallback(() => dispatch({ type: "VIEW_ALL" }), []),
+      viewTests: useCallback(() => dispatch({ type: "VIEW_TESTS" }), []),
       rowClick: useCallback((runId) => dispatch({ type: "ROW_CLICK", runId }), []),
       openDetail: useCallback((runId) => dispatch({ type: "OPEN_DETAIL", runId }), []),
       back: useCallback(() => dispatch({ type: "BACK" }), []),

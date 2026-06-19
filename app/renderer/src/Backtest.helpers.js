@@ -71,6 +71,9 @@ export function expandStudy({ symbol, start, end, sessions, mode, now = Date.now
 }
 
 export function nextState(state, event) {
+  // TESTS is reachable from any navigable state (the switcher offers it
+  // alongside NEW / ANALYTICS); engine-driven states dim the switcher anyway.
+  if (event.type === "VIEW_TESTS") return "TESTS";
   switch (state) {
     case "IDLE":
       if (event.type === "START") return "AUTO_RUNNING";
@@ -104,6 +107,12 @@ export function nextState(state, event) {
       if (event.type === "BACK") return "LIBRARY";
       if (event.type === "DISMISS") return "IDLE";
       if (event.type === "RUN_ANOTHER") return "IDLE";
+      return state;
+    case "TESTS":
+      if (event.type === "VIEW_ALL") return "LIBRARY";
+      if (event.type === "DISMISS") return "IDLE";
+      if (event.type === "RUN_ANOTHER") return "IDLE";
+      if (event.type === "START") return "AUTO_RUNNING";
       return state;
     default:
       return state;

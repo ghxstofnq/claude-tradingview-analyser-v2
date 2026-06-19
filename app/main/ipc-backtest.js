@@ -20,6 +20,10 @@ import path from "node:path";
 import { runBacktest } from "./backtest-engine.js";
 import { readIndex, reconcileAbortedRuns, resolveRunDir } from "./backtest-store.js";
 import { PROD_DEPS, STATE_DIR } from "./backtest-deps.js";
+import {
+  readBaseline, readHistory, refoldBaseline,
+  listTests, readTest, writeTestVerdict, deleteTest,
+} from "./backtest-baseline.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Singleton run state — enforces exclusive mode.
@@ -108,6 +112,37 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
   ipcMain.handle("backtest:status", async () => ({
     running: isBacktestRunning(),
   }));
+
+  // ── Faithful baseline (fold-week regen + AM->PM carry) ────────────────
+  // get is cheap (reads the cached file); refold re-folds the corpus (pure
+  // compute, no TV) and can take ~1-2 min for a full symbol corpus.
+  ipcMain.handle("backtest:baseline:get", async (_evt, { symbol }) => ({
+    baseline: readBaseline({ stateDir: STATE_DIR, symbol }),
+  }));
+
+  ipcMain.handle("backtest:baseline:history", async (_evt, { symbol }) => ({
+    history: readHistory({ stateDir: STATE_DIR, symbol }),
+  }));
+
+  ipcMain.handle("backtest:baseline:refold", async (_evt, { symbol, reason }) => {
+    const baseline = await refoldBaseline({ stateDir: STATE_DIR, symbol, reason });
+    return { baseline };
+  });
+
+  // ── Fold-tests (accept/reject records; created out-of-band by the script) ──
+  ipcMain.handle("backtest:tests:list", async (_evt, { symbol }) => ({
+    tests: listTests({ stateDir: STATE_DIR, symbol }),
+  }));
+
+  ipcMain.handle("backtest:tests:get", async (_evt, { id }) => ({
+    test: readTest({ stateDir: STATE_DIR, id }),
+  }));
+
+  ipcMain.handle("backtest:tests:verdict", async (_evt, { id, status, reason }) => ({
+    test: writeTestVerdict({ stateDir: STATE_DIR, id, status, reason }),
+  }));
+
+  ipcMain.handle("backtest:tests:delete", async (_evt, { id }) => deleteTest({ stateDir: STATE_DIR, id }));
 }
 
 function readJsonl(filePath) {

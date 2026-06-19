@@ -298,5 +298,30 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("backtest:event", listener);
       return () => ipcRenderer.removeListener("backtest:event", listener);
     },
+    baseline: {
+      get(symbol) {
+        return ipcRenderer.invoke("backtest:baseline:get", { symbol });
+      },
+      refold(symbol, reason) {
+        return ipcRenderer.invoke("backtest:baseline:refold", { symbol, reason });
+      },
+      history(symbol) {
+        return ipcRenderer.invoke("backtest:baseline:history", { symbol });
+      },
+    },
+    tests: {
+      list(symbol) {
+        return ipcRenderer.invoke("backtest:tests:list", { symbol });
+      },
+      get(id) {
+        return ipcRenderer.invoke("backtest:tests:get", { id });
+      },
+      verdict(id, status, reason) {
+        return ipcRenderer.invoke("backtest:tests:verdict", { id, status, reason });
+      },
+      delete(id) {
+        return ipcRenderer.invoke("backtest:tests:delete", { id });
+      },
+    },
   },
 });
