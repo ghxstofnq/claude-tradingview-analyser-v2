@@ -104,14 +104,6 @@ export async function runTrancheManager(ctx = {}, deps) {
     takenLog,
   });
 
-  // Scale-in adds on Tradovate are unproven: stacking native brackets on a
-  // netting account is NOT the verified standalone-order workaround the TV-paper
-  // path uses. Until a live cycle confirms it, the anchor fires but adds are held
-  // (recorded as a skip) — fail-safe on real money.
-  if (decision.action === "open_add" && d.activeBroker?.() === "tradovate") {
-    await d.recordSkip("blocked:tradovate_add_unverified");
-    return { action: "blocked:tradovate_add_unverified" };
-  }
   if (decision.action === "open_anchor" || decision.action === "open_add") {
     const role = decision.action === "open_anchor" ? "anchor" : "add";
     const gate = d.checkOrder({
@@ -173,7 +165,6 @@ async function buildRealDeps() {
     readExecConfig,
     accountRoutable: () => gate.resolveAccountGate({ active: active.getActiveAccount(), confirmed: readExecConfig().confirmedAccount }),
     autoAllowed: () => gate.autoFireAllowed({ confirmed: readExecConfig().confirmedAccount, autoResumed: autoResume.getAutoResumed() }),
-    activeBroker: () => active.getActiveAccount()?.broker ?? null,
     readJournal: async () => { const events = await readEvents(); return { events, open: outcomes.foldOpenTrades(events) }; },
     hasGreenLight: (events, id) => events.some((e) => e.type === "green_light" && e.setup_id === id),
     markGreenLight: async (id) => appendTrade({ type: "green_light", setup_id: id, ts: new Date().toISOString() }),
