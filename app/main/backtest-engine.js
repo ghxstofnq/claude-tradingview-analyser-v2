@@ -36,6 +36,7 @@ import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.
 import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/open-reaction-resolver.js";
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
+import { canonicalSymbol } from "../../cli/lib/run-symbol.js";
 
 const SESSION_WINDOWS = {
   "ny-am": { from: "09:30", to: "12:00" },
@@ -214,6 +215,11 @@ export async function runBacktest({
   const runId = generateRunId({ session, date });
   const sessionDir = resolveRunDir({ stateDir, runId });
   fs.mkdirSync(sessionDir, { recursive: true });
+  // The instrument this run traded — tags the summary + index so analytics can
+  // be read per symbol (MNQ vs MES). Truthful source: the symbol the popover
+  // sent for this job (BOTH expands to separate per-symbol jobs). null when
+  // unknown — never guessed.
+  const runSymbol = canonicalSymbol(symbol);
 
   const startedAt = Date.now();
   let stopped = false;
@@ -354,7 +360,7 @@ export async function runBacktest({
       // capture problem, not a market verdict.
       chainStatus = "no_context:data_gap";
       const summary = buildSummary({
-        runId, date, session, mode, startedAt,
+        runId, date, session, mode, symbol: runSymbol, startedAt,
         surfaced: [], closedTrades: [], openTrades: [], chainStatus, contextSource,
       });
       persistSummary({ sessionDir, stateDir, summary });
@@ -672,7 +678,7 @@ export async function runBacktest({
     // renderer event stream; nothing on disk, nothing in the log).
     try {
       const summary = buildSummary({
-        runId, date, session, mode, startedAt,
+        runId, date, session, mode, symbol: runSymbol, startedAt,
         surfaced, closedTrades, openTrades, chainStatus, contextSource,
         warnings: warnings.length, bars: entries.length, errorMessage,
         openReaction,
@@ -704,7 +710,7 @@ export async function runBacktest({
     } catch { /* tape enrichment is best-effort */ }
   }
   const summary = buildSummary({
-    runId, date, session, mode, startedAt,
+    runId, date, session, mode, symbol: runSymbol, startedAt,
     surfaced, closedTrades, openTrades, chainStatus, contextSource,
     warnings: warnings.length, bars: entries.length, errorMessage,
     openReaction, sessionHalted,
@@ -771,7 +777,7 @@ async function runCleanup(deps, runId) {
   }
 }
 
-function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], closedTrades, openTrades, chainStatus, contextSource, warnings = 0, bars = 0, errorMessage = null, openReaction = null, sessionHalted = false }) {
+function buildSummary({ runId, date, session, mode, symbol = null, startedAt, surfaced = [], closedTrades, openTrades, chainStatus, contextSource, warnings = 0, bars = 0, errorMessage = null, openReaction = null, sessionHalted = false }) {
   // `setups` counts what the chain SURFACED — a rejected setup still
   // happened; only acceptance routes it into the outcome walk.
   const totalSetups = surfaced.length;
@@ -811,7 +817,7 @@ function buildSummary({ runId, date, session, mode, startedAt, surfaced = [], cl
   }, {});
   return {
     run_id: runId,
-    date, session, mode,
+    date, session, mode, symbol,
     created_at: new Date(startedAt).toISOString(),
     elapsed_ms: Date.now() - startedAt,
     cost_usd: 0,

@@ -4082,3 +4082,10 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .pill.big:disabled { opacity: 0.4; cursor: not-allowed; }
 .orders-toast { font-size: 11px; text-align: center; padding: 6px; background: var(--surface-1);
   border: 1px solid var(--border-d); border-radius: 4px; color: var(--value); }
+
+/* BACKTEST instrument view toggle (MNQ | MES) — scopes recents + analytics. */
+.bt-popover .bt-sym-bar { display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.bt-popover .bt-sym-bar .bt-sym-label { color: var(--label); font-size: 9px;
+  letter-spacing: 0.18em; white-space: nowrap; }
+.bt-popover .bt-sym-bar .seg { flex: 1; }
