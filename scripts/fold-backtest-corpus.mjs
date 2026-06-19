@@ -21,6 +21,8 @@ import { runBacktest } from "../app/main/backtest-engine.js";
 import { contextFromBriefPayloads } from "../app/main/backtest-context.js";
 import { gradeOpenTrade } from "../app/main/backtest-grader.js";
 import { __test as barCloseTruth } from "../app/main/bar-close.js";
+import { buildDirectSessionBriefPayloads } from "../app/main/direct-session-brief.js";
+import { buildBriefDigest } from "../cli/lib/brief-digest.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -43,12 +45,56 @@ function runSymbol(tape, payloads) {
     ?? "?";
 }
 
-async function foldRun(tape, payloads, date, session) {
+// Older runs (pre-brief-payloads.json format) carry no payloads/bundle file,
+// but the tape EMBEDS the session-anchor bundle (brief_digest + gates.engine)
+// in entries[0].inputs.bundle. Rebuild the brief payloads from it so the 5-week
+// MNQ corpus folds. Precedence: on-disk payloads → brief-bundle.json → tape bundle.
+function loadPayloads(runDir, tape, session, symbol) {
+  try { return JSON.parse(fs.readFileSync(path.join(runDir, "brief-payloads.json"), "utf8")); } catch { /* rebuild */ }
+  let bundle = null;
+  try { bundle = JSON.parse(fs.readFileSync(path.join(runDir, "brief-bundle.json"), "utf8")); } catch { /* next */ }
+  if (!bundle) bundle = tape?.entries?.[0]?.inputs?.bundle ?? null;
+  if (!bundle) return null;
+  if (!bundle.brief_digest) {
+    try { bundle.brief_digest = buildBriefDigest({ pair: { symbols: bundle?.pair?.symbols ?? { [symbol]: bundle } } }); } catch { return null; }
+  }
+  try { return buildDirectSessionBriefPayloads({ session, bundle, symbols: [symbol] }); } catch { return null; }
+}
+
+// Pre-brief-payloads runs (the 5-week MNQ corpus) have no payloads/bundle file
+// and an empty embedded digest — but every tape entry carries the resolved
+// per-bar context (session_state.pillar1.primaryDraw + untaken_targets), which
+// is what the truth fn actually folds on. Build the day context straight from
+// the first entry that carries a draw; bias starts null and the engine resolves
+// the open reaction per bar exactly as a direct-brief run does.
+function contextFromTape(tape, session) {
+  const e = tape?.entries?.find((x) => x?.inputs?.session_state?.pillar1?.primaryDraw) ?? tape?.entries?.[0];
+  const ins = e?.inputs ?? {};
+  return {
+    session,
+    leader: ins.leader ?? null,
+    ltf_bias_context: { bias: null, htf_ltf_alignment: "unclear", is_retrace_day: false, entry_model_priority: "undecided", grade_cap: "B" },
+    session_state: ins.session_state ?? { pillar1: {}, pillar2: {} },
+    untaken_targets: ins.untaken_targets ?? { untaken_above: [], untaken_below: [] },
+    brief_digest: { htf_destination: {}, primary_draw: {} },
+  };
+}
+
+function buildRunContext(runDir, tape, session, symbol) {
+  const payloads = loadPayloads(runDir, tape, session, symbol);
+  if (payloads) {
+    const c = contextFromBriefPayloads({ session, payloads });
+    if (c) return c;
+  }
+  return contextFromTape(tape, session);
+}
+
+async function foldRun(tape, context, date, session) {
   const bus = new EventEmitter();
   const deps = {
     recordEntries: async () => ({ entries: tape.entries, warnings: [] }),
     loadDayContext: async () => null,
-    runDirectBrief: async () => contextFromBriefPayloads({ session, payloads }),
+    runDirectBrief: async () => context,
     truthFn: barCloseTruth.buildDeterministicPacketTruthFromInputs,
     gradeFn: gradeOpenTrade,
   };
@@ -73,18 +119,18 @@ const bySymbol = {};
 for (const d of dirs) {
   for (const session of ["ny-am", "ny-pm", "london"]) {
     const runDir = path.join(BT, d, session);
-    if (!fs.existsSync(path.join(runDir, "tape.json")) || !fs.existsSync(path.join(runDir, "brief-payloads.json"))) continue;
-    let tape, payloads;
-    try {
-      tape = JSON.parse(fs.readFileSync(path.join(runDir, "tape.json"), "utf8"));
-      payloads = JSON.parse(fs.readFileSync(path.join(runDir, "brief-payloads.json"), "utf8"));
-    } catch { continue; }
-    const symbol = runSymbol(tape, payloads);
+    if (!fs.existsSync(path.join(runDir, "tape.json"))) continue;
+    let tape;
+    try { tape = JSON.parse(fs.readFileSync(path.join(runDir, "tape.json"), "utf8")); } catch { continue; }
+    if (!tape?.entries?.length) continue;
+    const symbol = runSymbol(tape, null);
     const date = (d.match(/-(\d{4}-\d{2}-\d{2})$/) || [])[1] || d;
     if (SYMBOL && symbol !== SYMBOL) continue;
     if (DATES && !DATES.has(date)) continue;
+    const context = buildRunContext(runDir, tape, session, symbol);
+    if (!context) { console.log(`SKIP ${d} ${session} ${symbol} no-context`); continue; }
     try {
-      const r = await foldRun(tape, payloads, date, session);
+      const r = await foldRun(tape, context, date, session);
       total += r; n += 1;
       bySymbol[symbol] = Math.round(((bySymbol[symbol] || 0) + r) * 100) / 100;
       console.log(`RUN ${d} ${session} ${symbol} ${r}`);

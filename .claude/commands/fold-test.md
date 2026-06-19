@@ -48,10 +48,18 @@ old-vs-new. Never by eyeballing a static R-split on captured trades.
 
 ## Corpus reality (as of 2026-06-19)
 
-`state/backtest` holds ~5 MNQ runs (recent June only, net ≈ **−1.93R**) and
-~57 MES runs (May–June, net ≈ **+9.66R**). **The MNQ backtest sample is thin** —
-say so when you report MNQ numbers, and offer the live corpus (`state/session`,
-all MNQ) as a second read if the user wants more MNQ evidence.
+`state/backtest` holds **~59 foldable MNQ runs** (5 weeks, May 11–June; net ≈
+**+79R** on a current-code re-fold) and ~57 MES runs (May–June, net ≈ +9.66R).
+Most MNQ runs predate the `brief-payloads.json` format, so the fold rebuilds
+their context from each tape's embedded bundle / recorded per-bar inputs.
+
+**Faithfulness caveat:** these MNQ runs are backtest *replays*, not live
+walker-inputs, and the rebuilt-from-tape context is approximate — so the
+absolute R is a re-fold, NOT the stored summaries (a run that summarised
++25R may re-fold to +8R as code evolves). Use it for **breadth and for
+gate DELTAS** (same corpus, toggle on/off — robust, since gates read fixed
+per-bar tape data). For live-faithful absolutes, fold `state/session`
+(`fold-live-corpus.mjs`) — but that is currently ~1 week of MNQ.
 
 ## Scripts (committed)
 
