@@ -311,3 +311,87 @@ export async function refoldBaseline({ stateDir, symbol, reason = null, fold = f
   }
   return next;
 }
+
+// ── Fold-tests — state/backtest/tests/<id>.json ──────────────────────────
+// A test is one fold of the CURRENT working code (the treatment) compared to
+// the accepted baseline file. Run save-fold-test.mjs (optionally with an env
+// gate set) to produce one; accept/reject + reason is set from the popover and
+// is a RECORD, not a code-swap. The in-app version of the rejection log.
+
+function testsDir(stateDir) { return path.join(stateDir, "backtest", "tests"); }
+export function testPath(stateDir, id) { return path.join(testsDir(stateDir), `${id}.json`); }
+
+export function writeTest({ stateDir, test }) {
+  const dir = testsDir(stateDir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(testPath(stateDir, test.id), JSON.stringify(test, null, 2));
+  return test;
+}
+
+export function readTest({ stateDir, id }) {
+  const p = testPath(stateDir, id);
+  if (!fs.existsSync(p)) return null;
+  try { return readJson(p); } catch { return null; }
+}
+
+// List tests for a symbol, newest first, WITHOUT the heavy treatment_run_details
+// (the list only needs label/totals/delta/status/reason; the expand reads full).
+export function listTests({ stateDir, symbol }) {
+  const dir = testsDir(stateDir);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => { try { return readJson(path.join(dir, f)); } catch { return null; } })
+    .filter(Boolean)
+    .filter((t) => !symbol || t.symbol === symbol)
+    .map(({ treatment_run_details, ...meta }) => meta)
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
+
+export function writeTestVerdict({ stateDir, id, status, reason = null }) {
+  const test = readTest({ stateDir, id });
+  if (!test) return null;
+  test.status = status;            // "accepted" | "rejected" | "pending"
+  test.reason = reason;
+  test.decided_at = new Date().toISOString();
+  return writeTest({ stateDir, test });
+}
+
+export function deleteTest({ stateDir, id }) {
+  const p = testPath(stateDir, id);
+  if (fs.existsSync(p)) fs.rmSync(p);
+  return { deleted: true };
+}
+
+// Fold current code (treatment) over the symbol's corpus and diff against the
+// accepted baseline file. corpus_match=false when the folded date/session set
+// differs from the baseline's (delta then mixes code + corpus — UI warns).
+export async function buildTestArtifact({ stateDir, symbol, label, dates, reason = null, fold = foldSymbol }) {
+  const treatment = await fold({ symbol, stateDir, dates });
+  const baseline = readBaseline({ stateDir, symbol });
+  const tKeys = new Set(treatment.per_day.map((d) => `${d.date}|${d.session}`));
+  const basePerDay = baseline?.per_day ?? [];
+  const baseKeys = new Set(basePerDay.map((d) => `${d.date}|${d.session}`));
+  const basePerDayMatched = basePerDay.filter((d) => tKeys.has(`${d.date}|${d.session}`));
+  const baseline_total = round2(basePerDayMatched.reduce((s, d) => s + (Number(d.r) || 0), 0));
+  const treatment_total = treatment.total_r;
+  const corpus_match = tKeys.size === baseKeys.size && [...tKeys].every((k) => baseKeys.has(k));
+
+  const test = {
+    id: `${Date.now()}-${symbolSlug(symbol)}`,
+    label: label || "(unlabeled test)",
+    symbol,
+    created_at: new Date().toISOString(),
+    code_sha: treatment.code_sha,
+    dates: treatment.corpus.dates,
+    baseline_total,
+    treatment_total,
+    delta: round2(treatment_total - baseline_total),
+    corpus_match,
+    per_day: diffPerDay(basePerDayMatched, treatment.per_day),
+    treatment_run_details: treatment.run_details,
+    status: "pending",
+    reason,
+  };
+  return writeTest({ stateDir, test });
+}

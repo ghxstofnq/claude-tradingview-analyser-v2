@@ -11,6 +11,7 @@ import path from "node:path";
 import {
   symbolSlug, buildSetupRows, shouldSnapshot, diffPerDay, round2,
   refoldBaseline, readBaseline, readHistory, applyRunResultsToIndex,
+  writeBaseline, buildTestArtifact, writeTestVerdict, readTest, listTests, deleteTest,
 } from "../app/main/backtest-baseline.js";
 import { buildAnalytics } from "../cli/lib/backtest-analytics.js";
 
@@ -129,6 +130,53 @@ test("applyRunResultsToIndex writes faithful per-run totals back, leaves others"
   const rX = ix.runs.find((r) => r.run_id === "rX");
   assert.equal(rX.total_r, 9); // untouched
   assert.equal(rX.refold_baseline, undefined);
+
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+test("buildTestArtifact diffs treatment vs accepted baseline; verdict + list round-trip", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tests-test-"));
+  const symbol = "MNQ1!";
+
+  // accepted baseline: AM +5, PM 0 over 2026-05-11
+  writeBaseline({ stateDir, symbol, baseline: {
+    symbol, total_r: 5, code_sha: "oldsha", reason: null,
+    corpus: { n_sessions: 2, dates: ["2026-05-11"] },
+    per_day: [{ date: "2026-05-11", session: "ny-am", r: 5 }, { date: "2026-05-11", session: "ny-pm", r: 0 }],
+    run_details: [],
+  } });
+
+  // treatment (stub fold): AM +8, PM 0 — same corpus, code improved +3
+  const stubFold = async () => ({
+    symbol, code_sha: "newsha", total_r: 8,
+    corpus: { n_sessions: 2, dates: ["2026-05-11"] },
+    per_day: [{ date: "2026-05-11", session: "ny-am", r: 8 }, { date: "2026-05-11", session: "ny-pm", r: 0 }],
+    run_details: [{ entry: { date: "2026-05-11", session: "ny-am" }, setups: [] }],
+  });
+
+  const t = await buildTestArtifact({ stateDir, symbol, label: "my gate", fold: stubFold });
+  assert.equal(t.baseline_total, 5);
+  assert.equal(t.treatment_total, 8);
+  assert.equal(t.delta, 3);
+  assert.equal(t.corpus_match, true);
+  assert.equal(t.status, "pending");
+  const am = t.per_day.find((d) => d.session === "ny-am");
+  assert.equal(am.delta, 3);
+
+  // list strips the heavy run_details
+  const list = listTests({ stateDir, symbol });
+  assert.equal(list.length, 1);
+  assert.equal(list[0].treatment_run_details, undefined);
+  assert.equal(list[0].delta, 3);
+
+  // accept with a reason persists
+  writeTestVerdict({ stateDir, id: t.id, status: "accepted", reason: "real +3R, no regressions" });
+  const got = readTest({ stateDir, id: t.id });
+  assert.equal(got.status, "accepted");
+  assert.equal(got.reason, "real +3R, no regressions");
+
+  deleteTest({ stateDir, id: t.id });
+  assert.equal(readTest({ stateDir, id: t.id }), null);
 
   fs.rmSync(stateDir, { recursive: true, force: true });
 });

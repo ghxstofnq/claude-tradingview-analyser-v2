@@ -309,5 +309,19 @@ contextBridge.exposeInMainWorld("api", {
         return ipcRenderer.invoke("backtest:baseline:history", { symbol });
       },
     },
+    tests: {
+      list(symbol) {
+        return ipcRenderer.invoke("backtest:tests:list", { symbol });
+      },
+      get(id) {
+        return ipcRenderer.invoke("backtest:tests:get", { id });
+      },
+      verdict(id, status, reason) {
+        return ipcRenderer.invoke("backtest:tests:verdict", { id, status, reason });
+      },
+      delete(id) {
+        return ipcRenderer.invoke("backtest:tests:delete", { id });
+      },
+    },
   },
 });
