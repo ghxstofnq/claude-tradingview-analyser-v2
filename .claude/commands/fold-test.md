@@ -36,8 +36,11 @@ old-vs-new. Never by eyeballing a static R-split on captured trades.
 3. **Implement the change behind an ENV TOGGLE** (e.g. `process.env.TV_X==='1'`)
    so baseline behavior is byte-for-byte unchanged when the toggle is off.
 4. **Treatment fold** with the toggle on; diff per-run and total vs baseline.
-5. **Immutability floor:** `node scripts/refold-gate.mjs` — the frozen tape
-   gate must not regress.
+5. **Immutability floor:** the committed frozen tapes must stay green:
+   ```
+   GOFNQ_STATE_DIR=$(mktemp -d) node --test tests/day-tape.test.js
+   ```
+   Use a temp state dir so the run can't clobber live `state/`.
 6. **Verdict:** ships only if net-positive on the symbol's corpus AND no gate
    regression. Report the per-run winners and losers, not just the total — a
    total that improves by zeroing a few big winners is a red flag.
@@ -54,4 +57,6 @@ all MNQ) as a second read if the user wants more MNQ evidence.
 
 - `scripts/fold-backtest-corpus.mjs` — symbol-aware backtest fold (the workhorse).
 - `scripts/fold-live-corpus.mjs` — faithful live-session fold (opt-in only).
-- `scripts/refold-gate.mjs` — frozen-tape immutability floor.
+- `tests/day-tape.test.js` + `tests/tapes/*.tape.json` — frozen-tape immutability
+  floor (run via `node --test`). Avoid `refold-gate.mjs` / `refold-week-*.mjs`
+  as the floor: they pin specific backtest-run ids and break after a data cleanup.
