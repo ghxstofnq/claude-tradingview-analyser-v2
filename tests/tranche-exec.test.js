@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { brokerActionsForTranche, brokerActionsForTransition, planTrancheExit, applyTrancheExit } from "../app/main/execution/tranche-exec.js";
+import { brokerActionsForTranche, brokerActionsForTransition, planTrancheExit, planTradovateExit, applyTrancheExit } from "../app/main/execution/tranche-exec.js";
 
 describe("brokerActionsForTranche (open)", () => {
   it("entry market + standalone stop + standalone tp (B → tp1)", () => {
@@ -121,5 +121,77 @@ describe("applyTrancheExit (DI execution)", () => {
     const r = await applyTrancheExit({ id: "T-9", status: "STOPPED" }, d);
     assert.equal(r.skipped, true);
     assert.equal(d.calls.cancel.length, 0);
+  });
+});
+
+describe("planTradovateExit (native OCO bracket — broker self-manages siblings)", () => {
+  const tvA = [
+    { type: "accept", id: "TV-1", side: "long", grade: "A+", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "tranche_orders", setup_id: "TV-1", broker: "tradovate", orderId: "ord-1" },
+  ];
+  const tvB = [
+    { type: "accept", id: "TV-2", side: "long", grade: "B", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "tranche_orders", setup_id: "TV-2", broker: "tradovate", orderId: "ord-2" },
+  ];
+  it("A+ runner TP1_HIT → move the native stop to break-even (entry)", () => {
+    assert.deepEqual(planTradovateExit({ id: "TV-1", status: "TP1_HIT" }, tvA).actions, [{ kind: "modify_stop_be", price: 100 }]);
+  });
+  it("B TP1_HIT → no action (native OCO exits at its TP1 limit)", () => {
+    assert.deepEqual(planTradovateExit({ id: "TV-2", status: "TP1_HIT" }, tvB).actions, []);
+  });
+  it("STOPPED → no action (native OCO cancels the sibling)", () => {
+    assert.deepEqual(planTradovateExit({ id: "TV-1", status: "STOPPED" }, tvA).actions, []);
+  });
+  it("TP2_HIT → no action", () => {
+    assert.deepEqual(planTradovateExit({ id: "TV-1", status: "TP2_HIT" }, tvA).actions, []);
+  });
+  it("CLOSED_EOD → flatten the position + cancel all working orders", () => {
+    assert.deepEqual(planTradovateExit({ id: "TV-1", status: "CLOSED_EOD" }, tvA).actions, [{ kind: "flatten" }, { kind: "cancel_all" }]);
+  });
+  it("a TV-paper tranche (no tradovate marker) → null", () => {
+    const paper = [
+      { type: "accept", id: "P-1", side: "long", grade: "A+", entry: 100, tp1: 110, tp2: 120, symbol: "MNQ1!" },
+      { type: "tranche_orders", setup_id: "P-1", stopOrderId: 11, limitOrderId: 22 },
+    ];
+    assert.equal(planTradovateExit({ id: "P-1", status: "TP1_HIT" }, paper), null);
+  });
+});
+
+describe("applyTrancheExit (Tradovate DI execution)", () => {
+  function makeTvDeps(events) {
+    const calls = { modifyBE: [], close: [], cancelAll: 0, paperCancel: 0 };
+    return {
+      calls,
+      readEvents: async () => events,
+      modifyTradovateStop: async (a) => { calls.modifyBE.push(a); },
+      closeTradovatePosition: async (a) => { calls.close.push(a); },
+      cancelTradovateOrders: async () => { calls.cancelAll += 1; },
+      // paper deps present but must NOT be touched on a tradovate tranche
+      cancelOrder: async () => { calls.paperCancel += 1; },
+    };
+  }
+  const tvA = [
+    { type: "accept", id: "TV-1", side: "long", grade: "A+", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "tranche_orders", setup_id: "TV-1", broker: "tradovate", orderId: "ord-1" },
+  ];
+  it("A+ TP1_HIT → moves the Tradovate stop to BE, no paper calls", async () => {
+    const d = makeTvDeps(tvA);
+    const r = await applyTrancheExit({ id: "TV-1", status: "TP1_HIT" }, d);
+    assert.equal(r.broker, "tradovate");
+    assert.deepEqual(d.calls.modifyBE, [{ stopPrice: 100 }]);
+    assert.equal(d.calls.paperCancel, 0);
+  });
+  it("CLOSED_EOD → flattens + cancels all on Tradovate", async () => {
+    const d = makeTvDeps(tvA);
+    await applyTrancheExit({ id: "TV-1", status: "CLOSED_EOD" }, d);
+    assert.equal(d.calls.close.length, 1);
+    assert.equal(d.calls.cancelAll, 1);
+  });
+  it("STOPPED → skipped (native OCO handled it), no calls", async () => {
+    const d = makeTvDeps(tvA);
+    const r = await applyTrancheExit({ id: "TV-1", status: "STOPPED" }, d);
+    assert.equal(r.skipped, true);
+    assert.equal(d.calls.modifyBE.length, 0);
+    assert.equal(d.calls.close.length, 0);
   });
 });

@@ -77,6 +77,28 @@ export function planTrancheExit(transition, events) {
   return { actions, accept, orders };
 }
 
+// Tradovate exit plan. Unlike the TV-paper standalone legs, a Tradovate tranche
+// carries a NATIVE OCO bracket (SL+TP in the entry POST), so the broker itself
+// cancels the sibling when one leg fills — there is no orphan to cancel. The
+// only engine-driven actions left are the A+ runner's break-even stop move (at
+// TP1) and the 16:00 flatten. Pure — returns the action list, or null when the
+// tranche isn't a Tradovate standalone. modify_stop_be reprices the existing
+// stop in place (modifyTradovateStop self-resolves the stop order id).
+export function planTradovateExit(transition, events) {
+  const accept = events.find((e) => e.type === "accept" && e.id === transition.id);
+  if (!accept) return null;
+  const orders = [...events].reverse().find((e) => e.type === "tranche_orders" && e.setup_id === transition.id && e.broker === "tradovate");
+  if (!orders) return null; // not a Tradovate tranche
+  const actions = [];
+  if (transition.status === "TP1_HIT" && runnerEligible(accept)) {
+    actions.push({ kind: "modify_stop_be", price: accept.entry });
+  } else if (transition.status === "CLOSED_EOD") {
+    actions.push({ kind: "flatten" }, { kind: "cancel_all" });
+  }
+  // STOPPED / TP2_HIT / non-runner TP1_HIT → the native OCO bracket self-manages.
+  return { actions, accept, orders };
+}
+
 // Runtime: apply a grader transition's broker actions for an auto-mode tranche.
 // IO injected so the planning is unit-tested without the app. modify_stop is a
 // cancel+replace (modify-by-id is unverified); the replacement stop's new id is
@@ -84,6 +106,18 @@ export function planTrancheExit(transition, events) {
 export async function applyTrancheExit(transition, deps) {
   const d = deps || (await buildExitDeps());
   const events = await d.readEvents();
+  // Tradovate tranche → native-bracket path (broker self-manages the OCO; we
+  // only move the runner stop to BE and flatten at EOD via the Tradovate adapter).
+  if (events.some((e) => e.type === "tranche_orders" && e.setup_id === transition.id && e.broker === "tradovate")) {
+    const plan = planTradovateExit(transition, events);
+    if (!plan || plan.actions.length === 0) return { skipped: true };
+    for (const a of plan.actions) {
+      if (a.kind === "modify_stop_be") await d.modifyTradovateStop({ stopPrice: a.price });
+      else if (a.kind === "flatten") await d.closeTradovatePosition({});
+      else if (a.kind === "cancel_all") await d.cancelTradovateOrders();
+    }
+    return { applied: plan.actions, broker: "tradovate" };
+  }
   const plan = planTrancheExit(transition, events);
   if (!plan) return { skipped: true };
   const exitSide = plan.accept.side === "long" ? "sell" : "buy";
@@ -105,6 +139,7 @@ async function buildExitDeps() {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const { tvAdapter } = await import("./tv-adapter.js");
+  const { tradovateAdapter } = await import("./tradovate-adapter.js");
   const tradesFile = async () => path.join(await sessions.activeSessionDir(), "trades.jsonl");
   return {
     readEvents: async () => {
@@ -117,5 +152,8 @@ async function buildExitDeps() {
     flatten: (symbol) => tvAdapter.flatten({ symbol }),
     placeStandalone: async (o) => { const r = await tvAdapter.placeStandalone(o); try { return Number(JSON.parse(r.body).id); } catch { return null; } },
     recordTrancheOrders: async (obj) => { await fs.appendFile(await tradesFile(), JSON.stringify({ type: "tranche_orders", ...obj, ts: new Date().toISOString() }) + "\n", "utf8"); },
+    modifyTradovateStop: (a) => tradovateAdapter.modifyTradovateStop(a),
+    closeTradovatePosition: (a) => tradovateAdapter.closeTradovatePosition(a),
+    cancelTradovateOrders: () => tradovateAdapter.cancelTradovateOrders(),
   };
 }

@@ -12,13 +12,17 @@ import { sizeFromStop } from "./sizing-core.js";
 // needs for the netting workaround. Exported for unit tests so the real-money
 // routing is covered without placing an order.
 export function tradovateOrderFromPacket(packet = {}, contracts) {
+  // A+ rides to TP2 (the surfaced packet's tp2 falls back to tp1 when there's no
+  // room), everything else banks at TP1 — mirrors the paper path's runnerTp so a
+  // Tradovate A+ runner's native bracket isn't capped at TP1.
+  const takeProfit = packet.grade === "A+" ? (packet.tp2 ?? packet.tp1) : packet.tp1;
   return {
     symbol: packet.symbol,
     side: (packet.side === "long" || packet.side === "buy") ? "buy" : "sell",
     type: "market",
     contracts,
     stopLoss: packet.stop,
-    takeProfit: packet.tp1,
+    takeProfit,
     currentAsk: packet.entry,
     currentBid: packet.entry,
   };
@@ -100,6 +104,14 @@ export async function runTrancheManager(ctx = {}, deps) {
     takenLog,
   });
 
+  // Scale-in adds on Tradovate are unproven: stacking native brackets on a
+  // netting account is NOT the verified standalone-order workaround the TV-paper
+  // path uses. Until a live cycle confirms it, the anchor fires but adds are held
+  // (recorded as a skip) — fail-safe on real money.
+  if (decision.action === "open_add" && d.activeBroker?.() === "tradovate") {
+    await d.recordSkip("blocked:tradovate_add_unverified");
+    return { action: "blocked:tradovate_add_unverified" };
+  }
   if (decision.action === "open_anchor" || decision.action === "open_add") {
     const role = decision.action === "open_anchor" ? "anchor" : "add";
     const gate = d.checkOrder({
@@ -161,6 +173,7 @@ async function buildRealDeps() {
     readExecConfig,
     accountRoutable: () => gate.resolveAccountGate({ active: active.getActiveAccount(), confirmed: readExecConfig().confirmedAccount }),
     autoAllowed: () => gate.autoFireAllowed({ confirmed: readExecConfig().confirmedAccount, autoResumed: autoResume.getAutoResumed() }),
+    activeBroker: () => active.getActiveAccount()?.broker ?? null,
     readJournal: async () => { const events = await readEvents(); return { events, open: outcomes.foldOpenTrades(events) }; },
     hasGreenLight: (events, id) => events.some((e) => e.type === "green_light" && e.setup_id === id),
     markGreenLight: async (id) => appendTrade({ type: "green_light", setup_id: id, ts: new Date().toISOString() }),

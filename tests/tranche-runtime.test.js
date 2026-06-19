@@ -62,6 +62,25 @@ describe("runTrancheManager", () => {
     assert.equal(calls.accept[0].tranche_role, "add");
   });
 
+  it("Tradovate add is held (anchor-only) — stacking native brackets is unproven", async () => {
+    const { deps, calls } = makeDeps({
+      readJournal: async () => ({ events: [], open: greenAnchorOpen }),
+      hasGreenLight: () => true,
+      activeBroker: () => "tradovate",
+    });
+    const r = await runTrancheManager({ bestPacket: { ...anchorPacket, event_ts: new Date(60 * 60000).toISOString() }, price: 106 }, deps);
+    assert.equal(r.action, "blocked:tradovate_add_unverified");
+    assert.equal(calls.accept.length, 0);
+    assert.deepEqual(calls.recordSkip, ["blocked:tradovate_add_unverified"]);
+  });
+
+  it("Tradovate ANCHOR still fires (only adds are held)", async () => {
+    const { deps, calls } = makeDeps({ activeBroker: () => "tradovate" });
+    const r = await runTrancheManager({ bestPacket: anchorPacket, price: 100 }, deps);
+    assert.equal(r.action, "open_anchor");
+    assert.equal(calls.accept[0].tranche_role, "anchor");
+  });
+
   it("latches green-light via marker when price first reaches 50%", async () => {
     const { deps, calls } = makeDeps({
       readJournal: async () => ({ events: [], open: greenAnchorOpen }),
