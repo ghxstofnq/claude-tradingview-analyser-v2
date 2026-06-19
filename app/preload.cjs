@@ -298,5 +298,16 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("backtest:event", listener);
       return () => ipcRenderer.removeListener("backtest:event", listener);
     },
+    baseline: {
+      get(symbol) {
+        return ipcRenderer.invoke("backtest:baseline:get", { symbol });
+      },
+      refold(symbol, reason) {
+        return ipcRenderer.invoke("backtest:baseline:refold", { symbol, reason });
+      },
+      history(symbol) {
+        return ipcRenderer.invoke("backtest:baseline:history", { symbol });
+      },
+    },
   },
 });

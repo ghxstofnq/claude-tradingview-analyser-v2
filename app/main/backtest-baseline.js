@@ -210,3 +210,64 @@ export async function foldSymbol({ symbol, stateDir, dates }) {
     reason: null,
   };
 }
+
+// ── Persistence — state/backtest/baseline/<slug>.json (+ .history.json) ───
+
+function baselineDir(stateDir) { return path.join(stateDir, "backtest", "baseline"); }
+export function baselinePath(stateDir, symbol) {
+  return path.join(baselineDir(stateDir), `${symbolSlug(symbol)}.json`);
+}
+export function historyPath(stateDir, symbol) {
+  return path.join(baselineDir(stateDir), `${symbolSlug(symbol)}.history.json`);
+}
+
+export function readBaseline({ stateDir, symbol }) {
+  const p = baselinePath(stateDir, symbol);
+  if (!fs.existsSync(p)) return null;
+  try { return readJson(p); } catch { return null; }
+}
+
+export function readHistory({ stateDir, symbol }) {
+  const p = historyPath(stateDir, symbol);
+  if (!fs.existsSync(p)) return [];
+  try { const h = readJson(p); return Array.isArray(h) ? h : []; } catch { return []; }
+}
+
+export function writeBaseline({ stateDir, symbol, baseline }) {
+  const dir = baselineDir(stateDir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(baselinePath(stateDir, symbol), JSON.stringify(baseline, null, 2));
+}
+
+function writeHistory({ stateDir, symbol, history }) {
+  const dir = baselineDir(stateDir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(historyPath(stateDir, symbol), JSON.stringify(history, null, 2));
+}
+
+// A compact snapshot of a baseline for the history log (no run_details — too big).
+export function historyRecord(baseline) {
+  return {
+    built_at: baseline.built_at,
+    code_sha: baseline.code_sha,
+    corpus_n: baseline.corpus?.n_sessions ?? null,
+    total_r: baseline.total_r,
+    reason: baseline.reason ?? null,
+  };
+}
+
+// Re-fold the symbol's corpus with current code, snapshot the prior baseline
+// into history when it actually changed, persist the new baseline, return it.
+// `fold` is injectable for tests; production uses foldSymbol.
+export async function refoldBaseline({ stateDir, symbol, reason = null, fold = foldSymbol }) {
+  const prev = readBaseline({ stateDir, symbol });
+  const next = await fold({ symbol, stateDir });
+  if (reason != null) next.reason = reason;
+  if (shouldSnapshot(prev, next)) {
+    const history = readHistory({ stateDir, symbol });
+    history.push(historyRecord(prev));
+    writeHistory({ stateDir, symbol, history });
+  }
+  writeBaseline({ stateDir, symbol, baseline: next });
+  return next;
+}

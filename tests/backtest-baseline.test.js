@@ -4,9 +4,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   symbolSlug, buildSetupRows, shouldSnapshot, diffPerDay, round2,
+  refoldBaseline, readBaseline, readHistory,
 } from "../app/main/backtest-baseline.js";
 import { buildAnalytics } from "../cli/lib/backtest-analytics.js";
 
@@ -73,4 +77,31 @@ test("buildAnalytics(run_details).cum_r equals the booked total (the dashboard i
   const expectedTotal = round2(2 + -1 + 0.4);
   assert.equal(A.cum_r, expectedTotal);
   assert.equal(A.n_trades, 3);
+});
+
+test("refoldBaseline persists, snapshots history only on change, carries reason", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "baseline-test-"));
+  const symbol = "MNQ1!";
+  const mkFold = (total_r, code_sha, built_at) =>
+    async () => ({ symbol, total_r, code_sha, built_at, corpus: { n_sessions: 5, dates: [] }, per_day: [], run_details: [], reason: null });
+
+  // first fold — writes baseline, history stays empty
+  const b1 = await refoldBaseline({ stateDir, symbol, fold: mkFold(100, "abc", "t1") });
+  assert.equal(b1.total_r, 100);
+  assert.equal(readBaseline({ stateDir, symbol }).total_r, 100);
+  assert.deepEqual(readHistory({ stateDir, symbol }), []);
+
+  // second fold with a changed total — snapshots the prior (100) into history
+  await refoldBaseline({ stateDir, symbol, reason: "adopt X", fold: mkFold(117, "abc", "t2") });
+  const hist = readHistory({ stateDir, symbol });
+  assert.equal(hist.length, 1);
+  assert.equal(hist[0].total_r, 100);
+  assert.equal(readBaseline({ stateDir, symbol }).total_r, 117);
+  assert.equal(readBaseline({ stateDir, symbol }).reason, "adopt X");
+
+  // third fold identical (same total + sha) — no new history record
+  await refoldBaseline({ stateDir, symbol, fold: mkFold(117, "abc", "t3") });
+  assert.equal(readHistory({ stateDir, symbol }).length, 1);
+
+  fs.rmSync(stateDir, { recursive: true, force: true });
 });
