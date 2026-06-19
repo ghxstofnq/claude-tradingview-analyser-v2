@@ -13,6 +13,10 @@ import {
   outcomeMeta,
   runGrade,
   displayGrade,
+  sessionClosedET,
+  weekdaysBetween,
+  expandStudy,
+  todayET,
 } from "../app/renderer/src/Backtest.helpers.js";
 
 test("nextState — IDLE + START → AUTO_RUNNING", () => {
@@ -204,4 +208,69 @@ test("displayGrade — never fabricates an A+ for a missing grade", () => {
   assert.equal(displayGrade("B"), "B");
   assert.equal(displayGrade(undefined), "—");
   assert.equal(displayGrade(null), "—");
+});
+
+// ── Future-date guard (2026-06-19 bug: a custom range ran today pre-open +
+// all of next week, since nothing stopped jobs at the last closed session) ──
+
+// Fixed reference "now": 2026-06-19 (Fri) 10:00 ET = 14:00 UTC (EDT).
+const NOW = Date.UTC(2026, 5, 19, 14, 0);
+
+test("sessionClosedET — a fully past session is closed", () => {
+  assert.equal(sessionClosedET("2026-06-18", "ny-am", NOW), true);
+  assert.equal(sessionClosedET("2026-06-18", "ny-pm", NOW), true);
+});
+
+test("sessionClosedET — today before the close is NOT closed; after IS", () => {
+  // 10:00 ET now: ny-am (closes 12:00) not closed; london (closes 06:00) closed.
+  assert.equal(sessionClosedET("2026-06-19", "ny-am", NOW), false);
+  assert.equal(sessionClosedET("2026-06-19", "ny-pm", NOW), false);
+  assert.equal(sessionClosedET("2026-06-19", "london", NOW), true);
+});
+
+test("sessionClosedET — a future date is never closed", () => {
+  assert.equal(sessionClosedET("2026-06-22", "ny-am", NOW), false);
+  assert.equal(sessionClosedET("2026-06-25", "ny-pm", NOW), false);
+});
+
+test("expandStudy — drops not-yet-closed sessions (today pre-close + future)", () => {
+  // Range Wed 06-17 → next Thu 06-25, NY-AM only, MES, at NOW (Fri 10:00 ET).
+  const jobs = expandStudy({
+    symbol: "mes", start: "2026-06-17", end: "2026-06-25",
+    sessions: { "ny-am": true, "ny-pm": false, london: false }, mode: "auto", now: NOW,
+  });
+  const dates = jobs.map((j) => j.date);
+  // Only fully-closed NY-AM sessions: 06-17, 06-18. NOT 06-19 (closes 12:00,
+  // now is 10:00) and NOT 06-22..06-25 (future weekdays).
+  assert.deepEqual(dates, ["2026-06-17", "2026-06-18"]);
+  assert.ok(jobs.every((j) => j.symbol === "mes" && j.session === "ny-am"));
+});
+
+test("expandStudy — today's london (closed by 10:00 ET) IS included, today's am/pm are not", () => {
+  const jobs = expandStudy({
+    symbol: "mnq", start: "2026-06-19", end: "2026-06-19",
+    sessions: { "ny-am": true, "ny-pm": true, london: true }, mode: "auto", now: NOW,
+  });
+  assert.deepEqual(jobs.map((j) => j.session), ["london"]);
+});
+
+test("expandStudy — BOTH expands each closed session into an MNQ + MES job", () => {
+  const jobs = expandStudy({
+    symbol: "both", start: "2026-06-18", end: "2026-06-18",
+    sessions: { "ny-am": true, "ny-pm": false, london: false }, mode: "auto", now: NOW,
+  });
+  assert.deepEqual(jobs.map((j) => j.symbol).sort(), ["mes", "mnq"]);
+});
+
+test("weekdaysBetween — inclusive, skips weekends, 0 if reversed", () => {
+  assert.equal(weekdaysBetween("2026-06-15", "2026-06-19"), 5); // Mon–Fri
+  assert.equal(weekdaysBetween("2026-06-19", "2026-06-22"), 2); // Fri + Mon (Sat/Sun skipped)
+  assert.equal(weekdaysBetween("2026-06-19", "2026-06-15"), 0); // reversed
+});
+
+test("todayET — returns the ET calendar date for the given instant", () => {
+  // 2026-06-19 14:00 UTC = 10:00 ET → still 2026-06-19 in ET.
+  assert.equal(todayET(NOW), "2026-06-19");
+  // 2026-06-20 02:00 UTC = 2026-06-19 22:00 ET → previous ET day.
+  assert.equal(todayET(Date.UTC(2026, 5, 20, 2, 0)), "2026-06-19");
 });

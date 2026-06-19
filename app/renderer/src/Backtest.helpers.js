@@ -5,6 +5,71 @@
 const SESSION_BARS = { "ny-am": 150, "ny-pm": 180, london: 180 };
 const SESSION_SHORT = { "ny-am": "AM", "ny-pm": "PM", london: "LON" };
 
+// Session close times in ET — mirror SESSION_WINDOWS.to in backtest-engine.js.
+// A study must not generate a (date, session) job whose session hasn't closed
+// yet: there's no replayable data, so the engine would leave an aborted run
+// (2026-06-19: a custom range ending past the last completed session ran today
+// pre-open + all of next week).
+const SESSION_CLOSE_ET = { "ny-am": "12:00", "ny-pm": "16:00", london: "06:00" };
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// Epoch ms of a date + ET time, handling EDT/EST — same trial as the engine's
+// etToEpochSeconds (assume EDT, verify the rendered ET hour, fall back to EST).
+function etDateTimeToMs(dateStr, timeStr) {
+  const [y, mo, d] = String(dateStr).split("-").map(Number);
+  const [hh, mm = 0] = String(timeStr).split(":").map(Number);
+  const t1 = Date.UTC(y, mo - 1, d, hh + 4, mm);
+  const etHour = Number(new Date(t1).toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }));
+  return etHour % 24 === hh ? t1 : Date.UTC(y, mo - 1, d, hh + 5, mm);
+}
+
+// Has this (date, session)'s ET close already passed `now`? Only then is there
+// data to replay.
+export function sessionClosedET(date, session, now = Date.now()) {
+  const close = SESSION_CLOSE_ET[session] ?? SESSION_CLOSE_ET["ny-am"];
+  return etDateTimeToMs(date, close) <= now;
+}
+
+// Today's date in ET (YYYY-MM-DD) — the max selectable END date in the picker.
+export function todayET(now = Date.now()) {
+  return new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+// Weekdays (Mon–Fri) inclusive between two ISO dates; 0 if invalid/reversed.
+export function weekdaysBetween(a, b) {
+  const s = new Date(a + "T00:00"), e = new Date(b + "T00:00");
+  if (isNaN(s) || isNaN(e) || e < s) return 0;
+  let n = 0;
+  for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay();
+    if (wd >= 1 && wd <= 5) n++;
+  }
+  return n;
+}
+
+// Expand a study into sequential jobs — one per (weekday × selected session ×
+// symbol), DROPPING any (date, session) whose session hasn't closed yet so the
+// engine never tries to replay a session that doesn't exist. BOTH → an MNQ job
+// and an MES job per (date, session).
+export function expandStudy({ symbol, start, end, sessions, mode, now = Date.now() }) {
+  const s = new Date(start + "T00:00"), e = new Date(end + "T00:00");
+  if (isNaN(s) || isNaN(e) || e < s) return [];
+  const order = ["london", "ny-am", "ny-pm"];
+  const sel = order.filter((k) => sessions[k]);
+  const syms = symbol === "both" ? ["mnq", "mes"] : [symbol];
+  const jobs = [];
+  for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay();
+    if (wd < 1 || wd > 5) continue;
+    const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    for (const session of sel) {
+      if (!sessionClosedET(date, session, now)) continue; // skip not-yet-closed sessions
+      for (const sym of syms) jobs.push({ date, session, mode, symbol: sym });
+    }
+  }
+  return jobs;
+}
+
 export function nextState(state, event) {
   switch (state) {
     case "IDLE":

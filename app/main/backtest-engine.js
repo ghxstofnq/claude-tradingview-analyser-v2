@@ -43,6 +43,16 @@ const SESSION_WINDOWS = {
   london: { from: "03:00", to: "06:00" },
 };
 
+// A (date, session) is runnable only once its session has CLOSED in ET. A
+// future or not-yet-closed session has no replayable data — the recorder would
+// step live/empty bars and leave an aborted run (2026-06-19: a custom range
+// with an end past the last completed session ran today + next week). nowMs is
+// injectable for tests. Mirror the renderer guard in Backtest.helpers.js.
+export function sessionHasClosed(date, session, nowMs = Date.now()) {
+  const w = SESSION_WINDOWS[session] ?? SESSION_WINDOWS["ny-am"];
+  return etToEpochSeconds(date, w.to) * 1000 <= nowMs;
+}
+
 // User ruling 2026-06-12: the session halts at -3R realized — no new
 // positions once the day's closed trades reach the cap (June 11 AM chop
 // bled 9 straight stops without it).
@@ -319,6 +329,12 @@ export async function runBacktest({
   };
 
   try {
+    // Future / not-yet-closed session: no replayable data exists yet, so the
+    // recorder would step live/empty bars and leave an aborted run. Fail fast —
+    // the catch below writes the error summary + emits the "error" event.
+    if (!sessionHasClosed(date, session)) {
+      throw new Error(`session_not_closed: ${date} ${session} has not closed yet`);
+    }
     // 1. Context: the day's recorded chain state if it exists, else a
     //    deterministic brief at the replay anchor (grade_cap B — same rule
     //    as the live catch_up backfill).
