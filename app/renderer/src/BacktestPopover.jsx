@@ -641,11 +641,12 @@ function LibraryBody({ state, actions, symbolView }) {
   // a live re-fold of raw setups.jsonl. Same Analytics component, honest data.
   const { baseline, history, loading, refolding, refold } = useBaseline(symbolView);
   const A = useMemo(() => buildAnalytics(baseline?.run_details ?? []), [baseline]);
-  const agreementPct = (() => {
-    const a = agg.agreement;
-    const total = (a?.agreed ?? 0) + (a?.disagreed ?? 0);
-    return total === 0 ? "—" : `${Math.round((100 * a.agreed) / total)}%`;
-  })();
+  // Grade win% from the SAME faithful fold the dashboard uses (BE-excluded), so
+  // the AGGREGATE grid agrees with the BY GRADE card — not the stale
+  // generation-time setups_by_grade/wins_by_grade in the index.
+  const gradeCut = (g) => (A.by_grade ?? []).find((r) => r.k === g) ?? null;
+  const aplus = gradeCut("A+");
+  const bCut = gradeCut("B");
 
   return (
     <>
@@ -667,25 +668,25 @@ function LibraryBody({ state, actions, symbolView }) {
             <span className="v">{agg.total_runs}</span>
           </div>
           <div className="lcell">
-            <span className="k">A+ HIT-RATE</span>
-            <span className="v green">{pct(agg.aplus_hit_rate)}</span>
-            <span className="sub">{agg.aplus_hit_rate.numerator}/{agg.aplus_hit_rate.denominator}</span>
+            <span className="k">A+ WIN%</span>
+            <span className="v green">{aplus ? aplus.win + "%" : "—"}</span>
+            <span className="sub">{aplus ? "n=" + aplus.n : "—"}</span>
           </div>
           <div className="lcell">
-            <span className="k">B HIT-RATE</span>
-            <span className="v">{pct(agg.b_hit_rate)}</span>
-            <span className="sub">{agg.b_hit_rate.numerator}/{agg.b_hit_rate.denominator}</span>
+            <span className="k">B WIN%</span>
+            <span className="v">{bCut ? bCut.win + "%" : "—"}</span>
+            <span className="sub">{bCut ? "n=" + bCut.n : "—"}</span>
           </div>
           <div className="lcell">
             <span className="k">CUM P&amp;L</span>
-            <span className={"v " + (agg.cum_r >= 0 ? "green" : "red")}>
-              {agg.cum_r > 0 ? "+" : ""}{agg.cum_r.toFixed(1)}R
+            <span className={"v " + (A.cum_r >= 0 ? "green" : "red")}>
+              {A.cum_r > 0 ? "+" : ""}{A.cum_r.toFixed(1)}R
             </span>
           </div>
           <div className="lcell">
-            <span className="k">AGREEMENT</span>
-            <span className="v amber">{agreementPct}</span>
-            <span className="sub">{agg.agreement.agreed} / {agg.agreement.agreed + agg.agreement.disagreed} graded</span>
+            <span className="k">EXPECTANCY</span>
+            <span className="v amber">{A.expectancy > 0 ? "+" : ""}{A.expectancy.toFixed(2)}R</span>
+            <span className="sub">per trade</span>
           </div>
         </div>
       </div>
