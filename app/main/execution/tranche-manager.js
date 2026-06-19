@@ -12,13 +12,17 @@ import { sizeFromStop } from "./sizing-core.js";
 // needs for the netting workaround. Exported for unit tests so the real-money
 // routing is covered without placing an order.
 export function tradovateOrderFromPacket(packet = {}, contracts) {
+  // A+ rides to TP2 (the surfaced packet's tp2 falls back to tp1 when there's no
+  // room), everything else banks at TP1 — mirrors the paper path's runnerTp so a
+  // Tradovate A+ runner's native bracket isn't capped at TP1.
+  const takeProfit = packet.grade === "A+" ? (packet.tp2 ?? packet.tp1) : packet.tp1;
   return {
     symbol: packet.symbol,
     side: (packet.side === "long" || packet.side === "buy") ? "buy" : "sell",
     type: "market",
     contracts,
     stopLoss: packet.stop,
-    takeProfit: packet.tp1,
+    takeProfit,
     currentAsk: packet.entry,
     currentBid: packet.entry,
   };

@@ -14,6 +14,15 @@ describe("tradovateOrderFromPacket (auto → Tradovate bracket routing)", () => 
     assert.equal(tradovateOrderFromPacket({ side: "buy" }, 1).side, "buy");
     assert.equal(tradovateOrderFromPacket({ side: "sell" }, 1).side, "sell");
   });
+  it("A+ rides to TP2 on the native bracket", () => {
+    assert.equal(tradovateOrderFromPacket({ side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 }, 1).takeProfit, 120);
+  });
+  it("A+ with no TP2 room banks at TP1", () => {
+    assert.equal(tradovateOrderFromPacket({ side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: null }, 1).takeProfit, 110);
+  });
+  it("B banks at TP1 even when a TP2 exists", () => {
+    assert.equal(tradovateOrderFromPacket({ side: "long", grade: "B", entry: 100, stop: 95, tp1: 110, tp2: 120 }, 1).takeProfit, 110);
+  });
 });
 
 const anchorPacket = { side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 };
