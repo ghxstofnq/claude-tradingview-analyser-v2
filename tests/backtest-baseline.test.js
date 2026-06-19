@@ -10,7 +10,7 @@ import path from "node:path";
 
 import {
   symbolSlug, buildSetupRows, shouldSnapshot, diffPerDay, round2,
-  refoldBaseline, readBaseline, readHistory,
+  refoldBaseline, readBaseline, readHistory, applyRunResultsToIndex,
 } from "../app/main/backtest-baseline.js";
 import { buildAnalytics } from "../cli/lib/backtest-analytics.js";
 
@@ -102,6 +102,33 @@ test("refoldBaseline persists, snapshots history only on change, carries reason"
   // third fold identical (same total + sha) — no new history record
   await refoldBaseline({ stateDir, symbol, fold: mkFold(117, "abc", "t3") });
   assert.equal(readHistory({ stateDir, symbol }).length, 1);
+
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+test("applyRunResultsToIndex writes faithful per-run totals back, leaves others", () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "idx-test-"));
+  const BT = path.join(stateDir, "backtest");
+  fs.mkdirSync(BT, { recursive: true });
+  fs.writeFileSync(path.join(BT, "index.json"), JSON.stringify({ runs: [
+    { run_id: "r1", date: "2026-05-11", session: "ny-am", symbol: "MNQ1!", total_r: 0 },
+    { run_id: "r2", date: "2026-05-11", session: "ny-pm", symbol: "MNQ1!", total_r: 0 },
+    { run_id: "rX", date: "2026-05-11", session: "ny-am", symbol: "MES1!", total_r: 9 },
+  ] }));
+
+  applyRunResultsToIndex({ stateDir, marker: "refold-abc", runResults: [
+    { run_id: "r1", total_r: 5.5, wins: 1, losses: 0, setups: 1 },
+    { run_id: "r2", total_r: -1, wins: 0, losses: 1, setups: 1 },
+  ] });
+
+  const ix = JSON.parse(fs.readFileSync(path.join(BT, "index.json"), "utf8"));
+  const r1 = ix.runs.find((r) => r.run_id === "r1");
+  assert.equal(r1.total_r, 5.5);
+  assert.equal(r1.wins, 1);
+  assert.equal(r1.refold_baseline, "refold-abc");
+  const rX = ix.runs.find((r) => r.run_id === "rX");
+  assert.equal(rX.total_r, 9); // untouched
+  assert.equal(rX.refold_baseline, undefined);
 
   fs.rmSync(stateDir, { recursive: true, force: true });
 });

@@ -4089,3 +4089,15 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .bt-sym-bar .bt-sym-label { color: var(--label); font-size: 9px;
   letter-spacing: 0.18em; white-space: nowrap; }
 .bt-popover .bt-sym-bar .seg { flex: 1; }
+
+/* FAITHFUL BASELINE header + history + TESTS (baseline-tests feature) */
+.bt-popover .bl-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.bt-popover .bl-actions .btn { padding: 8px 12px; font: inherit; font-size: 10.5px;
+  letter-spacing: 0.22em; cursor: pointer; font-family: var(--mono);
+  border: 1px solid var(--border-d); background: var(--surface-0); color: var(--label);
+  display: inline-flex; align-items: center; gap: 6px; }
+.bt-popover .bl-actions .btn:hover:not(:disabled) { color: var(--value); border-color: var(--label); }
+.bt-popover .bl-actions .btn:disabled { opacity: 0.5; cursor: default; }
+.bt-popover .bl-total { font-family: var(--mono); font-size: 13px; font-weight: 600; margin-left: auto; }
+.bt-popover .bl-total.green { color: var(--green); }
+.bt-popover .bl-total.red { color: var(--red); }

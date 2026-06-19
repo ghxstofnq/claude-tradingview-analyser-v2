@@ -27,6 +27,7 @@ import { gradeOpenTrade } from "./backtest-grader.js";
 import { __test as bc } from "./bar-close.js";
 import { buildBriefDigest } from "../../cli/lib/brief-digest.js";
 import { buildDirectSessionBriefPayloads } from "./direct-session-brief.js";
+import { tradesFromSetups } from "../../cli/lib/backtest-analytics.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -184,6 +185,7 @@ export async function foldSymbol({ symbol, stateDir, dates }) {
 
   const run_details = [];
   const per_day = [];
+  const run_results = []; // per-run rollup for the index/summary refresh (not persisted in the baseline file)
   let total = 0;
   for (const entry of runs) {
     const res = await foldSession(BT, symbol, entry.run_id, entry.date, entry.session);
@@ -193,6 +195,14 @@ export async function foldSymbol({ symbol, stateDir, dates }) {
     run_details.push({
       entry: { date: entry.date, session: entry.session, open_reaction: res.open_reaction },
       setups: res.setups,
+    });
+    const trades = tradesFromSetups(res.setups);
+    run_results.push({
+      run_id: entry.run_id, date: entry.date, session: entry.session,
+      total_r: res.total_r,
+      wins: trades.filter((t) => t.r > 0).length,
+      losses: trades.filter((t) => t.r < 0).length,
+      setups: trades.length,
     });
   }
 
@@ -207,8 +217,34 @@ export async function foldSymbol({ symbol, stateDir, dates }) {
     total_r: round2(total),
     per_day,
     run_details,
+    run_results,
     reason: null,
   };
+}
+
+// Write the faithful per-run totals back into index.json + each run's
+// summary.json, so the popover's AGGREGATE grid + table (index-based) match the
+// dashboard hero (baseline-based). Same write save-fold-baseline.mjs does, now
+// driven by the RE-FOLD button. Best-effort per summary; index is authoritative.
+export function applyRunResultsToIndex({ stateDir, runResults = [], marker }) {
+  if (!runResults.length) return;
+  const BT = path.join(stateDir, "backtest");
+  const idxPath = path.join(BT, "index.json");
+  const index = readJson(idxPath);
+  const byId = new Map(runResults.map((r) => [r.run_id, r]));
+  for (const entry of index.runs) {
+    const r = byId.get(entry.run_id);
+    if (!r) continue;
+    entry.total_r = r.total_r; entry.wins = r.wins; entry.losses = r.losses; entry.setups = r.setups;
+    entry.refold_baseline = marker;
+    try {
+      const sp = path.join(BT, entry.run_id, entry.session, "summary.json");
+      const sum = readJson(sp);
+      sum.total_r = r.total_r; sum.wins = r.wins; sum.losses = r.losses; sum.refold_baseline = marker;
+      fs.writeFileSync(sp, JSON.stringify(sum, null, 2));
+    } catch { /* best-effort */ }
+  }
+  fs.writeFileSync(idxPath, JSON.stringify(index, null, 2));
 }
 
 // ── Persistence — state/backtest/baseline/<slug>.json (+ .history.json) ───
@@ -261,7 +297,8 @@ export function historyRecord(baseline) {
 // `fold` is injectable for tests; production uses foldSymbol.
 export async function refoldBaseline({ stateDir, symbol, reason = null, fold = foldSymbol }) {
   const prev = readBaseline({ stateDir, symbol });
-  const next = await fold({ symbol, stateDir });
+  const folded = await fold({ symbol, stateDir });
+  const { run_results, ...next } = folded; // run_results drives the index refresh, not persisted in the baseline
   if (reason != null) next.reason = reason;
   if (shouldSnapshot(prev, next)) {
     const history = readHistory({ stateDir, symbol });
@@ -269,5 +306,8 @@ export async function refoldBaseline({ stateDir, symbol, reason = null, fold = f
     writeHistory({ stateDir, symbol, history });
   }
   writeBaseline({ stateDir, symbol, baseline: next });
+  if (Array.isArray(run_results)) {
+    applyRunResultsToIndex({ stateDir, runResults: run_results, marker: `refold-${next.code_sha ?? "nosha"}` });
+  }
   return next;
 }

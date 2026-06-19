@@ -2,10 +2,11 @@
 // Topbar BACKTEST cell + anchored popover. Six bodies switch by state.ui.
 // Logic + IPC bridge live in hooks/useBacktest.js; this file is presentation.
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useBacktest } from "./hooks/useBacktest.js";
-import { useAnalytics } from "./hooks/useAnalytics.js";
+import { useBaseline } from "./hooks/useBaseline.js";
 import Analytics from "./Analytics.jsx";
+import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
@@ -456,6 +457,77 @@ function DoneBody({ state, actions }) {
   );
 }
 
+// Signed R + folded-when formatters for the baseline panels.
+const fmtR = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(Number(n) || 0).toFixed(1) + "R";
+const fmtFoldTime = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+};
+
+// FAITHFUL BASELINE header — folded-when + sessions + sha + RE-FOLD button.
+function BaselineHeader({ baseline, loading, refolding, onRefold, symbolView }) {
+  const sym = symbolView === "MES1!" ? "MES" : "MNQ";
+  const meta = loading
+    ? "loading…"
+    : baseline
+      ? `${baseline.corpus?.n_sessions ?? 0} sessions · folded ${fmtFoldTime(baseline.built_at)}${baseline.code_sha ? " · " + baseline.code_sha : ""}`
+      : "not folded yet — hit RE-FOLD";
+  return (
+    <div className="section">
+      <div className="sect-hd">
+        <span>FAITHFUL BASELINE · {sym}</span>
+        <span className="meta">{meta}</span>
+      </div>
+      <div className="bl-actions">
+        <button className="btn secondary" disabled={refolding} onClick={onRefold}>
+          {refolding ? "RE-FOLDING…" : "RE-FOLD BASELINE"}
+        </button>
+        {baseline && (
+          <span className={"bl-total " + (baseline.total_r >= 0 ? "green" : "red")}>{fmtR(baseline.total_r)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// BASELINE HISTORY — prior accepted baselines, newest first, Δ vs current.
+function BaselineHistory({ history = [], current }) {
+  const [open, setOpen] = useState(false);
+  if (!history.length) return null;
+  const rows = history.slice().reverse();
+  return (
+    <div className="section">
+      <div className="sect-hd" style={{ cursor: "pointer" }} onClick={() => setOpen((o) => !o)}>
+        <span>BASELINE HISTORY</span>
+        <span className="meta">{history.length} prior · {open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <table className="lib-table">
+          <thead>
+            <tr><th>FOLDED</th><th>SESSIONS</th><th>TOTAL</th><th>Δ NOW</th><th>REASON</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((h, i) => {
+              const delta = current != null ? Math.round((current - h.total_r) * 100) / 100 : null;
+              return (
+                <tr key={i}>
+                  <td>{fmtFoldTime(h.built_at)}</td>
+                  <td>{h.corpus_n ?? "—"}</td>
+                  <td className={h.total_r >= 0 ? "green" : "red"}>{fmtR(h.total_r)}</td>
+                  <td className={delta == null ? "" : delta >= 0 ? "green" : "red"}>{delta == null ? "—" : fmtR(delta)}</td>
+                  <td className="meta">{h.reason ?? "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // LIBRARY body — aggregate dashboard + filters + sortable table
 // ─────────────────────────────────────────────────────────────────────
@@ -472,7 +544,10 @@ function LibraryBody({ state, actions, symbolView }) {
     session: sessionFilter, mode: modeFilter, grade: gradeFilter, query,
   });
   const agg = aggregateRuns(symRuns);
-  const { A, loading } = useAnalytics(symRuns, true);
+  // Dashboard reads the FAITHFUL fold-week baseline (regen + AM->PM carry), not
+  // a live re-fold of raw setups.jsonl. Same Analytics component, honest data.
+  const { baseline, history, loading, refolding, refold } = useBaseline(symbolView);
+  const A = useMemo(() => buildAnalytics(baseline?.run_details ?? []), [baseline]);
   const agreementPct = (() => {
     const a = agg.agreement;
     const total = (a?.agreed ?? 0) + (a?.disagreed ?? 0);
@@ -481,7 +556,12 @@ function LibraryBody({ state, actions, symbolView }) {
 
   return (
     <>
-      <Analytics A={A} loading={loading} />
+      <BaselineHeader baseline={baseline} loading={loading} refolding={refolding}
+        onRefold={() => refold()} symbolView={symbolView} />
+
+      <Analytics A={A} loading={loading || refolding} />
+
+      <BaselineHistory history={history} current={baseline?.total_r ?? null} />
 
       <div className="section">
         <div className="sect-hd">
