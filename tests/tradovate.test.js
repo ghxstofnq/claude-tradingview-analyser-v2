@@ -8,6 +8,32 @@ import {
   tradovateOrderArgsFromPayload,
 } from "../app/main/execution/tradovate.js";
 import { buildOrderRequest } from "../app/renderer/src/execution/orderRequest.js";
+import { pickStopOrder } from "../app/main/execution/tradovate-adapter.js";
+
+describe("pickStopOrder — move the RIGHT tranche's stop when several adds are open", () => {
+  const orders = [
+    { id: 1, kind: "limit", price: 110 },
+    { id: 2, kind: "stop", price: 95 },   // tranche A's stop
+    { id: 3, kind: "stop", price: 99 },   // tranche B's stop
+    { id: 4, kind: "limit", price: 114 },
+  ];
+  it("explicit orderId wins", () => {
+    assert.equal(pickStopOrder(orders, { orderId: 3 }).id, 3);
+  });
+  it("matchStopPrice selects the stop closest to that price (tranche B at 99)", () => {
+    assert.equal(pickStopOrder(orders, { matchStopPrice: 99 }).id, 3);
+    assert.equal(pickStopOrder(orders, { matchStopPrice: 95 }).id, 2);
+  });
+  it("matchStopPrice tolerates small drift — nearest still wins", () => {
+    assert.equal(pickStopOrder(orders, { matchStopPrice: 98.9 }).id, 3);
+  });
+  it("falls back to the first stop with no hint (manual BE/TRAIL)", () => {
+    assert.equal(pickStopOrder(orders, {}).id, 2);
+  });
+  it("returns null when there is no stop order", () => {
+    assert.equal(pickStopOrder([{ id: 1, kind: "limit", price: 110 }], { matchStopPrice: 99 }), null);
+  });
+});
 
 describe("buildTradovateModifyBody — BE/TRAIL stop reprice (endpoint+body captured 2026-06-18)", () => {
   it("builds the PUT body the panel sends: id + instrument + qty + stopPrice + quote", () => {

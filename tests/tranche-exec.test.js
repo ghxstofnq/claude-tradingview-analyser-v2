@@ -126,15 +126,25 @@ describe("applyTrancheExit (DI execution)", () => {
 
 describe("planTradovateExit (native OCO bracket — broker self-manages siblings)", () => {
   const tvA = [
-    { type: "accept", id: "TV-1", side: "long", grade: "A+", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "accept", id: "TV-1", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
     { type: "tranche_orders", setup_id: "TV-1", broker: "tradovate", orderId: "ord-1" },
   ];
   const tvB = [
-    { type: "accept", id: "TV-2", side: "long", grade: "B", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "accept", id: "TV-2", side: "long", grade: "B", entry: 100, stop: 95, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
     { type: "tranche_orders", setup_id: "TV-2", broker: "tradovate", orderId: "ord-2" },
   ];
-  it("A+ runner TP1_HIT → move the native stop to break-even (entry)", () => {
-    assert.deepEqual(planTradovateExit({ id: "TV-1", status: "TP1_HIT" }, tvA).actions, [{ kind: "modify_stop_be", price: 100 }]);
+  it("A+ runner TP1_HIT → move THIS tranche's stop to its OWN entry (carries fromStop)", () => {
+    assert.deepEqual(planTradovateExit({ id: "TV-1", status: "TP1_HIT" }, tvA).actions, [{ kind: "modify_stop_be", price: 100, fromStop: 95 }]);
+  });
+  it("with two A+ adds open, each TP1 moves its OWN stop (price=its entry, fromStop=its stop)", () => {
+    const twoAdds = [
+      { type: "accept", id: "TV-1", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+      { type: "tranche_orders", setup_id: "TV-1", broker: "tradovate", orderId: "ord-1" },
+      { type: "accept", id: "TV-3", side: "long", grade: "A+", entry: 104, stop: 99, tp1: 114, tp2: 124, size: { contracts: 1 }, symbol: "MNQ1!" },
+      { type: "tranche_orders", setup_id: "TV-3", broker: "tradovate", orderId: "ord-3" },
+    ];
+    assert.deepEqual(planTradovateExit({ id: "TV-1", status: "TP1_HIT" }, twoAdds).actions, [{ kind: "modify_stop_be", price: 100, fromStop: 95 }]);
+    assert.deepEqual(planTradovateExit({ id: "TV-3", status: "TP1_HIT" }, twoAdds).actions, [{ kind: "modify_stop_be", price: 104, fromStop: 99 }]);
   });
   it("B TP1_HIT → no action (native OCO exits at its TP1 limit)", () => {
     assert.deepEqual(planTradovateExit({ id: "TV-2", status: "TP1_HIT" }, tvB).actions, []);
@@ -171,14 +181,14 @@ describe("applyTrancheExit (Tradovate DI execution)", () => {
     };
   }
   const tvA = [
-    { type: "accept", id: "TV-1", side: "long", grade: "A+", entry: 100, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
+    { type: "accept", id: "TV-1", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120, size: { contracts: 1 }, symbol: "MNQ1!" },
     { type: "tranche_orders", setup_id: "TV-1", broker: "tradovate", orderId: "ord-1" },
   ];
-  it("A+ TP1_HIT → moves the Tradovate stop to BE, no paper calls", async () => {
+  it("A+ TP1_HIT → moves the Tradovate stop to BE (with this tranche's stop hint), no paper calls", async () => {
     const d = makeTvDeps(tvA);
     const r = await applyTrancheExit({ id: "TV-1", status: "TP1_HIT" }, d);
     assert.equal(r.broker, "tradovate");
-    assert.deepEqual(d.calls.modifyBE, [{ stopPrice: 100 }]);
+    assert.deepEqual(d.calls.modifyBE, [{ stopPrice: 100, matchStopPrice: 95 }]);
     assert.equal(d.calls.paperCancel, 0);
   });
   it("CLOSED_EOD → flattens + cancels all on Tradovate", async () => {

@@ -182,15 +182,35 @@ export async function cancelTradovateOrders() {
   return { ok: (res?.results?.length ?? 0) >= 0, cancelled: res?.results?.length ?? 0, results: res?.results ?? [] };
 }
 
+// Pick which working stop order to reprice. Priority: an explicit orderId, then
+// the stop sitting CLOSEST to matchStopPrice (so with several adds open at once
+// we move THAT tranche's bracket stop, each add's stop being at a distinct
+// price), then the first stop (back-compat for manual BE/TRAIL with no hint).
+// Pure — unit-tested without the broker.
+export function pickStopOrder(orders = [], { orderId, matchStopPrice } = {}) {
+  if (orderId != null) {
+    const m = orders.find((o) => String(o.id) === String(orderId));
+    if (m) return m;
+  }
+  const stops = orders.filter((o) => o.kind === "stop");
+  if (!stops.length) return null;
+  if (matchStopPrice != null && Number.isFinite(Number(matchStopPrice))) {
+    return stops.reduce((best, o) =>
+      Math.abs(Number(o.price) - Number(matchStopPrice)) < Math.abs(Number(best.price) - Number(matchStopPrice)) ? o : best);
+  }
+  return stops[0];
+}
+
 // Reprice the protective stop in place (BE / TRAIL). PUT /accounts/<id>/orders/
 // <orderId> with the order's instrument+qty + the new stopPrice — endpoint +
 // body confirmed by live capture 2026-06-18. Runs in the webview page context
-// (cookies), same write path as place/cancel.
-export async function modifyTradovateStop({ orderId, stopPrice }) {
+// (cookies), same write path as place/cancel. `matchStopPrice` targets the
+// specific tranche's stop when several adds are open (no orderId to hand).
+export async function modifyTradovateStop({ orderId, stopPrice, matchStopPrice } = {}) {
   const t = getTradovate();
   if (!t.host || !t.accountId || !t.token) return { ok: false, error: "tradovate_not_connected" };
   const orders = await readTradovateOrders();
-  const ord = orders.find((o) => String(o.id) === String(orderId)) || orders.find((o) => o.kind === "stop");
+  const ord = pickStopOrder(orders, { orderId, matchStopPrice });
   if (!ord) return { ok: false, error: "stop_order_not_found" };
   const { ask, bid } = await readTradovateQuote(ord.instrument);
   const body = buildTradovateModifyBody({ orderId: ord.id, instrument: ord.instrument, qty: ord.qty, stopPrice, currentAsk: ask, currentBid: bid });
