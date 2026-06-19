@@ -104,7 +104,15 @@ export function computeSmtLeader({
     const data_present = !!primaryEngine && !!secondaryEngine && p.hasData && s.hasData;
     const pivots_confirmed = !!(p.hasPivot && s.hasPivot);
     const ok = data_present && pivots_confirmed;
-    return { side, p, s, data_present, pivots_confirmed, ok, gap: ok ? Math.abs(p.strength - s.strength) : null };
+    const gap = ok ? Math.abs(p.strength - s.strength) : null;
+    // Real SMT divergence is DIRECTIONAL: one instrument confirms its new
+    // extreme (strength > 0) while the OTHER fails (strength <= 0) — §2.3.1
+    // "the instrument that fails to confirm the other's new extreme". Same-sign
+    // (both confirm, or both fail) is "measurably similar" → no edge, no matter
+    // how big the magnitude gap. A magnitude-only gap is NOT SMT divergence.
+    const signs_oppose = ok && ((p.strength > 0) !== (s.strength > 0));
+    const divergent = ok && signs_oppose && gap >= band;
+    return { side, p, s, data_present, pivots_confirmed, ok, gap, signs_oppose, divergent };
   };
 
   let pick;
@@ -112,8 +120,11 @@ export function computeSmtLeader({
   else if (context === "long") pick = evalSide("low");
   else {
     const hi = evalSide("high"), lo = evalSide("low");
+    // Prefer a side with a REAL (opposite-sign) divergence; else the more-ready
+    // side for honest reporting (it reports no_divergence → caller defaults MNQ).
+    const real = [hi, lo].filter((x) => x.divergent).sort((a, b) => b.gap - a.gap);
     const ready = [hi, lo].filter((x) => x.ok).sort((a, b) => b.gap - a.gap);
-    pick = ready[0] || (hi.data_present || hi.pivots_confirmed ? hi : lo);
+    pick = real[0] || ready[0] || (hi.data_present || hi.pivots_confirmed ? hi : lo);
   }
 
   const side = pick.side;
@@ -122,14 +133,15 @@ export function computeSmtLeader({
   const criteria = {
     data_present: pick.data_present,
     pivots_confirmed: pick.pivots_confirmed,
+    signs_oppose: !!pick.signs_oppose,
     gap_cleared: pick.ok ? pick.gap >= band : false,
   };
-  const done = criteria.data_present && criteria.pivots_confirmed && criteria.gap_cleared;
+  const done = criteria.data_present && criteria.pivots_confirmed && criteria.signs_oppose && criteria.gap_cleared;
 
   if (!criteria.data_present || !criteria.pivots_confirmed) {
     return { divergence: false, bias_dir: null, leader: null, gap: pick.gap, strengths, reason: "smt_unreadable_data", criteria, done: false, context: side, band, evidence };
   }
-  if (!criteria.gap_cleared) {
+  if (!criteria.signs_oppose || !criteria.gap_cleared) {
     return { divergence: false, bias_dir: null, leader: null, gap: pick.gap, strengths, reason: "no_divergence_measured", criteria, done: false, context: side, band, evidence };
   }
   const bias_dir = side === "high" ? "short" : "long";

@@ -56,15 +56,19 @@ test("bullish SMT mirror: one sweeps the low, the other holds → long the leade
   assert.equal(r.done, true);
 });
 
-test("both crossed but one clearly stronger → still short the weaker (graded gap)", () => {
+test("both made the new high (same sign) → NOT divergence, default MNQ — even with a big gap", () => {
+  // Real SMT needs one to FAIL the new extreme; both confirming is "measurably
+  // similar" (§2.3.1), not a divergence — a magnitude-only gap must not fire.
   const r = computeSmtLeader({
     primary: "MNQ1!", secondary: "MES1!",
-    primaryEngine: highSym({ ref: 30600, high: 30700, atr: 50 }),  // +2.0
-    secondaryEngine: highSym({ ref: 7560, high: 7566, atr: 12 }),  // +0.5
+    primaryEngine: highSym({ ref: 30600, high: 30700, atr: 50 }),  // +2.0 (made HH)
+    secondaryEngine: highSym({ ref: 7560, high: 7566, atr: 12 }),  // +0.5 (also made HH)
     context: "short", ...win,
   });
-  assert.equal(r.divergence, true);
-  assert.equal(r.leader, "MES1!");            // weaker of the two
+  assert.equal(r.divergence, false);
+  assert.equal(r.leader, null);
+  assert.equal(r.reason, "no_divergence_measured");
+  assert.equal(r.criteria.signs_oppose, false);
 });
 
 test("both crossed, near-tie → no divergence, MNQ left to the caller", () => {
