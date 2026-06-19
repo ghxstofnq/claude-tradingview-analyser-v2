@@ -25,10 +25,11 @@ function accountState() {
 
 async function guarded(payload) {
   const fills = readFills(tradesDir(), today());
-  // Scope the daily-loss halt to the account we'd route to — one account's
-  // losses must not halt another (e.g. Tradovate manual trades must not block
-  // paper auto). Falls back to all-accounts when the active account is unknown.
-  const account = getActiveAccount()?.broker ?? null;
+  // Scope the daily-loss halt to the SPECIFIC account we'd route to — one
+  // account's losses must not halt another. Use the account id (not the broker
+  // label) so two different Tradovate accounts don't share one tally. Falls back
+  // to all-accounts when the active account is unknown.
+  const account = getActiveAccount()?.id ?? null;
   const dayState = { realizedLossUsd: dayRealizedLossUsd(fills, account) };
   return checkOrder({ hasStop: payload?.hasStop, sizing: payload?.sizing, guards: payload?.guards, dayState });
 }
