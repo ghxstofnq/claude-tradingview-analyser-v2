@@ -37,6 +37,16 @@ test("nextState — PAUSE_AWAITING + DECISION → AUTO_RUNNING", () => {
   assert.equal(nextState("PAUSE_AWAITING", { type: "DECISION", choice: "reject" }), "AUTO_RUNNING");
 });
 
+test("nextState — VIEW_TESTS reaches TESTS from any navigable state; TESTS exits", () => {
+  for (const from of ["IDLE", "DONE", "LIBRARY", "DETAIL", "TESTS"]) {
+    assert.equal(nextState(from, { type: "VIEW_TESTS" }), "TESTS");
+  }
+  assert.equal(nextState("TESTS", { type: "VIEW_ALL" }), "LIBRARY");
+  assert.equal(nextState("TESTS", { type: "DISMISS" }), "IDLE");
+  assert.equal(nextState("TESTS", { type: "RUN_ANOTHER" }), "IDLE");
+  assert.equal(nextState("TESTS", { type: "START", mode: "auto" }), "AUTO_RUNNING");
+});
+
 test("nextState — COMPLETE from running/paused → DONE", () => {
   assert.equal(nextState("AUTO_RUNNING", { type: "COMPLETE" }), "DONE");
   assert.equal(nextState("PAUSE_AWAITING", { type: "COMPLETE" }), "DONE");
