@@ -217,9 +217,11 @@ export async function runBacktest({
   fs.mkdirSync(sessionDir, { recursive: true });
   // The instrument this run traded — tags the summary + index so analytics can
   // be read per symbol (MNQ vs MES). Truthful source: the symbol the popover
-  // sent for this job (BOTH expands to separate per-symbol jobs). null when
-  // unknown — never guessed.
-  const runSymbol = canonicalSymbol(symbol);
+  // sent for this job (BOTH expands to separate per-symbol jobs). Headless runs
+  // (run-backtest-headless.js) pass no symbol but set BACKTEST_LEADER to pick
+  // the instrument — tag the run with it so it isn't registered as null. Still
+  // null when neither names an instrument — never guessed.
+  const runSymbol = canonicalSymbol(symbol) || canonicalSymbol(process.env.BACKTEST_LEADER);
 
   const startedAt = Date.now();
   let stopped = false;
