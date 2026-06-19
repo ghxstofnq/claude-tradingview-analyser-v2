@@ -9,6 +9,7 @@ import Analytics from "./Analytics.jsx";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
+  weekdaysBetween, expandStudy, todayET,
 } from "./Backtest.helpers.js";
 
 // Header state-switcher (designer's NEW/RUN/PAUSE/DONE/ANALYTICS). Internal
@@ -183,9 +184,12 @@ function IdleBody({ state, actions }) {
   const selected = SESS.filter(([k]) => sessions[k]);
   const symLabel = { mnq: "MNQ1!", mes: "MES1!", both: "MNQ1! + MES1!" }[symbol];
   const days = weekdaysBetween(start, end);
-  const recordings = days * selected.length;
-  const canRun = days > 0 && selected.length > 0;
-  const run = () => { if (canRun) actions.startStudy(expandStudy({ symbol, start, end, sessions, mode })); };
+  // Jobs drop any (date, session) whose session hasn't closed yet, so the count
+  // and the run reflect what's actually replayable — not future dates.
+  const jobs = expandStudy({ symbol, start, end, sessions, mode });
+  const recordings = jobs.length;
+  const canRun = jobs.length > 0;
+  const run = () => { if (canRun) actions.startStudy(jobs); };
 
   return (
     <>
@@ -207,7 +211,7 @@ function IdleBody({ state, actions }) {
           <div className="cfg-dates">
             <label className="cfg-date"><span className="dk">START</span><input type="date" value={start} max={end} onChange={(e) => editDate("start", e.target.value)} /></label>
             <span className="arrow">→</span>
-            <label className="cfg-date"><span className="dk">END</span><input type="date" value={end} min={start} onChange={(e) => editDate("end", e.target.value)} /></label>
+            <label className="cfg-date"><span className="dk">END</span><input type="date" value={end} min={start} max={todayET()} onChange={(e) => editDate("end", e.target.value)} /></label>
           </div>
         </div>
 
@@ -255,37 +259,6 @@ function IdleBody({ state, actions }) {
       </div>
     </>
   );
-}
-
-// Weekdays (Mon–Fri) inclusive between two ISO dates; 0 if invalid/reversed.
-function weekdaysBetween(a, b) {
-  const s = new Date(a + "T00:00"), e = new Date(b + "T00:00");
-  if (isNaN(s) || isNaN(e) || e < s) return 0;
-  let n = 0;
-  for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-    const wd = d.getDay();
-    if (wd >= 1 && wd <= 5) n++;
-  }
-  return n;
-}
-
-// Expand a study into sequential jobs — one per (weekday × selected session ×
-// symbol). The engine reads `symbol` to pick the leader; BOTH expands to an
-// MNQ job and an MES job so each leader is folded in turn.
-function expandStudy({ symbol, start, end, sessions, mode }) {
-  const s = new Date(start + "T00:00"), e = new Date(end + "T00:00");
-  if (isNaN(s) || isNaN(e) || e < s) return [];
-  const order = ["london", "ny-am", "ny-pm"];
-  const sel = order.filter((k) => sessions[k]);
-  const syms = symbol === "both" ? ["mnq", "mes"] : [symbol];
-  const jobs = [];
-  for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-    const wd = d.getDay();
-    if (wd < 1 || wd > 5) continue;
-    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    for (const session of sel) for (const sym of syms) jobs.push({ date, session, mode, symbol: sym });
-  }
-  return jobs;
 }
 
 // Preset date ranges relative to today (Mon–Fri weeks).
