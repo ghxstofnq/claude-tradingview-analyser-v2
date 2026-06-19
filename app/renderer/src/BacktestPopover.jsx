@@ -647,6 +647,11 @@ function LibraryBody({ state, actions, symbolView }) {
   const gradeCut = (g) => (A.by_grade ?? []).find((r) => r.k === g) ?? null;
   const aplus = gradeCut("A+");
   const bCut = gradeCut("B");
+  const agreementPct = (() => {
+    const a = agg.agreement;
+    const total = (a?.agreed ?? 0) + (a?.disagreed ?? 0);
+    return total === 0 ? "—" : `${Math.round((100 * a.agreed) / total)}%`;
+  })();
 
   return (
     <>
@@ -684,9 +689,9 @@ function LibraryBody({ state, actions, symbolView }) {
             </span>
           </div>
           <div className="lcell">
-            <span className="k">EXPECTANCY</span>
-            <span className="v amber">{A.expectancy > 0 ? "+" : ""}{A.expectancy.toFixed(2)}R</span>
-            <span className="sub">per trade</span>
+            <span className="k">AGREEMENT</span>
+            <span className="v amber">{agreementPct}</span>
+            <span className="sub">{agg.agreement.agreed} / {agg.agreement.agreed + agg.agreement.disagreed} graded</span>
           </div>
         </div>
       </div>
