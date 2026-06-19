@@ -60,6 +60,15 @@ describe("buildTrackRecordFromFills", () => {
     assert.equal(buildTrackRecordFromFills([{ actual: {} }]).n_trades, 0);
     assert.equal(buildTrackRecordFromFills([]).cum_r, 0);
   });
+  it("excludes break-even fills (r=0) from win-rate", () => {
+    const A = buildTrackRecordFromFills([
+      { actual: { r: 1.6, usd: 320 } },
+      { actual: { r: -1.0, usd: -200 } },
+      { actual: { r: 0, usd: 0 } },
+    ]);
+    assert.equal(A.n_trades, 3);   // BE still a trade taken
+    assert.equal(A.win_pct, 50);   // 1 win / (1 win + 1 loss) — BE excluded, not 33
+  });
 });
 
 describe("buildTrackRecordByAccount", () => {

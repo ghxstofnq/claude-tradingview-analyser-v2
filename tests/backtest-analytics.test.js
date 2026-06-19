@@ -22,6 +22,18 @@ test("aggregate computes cumR, expectancy, payoff, win-rate", () => {
   assert.equal(a.payoff, 4);
 });
 
+test("aggregate — break-even scratches are excluded from win-rate (not a loss)", () => {
+  const a = aggregate([
+    { r: 4, outcome: "tp1_hit" },
+    { r: -1, outcome: "stop_hit" },
+    { r: 0, outcome: "closed_be" },
+  ]);
+  assert.equal(a.n, 3);          // BE is still a trade taken
+  assert.equal(a.winRate, 50);   // 1 win / (1 win + 1 loss) — BE excluded, NOT 33%
+  assert.equal(a.cumR, 3);
+  assert.equal(a.expectancy, 1); // 3R / 3 trades — BE still dilutes expectancy
+});
+
 test("aggregate produces an equity curve + max drawdown", () => {
   const a = aggregate(trades);
   assert.deepEqual(a.equity, [4, 3, 7]);
