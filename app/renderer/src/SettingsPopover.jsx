@@ -131,7 +131,11 @@ function SettingsPopover({ guards, setGuards, onClose }) {
         </div>
         <div className="section">
           <div className="sect-hd"><span>EXECUTION</span></div>
-          <Row k="Broker" v={exec.connected
+          {/* Reflect the broker orders actually route to (active/confirmed account),
+              not a hardcoded "PAPER TRADING" — a Tradovate account showed paper here. */}
+          <Row k="Broker" v={(acct?.active || acct?.confirmed)
+            ? <span style={{ color: live ? "var(--red)" : "var(--green)" }}>● {broker.toUpperCase()}</span>
+            : exec.connected
             ? <span style={{ color: "var(--green)" }}>● PAPER TRADING</span>
             : <span style={{ color: "var(--amber)" }}>{exec.loading ? "checking…" : "○ not connected — connect in TradingView"}</span>} />
           <Row k="Per-order confirm" v={<span style={{ color: "var(--amber)" }}>OFF · fires on accept</span>} />

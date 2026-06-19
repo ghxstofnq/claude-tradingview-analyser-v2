@@ -50,6 +50,7 @@ function recordRoundTrip() {
   try {
     appendFill(TRADES_DIR, today(), {
       account: "paper",
+      accountId: state.accountId ?? null, // scope the daily halt to THIS paper account
       symbol: openTrade.symbol,
       side: openTrade.side,
       qty: openTrade.qty,

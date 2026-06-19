@@ -24,12 +24,16 @@ export function readFills(tradesDir, date) {
 }
 
 // Daily realized LOSS as a positive $ number (for the daily-halt guardrail).
-// `account` scopes the sum to one account's fills (e.g. "paper" / "tradovate")
-// so a halt on one account is never charged another account's losses. Null/
-// omitted = all accounts (back-compat). Fills are labelled at write time
-// (trading-feed → "paper", tradovate-fills → "tradovate").
+// `account` scopes the sum to ONE account so a halt on one account is never
+// charged another's losses. It matches a fill's specific `accountId` first
+// (e.g. "D50756821") and falls back to the broker `account` label
+// ("paper"/"tradovate") for fills written before per-account ids — that broker
+// fallback is also why two different Tradovate accounts used to share a tally.
+// Null/omitted = all accounts (back-compat). Fills are labelled at write time
+// (trading-feed → paper id, tradovate-fills → Tradovate account id).
 export function dayRealizedLossUsd(fills = [], account = null) {
-  const scoped = account == null ? fills : fills.filter((f) => f?.account === account);
+  const key = account == null ? null : String(account);
+  const scoped = key == null ? fills : fills.filter((f) => String(f?.accountId ?? f?.account) === key);
   const loss = scoped.reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0);
   return Math.abs(loss);
 }

@@ -46,6 +46,21 @@ describe("fills", () => {
     assert.equal(dayRealizedLossUsd(all, "paper"), 100);      // paper not charged tradovate's loss
     assert.equal(dayRealizedLossUsd(all, "tradovate"), 2549);
   });
+  it("scopes by account id so two DIFFERENT tradovate accounts don't cross-charge", () => {
+    // Both fills carry broker label "tradovate" but different account ids — the
+    // exact bug: lose on one tradovate account, switch to another, get halted.
+    appendFill(dir, "2026-06-19", { account: "tradovate", accountId: "D50756821", actual: { usd: -800 } });
+    appendFill(dir, "2026-06-19", { account: "tradovate", accountId: "D99999999", actual: { usd: -300 } });
+    const all = readFills(dir, "2026-06-19");
+    assert.equal(dayRealizedLossUsd(all, "D50756821"), 800);  // only this account's loss
+    assert.equal(dayRealizedLossUsd(all, "D99999999"), 300);  // the fresh account starts clean-ish
+    assert.equal(dayRealizedLossUsd(all), 1100);              // null = all accounts
+  });
+  it("falls back to the broker label for fills written before per-account ids", () => {
+    appendFill(dir, "2026-06-19", { account: "tradovate", actual: { usd: -500 } }); // no accountId
+    const all = readFills(dir, "2026-06-19");
+    assert.equal(dayRealizedLossUsd(all, "tradovate"), 500);
+  });
   it("fillsByAccount groups by label; unlabelled bucket under 'unknown'", () => {
     const g = fillsByAccount([
       { account: "paper", actual: { usd: 1 } },

@@ -82,8 +82,10 @@ export function planTrancheExit(transition, events) {
 // cancels the sibling when one leg fills — there is no orphan to cancel. The
 // only engine-driven actions left are the A+ runner's break-even stop move (at
 // TP1) and the 16:00 flatten. Pure — returns the action list, or null when the
-// tranche isn't a Tradovate standalone. modify_stop_be reprices the existing
-// stop in place (modifyTradovateStop self-resolves the stop order id).
+// tranche isn't a Tradovate standalone. modify_stop_be moves THIS tranche's own
+// stop to ITS OWN entry: `price` is the break-even level (this tranche's entry)
+// and `fromStop` is its original stop price, so with several adds open at once
+// the right bracket's stop is moved — not whichever stop happens to be first.
 export function planTradovateExit(transition, events) {
   const accept = events.find((e) => e.type === "accept" && e.id === transition.id);
   if (!accept) return null;
@@ -91,7 +93,7 @@ export function planTradovateExit(transition, events) {
   if (!orders) return null; // not a Tradovate tranche
   const actions = [];
   if (transition.status === "TP1_HIT" && runnerEligible(accept)) {
-    actions.push({ kind: "modify_stop_be", price: accept.entry });
+    actions.push({ kind: "modify_stop_be", price: accept.entry, fromStop: accept.stop });
   } else if (transition.status === "CLOSED_EOD") {
     actions.push({ kind: "flatten" }, { kind: "cancel_all" });
   }
@@ -112,7 +114,7 @@ export async function applyTrancheExit(transition, deps) {
     const plan = planTradovateExit(transition, events);
     if (!plan || plan.actions.length === 0) return { skipped: true };
     for (const a of plan.actions) {
-      if (a.kind === "modify_stop_be") await d.modifyTradovateStop({ stopPrice: a.price });
+      if (a.kind === "modify_stop_be") await d.modifyTradovateStop({ stopPrice: a.price, matchStopPrice: a.fromStop });
       else if (a.kind === "flatten") await d.closeTradovatePosition({});
       else if (a.kind === "cancel_all") await d.cancelTradovateOrders();
     }

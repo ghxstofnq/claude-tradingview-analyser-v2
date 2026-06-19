@@ -103,6 +103,7 @@ async function tick() {
         try {
           appendFill(TRADES_DIR, today(), {
             account: "tradovate",
+            accountId: getTradovate().accountId ?? null, // scope the daily halt to THIS Tradovate account
             symbol: openTrade.instrument, side: rt.side, qty: rt.qty,
             planned: { entry: rt.entry, stop: null, tp: null },
             actual: { entry: rt.entry, exit: rt.exit, usd: rt.usd, r: null, heldMs: rt.openMs && rt.closeMs ? rt.closeMs - rt.openMs : Date.now() - openTrade.openedMs },

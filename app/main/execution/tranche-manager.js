@@ -144,7 +144,7 @@ export async function openTrancheNow({ packet, role = "add" }, deps) {
 // Production deps. Heavy modules (CDP/adapter/journal) imported lazily so the
 // unit test (which injects fakes) never loads electron/ws.
 async function buildRealDeps() {
-  const [{ readExecConfig }, sessions, outcomes, { checkOrder }, fills, exec, gate, active, autoResume] = await Promise.all([
+  const [{ readExecConfig, TRADES_DIR }, sessions, outcomes, { checkOrder }, fills, exec, gate, active, autoResume] = await Promise.all([
     import("./config.js"), import("../sessions.js"), import("../../../cli/lib/trade-outcomes.js"),
     import("./guardrails.js"), import("./fills.js"), import("./tranche-exec.js"),
     import("./account-gate.js"), import("./active-account.js"), import("./auto-resume.js"),
@@ -179,7 +179,10 @@ async function buildRealDeps() {
       return s + (Number.isFinite(pts) ? pts * pointValue(t.symbol) * c : 0);
     }, 0),
     consecutiveLossStreak: (events) => outcomes.consecutiveLossStreak(events),
-    dayRealizedLossUsd: () => { try { const acct = active.getActiveAccount()?.broker ?? null; return fills.dayRealizedLossUsd(fills.readFills(fills.TRADES_DIR ?? undefined, new Date().toISOString().slice(0, 10)), acct); } catch { return 0; } },
+    // Scope to THIS account's id (not the broker label) + read from the real
+    // TRADES_DIR (config), not the non-existent fills.TRADES_DIR which silently
+    // read nothing — so auto mode previously had no daily halt at all.
+    dayRealizedLossUsd: () => { try { const acct = active.getActiveAccount()?.id ?? null; return fills.dayRealizedLossUsd(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), acct); } catch { return 0; } },
     checkOrder,
     accept: async (payload) => {
       const { acceptSetup } = await import("../trades.js");
