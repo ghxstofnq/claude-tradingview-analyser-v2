@@ -142,15 +142,18 @@ test('entry cutoff: a confirmation closing 15:33 ET is blocked', () => {
 });
 
 test('entry cutoff: the 15:31 close (15:30 candle) is the last allowed; 15:32 is blocked', () => {
+  // 'acceptable' displacement isolates the entry-cutoff check from the
+  // late-clean exhaustion cap (which would otherwise demote these A+ to B).
+  const accept = { status: 'pass', displacement: 'acceptable', blockers: [] };
   const allowed = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-02T19:31:00.000Z' }), // 15:31 ET
+    context: executableContext({ sessionChain: alignedChain(), pillar2: accept, eventTimeUtc: '2026-06-02T19:31:00.000Z' }), // 15:31 ET
     walker: confirmedMssWalker(),
   });
   assert.equal(allowed.status, 'executable');
   assert.ok(!allowed.blockers.includes('entry_after_session_cutoff'));
 
   const blocked = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-02T19:32:00.000Z' }), // 15:32 ET
+    context: executableContext({ sessionChain: alignedChain(), pillar2: accept, eventTimeUtc: '2026-06-02T19:32:00.000Z' }), // 15:32 ET
     walker: confirmedMssWalker(),
   });
   assert.equal(blocked.status, 'blocked');
@@ -176,13 +179,37 @@ test('AM cutoff: a B setup at 11:45 ET is blocked; an A+ setup is allowed', () =
   assert.equal(lateB.status, 'blocked');
   assert.ok(lateB.blockers.includes('b_grade_after_am_cutoff'));
 
-  // Aligned chain → grade A+. Same 11:45 ET bar → allowed (A+ keeps the rope).
+  // Aligned chain + 'acceptable' (non-exhaustion) displacement → grade A+. Same
+  // 11:45 ET bar → allowed (A+ keeps the rope). 'acceptable' avoids the late-clean
+  // exhaustion cap, which is exercised separately below.
   const lateAplus = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
+    context: executableContext({ sessionChain: alignedChain(), pillar2: { status: 'pass', displacement: 'acceptable', blockers: [] }, eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
     walker: confirmedMssWalker(),
   });
   assert.equal(lateAplus.status, 'executable');
   assert.ok(!lateAplus.blockers.includes('b_grade_after_am_cutoff'));
+});
+
+// Exhaustion cap (auto-research finding 2026-06-20): a CLEAN/sharp displacement
+// = the impulse already fired, so a clean entry taken LATE (>= 11:00 ET) is an
+// exhaustion entry and is demoted from A+ to B (no TP2 runner). EARLY clean A+
+// entries are spared.
+test('exhaustion cap: a clean-displacement A+ confirming late is demoted to B', () => {
+  // PM session at 12:30 ET — clean + aligned would be A+, but late → capped to B.
+  // PM has no B cutoff, so it still trades (as B), proving the cap not a block.
+  const lateClean = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain(), session: 'ny-pm', eventTimeUtc: '2026-06-11T16:30:00.000Z' }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(lateClean.status, 'executable');
+  assert.equal(lateClean.grade, 'B');
+
+  // Same clean + aligned setup taken EARLY (09:47 ET) keeps A+.
+  const earlyClean = buildExecutionPacketForWalker({
+    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-05-29T13:47:00.000Z' }),
+    walker: confirmedMssWalker(),
+  });
+  assert.equal(earlyClean.grade, 'A+');
 });
 
 test('AM cutoff: a B setup BEFORE 11:40 ET is allowed', () => {
