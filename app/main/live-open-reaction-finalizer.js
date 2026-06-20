@@ -102,6 +102,17 @@ export async function finalizeOpenReactionDeterministic({ session, eventTs, minu
       : "post-window swing structure to earn direction (§7 Step 7)",
   });
 
+  // The HTF fallback (htf-fallback.js) is the lowest-precedence read: a neutral
+  // NY-AM open traded in the HTF direction at B. It must NOT be FROZEN into
+  // ltf-bias.md — a post-window structure should still be able to realign it.
+  // Leave ltf-bias.md absent so the per-bar chain (bar-close buildDetectorInputs)
+  // recomputes the resolver every bar (where the fallback re-fires OR a real
+  // structure wins) — exact backtest parity. The open-reaction tracker above
+  // still shows it for visibility.
+  if (ctx?.interaction === "htf_fallback") {
+    return { wrote: false, leader, bias, alignment: ctx?.htf_ltf_alignment ?? null, reason: "htf_fallback_deferred" };
+  }
+
   await d.writeLtfBias({
     session,
     ltf_bias: bias,

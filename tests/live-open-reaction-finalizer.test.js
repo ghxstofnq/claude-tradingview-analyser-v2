@@ -130,6 +130,23 @@ describe("finalizeOpenReactionDeterministic", () => {
     }
   });
 
+  it("does NOT freeze an htf_fallback bias — leaves ltf-bias.md absent for per-bar recompute", async () => {
+    const { deps, calls } = makeDeps({
+      deriveBias: async () => ({
+        bias: "bearish", htf_ltf_alignment: "unclear", is_retrace_day: false,
+        entry_model_priority: "undecided", grade_cap: "B",
+        source: "deterministic-resolver:htf-fallback", interaction: "htf_fallback",
+        cite: "session_state.pillar1.htfBias",
+      }),
+    });
+    const r = await finalizeOpenReactionDeterministic({ ...BASE, deps });
+    assert.equal(r.wrote, false);
+    assert.equal(r.reason, "htf_fallback_deferred");
+    assert.equal(r.bias, "bearish");      // reported for visibility
+    assert.equal(calls.ltfBias.length, 0); // but NOT persisted (no freeze)
+    assert.equal(calls.openReaction.length, 1); // tracker still shows it
+  });
+
   it("returns capture_failed without writing anything when the capture throws or is empty", async () => {
     for (const cap of [async () => { throw new Error("wedge"); }, async () => ({ bundle: null }), async () => null]) {
       const { deps, calls } = makeDeps({ capture: cap });

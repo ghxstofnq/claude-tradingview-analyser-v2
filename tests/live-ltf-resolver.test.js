@@ -160,3 +160,46 @@ test("late-earned direction can still be flipped by a later opposing swing MSS",
   assert.equal(r.bias, "bearish");
   assert.equal(r.htf_ltf_alignment, "aligned");
 });
+
+// Pillar 1 HTF fallback (§2.4 / §7 Step 7): a NEUTRAL NY-AM open (no resolved
+// bias past the window) trades the HTF direction at B. NY-AM only; never PM.
+const AMW = openReactionWindowMs({ date: "2026-06-12", session: "ny-am" });
+const amTsPast = (offMin) => new Date(AMW.endMs + offMin * 60_000).toISOString();
+
+test("NY-AM neutral open past the window falls back to HTF bias at B", () => {
+  const r = deriveLtfBiasContext({ bundle: bundleWith(), brief: BRIEF, session: "ny-am", eventTs: amTsPast(5) });
+  assert.equal(r.bias, "bearish"); // HTF direction (brief bear draw)
+  assert.equal(r.htf_ltf_alignment, "unclear");
+  assert.equal(r.grade_cap, "B");
+  assert.equal(r.interaction, "htf_fallback");
+  assert.equal(r.source, "deterministic-resolver:htf-fallback");
+});
+
+test("NY-PM neutral open does NOT fall back (PM is usually chop)", () => {
+  const pmw = openReactionWindowMs({ date: "2026-06-12", session: "ny-pm" });
+  const r = deriveLtfBiasContext({ bundle: bundleWith(), brief: BRIEF, session: "ny-pm", eventTs: new Date(pmw.endMs + 5 * 60_000).toISOString() });
+  assert.equal(r.bias, null);
+});
+
+test("NY-AM neutral open INSIDE the window does not fall back yet", () => {
+  const r = deriveLtfBiasContext({ bundle: bundleWith(), brief: BRIEF, session: "ny-am", eventTs: new Date(AMW.resolveMs + 2 * 60_000).toISOString() });
+  assert.equal(r.bias, null);
+});
+
+test("a real structure still wins over the HTF fallback (per-bar recompute)", () => {
+  const b = bundleWith();
+  b.gates.engine.pillar3.structures_by_tier = { swing: [{ event: "bos", dir: "bull", tier: "swing", confirmed_ms: AMW.endMs + 2 * 60_000 }] };
+  const r = deriveLtfBiasContext({ bundle: b, brief: BRIEF, session: "ny-am", eventTs: amTsPast(5) });
+  assert.equal(r.bias, "bullish");       // late_direction wins, not the bear fallback
+  assert.equal(r.interaction, "late_direction");
+});
+
+test("opt-out (GOFNQ_P1_HTF_FALLBACK=0) keeps the chain honestly blocked", () => {
+  process.env.GOFNQ_P1_HTF_FALLBACK = "0";
+  try {
+    const r = deriveLtfBiasContext({ bundle: bundleWith(), brief: BRIEF, session: "ny-am", eventTs: amTsPast(5) });
+    assert.equal(r.bias, null);
+  } finally {
+    delete process.env.GOFNQ_P1_HTF_FALLBACK;
+  }
+});

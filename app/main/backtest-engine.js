@@ -38,6 +38,7 @@ import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js
 import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
 import { canonicalSymbol } from "../../cli/lib/run-symbol.js";
 import { swingStructuresForBias, swingStructuresForRealign } from "./structure-source.js";
+import { htfFallbackVerdict } from "./htf-fallback.js";
 
 const SESSION_WINDOWS = {
   "ny-am": { from: "09:30", to: "12:00" },
@@ -519,6 +520,37 @@ export async function runBacktest({
           chainStatus = openReaction.chainStatus;
           lastRealignMs = mss.confirmed_ms;
           appendActivity({ kind: "mss_realignment", bias: structBias, alignment: openReaction.htf_ltf_alignment, cite: openReaction.cite });
+        }
+      }
+      // Pillar 1 HTF fallback (§2.4 / §7 Step 7): a NEUTRAL NY-AM open — the open
+      // reaction never resolved a bias AND no post-window structure earned one —
+      // is still a B trade in the HTF direction, not a stand-aside. Shared helper
+      // with the live resolver (htf-fallback.js) so the two paths can't drift.
+      // Applied per bar AFTER late_direction/realignment, so a real structure
+      // always wins (this fires only while ltf_bias is still null).
+      if (synthesizedContext && (!openReaction || !openReaction.ltf_bias)) {
+        const patch = htfFallbackVerdict({
+          htfBias: context?.session_state?.pillar1?.htfBias ?? null,
+          session,
+          ms: entryMs,
+          windowEndMs: orWindow.endMs,
+        });
+        if (patch) {
+          openReaction = {
+            ...(openReaction ?? {}),
+            ...patch,
+            resolved_at_ts: entry.event?.ts ?? null,
+            chainStatus: 'degraded:htf_fallback',
+            ltf_bias_context: {
+              ...(openReaction?.ltf_bias_context ?? {}),
+              bias: patch.ltf_bias,
+              htf_ltf_alignment: patch.htf_ltf_alignment,
+              is_retrace_day: patch.is_retrace_day,
+              entry_model_priority: openReaction?.ltf_bias_context?.entry_model_priority ?? 'undecided',
+              grade_cap: patch.grade_cap,
+            },
+          };
+          chainStatus = openReaction.chainStatus;
         }
       }
       if (synthesizedContext && openReaction) {
