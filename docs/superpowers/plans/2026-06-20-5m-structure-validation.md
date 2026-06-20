@@ -30,11 +30,12 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 ### Task 0.1 — Pin the exact field split (5m vs 1m)
 - Decide, field-by-field, which walker inputs read 5m vs 1m. Proposed:
   - **5m:** `pillar3.swings`, `structures_by_tier.swing/internal`, `failure_swings`,
-    `fvgs`/`bprs` (the tapped zone), `structural_stops`, `price_context.inside_fvgs`.
+    `fvgs`/`bprs` (the tapped zone), `price_context.inside_fvgs`.
   - **1m (unchanged):** the confirmation close / entry price, `confirm_ms`, the bar that
     fires the order, `ohlcv1m`.
-  - **Resolve:** the **stop** — 5m structural invalidation is wider; confirm that's intended
-    (it is, per §6 "structural invalidation of the PD array/swing").
+  - **Stop = independent variable `STOP_TF`, test BOTH 1m and 5m** (user decision 2026-06-20).
+    Do NOT assume the 5m stop. The fold compares structure-5m with a 1m stop vs a 5m stop, so
+    `structural_stops` is a knob, not fixed to 5m.
 - **Acceptance:** a field-by-field table (5m/1m) appended here, signed off.
 - **Verification:** cross-check [docs/strategy/entry-models.md](../../strategy/entry-models.md)
   (structure = 5m, tap/close = 1m).
@@ -81,12 +82,14 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 - **Acceptance:** flag off = identical; flag on = structure 5m, entry 1m.
 - **Verification:** `npm run test:unit` green both states; replay corpus unchanged with flag off.
 
-### Task 2.2 — Stops & TP pivots follow 5m structure
-- **Files:** `app/main/strategy/walkers/execution-packet.js` (`targetPool`, stop selection).
-- Under flag `5m`: structural stop anchors on 5m swing pivots / leg extremes; intraday TP
-  pivots from 5m swings. Brief `untaken_targets` (session levels) unchanged.
-- **Acceptance:** stop + intraday TP pivots are 5m-derived under the flag.
-- **Verification:** unit test — stop is the 5m invalidation, not a 1m micro-pivot.
+### Task 2.2 — TP pivots follow 5m; stop is its own `STOP_TF` knob (1m | 5m)
+- **Files:** `app/main/strategy/walkers/execution-packet.js` (`targetPool`, stop selection),
+  `app/main/config.js` (`STOP_TF`).
+- Intraday TP pivots come from 5m swings (with `STRUCTURE_TF=5m`). The **stop** reads its
+  anchor pool from `STOP_TF` **independently**: `1m` = today's 1m swing pivots / leg extremes;
+  `5m` = the 5m invalidation. Brief `untaken_targets` (session levels) unchanged.
+- **Acceptance:** `STOP_TF` selects the stop-anchor TF independently of `STRUCTURE_TF`.
+- **Verification:** unit test — same setup yields a 1m-tight stop vs a 5m-wide stop per `STOP_TF`.
 
 **CHECKPOINT 2 — walker behavior under the flag reviewed on a single fixture day.**
 
@@ -102,9 +105,11 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 
 ### Task 3.2 — Fold script: 1m vs 5m structure, side by side
 - **Files:** `scripts/fold-structure-tf.mjs` (new), reuse `fold-live-corpus` plumbing.
-- Folds each session twice (flag `1m`, flag `5m`); reports per session: R, −3R flag, win-rate,
-  and the **per-trade diff** (which losers vanish, which winners change).
-- **Acceptance:** one report table, worst weeks first.
+- Folds each session across the variant grid — at minimum: (a) `1m/1m` baseline,
+  (b) `structure 5m / stop 1m`, (c) `structure 5m / stop 5m`. Reports per session: R, −3R flag,
+  win-rate, and the **per-trade diff** (which losers vanish, which winners change) — so the
+  STOP effect (1m vs 5m) is isolated from the structure effect.
+- **Acceptance:** one report table per variant, worst weeks first.
 - **Verification:** confirm the false-structure losers (1m-MSS whipsaws) are the ones that change.
 
 **CHECKPOINT 3 — review worst-weeks result. Go/no-go before whole-corpus fold.**
@@ -133,7 +138,8 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 ## Risks / notes
 - **Data cost:** every validation step needs re-recording (tapes are 1m-only today). Phase 1
   is the long pole.
-- **Wider 5m stops** change R:R and TP1 reachability — watch the `tp1_below_1_5r` blocker rate.
+- **Stop TF is tested, not assumed** (`STOP_TF` 1m vs 5m): wider 5m stops change R:R and TP1
+  reachability — the fold grid isolates this; watch the `tp1_below_1_5r` blocker rate.
 - **Capture cadence:** live 5m structure must be ≤5min fresh or the walker reads a stale leg.
 - **Caveat (intent):** this is *not* the −55R "5m confirmation" change; entry stays 1m.
 
@@ -144,8 +150,8 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 - [ ] **1.1** Tape recorder 5m track
 - [ ] **1.2** Live hunt 5m freshness — CHECKPOINT 1
 - [ ] **2.1** `STRUCTURE_TF` flag + sourcing swap
-- [ ] **2.2** 5m stops + TP pivots — CHECKPOINT 2
+- [ ] **2.2** TP pivots 5m + `STOP_TF` knob (1m|5m) — CHECKPOINT 2
 - [ ] **3.1** Re-record worst weeks
-- [ ] **3.2** `fold-structure-tf.mjs` worst-weeks report — CHECKPOINT 3
+- [ ] **3.2** `fold-structure-tf.mjs` grid (1m/1m · str5m/stop1m · str5m/stop5m) — CHECKPOINT 3
 - [ ] **4.1** Whole-corpus fold + decision gate — CHECKPOINT 4
 - [ ] **5** Ship (only if Phase 4 passes)
