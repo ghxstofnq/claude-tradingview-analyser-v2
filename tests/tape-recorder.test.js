@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contextFromLabel, buildTapeEntry, recordTape } from "../cli/lib/tape-recorder.js";
+import { contextFromLabel, buildTapeEntry, recordTape, mergeFiveMinuteTrack } from "../cli/lib/tape-recorder.js";
 
 const shortLabel = {
   fixture: "2026-06-09-mnq-ny-am-inversion-short",
@@ -79,48 +79,39 @@ test("buildTapeEntry: builds a live-shaped inputs record with fresh engine meta"
   assert.equal(entry.inputs.bundle.engine_by_tf, null);
 });
 
-// CHECKPOINT 0 (2026-06-20): capture BOTH the 1m and 5m engines in full so the
-// walker can decide per-field which to use (structure from 5m, FVGs/entry from 1m).
-test("buildTapeEntry: captures a full 5m engine track when engine5m is provided", () => {
-  const nowMs = Date.now();
-  const bars = {
-    count: 3,
-    last_5_bars: [
-      { time: 1781012880, open: 29830, high: 29847, low: 29826, close: 29843.75 },
-      { time: 1781012940, open: 29844, high: 29846, low: 29805.25, close: 29806.25 },
-      { time: 1781013000, open: 29806.25, high: 29806.25, low: 29806.25, close: 29806.25 },
-    ],
+// CHECKPOINT 0 (2026-06-20): the 5m engine is captured in a SECOND full pass and
+// merged by timestamp — each 1m entry gets the LAST 5m bar that closed at/before
+// it. Both engines kept in full so the walker decides per-field which to use.
+function fiveMEntry(closeIso, label) {
+  return {
+    event: { ts: closeIso, tf: "5m" },
+    inputs: { bundle: {
+      engine: { schema: 2, schema_supported: true, meta: { schema: 2, tf: "5", emit_ms: 1, symbol: "MNQ1!" },
+        levels: [], sweeps: [], fvgs: [], bprs: [], swings: [{ price: 1, is_high: true }],
+        structures: [{ event: "mss", dir: label }], pools: [], quality: null },
+      bars: { last_5_bars: [{ time: 1, open: 1, high: 1, low: 1, close: 1 }] },
+    } },
   };
-  const engine = {
-    schema: 2, schema_supported: true,
-    meta: { schema: 2, tf: "1", emit_ms: nowMs - 2000, symbol: "MNQ1!" },
-    levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [], pools: [], quality: null,
-  };
-  const engine5m = {
-    schema: 2, schema_supported: true,
-    meta: { schema: 2, tf: "5", emit_ms: nowMs - 3000, symbol: "MNQ1!" },
-    levels: [], sweeps: [], fvgs: [], bprs: [],
-    swings: [{ price: 29900, is_high: true }],
-    structures: [{ event: "mss", dir: "bear" }],
-    pools: [], quality: null,
-  };
-  const bars5m = {
-    count: 2,
-    last_5_bars: [
-      { time: 1781012700, open: 29850, high: 29860, low: 29800, close: 29810 },
-      { time: 1781013000, open: 29810, high: 29812, low: 29808, close: 29809 },
-    ],
-  };
-  const ctx = contextFromLabel(shortLabel);
-  const entry = buildTapeEntry({ engine, bars, context: ctx, captureNowMs: nowMs, engine5m, bars5m });
+}
+function oneMEntry(closeIso) {
+  return { event: { ts: closeIso, tf: "1m" }, inputs: { bundle: { engine: { meta: { tf: "1" } }, engine_by_tf: null, bars_by_tf: { m5: { last_5_bars: [] } } } } };
+}
 
-  // Both engines present in full.
-  assert.equal(entry.inputs.bundle.engine.meta.tf, "1");
-  assert.equal(entry.inputs.bundle.engine_by_tf.m5.meta.tf, "5");
-  assert.equal(entry.inputs.bundle.engine_by_tf.m5.structures[0].event, "mss");
-  assert.ok(entry.inputs.bundle.engine_by_tf.m5.swings.length >= 1);
-  // 5m bars carried (the TV forming bar is dropped, same as the 1m track).
-  assert.ok(entry.inputs.bundle.bars_by_tf.m5.last_5_bars.length >= 1);
+test("mergeFiveMinuteTrack: each 1m entry gets the last-closed 5m engine; pre-first-close stays null", () => {
+  const e1m = [
+    oneMEntry("2026-06-09T13:33:00.000Z"), // before first 5m close (13:35) → null
+    oneMEntry("2026-06-09T13:36:00.000Z"), // after 13:35 close → bear
+    oneMEntry("2026-06-09T13:41:00.000Z"), // after 13:40 close → bull
+  ];
+  const e5m = [
+    fiveMEntry("2026-06-09T13:35:00.000Z", "bear"),
+    fiveMEntry("2026-06-09T13:40:00.000Z", "bull"),
+  ];
+  const merged = mergeFiveMinuteTrack(e1m, e5m);
+  assert.equal(merged[0].inputs.bundle.engine_by_tf, null);
+  assert.equal(merged[1].inputs.bundle.engine_by_tf.m5.structures[0].dir, "bear");
+  assert.equal(merged[2].inputs.bundle.engine_by_tf.m5.structures[0].dir, "bull");
+  assert.equal(merged[1].inputs.bundle.engine_by_tf.m5.meta.tf, "5");
 });
 
 // ----------------------------------------------------------------- recordTape
@@ -178,30 +169,6 @@ test("recordTape: steps replay from --from to --to, one entry per closed bar", a
   assert.equal(result.entries[0].event.ts, "2026-06-09T13:31:00.000Z");
   assert.equal(result.entries[2].event.ts, "2026-06-09T13:33:00.000Z");
   assert.deepEqual(result.warnings, []);
-});
-
-test("recordTape: captures a 5m engine track per bar when readEngine5m is wired", async () => {
-  const { deps } = makeReplayDeps();
-  deps.readEngine5m = async () => ({
-    schema: 2, schema_supported: true,
-    meta: { schema: 2, tf: "5", emit_ms: 7777, symbol: "MNQ1!" },
-    levels: [], sweeps: [], fvgs: [], bprs: [],
-    swings: [{ price: 1, is_high: true }], structures: [], pools: [], quality: null,
-  });
-  deps.readBars5m = async () => ({
-    count: 2,
-    last_5_bars: [
-      { time: 1781011800, open: 1, high: 2, low: 0, close: 1.5 },
-      { time: 1781012100, open: 1.5, high: 1.5, low: 1.5, close: 1.5 },
-    ],
-  });
-  const result = await recordTape({
-    label: shortLabel, fromEt: "09:30", toEt: "09:32", deps, pollIntervalMs: 1, stepDeadlineMs: 10,
-  });
-  assert.ok(result.entries.length >= 1);
-  for (const e of result.entries) {
-    assert.equal(e.inputs.bundle.engine_by_tf.m5.meta.tf, "5");
-  }
 });
 
 test("recordTape: a step whose engine never re-emits is captured with a warning, not silently trusted", async () => {
