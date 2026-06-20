@@ -6,7 +6,7 @@ import * as chart from '@tvmcp/core/chart';
 import * as data from '@tvmcp/core/data';
 import * as replay from '@tvmcp/core/replay';
 import { parseIctEngineTable, findIctEngineRows } from '../lib/ict-engine-parser.js';
-import { recordTape, tapeFromRecording, contextFromLabel } from '../lib/tape-recorder.js';
+import { recordEntries, mergeFiveMinuteTrack, tapeFromRecording, contextFromLabel } from '../lib/tape-recorder.js';
 
 const SYMBOL_SETTLE_MS = 600;
 
@@ -35,19 +35,37 @@ register('record-tape', {
       await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
     }
 
-    const recording = await recordTape({
-      label,
-      fromEt: opts.from || '09:30',
-      toEt: opts.to || '12:00',
-      deps: {
-        startReplay: (args) => replay.start(args),
-        stepReplay: () => replay.step(),
-        stopReplay: () => replay.stop(),
-        readBars: () => data.getOhlcv({ summary: true }),
-        readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
-        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-      },
-    });
+    const fromEt = opts.from || '09:30';
+    const toEt = opts.to || '12:00';
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const deps = {
+      startReplay: (args) => replay.start(args),
+      stepReplay: () => replay.step(),
+      stopReplay: () => replay.stop(),
+      readBars: () => data.getOhlcv({ summary: true }),
+      readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
+      sleep,
+    };
+
+    // Two-pass capture (no mid-replay TF switching): record the whole window on
+    // 1m, then again from the same start on the 5m chart, and merge by
+    // timestamp. The chart is already pinned to 1m above; each pass opens and
+    // closes its own replay.
+    const date = label.trade_date;
+    const rec1 = await recordEntries({ context, date, fromEt, toEt, deps, tf: '1' });
+
+    await chart.setTimeframe({ timeframe: '5' });
+    await sleep(SYMBOL_SETTLE_MS);
+    const rec5 = await recordEntries({ context, date, fromEt, toEt, deps, tf: '5' });
+    // Restore the base TF so the chart is left as we found it.
+    await chart.setTimeframe({ timeframe: '1' });
+    await sleep(SYMBOL_SETTLE_MS);
+
+    const entries = mergeFiveMinuteTrack(rec1.entries, rec5.entries);
+    const recording = {
+      entries,
+      warnings: [...rec1.warnings, ...rec5.warnings.map((w) => `5m: ${w}`)],
+    };
 
     const tape = tapeFromRecording({ label, entries: recording.entries });
     const out = opts.out || path.resolve('tests', 'tapes', `${tape.fixture}.tape.json`);
