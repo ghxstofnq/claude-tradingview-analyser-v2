@@ -26,7 +26,7 @@ function isoAtEt(hhmm) {
   return new Date(startMs + offsetMin * 60_000).toISOString();
 }
 
-function entryAt(hhmm, { sweeps = [] } = {}) {
+function entryAt(hhmm, { sweeps = [], close = 100 } = {}) {
   const ts = isoAtEt(hhmm);
   const closeSec = Date.parse(ts) / 1000;
   return {
@@ -35,7 +35,7 @@ function entryAt(hhmm, { sweeps = [] } = {}) {
       bundle: {
         chart: { symbol: "MNQ1!" },
         quote: { symbol: "MNQ1!", last: 100, time: closeSec },
-        bars: { last_5_bars: [{ time: closeSec - 60, open: 99, high: 101, low: 98, close: 100 }] },
+        bars: { last_5_bars: [{ time: closeSec - 60, open: 99, high: Math.max(101, close + 1), low: Math.min(98, close - 1), close }] },
         engine: {},
         gates: {
           engine: {
@@ -193,9 +193,9 @@ test("open-reaction verdict matures: rejected flag flips within minute 15-30 win
   const contAt43 = sweepAt("09:43", { target: "LO.H", rejected: false });
   const rejAt43 = sweepAt("09:43", { target: "LO.H", rejected: true });
   const entries = [
-    entryAt("09:46", { sweeps: [contAt43] }),  // minute-15 read: continuation
-    entryAt("09:52", { sweeps: [rejAt43] }),   // same sweep, now rejected
-    entryAt("10:05", { sweeps: [rejAt43] }),
+    entryAt("09:46", { sweeps: [contAt43] }),             // minute-15 read: continuation (close holds 100)
+    entryAt("09:52", { sweeps: [rejAt43], close: 98 }),   // same sweep rejected — closes back UNDER LO.H (real rejection)
+    entryAt("10:05", { sweeps: [rejAt43], close: 98 }),
   ];
   const capture = [];
   const { summary } = await run({ entries, capture });
