@@ -31,7 +31,7 @@ function etDateOf(ts) {
  * no HTF bias can be derived (no brief draw) — callers keep their existing
  * (blocked) behavior in those cases.
  */
-export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
+export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowClosesOverride = null } = {}) {
   const date = etDateOf(eventTs);
   if (!date || !session) return null;
   const window = openReactionWindowMs({ date, session });
@@ -51,11 +51,15 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   // The open verdict judges the break against the structure standing AS OF
   // the window — post-window structures must not rewrite the open read.
   const inWindowSwing = latestOf(swingStructs.filter((s) => (s?.confirmed_ms ?? 0) <= window.endMs));
-  // Close-based rejection evidence (GXNQ 2026-06-13): the visible 1m bars
-  // whose closes landed inside the open window. Live carries ~5 bars, so
-  // coverage is partial — the engine's own rejected flag remains primary.
-  const windowCloses = (bundle?.bars?.last_5_bars ?? [])
-    .map((b) => ({ time_ms: Number(b?.time) * 1000 + 60_000, close: Number(b?.close) }))
+  // Close-based rejection evidence (GXNQ 2026-06-13): the 1m closes inside the
+  // open window. The backtest accumulates EVERY in-window close across bars;
+  // live's bundle only carries bars.last_5_bars (4-5 bars), so without an
+  // override the window read is partial and can mis-classify a weak rejection
+  // as clean (live≠backtest, 2026-06-21). Callers pass windowClosesOverride —
+  // the accumulated full-window close series — to match the backtest exactly;
+  // the last_5_bars derivation stays as the fallback when none is supplied.
+  const windowCloses = (windowClosesOverride ?? (bundle?.bars?.last_5_bars ?? [])
+    .map((b) => ({ time_ms: Number(b?.time) * 1000 + 60_000, close: Number(b?.close) })))
     .filter((c) => Number.isFinite(c.time_ms) && Number.isFinite(c.close)
       && c.time_ms > window.startMs && c.time_ms <= window.endMs);
   let verdict = resolveOpenReaction({
@@ -65,6 +69,13 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
     window,
     overnight_targets: overnightTargetsForSession(session),
     window_closes: windowCloses,
+    // Post-window, freeze the open read like the backtest: ignore a `rejected`
+    // flag that matured after minute 30 and rely on the window-confined closes.
+    // ONLY when we actually have window-close coverage (windowClosesOverride);
+    // without it (degraded start, empty accumulator) keep the flag rather than
+    // lose the rejection. In-window resolution always trusts the flag. Closes the
+    // 2026-06-01 PM freeze-vs-recompute parity gap.
+    ignore_engine_rejected_flag: ms > window.endMs && windowCloses.length > 0,
   });
   // §2.3 + user ruling 2026-06-12: a quiet open leaves the LTF bias
   // PENDING, not the day untradeable — the first swing-tier structure

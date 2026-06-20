@@ -87,7 +87,10 @@ export async function finalizeOpenReactionDeterministic({ session, eventTs, minu
     brief = null;
   }
 
-  const ctx = await d.deriveBias({ bundle: leaderBundle, brief, session, eventTs });
+  // Full open-window 1m closes (window-closes.js) so the finalizer's open read
+  // matches the backtest's accumulated coverage (live≠backtest fix 2026-06-21).
+  const windowClosesOverride = d.readWindowCloses ? await d.readWindowCloses() : null;
+  const ctx = await d.deriveBias({ bundle: leaderBundle, brief, session, eventTs, windowClosesOverride });
   const bias = ctx?.bias ?? null;
 
   await d.writeOpenReaction({
@@ -138,6 +141,7 @@ async function buildRealDeps() {
     { deriveLtfBiasContext },
     { activeSessionDir, currentSession },
     { baselinePathFor, PAIR_DEFAULT },
+    { readWindowCloses },
     fs,
     path,
   ] = await Promise.all([
@@ -146,6 +150,7 @@ async function buildRealDeps() {
     import("./live-ltf-resolver.js"),
     import("./sessions.js"),
     import("./config.js"),
+    import("./window-closes.js"),
     import("node:fs/promises"),
     import("node:path"),
   ]);
@@ -163,6 +168,9 @@ async function buildRealDeps() {
         baseline: baselinePathFor(PAIR_PRIMARY),
         baselineSecondary: baselinePathFor(PAIR_SECONDARY),
       }),
+    readWindowCloses: async () => {
+      try { return readWindowCloses(await activeSessionDir()); } catch { return []; }
+    },
     readExistingLeader: async () => {
       try {
         const dir = await activeSessionDir();
