@@ -89,19 +89,26 @@ function closedBarsOnly(bars) {
   return { ...bars, last_5_bars: all.slice(0, Math.max(0, all.length - 1)) };
 }
 
-export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = Date.now() }) {
+export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = Date.now(), engine5m = null, bars5m = null }) {
   const bars = closedBarsOnly(rawBars);
   const lastBar = bars?.last_5_bars?.[bars.last_5_bars.length - 1] ?? null;
   const barCloseSeconds = lastBar ? Number(lastBar.time) + 60 : null;
   const cur = lastBarFacts(bars?.last_5_bars, barCloseSeconds);
+  // CHECKPOINT 0 (2026-06-20): capture the 5m engine in FULL alongside the 1m so
+  // the walker can decide per-field which TF to read (structure from 5m, FVGs/
+  // entry from 1m). The TV forming bar is dropped from the 5m bars too. With no
+  // 5m read wired, engineByTf stays null — the 1m track is byte-identical.
+  const bars5mClosed = bars5m ? closedBarsOnly(bars5m) : { last_5_bars: [] };
+  const m5LastBar = bars5mClosed.last_5_bars?.[bars5mClosed.last_5_bars.length - 1] ?? null;
+  const engineByTf = engine5m ? { m5: engine5m } : null;
   const gates = {
     engine: computeEngineGates({
       engine,
-      engineByTf: null,
+      engineByTf,
       last: lastBar?.close ?? null,
       lastBar: cur.bar,
       lastBarAgeSeconds: cur.age_seconds,
-      m5LastBar: null,
+      m5LastBar,
       m15LastBar: null,
       // wall clock: the engine emitted moments ago even though the bars are
       // historical — see staleness-domains note in the module header.
@@ -115,8 +122,9 @@ export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = 
         chart: { symbol: context.leader },
         quote: { symbol: context.leader, last: lastBar?.close ?? null, time: barCloseSeconds },
         bars,
-        bars_by_tf: { m5: { last_5_bars: [] } },
+        bars_by_tf: { m5: bars5mClosed },
         engine,
+        engine_by_tf: engineByTf,
         gates,
         brief_digest: context.brief_digest,
       },
@@ -205,7 +213,19 @@ export async function recordEntries({
       prevEmit = engine?.meta?.emit_ms ?? prevEmit;
       prevBarTime = Number(lastBar.time);
 
-      entries.push(buildTapeEntry({ engine, bars, context, captureNowMs: nowMs() }));
+      // 5m structure track (CHECKPOINT 0): best-effort — the loop never gates on
+      // it (the 1m re-emit is the cadence). The real dep does the TF-switch read
+      // (verified meta.tf=5) and restores 1m; absent dep → null → 1m-only tape.
+      let engine5m = null;
+      let bars5m = null;
+      if (deps.readEngine5m) {
+        try { engine5m = await deps.readEngine5m(); } catch { engine5m = null; }
+      }
+      if (deps.readBars5m) {
+        try { bars5m = await deps.readBars5m(); } catch { bars5m = null; }
+      }
+
+      entries.push(buildTapeEntry({ engine, bars, context, captureNowMs: nowMs(), engine5m, bars5m }));
       onBar?.({ bar: entries.length, total: maxSteps - 10 });
 
       const barClose = Number(lastBar.time) + 60;
