@@ -8,7 +8,7 @@ import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
 import { computeLeader } from '../lib/compute-leader.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
-import { captureMultiTfWithHealth, applyBaselineFallback } from '../lib/tf-capture.js';
+import { captureMultiTfWithHealth, applyBaselineFallback, tfMatchesMeta } from '../lib/tf-capture.js';
 
 /**
  * tv analyze — bundles chart state, quote, multi-TF bars, and the ICT Engine
@@ -686,7 +686,20 @@ register('analyze', {
       preScanTf = initial.resolution;
       if (preScanTf !== scanTf) {
         await chart.setTimeframe({ timeframe: scanTf });
-        await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+        // Verified settle: poll until the ICT Engine table re-emits at the
+        // requested TF. A fixed sleep raced the re-render — the engine read
+        // came back null/stale at the old TF (observed 2026-06-20 on --scan-tf
+        // 5: attempt 1 engine=null, attempt 2 fine). Same verified-read
+        // discipline as captureMultiTfWithHealth.
+        const settleDeadline = Date.now() + 5000;
+        for (;;) {
+          await new Promise((r) => setTimeout(r, TF_SETTLE_MS));
+          try {
+            const eng = parseIctEngineTable(findIctEngineRows(await data.getPineTables()));
+            if (eng?.schema_supported && tfMatchesMeta(scanTf, eng?.meta?.tf)) break;
+          } catch { /* engine still re-rendering */ }
+          if (Date.now() > settleDeadline) break; // best-effort — proceed, capture_health will flag
+        }
       }
     }
 

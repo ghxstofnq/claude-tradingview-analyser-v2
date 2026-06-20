@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contextFromLabel, buildTapeEntry, recordTape } from "../cli/lib/tape-recorder.js";
+import { contextFromLabel, buildTapeEntry, recordTape, mergeFiveMinuteTrack } from "../cli/lib/tape-recorder.js";
 
 const shortLabel = {
   fixture: "2026-06-09-mnq-ny-am-inversion-short",
@@ -75,6 +75,43 @@ test("buildTapeEntry: builds a live-shaped inputs record with fresh engine meta"
   assert.equal(entry.inputs.bundle.gates.engine.meta.stale, false);
   assert.equal(entry.inputs.bundle.gates.engine.price_context.last, 29806.25);
   assert.equal(entry.inputs.untaken_targets.untaken_below.length, 2);
+  // No 5m provided → engine_by_tf stays null; the 1m track is unchanged.
+  assert.equal(entry.inputs.bundle.engine_by_tf, null);
+});
+
+// CHECKPOINT 0 (2026-06-20): the 5m engine is captured in a SECOND full pass and
+// merged by timestamp — each 1m entry gets the LAST 5m bar that closed at/before
+// it. Both engines kept in full so the walker decides per-field which to use.
+function fiveMEntry(closeIso, label) {
+  return {
+    event: { ts: closeIso, tf: "5m" },
+    inputs: { bundle: {
+      engine: { schema: 2, schema_supported: true, meta: { schema: 2, tf: "5", emit_ms: 1, symbol: "MNQ1!" },
+        levels: [], sweeps: [], fvgs: [], bprs: [], swings: [{ price: 1, is_high: true }],
+        structures: [{ event: "mss", dir: label }], pools: [], quality: null },
+      bars: { last_5_bars: [{ time: 1, open: 1, high: 1, low: 1, close: 1 }] },
+    } },
+  };
+}
+function oneMEntry(closeIso) {
+  return { event: { ts: closeIso, tf: "1m" }, inputs: { bundle: { engine: { meta: { tf: "1" } }, engine_by_tf: null, bars_by_tf: { m5: { last_5_bars: [] } } } } };
+}
+
+test("mergeFiveMinuteTrack: each 1m entry gets the last-closed 5m engine; pre-first-close stays null", () => {
+  const e1m = [
+    oneMEntry("2026-06-09T13:33:00.000Z"), // before first 5m close (13:35) → null
+    oneMEntry("2026-06-09T13:36:00.000Z"), // after 13:35 close → bear
+    oneMEntry("2026-06-09T13:41:00.000Z"), // after 13:40 close → bull
+  ];
+  const e5m = [
+    fiveMEntry("2026-06-09T13:35:00.000Z", "bear"),
+    fiveMEntry("2026-06-09T13:40:00.000Z", "bull"),
+  ];
+  const merged = mergeFiveMinuteTrack(e1m, e5m);
+  assert.equal(merged[0].inputs.bundle.engine_by_tf, null);
+  assert.equal(merged[1].inputs.bundle.engine_by_tf.m5.structures[0].dir, "bear");
+  assert.equal(merged[2].inputs.bundle.engine_by_tf.m5.structures[0].dir, "bull");
+  assert.equal(merged[1].inputs.bundle.engine_by_tf.m5.meta.tf, "5");
 });
 
 // ----------------------------------------------------------------- recordTape

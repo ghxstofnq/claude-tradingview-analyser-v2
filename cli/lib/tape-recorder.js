@@ -89,11 +89,15 @@ function closedBarsOnly(bars) {
   return { ...bars, last_5_bars: all.slice(0, Math.max(0, all.length - 1)) };
 }
 
-export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = Date.now() }) {
+export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = Date.now(), tf = '1', barSeconds = 60 }) {
   const bars = closedBarsOnly(rawBars);
   const lastBar = bars?.last_5_bars?.[bars.last_5_bars.length - 1] ?? null;
-  const barCloseSeconds = lastBar ? Number(lastBar.time) + 60 : null;
+  const barCloseSeconds = lastBar ? Number(lastBar.time) + barSeconds : null;
   const cur = lastBarFacts(bars?.last_5_bars, barCloseSeconds);
+  // Single-TF capture. The 5m engine is captured in a SECOND full pass (5m
+  // chart, from the same start) and attached by mergeFiveMinuteTrack — no
+  // mid-replay TF switching. engine_by_tf starts null; the merge fills m5 on
+  // the 1m entries (CHECKPOINT 0: both engines kept in full, decide per-field).
   const gates = {
     engine: computeEngineGates({
       engine,
@@ -109,7 +113,7 @@ export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = 
     }),
   };
   return {
-    event: { ts: new Date(barCloseSeconds * 1000).toISOString(), tf: '1m' },
+    event: { ts: new Date(barCloseSeconds * 1000).toISOString(), tf: `${tf}m` },
     inputs: {
       bundle: {
         chart: { symbol: context.leader },
@@ -117,6 +121,7 @@ export function buildTapeEntry({ engine, bars: rawBars, context, captureNowMs = 
         bars,
         bars_by_tf: { m5: { last_5_bars: [] } },
         engine,
+        engine_by_tf: null,
         gates,
         brief_digest: context.brief_digest,
       },
@@ -160,7 +165,12 @@ export async function recordEntries({
   stepDeadlineMs = 8000,
   onBar = null,
   isStopped = null,
+  // Capture TF: '1' (default) or '5'. The 5m track is a SECOND full pass on the
+  // 5m chart (caller sets the chart TF + reopens replay), merged by timestamp
+  // via mergeFiveMinuteTrack — no mid-replay switching.
+  tf = '1',
 }) {
+  const barSeconds = tf === '5' ? 300 : 60;
   const nowMs = deps.nowMs ?? Date.now;
   const toEpoch = etToEpochSeconds(date, toEt);
   const entries = [];
@@ -187,7 +197,7 @@ export async function recordEntries({
         const candidate = await deps.readEngine();
         const emitChanged = candidate?.meta?.emit_ms != null && candidate.meta.emit_ms !== prevEmit;
         const barAdvanced = lastClosed && (prevBarTime == null || Number(lastClosed.time) > prevBarTime);
-        if (candidate?.schema_supported && tfMatchesMeta('1', candidate?.meta?.tf) && emitChanged && barAdvanced) {
+        if (candidate?.schema_supported && tfMatchesMeta(tf, candidate?.meta?.tf) && emitChanged && barAdvanced) {
           engine = candidate;
           fresh = true;
           break;
@@ -205,10 +215,10 @@ export async function recordEntries({
       prevEmit = engine?.meta?.emit_ms ?? prevEmit;
       prevBarTime = Number(lastBar.time);
 
-      entries.push(buildTapeEntry({ engine, bars, context, captureNowMs: nowMs() }));
+      entries.push(buildTapeEntry({ engine, bars, context, captureNowMs: nowMs(), tf, barSeconds }));
       onBar?.({ bar: entries.length, total: maxSteps - 10 });
 
-      const barClose = Number(lastBar.time) + 60;
+      const barClose = Number(lastBar.time) + barSeconds;
       if (barClose >= toEpoch) break;
       await deps.stepReplay();
     }
@@ -229,6 +239,46 @@ export async function recordTape({
 }) {
   const context = contextFromLabel(label);
   return recordEntries({ context, date: label.trade_date, fromEt, toEt, deps, pollIntervalMs, stepDeadlineMs });
+}
+
+/**
+ * Merge a 5m capture pass into the 1m entries. Each 1m entry gets the engine +
+ * bars of the LAST 5m bar that closed at or before its own close — the 5m
+ * structure only updates when a 5m bar closes, exactly like live (the walker
+ * reads engine_by_tf.m5 refreshed each 5m bar). 1m bars before the first 5m
+ * close carry no 5m track (engine_by_tf stays null). Pure; both passes cover
+ * the same window so timestamps align. CHECKPOINT 0: both engines kept in full.
+ */
+export function mergeFiveMinuteTrack(entries1m, entries5m) {
+  const fiveM = (entries5m ?? [])
+    .map((e) => ({
+      closeMs: Date.parse(e?.event?.ts),
+      engine: e?.inputs?.bundle?.engine ?? null,
+      bars: e?.inputs?.bundle?.bars ?? { last_5_bars: [] },
+    }))
+    .filter((x) => Number.isFinite(x.closeMs) && x.engine)
+    .sort((a, b) => a.closeMs - b.closeMs);
+
+  return (entries1m ?? []).map((entry) => {
+    const tMs = Date.parse(entry?.event?.ts);
+    let match = null;
+    for (const f of fiveM) {
+      if (Number.isFinite(tMs) && f.closeMs <= tMs) match = f;
+      else break;
+    }
+    if (!match) return entry; // before the first 5m close — no 5m structure yet
+    return {
+      ...entry,
+      inputs: {
+        ...entry.inputs,
+        bundle: {
+          ...entry.inputs.bundle,
+          engine_by_tf: { m5: match.engine },
+          bars_by_tf: { ...(entry.inputs.bundle.bars_by_tf ?? {}), m5: match.bars },
+        },
+      },
+    };
+  });
 }
 
 /** Assemble the tape file. Lands unverified — hand-grading freezes it. */
