@@ -39,3 +39,12 @@ export function stopTf() {
 export function realignTf() {
   return process.env.GOFNQ_REALIGN_TF === "5" ? "5" : "1";
 }
+
+// Faithful Pillar-2 entry gate (2026-06-20, SHIPPED default-on): re-measure quality
+// AT the confirmation bar across the doc's three TF scopes — candle anatomy 5m
+// (majority-of-3, Fix B), displacement 4H/1H (Fix A, from the brief), range 3h
+// (recalibrated, Fix C) — and block when 2+ fail (GOFNQ_P2_ENTRY_N, default 2).
+// Fold-verified inert (0R) on the corpus; an armed safety gate. Opt out: =0.
+export function pillar2EntryGate() {
+  return process.env.GOFNQ_P2_ENTRY !== "0";
+}

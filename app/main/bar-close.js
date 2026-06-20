@@ -27,7 +27,7 @@ function llmTurnAuthBlocked({ providerName, claudeBlocked }) {
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
-import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor, structureTf, stopTf } from "./config.js";
+import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor, structureTf, stopTf, pillar2EntryGate } from "./config.js";
 import { computeEngineGates } from "../../cli/lib/compute-engine-gates.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 import { finalizeOpenReactionDeterministic } from "./live-open-reaction-finalizer.js";
@@ -791,6 +791,17 @@ async function readLtfBiasFrontmatter() {
   } catch { return {}; }
 }
 
+// Best (strongest) HTF displacement across h4/h1 — mirrors
+// direct-session-brief.js#bestHtfDisplacement (inlined to avoid importing that
+// module's full dependency tree into the bar-close hot path).
+const HTF_DISP_RANK = { clean: 3, acceptable: 2, weak: 1 };
+function bestHtfDisp(htfQuality) {
+  const h4 = String(htfQuality?.h4?.displacement ?? '').toLowerCase();
+  const h1 = String(htfQuality?.h1?.displacement ?? '').toLowerCase();
+  const best = (HTF_DISP_RANK[h4] ?? 0) >= (HTF_DISP_RANK[h1] ?? 0) ? h4 : h1;
+  return HTF_DISP_RANK[best] ? best : null;
+}
+
 async function readSessionStrategyState(brief = null) {
   const dir = await activeSessionDir();
   const pillar1Fm = await readMarkdownFrontmatter(path.join(dir, 'pillar1.md')).catch(() => null);
@@ -808,6 +819,8 @@ async function readSessionStrategyState(brief = null) {
       pillar2: {
         status: normalizePassStatus(pillar2Fm?.status ?? pillar2Fm?.verdict ?? brief?.pillar2_verdict ?? 'pass'),
         verdict: pillar2Fm?.verdict ?? pillar2Fm?.pillar2_verdict ?? brief?.pillar2_verdict ?? null,
+        // §7 Step 3 (Fix A): 4H/1H displacement for the A+ grade + entry gate.
+        htf_displacement: pillar2Fm?.htf_displacement ?? bestHtfDisp(brief?.htf_quality),
       },
     } : {}),
   };
@@ -972,17 +985,28 @@ function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [],
     };
   }
   const result = runDeterministicWalkerStrategy({ context, walkers: previousWalkers });
-  const bestPacket = result.bestPacket ? { ...result.bestPacket, finalVerdict: result.finalVerdict } : null;
+  let bestPacket = result.bestPacket ? { ...result.bestPacket, finalVerdict: result.finalVerdict } : null;
+  let finalVerdict = result.finalVerdict;
+  // Faithful Pillar-2 entry gate (§3): stand aside when the confirmation fires
+  // into a genuinely poor environment (2+ of candle-5m / displacement-4H1H / range-3h).
+  let p2EntryBlocked = false;
+  if (bestPacket && pillar2EntryGate() && pillar2PoorAtEntry(inputs)) {
+    bestPacket = null;
+    finalVerdict = 'no_trade';
+    p2EntryBlocked = true;
+  }
   const blockers = bestPacket
     ? []
-    : (result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet']);
+    : (p2EntryBlocked
+      ? ['pillar2_poor_at_entry']
+      : (result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet']));
   const noTradeReason = bestPacket ? null : `${availability.reasonPrefix}: ${(blockers.length ? blockers : ['no_confirmed_packet']).join(', ')}`;
   return {
     schemaVersion: 1,
     eventTimeUtc: event?.ts ?? null,
     market: context.market,
     session,
-    finalVerdict: result.finalVerdict,
+    finalVerdict,
     evaluationStatus: availability.evaluationStatus,
     bestPacket,
     packets: result.packets,
@@ -998,6 +1022,39 @@ function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [],
 
 function hasValue(value) {
   return value != null && String(value).trim() !== '';
+}
+
+// Faithful Pillar-2 quality, re-measured AT the confirmation bar across the doc's
+// three TF scopes (§7 Step 3): candle anatomy on 5m (majority of last 3 — Fix B,
+// not 1-of-3), displacement on 4H/1H (Fix A, from the brief's htf_displacement),
+// 3h range recalibrated (Fix C). "poor" = N-of-3 dims failing (GOFNQ_P2_ENTRY_N,
+// default 2). Returns true when the entry environment is genuinely bad.
+function pillar2PoorAtEntry(inputs) {
+  const bundle = inputs?.bundle ?? {};
+  // (B) candle anatomy — last 3 closed 5m bars; doji/wick = body<25% AND wick>60%
+  // (matches the Pine thresholds); bad when a MAJORITY (>=2) are doji/wick.
+  const bars = (bundle.bars_by_tf?.m5?.last_5_bars ?? []).slice(-3);
+  let doji = 0;
+  for (const b of bars) {
+    const o = +b.open; const h = +b.high; const l = +b.low; const c = +b.close;
+    const rng = h - l;
+    if (!(rng > 0)) continue;
+    const body = Math.abs(c - o);
+    const wick = Math.max(h - Math.max(o, c), Math.min(o, c) - l);
+    if (body / rng < 0.25 && wick / rng > 0.60) doji += 1;
+  }
+  const candleBad = bars.length >= 2 && doji >= 2;
+  // (C) 3h range — tight when 3h range < pct of price (recalibrated from 0.3%).
+  const q = bundle.engine_by_tf?.m5?.quality ?? {};
+  const close = Number(bundle.quote?.last);
+  const pct = Number(process.env.GOFNQ_P2_RANGE_PCT) > 0 ? Number(process.env.GOFNQ_P2_RANGE_PCT) : 0.005;
+  const rangeBad = Number.isFinite(+q.range_3h) && Number.isFinite(close) && close > 0 && (+q.range_3h) < close * pct;
+  // (A) displacement — 4H/1H (session brief); weak when not clean/acceptable.
+  const htfDisp = String(inputs?.session_state?.pillar2?.htf_displacement ?? '').toLowerCase();
+  const dispBad = htfDisp !== '' && !['clean', 'acceptable'].includes(htfDisp);
+  const bad = (candleBad ? 1 : 0) + (rangeBad ? 1 : 0) + (dispBad ? 1 : 0);
+  const need = Number(process.env.GOFNQ_P2_ENTRY_N) >= 1 ? Number(process.env.GOFNQ_P2_ENTRY_N) : 2;
+  return bad >= need;
 }
 
 function evaluateStrategyChainReadiness(inputs = {}, context = {}) {

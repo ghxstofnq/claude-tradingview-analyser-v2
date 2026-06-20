@@ -533,6 +533,16 @@ export async function runBacktest({
       if (context?.untaken_targets) {
         entry.inputs.untaken_targets = context.untaken_targets;
       }
+      // §7 Step 3 (Fix A): carry the brief's 4H/1H displacement into the per-bar
+      // session_state so deriveGrade + the Pillar-2 entry gate read the HTF value,
+      // not the stale baked tape (live gets it from the brief — keeps live==backtest).
+      const htfDisp = context?.session_state?.pillar2?.htf_displacement;
+      if (htfDisp != null) {
+        entry.inputs.session_state = {
+          ...(entry.inputs.session_state ?? {}),
+          pillar2: { ...(entry.inputs.session_state?.pillar2 ?? {}), htf_displacement: htfDisp },
+        };
+      }
       const truth = await deps.truthFn({
         inputs: entry.inputs,
         previousWalkers: walkers,
