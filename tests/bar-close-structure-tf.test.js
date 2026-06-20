@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { __test } from '../app/main/bar-close.js';
+import { swingStructuresForBias } from '../app/main/structure-source.js';
 
 // 5m-structure campaign: with STRUCTURE_TF='5' the walker reads market STRUCTURE
 // from the 5m engine (engine_by_tf.m5) while FVGs/entry stay 1m; STOP_TF routes
@@ -75,6 +76,19 @@ test('STRUCTURE_TF=5: structure comes from 5m, FVGs/entry stay 1m', () => {
     assert.equal(p3.fvgs[0].dir, 'bull');
     assert.equal(p3.fvgs[0].evidenceRef, 'fvg1m');
     assert.equal(b.gates.engine.meta.structure_tf, '5');
+  } finally { delete process.env.GOFNQ_STRUCTURE_TF; }
+});
+
+test('swingStructuresForBias: 1m by default, 5m structure when STRUCTURE_TF=5', () => {
+  const bundle = inputs().bundle;
+  delete process.env.GOFNQ_STRUCTURE_TF;
+  const oneM = swingStructuresForBias(bundle);
+  assert.equal(oneM[0].event, 'bos'); // 1m structures_by_tier.swing
+  process.env.GOFNQ_STRUCTURE_TF = '5';
+  try {
+    const fiveM = swingStructuresForBias(bundle);
+    assert.equal(fiveM[0].event, 'mss'); // computed from engine_by_tf.m5.structures
+    assert.equal(fiveM[0].dir, 'bear');
   } finally { delete process.env.GOFNQ_STRUCTURE_TF; }
 });
 

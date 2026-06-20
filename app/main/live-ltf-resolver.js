@@ -15,6 +15,7 @@ import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/o
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { openReactionWindowMs } from "./backtest-engine.js";
 import { biasFromDraw } from "./backtest-context.js";
+import { swingStructuresForBias } from "./structure-source.js";
 
 function etDateOf(ts) {
   const ms = Date.parse(ts);
@@ -40,7 +41,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   if (!htfBias) return null;
 
   const gates = bundle?.gates?.engine ?? {};
-  const swingStructs = gates?.pillar3?.structures_by_tier?.swing ?? [];
+  const swingStructs = swingStructuresForBias(bundle);
   const latestOf = (arr) => arr.reduce(
     (a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a),
     null,
