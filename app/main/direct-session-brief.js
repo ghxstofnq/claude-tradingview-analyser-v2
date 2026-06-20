@@ -204,6 +204,18 @@ function htfQualityRow(symbol, digestSymbol, tf) {
   };
 }
 
+// §7 Step 3: displacement is a 4H/1H judgment. The HTF "displacement is present"
+// read is the BEST of the two TFs (the move shows real displacement on at least
+// one HTF). Returns the strongest of h4/h1 (clean > acceptable > weak), or null
+// when neither is available — callers fall back to the LTF read on null.
+const HTF_DISP_RANK = { clean: 3, acceptable: 2, weak: 1 };
+export function bestHtfDisplacement(htfQuality) {
+  const h4 = String(htfQuality?.h4?.displacement ?? "").toLowerCase();
+  const h1 = String(htfQuality?.h1?.displacement ?? "").toLowerCase();
+  const best = (HTF_DISP_RANK[h4] ?? 0) >= (HTF_DISP_RANK[h1] ?? 0) ? h4 : h1;
+  return HTF_DISP_RANK[best] ? best : null;
+}
+
 // §7 Step 3 has three checks (3h range, 4H/1H displacement, 15m/5m candle
 // anatomy). The grade collapses them to one verdict (pillar2Status), but PREP
 // should SHOW each — the renderer's pillar2ToRows maps element names range / h4

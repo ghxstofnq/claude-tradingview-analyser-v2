@@ -430,11 +430,18 @@ function deriveGrade({ context, walker }) {
     (walker?.side === 'long' && chain.ltfBias === 'bullish') ||
     (walker?.side === 'short' && chain.ltfBias === 'bearish');
   const reactionConfirmed = Boolean(chain.ltfBias) && chain.htfLtfAlignment === 'aligned' && sideAligned;
-  // Constraint #9: A+ needs price quality GOOD at confirmation time. The
-  // engine's displacement enum draws the line at weak — clean/acceptable
-  // keep A+; weak/na is the one-weaker-element → B (June 9 'acceptable'
-  // hand-graded A+; June 10 'weak' was the documented tradable-B day).
-  const qualityOk = ['clean', 'acceptable'].includes(context?.pillar2?.displacement);
+  // Constraint #9 + §7 Step 3: A+ needs real displacement. The engine's enum
+  // draws the line at weak (clean/acceptable keep A+; weak/na → B). FIX A
+  // (SHIPPED default-on, opt out GOFNQ_P2_DISP_HTF=0): the doc judges displacement
+  // on 4H/1H — read the session's HTF displacement (context.pillar2.htfDisplacement)
+  // instead of current_tf (1m live chart). SAFE FALLBACK: when HTF displacement is
+  // unavailable (no h4/h1 capture), fall back to current_tf so live never silently
+  // loses A+ (the runners) on a degraded capture.
+  const htfDisp = context?.pillar2?.htfDisplacement;
+  const dispSource = process.env.GOFNQ_P2_DISP_HTF !== '0' && htfDisp != null && htfDisp !== ''
+    ? htfDisp
+    : context?.pillar2?.displacement;
+  const qualityOk = ['clean', 'acceptable'].includes(String(dispSource ?? '').toLowerCase());
   return capGrade(modelKnown && reactionConfirmed && qualityOk ? 'A+' : 'B', chain.gradeCap);
 }
 

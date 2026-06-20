@@ -46,6 +46,16 @@ function drawPrice(draw) {
   return null;
 }
 
+// Best (strongest) HTF displacement across h4/h1 — mirrors
+// direct-session-brief.js#bestHtfDisplacement (inlined to avoid an import cycle).
+const HTF_DISP_RANK = { clean: 3, acceptable: 2, weak: 1 };
+function bestHtfDisp(htfQuality) {
+  const h4 = String(htfQuality?.h4?.displacement ?? "").toLowerCase();
+  const h1 = String(htfQuality?.h1?.displacement ?? "").toLowerCase();
+  const best = (HTF_DISP_RANK[h4] ?? 0) >= (HTF_DISP_RANK[h1] ?? 0) ? h4 : h1;
+  return HTF_DISP_RANK[best] ? best : null;
+}
+
 /**
  * HTF bias fallback from the primary draw zone alone. Doc-corrected
  * precedence (user Q2 ruling 2026-06-12; full chain in the payload's
@@ -98,6 +108,10 @@ function buildContext({ session, leader, brief, ltf }) {
         // otherwise pillar2_poor no-trade days trade right through it.
         status: /^(fail|poor)$/i.test(String(brief?.pillar2_verdict ?? "pass")) ? "fail" : "pass",
         verdict: brief?.pillar2_verdict ?? null,
+        // §7 Step 3: displacement judged on 4H/1H (best of the two). Inlined to
+        // avoid a cycle with direct-session-brief.js#bestHtfDisplacement (the
+        // canonical copy). null when no HTF quality — deriveGrade falls back to LTF.
+        htf_displacement: bestHtfDisp(brief?.htf_quality),
       },
     },
     untaken_targets: {

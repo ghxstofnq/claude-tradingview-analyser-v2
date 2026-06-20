@@ -67,6 +67,10 @@ function buildPillar2(engine, blocked, sessionChain = {}) {
     status: blockers.length === 0 ? 'pass' : 'blocked',
     candleQuality: current.candle ?? 'unknown',
     displacement: current.displacement ?? 'unknown',
+    // §7 Step 3: displacement is a 4H/1H judgment. Carried from the session brief
+    // (sessionChain.pillar2.htf_displacement) — the per-bar engine is on the LTF
+    // chart, so the HTF displacement can only come from the brief snapshot.
+    htfDisplacement: lockedP2.htf_displacement ?? null,
     chop15m,
     prepVerdict: lockedP2.verdict ?? lockedP2.status ?? null,
     blockers,
