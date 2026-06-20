@@ -343,6 +343,12 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     const targetLevel = levels.find((l) => l.state === "untaken") ?? levels[0] ?? { name: "reference", price: 0 };
     const stopLevel = [...levels].reverse().find((l) => l.price !== targetLevel.price) ?? targetLevel;
     const sizing = sizingByGrade[pillar_grade] ?? sizingByGrade.B ?? { r_size: pillar_grade === "no-trade" ? 0 : 1, override_reason: null };
+    // htf_destination direction is the corrected HTF bias (deriveHtfBiasDir),
+    // not a separate zone-position / target-vs-median heuristic. Those produced
+    // a "draw" that contradicted the traded bias (bull bias shown as a bear
+    // draw) and fed setup-detector.resolveSidesToEvaluate the wrong side on a
+    // manual /analyze. Display + manual-side now follow one HTF read.
+    const htfBiasDir = draw ? deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) : null;
     return {
       session,
       symbol,
@@ -373,8 +379,10 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       sizing_note: sizing.override_reason
         ? `${sizing.r_size} R · override: ${sizing.override_reason} (strategy.sizing-table)`
         : `${sizing.r_size} R · direct ${pillar_grade} (strategy.sizing-table)`,
-      ...(draw ? { primary_draw: draw, htf_bias_dir: deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) } : {}),
-      htf_destination: targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity",
+      ...(draw ? { primary_draw: draw, htf_bias_dir: htfBiasDir } : {}),
+      htf_destination: htfBiasDir === "bullish" ? "above nearest untaken liquidity"
+        : htfBiasDir === "bearish" ? "below nearest untaken liquidity"
+        : (targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity"),
       overnight_block: {
         ...mergeDraws(overnightDrawTargets(symbol, ds), sessionHistoryDraws(bundle, symbol)),
         overnight_verdict: computeOvernightVerdict({
