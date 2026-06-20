@@ -29,18 +29,21 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 
 ### Task 0.1 — Pin the exact field split (5m vs 1m)
 - Decide, field-by-field, which walker inputs read 5m vs 1m. Proposed:
-  - **5m:** `pillar3.swings`, `structures_by_tier.swing/internal`, `failure_swings`,
-    `fvgs`/`bprs` (the tapped zone), `price_context.inside_fvgs`.
-  - **1m (unchanged):** the confirmation close / entry price, `confirm_ms`, the bar that
-    fires the order, `ohlcv1m`.
-  - **Stop = independent variable `STOP_TF`, test BOTH 1m and 5m** (user decision 2026-06-20).
-    Do NOT assume the 5m stop. The fold compares structure-5m with a 1m stop vs a 5m stop, so
-    `structural_stops` is a knob, not fixed to 5m.
-- **Acceptance:** a field-by-field table (5m/1m) appended here, signed off.
+  - **Capture principle (LOCKED 2026-06-20):** pull EVERYTHING from BOTH the 1m and 5m engines
+    — full tables, nothing stripped — and the walker decides **per-field** which to use. 5m is
+    *added* for context; it never replaces the 1m engine.
+  - **Use — structure → 5m:** `pillar3.swings`, `structures_by_tier.swing/internal`,
+    `failure_swings` (the directional "structure confirmed" signal).
+  - **Use — entry → 1m:** the tapped zone is a **1m FVG**; all `fvgs`/`ifvgs`/`bprs`, `sweeps`,
+    `price_context.inside_fvgs`, the confirming close / entry price, `confirm_ms`, `ohlcv1m`
+    stay 1m.
+  - **Use — stop → tested both:** independent `STOP_TF` (1m vs 5m), folded both ways; not
+    assumed to be 5m.
+- **Acceptance:** field split above. **✅ LOCKED 2026-06-20.**
 - **Verification:** cross-check [docs/strategy/entry-models.md](../../strategy/entry-models.md)
   (structure = 5m, tap/close = 1m).
 
-**CHECKPOINT 0 — human review of the field split before any code.**
+**✅ CHECKPOINT 0 — LOCKED (2026-06-20): capture both in full; structure→5m; entry+all FVGs→1m; stop tested both.**
 
 ---
 
@@ -72,10 +75,10 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 
 ### Task 2.1 — Add `STRUCTURE_TF` switch (default `1m`)
 - **Files:** `app/main/config.js` (flag), `app/main/bar-close.js` (`buildStrategyBundleForRuntime`).
-- Default `1m` → byte-identical behavior. When `5m`, the runtime bundle's
-  `gates.engine.pillar3` (+ `price_context.inside_fvgs`) is sourced from the 5m track
-  (`engine5m` in tapes / `engine_by_tf.m5` live); `ohlcv1m`, the confirmation row, and entry
-  price stay 1m.
+- Default `1m` → byte-identical behavior. When `5m`, ONLY the structure rows
+  (`pillar3.swings`, `structures_by_tier.*`, `failure_swings`) are sourced from the 5m track
+  (`engine5m` in tapes / `engine_by_tf.m5` live). The 1m engine stays fully intact — all FVGs,
+  sweeps, `price_context`, the confirmation row, `ohlcv1m`, and entry price remain 1m.
 - **Steps (TDD):** (1) failing test — flag `5m` + fixture with distinct 1m vs 5m structure:
   context swings/MSS come from 5m, entry close from 1m; (2) implement the sourcing swap;
   (3) flag `1m` leaves all existing walker tests unchanged.
@@ -146,7 +149,7 @@ deterministic fold harness (`buildDeterministicPacketTruthFromInputs` + `gradeOp
 ---
 
 ## Todo
-- [ ] **0.1** Field split table (5m/1m) — CHECKPOINT 0
+- [x] **0.1** Field split LOCKED — capture both in full; structure→5m; entry+all FVGs→1m; stop tested both
 - [ ] **1.1** Tape recorder 5m track
 - [ ] **1.2** Live hunt 5m freshness — CHECKPOINT 1
 - [ ] **2.1** `STRUCTURE_TF` flag + sourcing swap
