@@ -141,6 +141,22 @@ test("buildDirectSessionBriefPayloads emits two valid surface_session_brief payl
   }
 });
 
+// §7 Step 3 anatomy must be visible in PREP: the Price-Action-Quality pillar
+// exposes per-TF elements (range / h4 / m5) and the LTF row carries BOTH 5m and
+// 15m so the trader sees the actual candle anatomy, not just the verdict.
+test("pillar2 elements expose 5m + 15m anatomy and h4 + h1 displacement", () => {
+  const [mnq] = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: bundle(), symbols: ["MNQ1!"] });
+  const p2 = mnq.pillars.find((p) => /price.*action|quality/i.test(p.name));
+  const ltf = p2.elements.find((e) => /^m5\b/i.test(e.name));
+  assert.ok(ltf, "expected an m5 anatomy element for the 15m/5m PREP row");
+  assert.match(ltf.detail, /5m .*·.*15m /); // both timeframes rendered
+  const htf = p2.elements.find((e) => /^h4\b/i.test(e.name));
+  assert.ok(htf, "expected an h4 element for the 4H/1H PREP row");
+  assert.match(htf.detail, /4H .*·.*1H /);
+  const range = p2.elements.find((e) => /range/i.test(e.name));
+  assert.ok(range, "expected a 3h range element");
+});
+
 // 2026-06-14 fix: overnight_block must split untaken draws by SIDE OF PRICE,
 // not by array position. The old positional slice(-3) put above-price highs
 // into untaken_below, so sell-side session lows (LO.L, AS.L) never reached the

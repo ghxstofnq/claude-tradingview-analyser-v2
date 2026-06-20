@@ -204,6 +204,51 @@ function htfQualityRow(symbol, digestSymbol, tf) {
   };
 }
 
+// §7 Step 3 has three checks (3h range, 4H/1H displacement, 15m/5m candle
+// anatomy). The grade collapses them to one verdict (pillar2Status), but PREP
+// should SHOW each — the renderer's pillar2ToRows maps element names range / h4
+// / m5 to its three STEP 3 rows. Detail carries BOTH timeframes per row so the
+// trader sees 5m AND 15m anatomy, not a single word. Display-only; the grade
+// still comes from pillar2Status (5m/15m).
+function qualityRowStatus(q) {
+  if (!q) return "pending";
+  return /poor|chop|doji/i.test(`${q.range_quality ?? ""} ${q.displacement ?? ""} ${q.candle ?? ""}`) ? "weak" : "pass";
+}
+function worstStatus(...ss) {
+  if (ss.includes("fail")) return "fail";
+  if (ss.includes("weak")) return "weak";
+  if (ss.includes("pass")) return "pass";
+  return "pending";
+}
+function pillar2Elements(symbol, digestSymbol) {
+  const p2 = digestSymbol?.pillar2 ?? {};
+  const m5 = p2.m5, m15 = p2.m15;
+  const h4 = digestSymbol?.htf?.h4?.quality, h1 = digestSymbol?.htf?.h1?.quality;
+  const rangeSrc = m5 || m15 || p2.current_tf;
+  const rangeKey = m5 ? "m5" : m15 ? "m15" : "current_tf";
+  const anat = (q) => (q ? `${q.displacement ?? "?"} disp / ${q.candle ?? "?"}` : "no data");
+  return [
+    {
+      name: "3h range",
+      status: qualityRowStatus(rangeSrc),
+      detail: rangeSrc ? `${rangeSrc.range_quality ?? "?"}${rangeSrc.range_3h != null ? ` (${rangeSrc.range_3h}pt)` : ""}` : "no data",
+      cite: `brief_digest.symbols.${symbol}.pillar2.${rangeKey}`,
+    },
+    {
+      name: "h4 displacement",
+      status: worstStatus(qualityRowStatus(h4), qualityRowStatus(h1)),
+      detail: `4H ${anat(h4)} · 1H ${anat(h1)}`,
+      cite: `brief_digest.symbols.${symbol}.htf.h4.quality`,
+    },
+    {
+      name: "m5 anatomy",
+      status: worstStatus(qualityRowStatus(m5), qualityRowStatus(m15)),
+      detail: `5m ${anat(m5)} · 15m ${anat(m15)}`,
+      cite: `brief_digest.symbols.${symbol}.pillar2.m5`,
+    },
+  ];
+}
+
 function pickPrimaryDraw(digestSymbol, { price = null } = {}) {
   // §2.1: "Primary charts: Daily and 4H (sometimes 1H)" + "prefers 4H PD
   // arrays when possible" — so 4H first, then DAILY, then 1H. (The previous
@@ -363,7 +408,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       ...(no_trade_reason ? { no_trade_reason } : {}),
       pillars: [
         { name: "Draw & Bias", status: drawStatus, elements: [{ name: "primary HTF draw", status: drawStatus }] },
-        { name: "Price-Action Quality", status: p2.status, elements: [{ name: "range/displacement/chop", status: p2.status }] },
+        { name: "Price-Action Quality", status: p2.status, elements: pillar2Elements(symbol, ds) },
         { name: "Entry Model + Confirmation", status: "pending", elements: [{ name: "wait for Pillar 3 confirmation close", status: "pending" }] },
       ],
       plan: `Use ${symbol} only if live Pillar 3 confirms. Primary target reference: ${targetLevel.name} ${formatPrice(targetLevel.price)}. Stand aside if source health or P1/P2 chain degrades.`,
