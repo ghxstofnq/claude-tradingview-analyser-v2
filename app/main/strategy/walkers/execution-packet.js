@@ -514,7 +514,20 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   const entryEtMin = etMinutesOfUtc(context?.eventTimeUtc);
   if (entryEtMin != null && entryEtMin >= ENTRY_CUTOFF_ET_MIN) blockers.push('entry_after_session_cutoff');
 
-  const grade = deriveGrade({ context, walker });
+  let grade = deriveGrade({ context, walker });
+  // Exhaustion-runner conviction cap (auto-research finding 2026-06-20): a CLEAN
+  // (sharp) displacement means the impulsive move has already fired, so a clean
+  // entry taken LATE (>= 11:00 ET) is an exhaustion entry — as an A+ runner it
+  // tends to tag TP1 then trail back to break-even (0R), giving back R. Folded
+  // MNQ corpus: clean/"good"-quality entries win 32% vs 52% for "marginal"
+  // (n=119), and capping the late-clean A+ runner to B (bank the TP1 win, skip
+  // the TP2 ride) nets +1.03R corpus-wide. EARLY clean runners are spared — those
+  // are genuine breakouts (e.g. the 2026-06-09 +25R day), not exhaustion.
+  const EXHAUSTION_ET_MIN = 11 * 60; // 11:00 ET
+  if (grade === 'A+' && context?.pillar2?.displacement === 'clean'
+      && entryEtMin != null && entryEtMin >= EXHAUSTION_ET_MIN) {
+    grade = 'B';
+  }
   if (grade === 'no-trade') blockers.push('grade_blocked');
 
   // Grade-tiered AM cutoff (user ruling 2026-06-13): a non-A+ setup confirming
