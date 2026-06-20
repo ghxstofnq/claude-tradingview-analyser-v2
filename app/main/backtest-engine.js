@@ -37,7 +37,7 @@ import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/o
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
 import { canonicalSymbol } from "../../cli/lib/run-symbol.js";
-import { swingStructuresForBias } from "./structure-source.js";
+import { swingStructuresForBias, swingStructuresForRealign } from "./structure-source.js";
 
 const SESSION_WINDOWS = {
   "ny-am": { from: "09:30", to: "12:00" },
@@ -451,7 +451,7 @@ export async function runBacktest({
       // earns the fold its direction at B cap (§7 Step 7: neutral
       // overnight stays one weaker element). Mirrors the live resolver.
       if (synthesizedContext && openReaction && Number.isFinite(entryMs) && entryMs > orWindow.endMs && !openReaction.ltf_bias) {
-        const swings = swingStructuresForBias(entry?.inputs?.bundle);
+        const swings = swingStructuresForRealign(entry?.inputs?.bundle);
         const struct = swings
           .filter((s) => (s?.confirmed_ms ?? 0) > orWindow.endMs && (s?.confirmed_ms ?? 0) <= entryMs)
           .reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);
@@ -488,7 +488,7 @@ export async function runBacktest({
       // direction (mirrors the live resolver; see live-ltf-resolver.js for the
       // 2026-06-18 BoS-skipped case the MSS-only filter missed).
       if (synthesizedContext && openReaction && Number.isFinite(entryMs) && entryMs > orWindow.endMs && openReaction.ltf_bias) {
-        const swings = swingStructuresForBias(entry?.inputs?.bundle);
+        const swings = swingStructuresForRealign(entry?.inputs?.bundle);
         const mss = swings
           .filter((s) => (s?.event === "mss" || (s?.event === "bos" && s?.displacement === true))
             && (s?.confirmed_ms ?? 0) > orWindow.endMs &&

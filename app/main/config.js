@@ -29,3 +29,11 @@ export function structureTf() {
 export function stopTf() {
   return process.env.GOFNQ_STOP_TF === "5" ? "5" : "1";
 }
+
+// Independent control for ONLY the mid-session realignment (the bias flip on a
+// post-window swing-MSS — the "don't flip on a 1m false break" lever). Lets the
+// fold isolate the realignment from the open-reaction read (which follows
+// STRUCTURE_TF). Default '1'.
+export function realignTf() {
+  return process.env.GOFNQ_REALIGN_TF === "5" ? "5" : "1";
+}

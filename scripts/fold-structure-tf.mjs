@@ -69,23 +69,27 @@ async function foldVariant(label, env) {
   return { label, total: r2(total), wins, neg3, per };
 }
 
-const A = await foldVariant("A 1m/1m       ", {});
-const B = await foldVariant("B str5m/stop1m", { GOFNQ_STRUCTURE_TF: "5" });
-const C = await foldVariant("C str5m/stop5m", { GOFNQ_STRUCTURE_TF: "5", GOFNQ_STOP_TF: "5" });
+const A = await foldVariant("A 1m/1m        ", {});
+const B = await foldVariant("B str5m/stop1m ", { GOFNQ_STRUCTURE_TF: "5" });
+const C = await foldVariant("C str5m/stop5m ", { GOFNQ_STRUCTURE_TF: "5", GOFNQ_STOP_TF: "5" });
+const D = await foldVariant("D realign5m only", { GOFNQ_REALIGN_TF: "5" });
 
 console.log("\n===== MNQ structure-TF fold grid =====");
-for (const v of [A, B, C]) console.log(`${v.label}  R=${String(v.total).padStart(8)}  win-days=${v.wins}  -3R days=${v.neg3.length}`);
+for (const v of [A, B, C, D]) console.log(`${v.label}  R=${String(v.total).padStart(8)}  win-days=${v.wins}  -3R days=${v.neg3.length}`);
 console.log(`\nbaseline sanity: A total ${A.total} (expect ~118.08)`);
 
-console.log("\n===== -3R days by variant =====");
-const allNeg3 = new Set([...A.neg3, ...B.neg3, ...C.neg3]);
-for (const d of [...allNeg3].sort()) console.log(`  ${d.padEnd(18)} A=${A.per.get(d)} B=${B.per.get(d)} C=${C.per.get(d)}`);
-
-console.log("\n===== sessions that CHANGED (A vs B vs C) =====");
+console.log("\n===== B(open5m) & D(realign5m) vs A(1m) — sessions that CHANGED =====");
 const keys = [...A.per.keys()].sort();
-let changed = 0;
+const wks = new Set();
 for (const k of keys) {
-  const a = A.per.get(k), b = B.per.get(k), c = C.per.get(k);
-  if (a !== b || a !== c) { changed++; console.log(`  ${k.padEnd(18)} A=${String(a).padStart(6)}  B=${String(b).padStart(6)}  C=${String(c).padStart(6)}`); }
+  const a = A.per.get(k), b = B.per.get(k), d = D.per.get(k);
+  if (a !== b || a !== d) {
+    if (a !== b) wks.add(k.slice(0, 7)); // ISO month-week-ish: date prefix for robustness gauge
+    console.log(`  ${k.padEnd(18)} A=${String(a).padStart(6)}  B=${String(b).padStart(6)}  D=${String(d).padStart(6)}`);
+  }
 }
-console.log(`\n${changed} of ${keys.length} sessions changed under 5m structure.`);
+const bUp = keys.filter((k) => B.per.get(k) > A.per.get(k));
+const bDown = keys.filter((k) => B.per.get(k) < A.per.get(k));
+console.log(`\nB (open read → 5m) vs A: ${bUp.length} up, ${bDown.length} down across ${new Set([...bUp, ...bDown].map((k) => k.slice(0, 7))).size} distinct dates  → A=${A.total}R B=${B.total}R (${r2(B.total - A.total)}R)`);
+console.log(`B up dates:   ${bUp.join(", ")}`);
+console.log(`B down dates: ${bDown.join(", ")}`);

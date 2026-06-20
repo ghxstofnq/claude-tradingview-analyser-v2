@@ -15,7 +15,7 @@ import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/o
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { openReactionWindowMs } from "./backtest-engine.js";
 import { biasFromDraw } from "./backtest-context.js";
-import { swingStructuresForBias } from "./structure-source.js";
+import { swingStructuresForBias, swingStructuresForRealign } from "./structure-source.js";
 
 function etDateOf(ts) {
   const ms = Date.parse(ts);
@@ -41,7 +41,8 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   if (!htfBias) return null;
 
   const gates = bundle?.gates?.engine ?? {};
-  const swingStructs = swingStructuresForBias(bundle);
+  const swingStructs = swingStructuresForBias(bundle);          // open read → STRUCTURE_TF
+  const swingStructsRealign = swingStructuresForRealign(bundle); // realignment → REALIGN_TF
   const latestOf = (arr) => arr.reduce(
     (a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a),
     null,
@@ -72,7 +73,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   // the LATEST post-window swing structure naturally wins.
   let lateDirection = false;
   if (!verdict.ltf_bias) {
-    const postWindowStruct = latestOf(swingStructs.filter((s) =>
+    const postWindowStruct = latestOf(swingStructsRealign.filter((s) =>
       (s?.confirmed_ms ?? 0) > window.endMs && (s?.confirmed_ms ?? 0) <= ms));
     const structBias = postWindowStruct?.dir === "bear" ? "bearish"
       : postWindowStruct?.dir === "bull" ? "bullish" : null;
@@ -99,7 +100,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
   // 4 min before two more shorts stacked into it; the MSS-only filter skipped
   // it). Displacement gates out marginal drift-overs.
   let realigned = false;
-  const postWindowMss = latestOf(swingStructs.filter((s) =>
+  const postWindowMss = latestOf(swingStructsRealign.filter((s) =>
     (s?.event === "mss" || (s?.event === "bos" && s?.displacement === true))
     && (s?.confirmed_ms ?? 0) > window.endMs && (s?.confirmed_ms ?? 0) <= ms));
   if (postWindowMss && verdict.ltf_bias) {

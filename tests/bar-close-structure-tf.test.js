@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { __test } from '../app/main/bar-close.js';
-import { swingStructuresForBias } from '../app/main/structure-source.js';
+import { swingStructuresForBias, swingStructuresForRealign } from '../app/main/structure-source.js';
 
 // 5m-structure campaign: with STRUCTURE_TF='5' the walker reads market STRUCTURE
 // from the 5m engine (engine_by_tf.m5) while FVGs/entry stay 1m; STOP_TF routes
@@ -90,6 +90,19 @@ test('swingStructuresForBias: 1m by default, 5m structure when STRUCTURE_TF=5', 
     assert.equal(fiveM[0].event, 'mss'); // computed from engine_by_tf.m5.structures
     assert.equal(fiveM[0].dir, 'bear');
   } finally { delete process.env.GOFNQ_STRUCTURE_TF; }
+});
+
+test('swingStructuresForRealign follows REALIGN_TF independently of STRUCTURE_TF', () => {
+  const bundle = inputs().bundle;
+  delete process.env.GOFNQ_STRUCTURE_TF;
+  delete process.env.GOFNQ_REALIGN_TF;
+  assert.equal(swingStructuresForRealign(bundle)[0].event, 'bos'); // default 1m
+  process.env.GOFNQ_REALIGN_TF = '5';
+  try {
+    assert.equal(swingStructuresForRealign(bundle)[0].event, 'mss'); // 5m
+    // STRUCTURE_TF still drives the OPEN read independently (stays 1m here)
+    assert.equal(swingStructuresForBias(bundle)[0].event, 'bos');
+  } finally { delete process.env.GOFNQ_REALIGN_TF; }
 });
 
 test('STOP_TF=5 routes the structural stop to 5m swings (differs from 1m)', () => {
