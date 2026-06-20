@@ -2,13 +2,11 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { register } from '../router.js';
-import * as chart from '@tvmcp/core/chart';
 import * as data from '@tvmcp/core/data';
 import * as replay from '@tvmcp/core/replay';
 import { parseIctEngineTable, findIctEngineRows } from '../lib/ict-engine-parser.js';
 import { recordEntries, mergeFiveMinuteTrack, tapeFromRecording, contextFromLabel } from '../lib/tape-recorder.js';
-
-const SYMBOL_SETTLE_MS = 600;
+import { freshChartForReplay } from '../lib/replay-recovery.js';
 
 register('record-tape', {
   description: 'Step TradingView bar replay across a historical session and record a per-bar walker day-tape (ICT Engine recomputed at every bar). Output feeds the day-tape gate after hand-grading.',
@@ -23,43 +21,34 @@ register('record-tape', {
     const label = JSON.parse(readFileSync(opts.label, 'utf8'));
     const context = contextFromLabel(label);
 
-    // Pin the chart to the label's symbol at 1m before starting replay.
     const symbol = String(label.contract_hint ?? label.symbol).replace(/^[A-Z_]+:/, '');
-    const state = await chart.getState();
-    if (state.symbol.replace(/^[A-Z_]+:/, '') !== symbol) {
-      await chart.setSymbol({ symbol });
-      await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
-    }
-    if (state.resolution !== '1') {
-      await chart.setTimeframe({ timeframe: '1' });
-      await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
-    }
-
     const fromEt = opts.from || '09:30';
     const toEt = opts.to || '12:00';
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const deps = {
       startReplay: (args) => replay.start(args),
       stepReplay: () => replay.step(),
       stopReplay: () => replay.stop(),
       readBars: () => data.getOhlcv({ summary: true }),
       readEngine: async () => parseIctEngineTable(findIctEngineRows(await data.getPineTables())),
-      sleep,
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     };
 
     // Two-pass capture (no mid-replay TF switching): record the whole window on
-    // 1m, then again from the same start on the 5m chart, and merge by
-    // timestamp. The chart is already pinned to 1m above; each pass opens and
-    // closes its own replay.
+    // 1m, then again from the same start on the 5m chart, and merge by timestamp.
+    // Each pass is a separate replay SESSION, so each starts from a freshly-
+    // RELOADED chart — reusing a chart that already ran one replay+stop wedges
+    // the next replay.start into "symbol doesn't exist" (only a page reload
+    // clears it). Mirrors the backtest's freshChartForReplay recipe.
     const date = label.trade_date;
+
+    await freshChartForReplay({ leader: symbol, timeframe: '1' });
     const rec1 = await recordEntries({ context, date, fromEt, toEt, deps, tf: '1' });
 
-    await chart.setTimeframe({ timeframe: '5' });
-    await sleep(SYMBOL_SETTLE_MS);
+    await freshChartForReplay({ leader: symbol, timeframe: '5' });
     const rec5 = await recordEntries({ context, date, fromEt, toEt, deps, tf: '5' });
-    // Restore the base TF so the chart is left as we found it.
-    await chart.setTimeframe({ timeframe: '1' });
-    await sleep(SYMBOL_SETTLE_MS);
+
+    // Leave the chart reloaded + pinned back at 1m.
+    await freshChartForReplay({ leader: symbol, timeframe: '1' });
 
     const entries = mergeFiveMinuteTrack(rec1.entries, rec5.entries);
     const recording = {
