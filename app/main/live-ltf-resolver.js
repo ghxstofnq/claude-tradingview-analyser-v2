@@ -16,6 +16,7 @@ import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js
 import { openReactionWindowMs } from "./backtest-engine.js";
 import { biasFromDraw } from "./backtest-context.js";
 import { swingStructuresForBias, swingStructuresForRealign } from "./structure-source.js";
+import { htfFallbackVerdict } from "./htf-fallback.js";
 
 function etDateOf(ts) {
   const ms = Date.parse(ts);
@@ -119,6 +120,20 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
       realigned = true;
     }
   }
+  // Pillar 1 HTF fallback (§2.4 / §7 Step 7): a neutral NY-AM open that resolved
+  // no bias above is still a B trade in the HTF direction. Shared with the
+  // backtest fold (htf-fallback.js). Applied LAST so late_direction / realignment
+  // always win — this fires only while ltf_bias is still null. Stateless per-bar
+  // recompute (bar-close buildDetectorInputs) means a structure appearing on a
+  // later bar replaces the fallback, exactly mirroring the backtest loop.
+  let htfFallback = false;
+  if (!verdict.ltf_bias) {
+    const patch = htfFallbackVerdict({ htfBias, session, ms, windowEndMs: window.endMs });
+    if (patch) {
+      verdict = { ...verdict, ...patch };
+      htfFallback = true;
+    }
+  }
   const p3 = gates?.pillar3 ?? {};
   const priority = computeEntryModelPriority({
     pillar2_verdict: brief?.pillar2_verdict ?? null,
@@ -137,6 +152,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs } = {}) {
     grade_cap: verdict.grade_cap,
     source: realigned ? "deterministic-resolver:realigned"
       : lateDirection ? "deterministic-resolver:late-direction"
+      : htfFallback ? "deterministic-resolver:htf-fallback"
       : "deterministic-resolver",
     cite: verdict.cite,
     interaction: verdict.interaction,
