@@ -203,3 +203,53 @@ test("opt-out (GOFNQ_P1_HTF_FALLBACK=0) keeps the chain honestly blocked", () =>
     delete process.env.GOFNQ_P1_HTF_FALLBACK;
   }
 });
+
+// Full open-window close coverage (live≠backtest fix 2026-06-21): the §7-Step-4
+// accept-bars count needs ALL in-window closes. With only the last few (live's
+// bundle tail) a weak divergent rejection reads clean; with the full window it
+// correctly stands aside — matching the backtest. ACCEPT_BARS_MAX = 5.
+const amW = openReactionWindowMs({ date: "2026-06-12", session: "ny-am" });
+function closesAbove(n, level) {
+  // n in-window closes holding ABOVE the swept high (break accepted)
+  return Array.from({ length: n }, (_, i) => ({ time_ms: amW.startMs + (9 + i) * 60_000, close: level + 10 }));
+}
+const HIGH_SWEEP = [{ target: "AS.H", price: 29600, side: "buy", swept_ms: amW.startMs + 8 * 60_000, rejected: false }];
+const tsAm = (m) => new Date(amW.startMs + m * 60_000).toISOString();
+
+test("partial closes (4 accept bars) keep the divergent bias — the under-read", () => {
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps: HIGH_SWEEP }), brief: BRIEF, session: "ny-am",
+    eventTs: tsAm(20), windowClosesOverride: closesAbove(4, 29600),
+  });
+  assert.equal(r.bias, "bullish"); // continuation up over AS.H, divergent vs bearish HTF
+});
+
+test("full closes (6 accept bars) stand aside — divergent_weak_rejection, matches backtest", () => {
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps: HIGH_SWEEP }), brief: BRIEF, session: "ny-am",
+    eventTs: tsAm(20), windowClosesOverride: closesAbove(6, 29600),
+  });
+  assert.equal(r.bias, null);
+  assert.equal(r.interaction, "divergent_weak_rejection");
+});
+
+// Post-window freeze guard: a `rejected` flag that matures AFTER minute 30 must
+// not flip a frozen verdict when we have window-close coverage (2026-06-01 PM).
+const REJECTED_FLAG_SWEEP = [{ target: "LO.H", price: 29700, side: "buy", swept_ms: amW.startMs + 8 * 60_000, rejected: true }];
+test("post-window: matured rejected flag is ignored WHEN closes are present", () => {
+  // closes hold above the level (no in-window rejection) → with the flag ignored
+  // the read stays continuation/bullish, matching the backtest's frozen verdict.
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps: REJECTED_FLAG_SWEEP }), brief: BRIEF, session: "ny-am",
+    eventTs: tsAm(40), windowClosesOverride: closesAbove(3, 29700),
+  });
+  assert.equal(r.bias, "bullish");
+});
+
+test("post-window: rejected flag is HONORED when there are no closes (degraded start)", () => {
+  const r = deriveLtfBiasContext({
+    bundle: bundleWith({ sweeps: REJECTED_FLAG_SWEEP }), brief: BRIEF, session: "ny-am",
+    eventTs: tsAm(40), windowClosesOverride: [],
+  });
+  assert.equal(r.bias, "bearish"); // high rejected → bearish
+});

@@ -46,8 +46,16 @@ function isHighLevel(name) {
   return /\.H$/.test(name);
 }
 
-function sweepRejected(sweep, closes, endMs) {
-  if (sweep?.rejected === true) return true;
+function sweepRejected(sweep, closes, endMs, ignoreEngineFlag = false) {
+  // The engine's `rejected` flag has no timestamp and can MATURE after the open
+  // window closes (a wick-rejection the engine confirms minutes later). The
+  // backtest never sees that — it freezes the open read at minute 30. Live
+  // recomputes every bar, so post-window it would pick up the matured flag and
+  // flip a frozen verdict (2026-06-01 PM: bullish at +30m → bearish at +33m).
+  // ignoreEngineFlag lets the live post-window recompute rely ONLY on the
+  // window-confined closes (now full-coverage via window-closes.js), matching
+  // the backtest's frozen verdict. In-window resolution still trusts the flag.
+  if (!ignoreEngineFlag && sweep?.rejected === true) return true;
   const level = Number(sweep?.price);
   if (!Number.isFinite(level)) return false;
   const high = isHighLevel(String(sweep?.target ?? ''));
@@ -64,6 +72,7 @@ export function resolveOpenReaction({
   window = {},
   overnight_targets = OVERNIGHT_TARGETS,
   window_closes = [],
+  ignore_engine_rejected_flag = false,
 } = {}) {
   const targets = overnight_targets instanceof Set ? overnight_targets : new Set(overnight_targets);
   const { startMs = -Infinity, endMs = Infinity } = window;
@@ -90,7 +99,7 @@ export function resolveOpenReaction({
   // §2.3: "let NY open reaction confirm or challenge it" — latest wins.
   const last = interactions.reduce((a, b) => (b.swept_ms >= a.swept_ms ? b : a));
   const high = isHighLevel(last.target);
-  const rejected = sweepRejected(last, Array.isArray(window_closes) ? window_closes : [], endMs);
+  const rejected = sweepRejected(last, Array.isArray(window_closes) ? window_closes : [], endMs, ignore_engine_rejected_flag);
 
   // Rejection flips direction at the level; continuation keeps the break
   // direction. High-break continuation → bullish; rejected → bearish.

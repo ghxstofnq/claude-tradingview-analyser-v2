@@ -31,6 +31,7 @@ import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor, structureT
 import { computeEngineGates } from "../../cli/lib/compute-engine-gates.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 import { finalizeOpenReactionDeterministic } from "./live-open-reaction-finalizer.js";
+import { appendWindowClose, readWindowCloses } from "./window-closes.js";
 import { normalizeLtfBiasRecord, isFinalizedLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
 import { markBarReceived, markTurnComplete } from "./health.js";
 import { markBarReceivedForWatchdog } from "./trade-ticker-watchdog.js";
@@ -369,6 +370,19 @@ async function handleBar(ev) {
   // Phase-aware: decide if Claude should react.
   const { session } = currentSession();
   const phase = phaseFor(session, ev);
+
+  // Accumulate the full open-window 1m closes so the live open-reaction read
+  // sees the whole window (matching the backtest), not just bars.last_5_bars
+  // (live≠backtest fix 2026-06-21). Runs every 1m bar regardless of phase —
+  // the window closes happen DURING open_reaction, before buildDetectorInputs
+  // (entry_hunt) ever runs. Inert outside the window (appendWindowClose gates
+  // by time). Live runs a 1m chart, so ev.ohlc is the closed 1m bar.
+  if (session && ev?.ohlc?.close != null) {
+    try {
+      const dir = await activeSessionDir();
+      appendWindowClose({ dir, eventTs: ev.ts, session, close: ev.ohlc.close });
+    } catch { /* best-effort; resolver falls back to last_5_bars */ }
+  }
   if (phase === "off") {
     // #6 Session close — if any trades are still open after the session
     // ended, warn the user once per (date, session). Trader could've
@@ -1545,9 +1559,13 @@ async function buildDetectorInputs(session) {
   // always wins; the fallback only fills absence.
   if (!ltf_bias_context?.bias) {
     try {
+      const dir = await activeSessionDir();
       const derived = deriveLtfBiasContext({
         bundle, brief, session,
         eventTs: bundle?.quote?.time ? new Date(bundle.quote.time * 1000).toISOString() : new Date().toISOString(),
+        // Full open-window closes (window-closes.js) so the live read matches the
+        // backtest's accumulated coverage, not the bundle's 4-5 bar tail.
+        windowClosesOverride: readWindowCloses(dir),
       });
       if (derived) ltf_bias_context = derived;
     } catch { /* fallback is best-effort; the chain blocks honestly without it */ }
