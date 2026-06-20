@@ -27,7 +27,8 @@ function llmTurnAuthBlocked({ providerName, claudeBlocked }) {
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
-import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor } from "./config.js";
+import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor, structureTf, stopTf } from "./config.js";
+import { computeEngineGates } from "../../cli/lib/compute-engine-gates.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 import { finalizeOpenReactionDeterministic } from "./live-open-reaction-finalizer.js";
 import { normalizeLtfBiasRecord, isFinalizedLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
@@ -1202,6 +1203,39 @@ function buildStrategyBundleForRuntime(inputs, ev, session) {
     schemaSupported: meta.schemaSupported ?? meta.schema_supported ?? true,
     stale: meta.stale ?? false,
   };
+  // 5m-structure campaign (2026-06-20): when STRUCTURE_TF='5', source market
+  // STRUCTURE (swings / MSS+BoS / failure-swings / most-recent) from the 5m
+  // engine while the 1m keeps FVGs / sweeps / price_context / confirmation (the
+  // entry layer). STOP_TF independently routes the structural stop. The 5m
+  // structure is the COMPUTED+bridged gates of the captured 5m table
+  // (engine_by_tf.m5). Default '1' leaves the 1m engine byte-identical.
+  if (structureTf() === '5' && bundle.engine_by_tf?.m5) {
+    const m5 = bridgeEngineEvidence(
+      computeEngineGates({
+        engine: bundle.engine_by_tf.m5,
+        engineByTf: null,
+        last: bundle.quote?.last ?? null,
+        lastBar: null,
+        lastBarAgeSeconds: null,
+        m5LastBar: null,
+        m15LastBar: null,
+        quoteTimeMs: ev?.ts ? Date.parse(ev.ts) : Date.now(),
+      }),
+      { lastClose: bundle.quote?.last ?? null },
+    );
+    const p3 = engine.pillar3 ?? {};
+    const s3 = m5.pillar3 ?? {};
+    engine.pillar3 = {
+      ...p3, // fvgs / fvgs_ranked / bprs / fvg_summary stay 1m (the entry layer)
+      swings: s3.swings ?? p3.swings,
+      structure_events: s3.structure_events ?? p3.structure_events,
+      structures_by_tier: s3.structures_by_tier ?? p3.structures_by_tier,
+      failure_swings: s3.failure_swings ?? p3.failure_swings,
+      most_recent_structure: s3.most_recent_structure ?? p3.most_recent_structure,
+      ...(stopTf() === '5' ? { structural_stops: s3.structural_stops ?? p3.structural_stops } : {}),
+    };
+    engine.meta = { ...engine.meta, structure_tf: '5', stop_tf: stopTf() };
+  }
   return {
     ...bundle,
     market: leader,
