@@ -106,7 +106,10 @@ function buildContext({ session, leader, brief, ltf }) {
     },
     brief_digest: {
       htf_destination: {
-        dir: biasFromDraw(draw) === "bearish" ? "below" : "above",
+        // Corrected HTF bias first (matches the brief's htf_bias_dir + the
+        // traded side); biasFromDraw is the legacy zone-position fallback that
+        // read uptrends as bearish — kept only when no bias is available.
+        dir: (brief?.htf_bias_dir ?? biasFromDraw(draw)) === "bearish" ? "below" : "above",
         price: drawPrice(draw),
         cite: draw?.cite ?? "brief.primary_draw",
       },
