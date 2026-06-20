@@ -33,12 +33,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { closeAtMarket, gradeRunner } from "./backtest-grader.js";
 import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.js";
-import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/open-reaction-resolver.js";
-import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
 import { canonicalSymbol } from "../../cli/lib/run-symbol.js";
-import { swingStructuresForBias, swingStructuresForRealign } from "./structure-source.js";
-import { htfFallbackVerdict } from "./htf-fallback.js";
+// The fold's open-reaction read is the SAME resolver the live chain uses — one
+// source of truth (no parallel copy to drift). Circular with live-ltf-resolver
+// (it imports openReactionWindowMs/biasFromDraw from here) but both usages are
+// function-level, so ESM resolves it.
+import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 
 const SESSION_WINDOWS = {
   "ny-am": { from: "09:30", to: "12:00" },
@@ -139,59 +140,6 @@ export function openReactionWindowMs({ date, session }) {
     startMs,
     resolveMs: startMs + OPEN_REACTION_RESOLVE_MIN * 60_000,
     endMs: startMs + OPEN_REACTION_END_MIN * 60_000,
-  };
-}
-
-/**
- * Deterministic open-reaction leg (§2.3 / §7 Step 4) for synthesized
- * contexts: resolve the NY-open verdict from the engine's sweep rows at the
- * minute-15 boundary and return the upgraded ltf context + chain status.
- */
-function resolveOpenReactionLeg({ entry, context, window, session, windowCloses = [] }) {
-  const gates = entry?.inputs?.bundle?.gates?.engine ?? {};
-  const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
-  // Standing swing-tier structure AS OF the open window (engine's real-vs-
-  // internal separation) — lets the resolver detect failed breaks (§7 Step
-  // 4). Post-window structures must not rewrite the open read; they drive
-  // mss realignment instead (see the fold loop).
-  const swingStructs = swingStructuresForBias(entry?.inputs?.bundle)
-    .filter((s) => (s?.confirmed_ms ?? 0) <= window.endMs);
-  const swingStructure = swingStructs.reduce(
-    (a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a),
-    null,
-  );
-  const verdict = resolveOpenReaction({
-    htf_bias: htfBias,
-    sweeps: gates?.pillar1?.sweeps ?? [],
-    swing_structure: swingStructure,
-    window,
-    overnight_targets: overnightTargetsForSession(session),
-    window_closes: windowCloses,
-  });
-  const p3 = gates?.pillar3 ?? {};
-  const priority = computeEntryModelPriority({
-    pillar2_verdict: context?.session_state?.pillar2?.verdict ?? null,
-    htf_ltf_alignment: verdict.htf_ltf_alignment,
-    ltf_bias: verdict.ltf_bias,
-    failure_swings: p3.failure_swings ?? [],
-    most_recent_structure: p3.most_recent_structure ?? null,
-    inverted_fvg_present: (p3.fvgs ?? []).some((f) => f?.state === "inverted"),
-  });
-  const chainStatus = verdict.htf_ltf_alignment === "aligned" ? "clean"
-    : verdict.htf_ltf_alignment === "divergent" ? "divergent"
-    : "degraded:open_unclear";
-  return {
-    ...verdict,
-    entry_model_priority: priority.priority,
-    resolved_at_ts: entry?.event?.ts ?? null,
-    chainStatus,
-    ltf_bias_context: {
-      bias: verdict.ltf_bias,
-      htf_ltf_alignment: verdict.htf_ltf_alignment,
-      is_retrace_day: verdict.is_retrace_day,
-      entry_model_priority: priority.priority,
-      grade_cap: verdict.grade_cap,
-    },
   };
 }
 
@@ -411,7 +359,7 @@ export async function runBacktest({
     // close back through the level. Frozen after endMs.
     const synthesizedContext = contextSource === "direct_brief";
     let walkers = [];
-    let lastRealignMs = 0;
+    let prevInteraction = null; // activity-log dedup: emit only on interaction change
     // In-window 1m closes for the resolver's close-based rejection (GXNQ
     // 2026-06-13, June 11: the engine's sweep flag lagged; the closes ARE
     // the §7-Step-4 reaction evidence). Bar close stamp = open time + 60s.
@@ -427,130 +375,61 @@ export async function runBacktest({
         && !windowCloses.some((c) => c.time_ms === lastBarCloseMs)) {
         windowCloses.push({ time_ms: lastBarCloseMs, close: Number(lastBar.close) });
       }
-      const inResolveSpan = Number.isFinite(entryMs) && entryMs >= orWindow.resolveMs &&
-        (!openReaction || entryMs <= orWindow.endMs);
-      if (synthesizedContext && inResolveSpan) {
-        const next = resolveOpenReactionLeg({ entry, context, window: orWindow, session, windowCloses });
-        const changed = !openReaction ||
-          next.interaction !== openReaction.interaction ||
-          next.level !== openReaction.level ||
-          next.htf_ltf_alignment !== openReaction.htf_ltf_alignment;
-        if (changed) {
-          openReaction = next;
-          chainStatus = next.chainStatus;
-          appendActivity({
-            kind: "open_reaction",
-            interaction: next.interaction,
-            level: next.level,
-            alignment: next.htf_ltf_alignment,
-            cite: next.cite,
-          });
-        }
-      }
-      // §2.3 + user ruling 2026-06-12: a quiet open leaves the LTF bias
-      // PENDING — the first swing-tier structure event after the window
-      // earns the fold its direction at B cap (§7 Step 7: neutral
-      // overnight stays one weaker element). Mirrors the live resolver.
-      if (synthesizedContext && openReaction && Number.isFinite(entryMs) && entryMs > orWindow.endMs && !openReaction.ltf_bias) {
-        const swings = swingStructuresForRealign(entry?.inputs?.bundle);
-        const struct = swings
-          .filter((s) => (s?.confirmed_ms ?? 0) > orWindow.endMs && (s?.confirmed_ms ?? 0) <= entryMs)
-          .reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);
-        const structBias = struct?.dir === "bear" ? "bearish" : struct?.dir === "bull" ? "bullish" : null;
-        if (structBias) {
-          const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
-          const aligned = structBias === htfBias;
-          openReaction = {
-            ...openReaction,
-            interaction: "late_direction",
-            ltf_bias: structBias,
-            htf_ltf_alignment: aligned ? "aligned" : "divergent",
-            is_retrace_day: !aligned,
-            grade_cap: "B",
-            cite: "gates.engine.pillar3.structures_by_tier.swing[latest]",
-            resolved_at_ts: entry.event?.ts ?? null,
-            chainStatus: aligned ? "clean" : "divergent",
-            ltf_bias_context: {
-              ...openReaction.ltf_bias_context,
-              bias: structBias,
-              htf_ltf_alignment: aligned ? "aligned" : "divergent",
-              is_retrace_day: !aligned,
-              grade_cap: "B",
-            },
-          };
-          chainStatus = openReaction.chainStatus;
-          lastRealignMs = struct.confirmed_ms;
-          appendActivity({ kind: "late_direction", bias: structBias, alignment: openReaction.htf_ltf_alignment, cite: openReaction.cite });
-        }
-      }
-      // §2.3 "never marries a bias" + §7 Step 5: after the open window, a
-      // SWING-tier MSS — or a swing-tier BoS with displacement — confirming
-      // against the current bias realigns the fold to the structure's
-      // direction (mirrors the live resolver; see live-ltf-resolver.js for the
-      // 2026-06-18 BoS-skipped case the MSS-only filter missed).
-      if (synthesizedContext && openReaction && Number.isFinite(entryMs) && entryMs > orWindow.endMs && openReaction.ltf_bias) {
-        const swings = swingStructuresForRealign(entry?.inputs?.bundle);
-        const mss = swings
-          .filter((s) => (s?.event === "mss" || (s?.event === "bos" && s?.displacement === true))
-            && (s?.confirmed_ms ?? 0) > orWindow.endMs &&
-            (s?.confirmed_ms ?? 0) > lastRealignMs && (s?.confirmed_ms ?? 0) <= entryMs)
-          .reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);
-        const structBias = mss?.dir === "bear" ? "bearish" : mss?.dir === "bull" ? "bullish" : null;
-        if (structBias && structBias !== openReaction.ltf_bias) {
-          const htfBias = context?.session_state?.pillar1?.htfBias ?? null;
-          const aligned = structBias === htfBias;
-          openReaction = {
-            ...openReaction,
-            interaction: "mss_realignment",
-            ltf_bias: structBias,
-            htf_ltf_alignment: aligned ? "aligned" : "divergent",
-            is_retrace_day: !aligned,
-            grade_cap: aligned ? "A+" : "B",
-            cite: "gates.engine.pillar3.structures_by_tier.swing[latest mss]",
-            resolved_at_ts: entry.event?.ts ?? null,
-            chainStatus: aligned ? "clean" : "divergent",
-            ltf_bias_context: {
-              ...openReaction.ltf_bias_context,
-              bias: structBias,
-              htf_ltf_alignment: aligned ? "aligned" : "divergent",
-              is_retrace_day: !aligned,
-              grade_cap: aligned ? "A+" : "B",
-            },
-          };
-          chainStatus = openReaction.chainStatus;
-          lastRealignMs = mss.confirmed_ms;
-          appendActivity({ kind: "mss_realignment", bias: structBias, alignment: openReaction.htf_ltf_alignment, cite: openReaction.cite });
-        }
-      }
-      // Pillar 1 HTF fallback (§2.4 / §7 Step 7): a NEUTRAL NY-AM open — the open
-      // reaction never resolved a bias AND no post-window structure earned one —
-      // is still a B trade in the HTF direction, not a stand-aside. Shared helper
-      // with the live resolver (htf-fallback.js) so the two paths can't drift.
-      // Applied per bar AFTER late_direction/realignment, so a real structure
-      // always wins (this fires only while ltf_bias is still null).
-      if (synthesizedContext && (!openReaction || !openReaction.ltf_bias)) {
-        const patch = htfFallbackVerdict({
-          htfBias: context?.session_state?.pillar1?.htfBias ?? null,
+      // ONE open-read: the fold calls the SAME resolver the live chain uses
+      // (deriveLtfBiasContext) per bar, handing it the accumulated full-window
+      // closes. This replaces the inline resolveOpenReaction + late-direction +
+      // MSS-realignment + HTF-fallback copy that drifted from live twice
+      // (2026-06-20/21). The resolver is stateless and frozen-deterministic
+      // post-window (window-confined closes + the matured-flag guard), so the
+      // fold is byte-identical to the old stateful loop. Day-state contexts keep
+      // their recorded verdict (synthesizedContext gate). The brief shim feeds
+      // the resolver the context's HTF read (htfBias/draw/pillar2) — the same
+      // inputs the old resolveOpenReactionLeg read straight off the context.
+      if (synthesizedContext && Number.isFinite(entryMs) && entryMs >= orWindow.resolveMs) {
+        const read = deriveLtfBiasContext({
+          bundle: entry?.inputs?.bundle,
+          brief: {
+            htf_bias_dir: context?.session_state?.pillar1?.htfBias ?? null,
+            primary_draw: context?.session_state?.pillar1?.primaryDraw ?? null,
+            pillar2_verdict: context?.session_state?.pillar2?.verdict ?? null,
+          },
           session,
-          ms: entryMs,
-          windowEndMs: orWindow.endMs,
+          eventTs: entry?.event?.ts ?? null,
+          windowClosesOverride: windowCloses,
         });
-        if (patch) {
+        if (read) {
+          const cs = read.interaction === "htf_fallback" ? "degraded:htf_fallback"
+            : read.htf_ltf_alignment === "aligned" ? "clean"
+            : read.htf_ltf_alignment === "divergent" ? "divergent"
+            : "degraded:open_unclear";
           openReaction = {
-            ...(openReaction ?? {}),
-            ...patch,
-            resolved_at_ts: entry.event?.ts ?? null,
-            chainStatus: 'degraded:htf_fallback',
+            interaction: read.interaction,
+            level: read.level ?? null,
+            ltf_bias: read.bias,
+            htf_ltf_alignment: read.htf_ltf_alignment,
+            is_retrace_day: read.is_retrace_day,
+            grade_cap: read.grade_cap,
+            entry_model_priority: read.entry_model_priority,
+            cite: read.cite,
+            resolved_at_ts: entry?.event?.ts ?? null,
+            chainStatus: cs,
             ltf_bias_context: {
-              ...(openReaction?.ltf_bias_context ?? {}),
-              bias: patch.ltf_bias,
-              htf_ltf_alignment: patch.htf_ltf_alignment,
-              is_retrace_day: patch.is_retrace_day,
-              entry_model_priority: openReaction?.ltf_bias_context?.entry_model_priority ?? 'undecided',
-              grade_cap: patch.grade_cap,
+              bias: read.bias,
+              htf_ltf_alignment: read.htf_ltf_alignment,
+              is_retrace_day: read.is_retrace_day,
+              entry_model_priority: read.entry_model_priority,
+              grade_cap: read.grade_cap,
             },
           };
-          chainStatus = openReaction.chainStatus;
+          chainStatus = cs;
+          if (read.interaction !== prevInteraction) {
+            const kind = read.interaction === "htf_fallback" ? "htf_fallback"
+              : read.interaction === "mss_realignment" ? "mss_realignment"
+              : read.interaction === "late_direction" ? "late_direction"
+              : "open_reaction";
+            appendActivity({ kind, interaction: read.interaction, level: read.level ?? null, bias: read.bias, alignment: read.htf_ltf_alignment, cite: read.cite });
+            prevInteraction = read.interaction;
+          }
         }
       }
       if (synthesizedContext && openReaction) {
