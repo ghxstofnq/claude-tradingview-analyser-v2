@@ -64,6 +64,12 @@ const TV_BIN = path.join(REPO_ROOT, "bin", "tv");
 const BASELINE = path.join(REPO_ROOT, "state", "baseline.json");
 const BASELINE_PRIMARY = path.join(REPO_ROOT, baselinePathFor(PAIR_PRIMARY));
 const BASELINE_SECONDARY = path.join(REPO_ROOT, baselinePathFor(PAIR_SECONDARY));
+// Live fresh-5m cache: a targeted 5m engine capture taken on each 5m close
+// (--scan-tf 5, ~3s) so the open-reaction read sees the last-closed 5m bar
+// fresh — matching the backtest's per-bar 5m. buildDetectorInputs overlays it
+// onto engine_by_tf.m5. Without this, live's m5 came from the ≤15-min baseline.
+const FRESH_M5 = path.join(REPO_ROOT, "state", "fresh-m5.json");
+const FRESH_M5_MAX_AGE_MS = 7 * 60_000; // ~1 five-min bar of slack
 const BASELINE_STALE_S = 900;          // 15 min
 
 let _proc = null;
@@ -548,6 +554,11 @@ async function runClaudeTurnFor(ev, session, phase) {
     if (barKey != null && _truthCache.key === barKey && _truthCache.truth) {
       walkerTruth = _truthCache.truth;
     } else {
+    // On a 5m close, grab a fresh 5m engine (sequenced BEFORE the 1m scan so the
+    // two chart switches never overlap) → state/fresh-m5.json. buildDetectorInputs
+    // overlays it onto engine_by_tf.m5 so the open-reaction read uses the
+    // last-closed 5m bar fresh, matching the backtest.
+    if (ev.is_5m_close) await refreshFreshM5();
     await refreshEntryHuntScanForWalker(session);
     try {
       walkerTruth = await runDeterministicPacketTruthForBar(ev, session);
@@ -1380,6 +1391,36 @@ async function refreshEntryHuntScanForWalker(session) {
   recordMetric({ kind: "bar-close", event: "scan_empty_engine_persist", session, attempts: res.attempts });
 }
 
+// Targeted fresh 5m capture (--scan-tf 5: switch → verified read → restore,
+// ~3s). Best-effort; on failure buildDetectorInputs just keeps the baseline m5.
+async function refreshFreshM5() {
+  try {
+    await tvAnalyzeFast({ scanTf: "5" }, { outPath: FRESH_M5, skipRead: true });
+    return true;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[bar-close] fresh-m5 capture failed", err?.message || err);
+    return false;
+  }
+}
+
+// Pure: overlay a freshly-captured 5m engine bundle onto the scan bundle's
+// engine_by_tf.m5 (+ bars_by_tf.m5). Only applies a schema-supported 5m engine
+// captured within maxAgeMs (a stale prior-session cache is ignored). Mutates +
+// returns bundle. The open-reaction read + walker overlay both read
+// engine_by_tf.m5, so this is the single point that makes live's 5m == the
+// last-closed 5m bar (matching the backtest tapes).
+export function overlayFreshM5(bundle, freshBundle, { nowMs = Date.now(), maxAgeMs = FRESH_M5_MAX_AGE_MS } = {}) {
+  const eng = freshBundle?.engine;
+  if (!bundle || !eng || eng.schema_supported !== true) return bundle;
+  if (String(eng?.meta?.tf ?? "") !== "5") return bundle;
+  const capMs = freshBundle?.timestamp ? Date.parse(freshBundle.timestamp) : null;
+  if (capMs && Number.isFinite(capMs) && nowMs - capMs > maxAgeMs) return bundle;
+  bundle.engine_by_tf = { ...(bundle.engine_by_tf ?? {}), m5: eng };
+  if (freshBundle?.bars) bundle.bars_by_tf = { ...(bundle.bars_by_tf ?? {}), m5: freshBundle.bars };
+  return bundle;
+}
+
 async function readBriefJson(session, leader = null) {
   const dir = await activeSessionDir();
   const candidates = [briefFilenameForLeader(leader), "brief.json"].filter((v, i, a) => v && a.indexOf(v) === i);
@@ -1420,6 +1461,15 @@ async function buildDetectorInputs(session) {
     try { bundle = JSON.parse(await fs.readFile(candidatePath, "utf8")); break; } catch {}
   }
   if (!bundle) return null;
+
+  // Live fresh-5m: overlay the targeted 5m capture taken on 5m closes so the
+  // open-reaction read + walker see the last-closed 5m bar fresh (live == the
+  // backtest tapes). Falls through to the scan's baseline m5 when absent/stale
+  // (e.g. before the first 5m close).
+  try {
+    const freshM5 = JSON.parse(await fs.readFile(FRESH_M5, "utf8"));
+    overlayFreshM5(bundle, freshM5);
+  } catch { /* no fresh-m5 yet — baseline m5 stands */ }
 
   // Brief on disk has htf_destination + primary_draw + overnight_block.
   // Leader: the minute-14 pair decision when it exists, else the configured
@@ -1472,6 +1522,7 @@ export const __test = {
   llmTurnAuthBlocked,
   scanBundleHasEngineRows,
   scanUntilEngineRows,
+  overlayFreshM5,
 };
 
 // Read the chosen leader symbol from pair-decision.json. Returns null if

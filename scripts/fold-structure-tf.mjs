@@ -69,7 +69,7 @@ async function foldVariant(label, env) {
   return { label, total: r2(total), wins, neg3, per };
 }
 
-const A = await foldVariant("A 1m/1m        ", {});
+const A = await foldVariant("A 1m/1m        ", { GOFNQ_STRUCTURE_TF: "1" });
 const B = await foldVariant("B str5m/stop1m ", { GOFNQ_STRUCTURE_TF: "5" });
 const C = await foldVariant("C str5m/stop5m ", { GOFNQ_STRUCTURE_TF: "5", GOFNQ_STOP_TF: "5" });
 const D = await foldVariant("D realign5m only", { GOFNQ_REALIGN_TF: "5" });

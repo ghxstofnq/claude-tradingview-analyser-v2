@@ -42,12 +42,15 @@ export async function tvAnalyzeFull({ pair, baselineSecondary } = {}, opts = {})
   return readBundle(outPath, opts);
 }
 
-export async function tvAnalyzeFast({ baseline, pair, baselineSecondary } = {}, opts = {}) {
+export async function tvAnalyzeFast({ baseline, pair, baselineSecondary, scanTf } = {}, opts = {}) {
   const outPath = opts.outPath || path.join(REPO_ROOT, "state", "last-scan.json");
   const args = ["analyze", "--pillar3-only", "--out", outPath];
   if (baseline) args.push("--baseline", baseline);
   if (pair) args.push("--pair", pair);
   if (baselineSecondary) args.push("--baseline-secondary", baselineSecondary);
+  // scanTf briefly switches the chart to this TF, captures, and restores —
+  // used to grab a FRESH 5m engine on 5m closes (live fresh-5m capture).
+  if (scanTf) args.push("--scan-tf", String(scanTf));
   await runTv(args, { ...opts, timeoutMs: opts.timeoutMs ?? ANALYZE_FAST_TIMEOUT_MS, label: "analyze fast" });
   return readBundle(outPath, opts);
 }

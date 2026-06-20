@@ -52,14 +52,24 @@ function inputs() {
   };
 }
 
-test('STRUCTURE_TF default (1m): structure stays 1m, no 5m overlay', () => {
-  delete process.env.GOFNQ_STRUCTURE_TF;
+test('STRUCTURE_TF opt-out (=1): structure stays 1m, no 5m overlay', () => {
+  process.env.GOFNQ_STRUCTURE_TF = '1';
+  delete process.env.GOFNQ_STOP_TF;
+  try {
+    const b = __test.buildStrategyBundleForRuntime(inputs(), EV, 'ny-am');
+    const p3 = b.gates.engine.pillar3;
+    assert.equal(p3.structures_by_tier.swing[0].event, 'bos'); // 1m structure
+    assert.equal(p3.structures_by_tier.swing[0].dir, 'bull');
+    assert.equal(b.gates.engine.meta.structure_tf, undefined);
+  } finally { delete process.env.GOFNQ_STRUCTURE_TF; }
+});
+
+test('STRUCTURE_TF shipped default (5m): structure comes from 5m', () => {
+  delete process.env.GOFNQ_STRUCTURE_TF; // default is now 5m
   delete process.env.GOFNQ_STOP_TF;
   const b = __test.buildStrategyBundleForRuntime(inputs(), EV, 'ny-am');
-  const p3 = b.gates.engine.pillar3;
-  assert.equal(p3.structures_by_tier.swing[0].event, 'bos'); // 1m structure
-  assert.equal(p3.structures_by_tier.swing[0].dir, 'bull');
-  assert.equal(b.gates.engine.meta.structure_tf, undefined);
+  assert.equal(b.gates.engine.pillar3.structures_by_tier.swing[0].event, 'mss'); // 5m by default
+  assert.equal(b.gates.engine.meta.structure_tf, '5');
 });
 
 test('STRUCTURE_TF=5: structure comes from 5m, FVGs/entry stay 1m', () => {
@@ -79,13 +89,12 @@ test('STRUCTURE_TF=5: structure comes from 5m, FVGs/entry stay 1m', () => {
   } finally { delete process.env.GOFNQ_STRUCTURE_TF; }
 });
 
-test('swingStructuresForBias: 1m by default, 5m structure when STRUCTURE_TF=5', () => {
+test('swingStructuresForBias: 1m when STRUCTURE_TF=1, 5m when =5', () => {
   const bundle = inputs().bundle;
-  delete process.env.GOFNQ_STRUCTURE_TF;
-  const oneM = swingStructuresForBias(bundle);
-  assert.equal(oneM[0].event, 'bos'); // 1m structures_by_tier.swing
-  process.env.GOFNQ_STRUCTURE_TF = '5';
+  process.env.GOFNQ_STRUCTURE_TF = '1';
   try {
+    assert.equal(swingStructuresForBias(bundle)[0].event, 'bos'); // 1m
+    process.env.GOFNQ_STRUCTURE_TF = '5';
     const fiveM = swingStructuresForBias(bundle);
     assert.equal(fiveM[0].event, 'mss'); // computed from engine_by_tf.m5.structures
     assert.equal(fiveM[0].dir, 'bear');
@@ -94,15 +103,29 @@ test('swingStructuresForBias: 1m by default, 5m structure when STRUCTURE_TF=5', 
 
 test('swingStructuresForRealign follows REALIGN_TF independently of STRUCTURE_TF', () => {
   const bundle = inputs().bundle;
-  delete process.env.GOFNQ_STRUCTURE_TF;
+  process.env.GOFNQ_STRUCTURE_TF = '1'; // pin open read to 1m to prove independence
   delete process.env.GOFNQ_REALIGN_TF;
-  assert.equal(swingStructuresForRealign(bundle)[0].event, 'bos'); // default 1m
-  process.env.GOFNQ_REALIGN_TF = '5';
   try {
-    assert.equal(swingStructuresForRealign(bundle)[0].event, 'mss'); // 5m
-    // STRUCTURE_TF still drives the OPEN read independently (stays 1m here)
-    assert.equal(swingStructuresForBias(bundle)[0].event, 'bos');
-  } finally { delete process.env.GOFNQ_REALIGN_TF; }
+    assert.equal(swingStructuresForRealign(bundle)[0].event, 'bos'); // realign default 1m
+    process.env.GOFNQ_REALIGN_TF = '5';
+    assert.equal(swingStructuresForRealign(bundle)[0].event, 'mss'); // realign 5m
+    assert.equal(swingStructuresForBias(bundle)[0].event, 'bos');    // open read still 1m
+  } finally { delete process.env.GOFNQ_STRUCTURE_TF; delete process.env.GOFNQ_REALIGN_TF; }
+});
+
+test('overlayFreshM5: attaches a fresh 5m engine; ignores stale/non-5m', () => {
+  const fresh = { timestamp: new Date().toISOString(), engine: { schema_supported: true, meta: { tf: '5' }, swings: [{ price: 1 }], structures: [] }, bars: { last_5_bars: [{ time: 1 }] } };
+  const b1 = __test.overlayFreshM5({ engine_by_tf: { m5: null }, bars_by_tf: {} }, fresh);
+  assert.equal(b1.engine_by_tf.m5.meta.tf, '5');
+  assert.equal(b1.bars_by_tf.m5.last_5_bars.length, 1);
+  // stale capture (older than the max age) is ignored
+  const stale = { ...fresh, timestamp: new Date(Date.now() - 60 * 60_000).toISOString() };
+  const b2 = __test.overlayFreshM5({ engine_by_tf: { m5: 'KEEP' } }, stale);
+  assert.equal(b2.engine_by_tf.m5, 'KEEP');
+  // a 1m engine (wrong TF) is ignored
+  const wrongTf = { ...fresh, engine: { ...fresh.engine, meta: { tf: '1' } } };
+  const b3 = __test.overlayFreshM5({ engine_by_tf: { m5: 'KEEP' } }, wrongTf);
+  assert.equal(b3.engine_by_tf.m5, 'KEEP');
 });
 
 test('STOP_TF=5 routes the structural stop to 5m swings (differs from 1m)', () => {
