@@ -229,7 +229,7 @@ test('AM cutoff: inert in the PM session (only NY-AM is gated)', () => {
 });
 
 // ── Six-element grading (2026-06-12) ──────────────────────────────────
-// Grade mirrors constraint #9 / trading-strategy-2026.md §7 step 7: A+ when
+// Grade mirrors constraint #9 / README.md (the grade): A+ when
 // ALL elements align — HTF bias+draw (pillar1 pass), price quality good
 // (pillar2 pass), NY reaction confirmed the read (ltf bias handoff present
 // AND htf_ltf_alignment aligned), entry model identified, confirmation

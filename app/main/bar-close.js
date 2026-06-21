@@ -156,8 +156,8 @@ export function entryHuntChartTf(ev) {
 // producer — it surfaces packets/no-trades deterministically before any LLM
 // turn. The per-bar LLM turn is narration-only, and it runs only when there
 // is something to narrate: a packet fired, a walker changed stage, or a 5m
-// close (the strategy's confirmation TF — trading-strategy-2026.md §7 step
-// 6). Quiet 1m bars skip the LLM entirely. Source: docs/research/
+// close (the strategy's confirmation TF — strategy/confirmation.md). Quiet
+// 1m bars skip the LLM entirely. Source: docs/research/
 // ai-trading-analysis.md — "deterministic extraction → LLM synthesis"; the
 // LLM stays out of the per-bar hot path.
 export function shouldRunNarrationTurn({ truth, ev } = {}) {

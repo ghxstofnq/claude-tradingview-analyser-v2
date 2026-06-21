@@ -15,7 +15,7 @@ Behavioral rules in this project are grounded in two research passes, both saved
 
 This project implements the user's documented trading methodology — **Lanto's 3-pillar ICT framework**. The full specification lives in:
 
-- [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) — the three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation), the multi-timeframe framework (HTF Daily/4H/1H + Overnight Asia/London + NY open reaction), A+ vs B grading, and the 7-step trading checklist. **No trade unless all three pillars align.**
+- [docs/strategy/README.md](docs/strategy/README.md) — spec index: the three pillars (Draw & Bias, Price Action Quality, Entry Model + Confirmation), the multi-timeframe framework (HTF Daily/4H/1H + Overnight Asia/London + NY open reaction), the **3-component bias grade** (1/3 no-trade · 2/3 B · 3/3 A+), and the 7-step checklist. Pillar detail: [daily-bias.md](docs/strategy/daily-bias.md), [price-action.md](docs/strategy/price-action.md), [confirmation.md](docs/strategy/confirmation.md), [risk-and-management.md](docs/strategy/risk-and-management.md). Bot-vs-spec gaps: [lanto-source-of-truth.md](docs/strategy/lanto-source-of-truth.md). **No trade unless all three pillars align.**
 - [docs/strategy/entry-models.md](docs/strategy/entry-models.md) — the three entry models in detail: **MSS (reversal after liquidity grab)**, **Trend (continuation in direction of displacement)**, **Inversion (failed opposing PD array)**. Each with core components, A+ example, stop placement, and target logic.
 
 **Consult these before** any strategy-related work: structuring analysis output, defining what counts as a setup, building the tracker / scanner / backtester, encoding grading logic, choosing what to read from the analyze JSON bundle, or proposing changes to `/analyze`. When proposing a strategy-related change, cite the relevant strategy file.
@@ -30,7 +30,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 6. **Cite-or-reject.** Every numeric price in any analysis output MUST be cited with the exact syntax `<price> (<json.path>)`, where the path is a real JSON accessor into the `tv analyze` bundle that resolves to the exact value cited. Examples: `29172.75 (quote.last)`, `29302.75 (pine.labels.studies[0].labels[0].price)`, `29307.25 (pine.boxes.studies[0].zones[2].high)`. Approximations, rounded prices, and prose-style parentheticals like `29172.75 (close)` are forbidden. The harness (`npm run smoke:fixtures` → `scripts/verify-citations.js`) mechanically enforces this rule against every paired fixture in `tests/fixtures/`. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — top documented failure mode is hallucinated levels; verifiable post-hoc with a string check.*
 7. **No LLM arithmetic.** Stop distance, R:R, ATR, bar counts, range size, displacement magnitude — all computed in code and emitted in the JSON. Claude reads numbers, never produces one. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLM arithmetic error rises ~+14 percentage points with numerical magnitude; the cure is tool-use, not better prompting.*
 8. **Prose first, JSON last.** Analyses reason in prose; emit one structured JSON block at the end. Do not force JSON during the reasoning itself. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — forcing JSON output during reasoning degrades accuracy 10–15%.*
-9. **Grade enum only.** Use `A+ | B | no-trade` exclusively in any structured analysis output. No "high-conviction" / "very likely" / "strong setup" — these vocabularies are systematically overconfident. Emit `A+` only when ALL six elements align (HTF bias + overnight context + NY reaction + price quality `good` + entry model identified + confirmation `confirmed`). `B` if one element is weaker. `no-trade` if multiple elements are weak/missing OR no entry model is in play. *Sources: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLMs in finance show Expected Calibration Error 0.12–0.40; [docs/strategy/trading-strategy-2026.md](docs/strategy/trading-strategy-2026.md) §7 step 7 — strategy grading definition.*
+9. **Grade enum only.** Use `A+ | B | no-trade` exclusively in any structured analysis output. No "high-conviction" / "very likely" / "strong setup" — these vocabularies are systematically overconfident. Emit `A+` only when ALL six elements align (HTF bias + overnight context + NY reaction + price quality `good` + entry model identified + confirmation `confirmed`). `B` if one element is weaker. `no-trade` if multiple elements are weak/missing OR no entry model is in play. *Sources: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) — LLMs in finance show Expected Calibration Error 0.12–0.40; [docs/strategy/daily-bias.md](docs/strategy/daily-bias.md) §1 — strategy grading definition.*
 10. **No backtesting on data Claude has seen.** When validating analyses on historical sessions, use post-cutoff dates or out-of-sample symbols. Frontier LLMs memorize prices and outcomes on widely-discussed pre-cutoff dates. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md).*
 11. **Strategy authority — `docs/strategy/*.md` is the spec.** When interpreting setups, frame analyses, or define what counts as a trade, follow the 3-pillar framework and the three entry models (MSS / Trend / Inversion) exactly. Do not invent ICT concepts outside that scope or substitute generic TA. If the strategy is silent on a question, surface that gap rather than improvising.
 
@@ -97,7 +97,7 @@ This project implements the user's documented trading methodology — **Lanto's 
 
 ## Workflow rules for Claude
 
-- **Re-read before each step.** Before starting any step in the "Pending implementation" sequence below (or any non-trivial behavioral / strategy change to `/analyze`, `tv analyze`, or the gates), re-read all four files: `docs/research/ai-consistency.md`, `docs/research/ai-trading-analysis.md`, `docs/strategy/trading-strategy-2026.md`, `docs/strategy/entry-models.md`. Confirm the planned approach against the documents and call out any tensions before writing code. *User-imposed standing rule, 2026-05-17.*
+- **Re-read before each step.** Before starting any step in the "Pending implementation" sequence below (or any non-trivial behavioral / strategy change to `/analyze`, `tv analyze`, or the gates), re-read: `docs/research/ai-consistency.md`, `docs/research/ai-trading-analysis.md`, and the strategy spec under `docs/strategy/` (start at `README.md`; entry detail in `entry-models.md`). Confirm the planned approach against the documents and call out any tensions before writing code. *User-imposed standing rule, 2026-05-17.*
 - **Run the harness before claiming a step is done.** `npm run smoke:fixtures` must pass before committing any change to `cli/commands/analyze.js`, `.claude/commands/analyze.md`, or `scripts/verify-citations.js`. If a change invalidates an existing fixture (e.g. by adding a required field), update the fixture and the schema check together — do not weaken the schema.
 - **Cite every research / strategy claim.** When proposing a behavioral change, point at the exact section (file + heading) that supports it. "The research says…" without a citation is not acceptable.
 
@@ -120,8 +120,14 @@ docs/
     ai-consistency.md            evidence base for consistency rules
     ai-trading-analysis.md       evidence base for accuracy rules
   strategy/
-    trading-strategy-2026.md     Lanto 3-pillar framework + 7-step checklist (authoritative)
+    README.md                    spec index + 3-pillar overview + grade rule + 7-step checklist
+    daily-bias.md                Pillar 1 — draw & bias (HTF/overnight/NY-open, grade count, SMT)
+    price-action.md              Pillar 2 — price quality (displacement, gap size, consolidation)
     entry-models.md              MSS / Trend / Inversion entry models in detail (authoritative)
+    confirmation.md              1m candle-close confirmation discipline
+    risk-and-management.md       sizing table + TP/management styles + structural stops
+    lanto-source-of-truth.md     verbatim Lanto rules + bot fidelity audit
+    transcripts/                 the 5 source class transcripts
 packages/
   core/                   vendored @tvmcp/core; CDP_PORT = 9223
 package.json              workspaces, scripts (tv / smoke / smoke:fixtures), sole runtime dep
@@ -280,7 +286,7 @@ The detector (`./bin/tv stream bar-close`) writes a heartbeat to `state/session/
 
 ### Done so far
 
-- Restructure `/analyze` around the 3-pillar framework, mirroring `trading-strategy-2026.md §7`.
+- Restructure `/analyze` around the 3-pillar framework, mirroring the 7-step checklist (`docs/strategy/README.md`).
 - Three A+ canonical examples (MSS / Trend / Inversion) embedded as `<example>` blocks in the slash command. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — 72%→90% accuracy lift from Tool Use Examples.*
 - Citation verifier (`scripts/verify-citations.js`) enforces constraint #6 mechanically against any paired `(analysis, bundle)` input.
 - Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.

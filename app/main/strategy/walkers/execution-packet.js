@@ -431,7 +431,7 @@ function nearestIntradayTarget(context, side, entry, stop) {
   return all.find((t) => t.rMultiple >= 1.5) ?? all[0] ?? null;
 }
 
-// Grade per constraint #9 / trading-strategy-2026.md §7 step 7 — A+ only
+// Grade per constraint #9 / strategy/README.md (the grade) — A+ only
 // when ALL six elements align: HTF bias + draw (pillar1 pass), overnight
 // context (inside pillar1), NY reaction confirming the read (ltf-bias
 // handoff present AND htf_ltf_alignment aligned), price quality good
