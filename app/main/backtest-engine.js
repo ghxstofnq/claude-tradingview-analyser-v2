@@ -390,6 +390,8 @@ export async function runBacktest({
           bundle: entry?.inputs?.bundle,
           brief: {
             htf_bias_dir: context?.session_state?.pillar1?.htfBias ?? null,
+            h4_struct_dir: context?.session_state?.pillar1?.h4StructDir ?? null,
+            h1_struct_dir: context?.session_state?.pillar1?.h1StructDir ?? null,
             primary_draw: context?.session_state?.pillar1?.primaryDraw ?? null,
             pillar2_verdict: context?.session_state?.pillar2?.verdict ?? null,
           },

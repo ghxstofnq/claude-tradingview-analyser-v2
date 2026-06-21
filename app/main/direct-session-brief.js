@@ -406,9 +406,28 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     // draw) and fed setup-detector.resolveSidesToEvaluate the wrong side on a
     // manual /analyze. Display + manual-side now follow one HTF read.
     const htfBiasDir = draw ? deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) : null;
+    // HTF structure direction for the GOFNQ_HTF4H_ALIGN grading rule (h4 default,
+    // h1 via GOFNQ_HTF_ALIGN_TF=h1). TRUE structure only: most recent CLEAN break
+    // (validation=break — cleared the level by ≥1 ATR band) WITH displacement —
+    // skips sweep-only / no-displacement events (strategy: a real MSS needs
+    // displacement, not a liquidity grab; 2026-06-04 PM read bear off an internal
+    // sweep-MSS over a bull-BoS stack). Read from the FULL engine structures list
+    // (the digest keeps only 2 — too few to skip past sweeps to the real break).
+    const trueStructDir = (tf) => {
+      const arr = bundle?.pair?.symbols?.[symbol]?.engine_by_tf?.[tf]?.structures
+        ?? bundle?.engine_by_tf?.[tf]?.structures ?? [];
+      const s = [...arr]
+        .filter((x) => x?.validation === "break" && x?.displacement === true)
+        .sort((a, b) => (Number(b?.confirmed_ms) || 0) - (Number(a?.confirmed_ms) || 0))[0];
+      return /^bull/i.test(s?.dir || "") ? "bullish" : /^bear/i.test(s?.dir || "") ? "bearish" : null;
+    };
+    const h4StructDir = trueStructDir("h4");
+    const h1StructDir = trueStructDir("h1");
     return {
       session,
       symbol,
+      h4_struct_dir: h4StructDir,
+      h1_struct_dir: h1StructDir,
       brief: buildDeterministicBriefText({ session, symbol, htf, draw, targetLevel, stopLevel, p2, pillarGrade: pillar_grade }),
       prose_summary: buildDeterministicProseSummary({ symbol, htf, draw, targetLevel, p2, pillarGrade: pillar_grade }),
       htf_bias: htf,

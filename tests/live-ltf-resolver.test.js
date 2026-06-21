@@ -253,3 +253,48 @@ test("post-window: rejected flag is HONORED when there are no closes (degraded s
   });
   assert.equal(r.bias, "bearish"); // high rejected → bearish
 });
+
+// HTF-structure alignment (SHIPPED default-on, opt out GOFNQ_HTF_STRUCT_ALIGN=0):
+// A+ requires the resolved LTF bias to agree with the 4H AND 1H true structure.
+const BEAR_REJECT = [{ target: "AS.H", price: 29590, side: "buy", swept_ms: W.startMs + 8 * 60_000, rejected: true }];
+const resolveBearish = (brief) => deriveLtfBiasContext({ bundle: bundleWith({ sweeps: BEAR_REJECT }), brief, session: SESSION, eventTs: tsAt(16) });
+
+test("htf-struct align: bias agrees with both 4H+1H → A+", () => {
+  const r = resolveBearish({ ...BRIEF, h4_struct_dir: "bearish", h1_struct_dir: "bearish" });
+  assert.equal(r.bias, "bearish");
+  assert.equal(r.htf_ltf_alignment, "aligned");
+  assert.equal(r.grade_cap, "A+");
+});
+
+test("htf-struct align: bias against the 4H structure → divergent B", () => {
+  const r = resolveBearish({ ...BRIEF, h4_struct_dir: "bullish", h1_struct_dir: "bearish" });
+  assert.equal(r.htf_ltf_alignment, "divergent");
+  assert.equal(r.is_retrace_day, true);
+  assert.equal(r.grade_cap, "B");
+});
+
+test("htf-struct align: bias against the 1H structure → divergent B", () => {
+  const r = resolveBearish({ ...BRIEF, h4_struct_dir: "bearish", h1_struct_dir: "bullish" });
+  assert.equal(r.htf_ltf_alignment, "divergent");
+  assert.equal(r.grade_cap, "B");
+});
+
+test("htf-struct align: no struct dirs on the brief → no-op (baseline A+)", () => {
+  const r = resolveBearish(BRIEF);
+  assert.equal(r.grade_cap, "A+");
+});
+
+test("htf-struct align: only one TF present → enforce just that one", () => {
+  const r = resolveBearish({ ...BRIEF, h4_struct_dir: "bullish" }); // h1 absent
+  assert.equal(r.grade_cap, "B"); // against the only present read
+});
+
+test("htf-struct align: opt-out GOFNQ_HTF_STRUCT_ALIGN=0 skips the override", () => {
+  process.env.GOFNQ_HTF_STRUCT_ALIGN = "0";
+  try {
+    const r = resolveBearish({ ...BRIEF, h4_struct_dir: "bullish", h1_struct_dir: "bullish" });
+    assert.equal(r.grade_cap, "A+"); // override disabled → resolver's own A+ stands
+  } finally {
+    delete process.env.GOFNQ_HTF_STRUCT_ALIGN;
+  }
+});
