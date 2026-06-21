@@ -440,30 +440,50 @@ export async function smartCompile() {
     })()
   `);
 
+  // TV's editor buttons carry their label in the `title` ATTRIBUTE, not
+  // textContent (textContent is empty) — the old search read only textContent,
+  // so it found nothing, fell back to Ctrl+Enter, and either did nothing or
+  // duplicated the study (the source of the old "duplicate-and-remove" dance).
+  // Read title+text, and PREFER "Update on chart" so an existing on-chart study
+  // is updated in place (no duplicate, settings preserved). "Update on chart"
+  // lives behind the split-button's dropdown (aria-haspopup=menu) — open it and
+  // pick the menu item.
   const buttonClicked = await evaluate(`
     (function() {
-      var btns = document.querySelectorAll('button');
-      var addBtn = null;
-      var updateBtn = null;
-      var saveBtn = null;
+      function lbl(e) { return e ? ((e.getAttribute('title') || '') + ' ' + (e.textContent || '')).trim() : ''; }
+      var btns = document.querySelectorAll('button, [role="button"]');
+      var addBtn = null, updateBtn = null, saveBtn = null, dropdown = null;
       for (var i = 0; i < btns.length; i++) {
-        var text = btns[i].textContent.trim();
-        if (/save and add to chart/i.test(text)) {
-          btns[i].click();
-          return 'Save and add to chart';
-        }
-        if (!addBtn && /^add to chart$/i.test(text)) addBtn = btns[i];
-        if (!updateBtn && /^update on chart$/i.test(text)) updateBtn = btns[i];
-        if (!saveBtn && btns[i].className.indexOf('saveButton') !== -1 && btns[i].offsetParent !== null) saveBtn = btns[i];
+        if (btns[i].offsetParent === null) continue;
+        var t = lbl(btns[i]);
+        if (/save and add to chart/i.test(t)) { btns[i].click(); return 'Save and add to chart'; }
+        if (!updateBtn && /update on chart/i.test(t)) updateBtn = btns[i];
+        if (!addBtn && /add to chart/i.test(t)) addBtn = btns[i];
+        if (!saveBtn && (/save script/i.test(t) || btns[i].className.indexOf('saveButton') !== -1)) saveBtn = btns[i];
+        if (!dropdown && btns[i].getAttribute('aria-haspopup') === 'menu' && /add to chart|update on chart/i.test(lbl(btns[i].parentElement))) dropdown = btns[i];
       }
-      if (addBtn) { addBtn.click(); return 'Add to chart'; }
       if (updateBtn) { updateBtn.click(); return 'Update on chart'; }
+      if (addBtn && dropdown) { dropdown.click(); return 'dropdown-opened'; }
+      if (addBtn) { addBtn.click(); return 'Add to chart'; }
       if (saveBtn) { saveBtn.click(); return 'Pine Save'; }
       return null;
     })()
   `);
 
-  if (!buttonClicked) {
+  // The split-button's dropdown is open — click its "Update on chart" item so we
+  // update the existing study instead of adding a duplicate.
+  if (buttonClicked === 'dropdown-opened') {
+    await new Promise(r => setTimeout(r, 700));
+    await evaluate(`
+      (function() {
+        var els = document.querySelectorAll('[role="menuitem"], [role="option"], div, span, button');
+        for (var i = 0; i < els.length; i++) {
+          if (/^update on chart$/i.test((els[i].textContent || '').trim()) && els[i].offsetParent !== null) { els[i].click(); return true; }
+        }
+        return false;
+      })()
+    `);
+  } else if (!buttonClicked) {
     const c = await getClient();
     await c.Input.dispatchKeyEvent({ type: 'keyDown', modifiers: 2, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
     await c.Input.dispatchKeyEvent({ type: 'keyUp', key: 'Enter', code: 'Enter' });
@@ -535,8 +555,16 @@ export async function newScript({ type }) {
 }
 
 export async function openScript({ name }) {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+  // The editor pane can lag on first request (observed 2026-06-21: open failed,
+  // a retry seconds later succeeded). Retry rather than fail — proceeding past a
+  // failed open leaves the editor UNLINKED from the on-chart script, so a later
+  // set/save targets a disconnected buffer and the on-chart study never updates.
+  let editorReady = await ensurePineEditorOpen();
+  for (let attempt = 0; !editorReady && attempt < 3; attempt += 1) {
+    await new Promise((r) => setTimeout(r, 1000));
+    editorReady = await ensurePineEditorOpen();
+  }
+  if (!editorReady) throw new Error('Could not open Pine Editor (after retries).');
 
   const escapedName = JSON.stringify(name.toLowerCase());
 
