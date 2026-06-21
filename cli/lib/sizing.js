@@ -16,7 +16,7 @@ const TABLE = {
   "B":  { Mon: 1, Tue: 1, Wed: 1, Thu: 1, Fri: 1 },
 };
 
-// Risk-unit (R) fraction. Matches docs/strategy/sizing-table.md.
+// Risk-unit (R) fraction. Matches docs/strategy/risk-and-management.md#sizing-table.
 const R_UNIT = {
   "A+": { Mon: 0.5, Tue: 1.0, Wed: 1.0, Thu: 1.0, Fri: 0.5 },
   "B":  { Mon: 0.5, Tue: 0.5, Wed: 0.5, Thu: 0.5, Fri: 0.5 },
@@ -58,7 +58,7 @@ export function dayOfWeek(date = new Date()) {
 //
 // Lookup (not multiplication — Mon/Fri B and Tue-Thu B both land at 0.5R,
 // which doesn't factor cleanly). Strategy authority:
-// docs/strategy/sizing-table.md
+// docs/strategy/risk-and-management.md#sizing-table
 //
 // Spec: docs/superpowers/specs/2026-05-26-strategy-chain-design.md §4.5
 

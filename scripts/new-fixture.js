@@ -33,7 +33,7 @@ function expectedTemplate(id, label) {
 **Bundle time:** <gates.session.timestamp_et>
 **Session label:** <gates.session.label>
 
-**Note to reviewer:** hand-grade this with \`docs/strategy/trading-strategy-2026.md §7\`.
+**Note to reviewer:** hand-grade this with \`docs/strategy/README.md\` (7-step checklist).
 Cite every price as \`<price> (<json.path>)\`. Delete this note when graded.
 
 ---

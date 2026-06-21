@@ -9,7 +9,7 @@ Regression baselines for `/analyze` and the project's analysis pipeline. Each fi
 
 1. Set the chart on TradingView (CDP 9225) to the state you want to capture.
 2. Run `npm run fixture:new -- <label>` — picks the next free `NNN`, captures the chart via `tv analyze --out` (the `--out` flag is required: the multi-TF Pine bundle exceeds the ~64KB stdout truncation limit), and scaffolds the `expected.md` template.
-3. Hand-grade the bundle using the strategy's 7-step checklist (`docs/strategy/trading-strategy-2026.md §7`). Write to `tests/fixtures/NNN-label.expected.md`. Cite every price with `<price> (<json.path>)`.
+3. Hand-grade the bundle using the strategy's 7-step checklist (`docs/strategy/README.md`). Write to `tests/fixtures/NNN-label.expected.md`. Cite every price with `<price> (<json.path>)`.
 4. `npm run smoke:fixtures` — verifies bundle schema and that every cited price resolves to a matching value in the paired bundle.
 5. If the fixture should count toward deterministic detector accuracy, add it to `detector-proof.replay.json` with:
    - `bundlePath`

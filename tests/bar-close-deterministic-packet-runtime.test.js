@@ -309,7 +309,7 @@ test('live-shaped bundle: V2 confirmed zone bridges a confirmation row and the p
   assert.equal(truth.surfacePayload.side, 'short');
   assert.equal(truth.surfacePayload.model, 'Inversion');
   assert.equal(truth.surfacePayload.entry, 29718.5);
-  // GXNQ ruling 2026-06-12 + trading-strategy-2026.md §6 ("structural
+  // GXNQ ruling 2026-06-12 + risk-and-management.md ("structural
   // invalidation — low/high of PD array or swing"): the Inversion stop is
   // the structural swing high beyond the violated zone (29847), not the
   // zone top and not the nearest micro pivot.
@@ -384,7 +384,7 @@ test("bridge: a close through an inverted zone synthesizes the confirmation row 
   assert.ok(truth.bestPacket, `no packet: blockers=${JSON.stringify(truth.blockers)} walkers=${JSON.stringify(truth.walkers.map((w) => `${w.model}:${w.side}:${w.stage}`))}`);
   assert.equal(truth.surfacePayload.side, 'short');
   assert.equal(truth.surfacePayload.entry, 29718.5);
-  // GXNQ ruling 2026-06-12 + trading-strategy-2026.md §6: the Inversion
+  // GXNQ ruling 2026-06-12 + risk-and-management.md: the Inversion
   // stop is the structural swing high beyond the violated zone — here the
   // 29847 pivot, matching the hand-verified June 9 snapshot case.
   assert.equal(truth.surfacePayload.stop, 29847);
