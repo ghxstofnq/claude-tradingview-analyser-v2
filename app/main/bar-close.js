@@ -1337,6 +1337,9 @@ function buildStrategyBundleForRuntime(inputs, ev, session) {
     gates: { ...(bundle.gates ?? {}), engine },
     ohlcv1m: bundle.ohlcv1m ?? bundle.bars?.last_5_bars ?? [],
     ohlcv5m: bundle.ohlcv5m ?? bundle.bars_by_tf?.m5?.last_5_bars ?? [],
+    // Full session 1m history (~150 bars) for the Trend FVG-candle stop — live
+    // from the capture (bundle.full1m), backtest reconstructed in runBacktest.
+    full1m: bundle.full1m ?? [],
   };
 }
 

@@ -500,18 +500,25 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
   }
 
   const state = await chart.getState();
-  const [visibleRange, quote, bars, indicatorValues, tables] = await Promise.all([
+  const [visibleRange, quote, bars, indicatorValues, tables, full1mRaw] = await Promise.all([
     chart.getVisibleRange(),
     data.getQuote(),
     data.getOhlcv({ summary: true }),
     data.getStudyValues(),
     data.getPineTables(),
+    data.getOhlcv({ count: 220 }), // full 1m history for the Trend FVG-candle stop
   ]);
   const engine = parseIctEngineTable(findIctEngineRows(tables));
   // Drop the still-forming candle so confirmation facts read the just-CLOSED
   // bar (mirrors the backtest tape recorder). Without this, confirmation.last_bar
   // is a range-0 doji and live surfaces nothing — see docs/intent/live-confirmation-surfacing.md.
   if (bars?.last_5_bars) bars.last_5_bars = dropFormingBar(bars.last_5_bars, quote?.time);
+  // Full session 1m history for the Trend FVG-candle stop — only when the chart
+  // is on 1m (the live detector's TF). The FVG-creating candle is ~100min back,
+  // outside the 4-bar live window; the stop scans this for the bar at created_ms.
+  // Other TFs leave it empty so the stop falls through to the pullback default.
+  const full1m = String(state?.resolution) === '1' && Array.isArray(full1mRaw?.bars)
+    ? dropFormingBar(full1mRaw.bars, quote?.time) : [];
   const cur = lastBarFacts(bars?.last_5_bars, quote?.time);
   const m5 = lastBarFacts(bars_by_tf?.m5?.last_5_bars, quote?.time);
   const m15 = lastBarFacts(bars_by_tf?.m15?.last_5_bars, quote?.time);
@@ -535,6 +542,7 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
     quote,
     bars,
     bars_by_tf,
+    ...(full1m.length ? { full1m } : {}),
     indicators: indicatorValues,
     engine,
     engine_by_tf,

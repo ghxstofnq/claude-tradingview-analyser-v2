@@ -664,6 +664,42 @@ test('trend stop: the tap candle extreme, then the zone far edge (entry-models.m
   assert.equal(packet.stop.price, 28971.75);
 });
 
+test('trend stop: FVG-creating candle wick from full1m takes precedence (default-on)', () => {
+  // SHIPPED default-on (GOFNQ_P3_TREND_STOP): anchor on the candle that CREATED
+  // the FVG (its wick), found by created_ms in the full 1m history — the impulse
+  // origin (~100min back), wider than the recent pullback. entry-models.md Trend
+  // §5 "the FVG low itself" (high, for a short).
+  const createdMs = 1781010000000;
+  const walker = {
+    ...confirmedMssWalker({ top: 29000.75, bottom: 28965, direction: 'bearish', created_ms: createdMs }),
+    model: 'Trend',
+    side: 'short',
+  };
+  walker.evidence.confirmation.rawPayload = {
+    source: 'trend_wick_tap_confirm', close: 28911.75,
+    last_bar: { time: 1781020320, open: 28954.5, high: 28971.75, low: 28909, close: 28911.75 },
+  };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      pillar1: { status: 'pass', untakenTargets: { above: [], below: [{ price: 28700, label: 'PDL', evidenceRef: 'p1.targets.pdl' }] } },
+      pillar3: {
+        structuralStops: [{ kind: 'swing_high', side: 'short', price: 29046, evidenceRef: 'p3.stops.high' }],
+        pdArrays: [],
+        ohlcv1m: [{ time: 1781020260, high: 28971.75, low: 28909 }], // recent pullback — the tighter fallback
+        full1m: [
+          { time: 1781009940, high: 28990, low: 28950 },
+          { time: createdMs / 1000, high: 29050, low: 28900 }, // the FVG-creating candle
+          { time: 1781010060, high: 29010, low: 28960 },
+        ],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'trend_fvg_candle');
+  assert.equal(packet.stop.price, 29050); // the FVG candle's HIGH (short), not the 28971.75 pullback
+});
+
 test('inversion stop: the failed-leg extreme across visible 1m bars outranks the violating candle', () => {
   // User hand-grade 2026-06-13 (June 9): all three Inversion stops sit at
   // the HIGH OF THE FAILED LEG that created the violated zone (29847 /
