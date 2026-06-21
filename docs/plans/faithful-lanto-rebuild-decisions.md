@@ -153,4 +153,28 @@ The CDP multi-TF mechanism stays; the captured *data* must be exactly what Lanto
 Deltas vs today: **+30m TF**; **confirm/lock ETH**; **reliable MES+MNQ simultaneous**;
 **Asia as a session** (not level-only).
 
-*(Component 2 — Pine engine: pending confirmation.)*
+### Component 2 — Pine engine  ·  CONFIRMED 2026-06-22  ·  KEEP mechanism, emit exactly Lanto's evidence (+ new fields)
+
+Keep the per-symbol engine mechanism; emit **exactly** Lanto's evidence vocabulary (no
+bot-decision fields, no order blocks — OB used only "occasionally", TRADE24 04:00).
+
+**Evidence set (keep):** FVG / iFVG / BPR with displacement + took-liq + CE + state/inversion
++ 3 formation candles; liquidity BSL/SSL with **internal & external range (wick-defined)** +
+**equal highs/lows**; structure HH/HL/LH/LL + MSS/BoS w/ displacement; sweeps; sessions
+(Asia/London/NY + PD/PW); leg extremes; candle/range.
+
+**NEW fields to add (all confirmed):**
+- Per-leg **displacement magnitude + speed** (reversal-vs-down-move match — ENTRY 09:21).
+- **Sweep significance class** (session H/L · major swing · minor internal · equal-low — BIAS 29:43).
+- **Significant-level marker** (large-wick highs/lows — BIAS 03:45, 06:33).
+- **Wick-tap flag** per zone (wick-based tap — ENTRY 14:58).
+- **Overnight directional read** (Asia/London bull/bear/chop + displacement — BIAS 16:50).
+- **Opening-range (first 15–30 min) high/low + the overnight level swept at NY open** (BIAS 17:46–20:33).
+- **Consolidation-vs-displacement regime flag** per TF (PRICE 08:42, 15:16).
+- **Range-vs-normal ratio** (relative to recent/normal delivery — PRICE 12:26–14:20).
+
+**Strip / scope:** make internal vs external range + equal highs/lows explicit; **strip the
+bot decision-tracking fields** (`entry_state`/confirmation + chop) → consumer; **SMT stays a
+cross-symbol consumer layer**; runs on the added **30m**.
+
+*(Component 3 — entry machinery / walker mechanism: pending confirmation.)*
