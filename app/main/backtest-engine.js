@@ -345,6 +345,25 @@ export async function runBacktest({
       expected: { outcome: "no_trade" },
       entries,
     }, null, 2));
+    // AFTER the tape is persisted (keep it lean), reconstruct the full session
+    // 1m history from the entries (each entry's just-closed bar) and attach it
+    // CUMULATIVELY per bar — bars at or before that entry's own bar, no
+    // lookahead. The Trend FVG-candle stop (execution-packet) needs it to reach
+    // the FVG-creating candle (~100min back, outside the live 4-bar window).
+    // Live carries the same series via bundle.full1m from the capture, so the
+    // backtest == live by reconstructing it here.
+    {
+      const series = new Map();
+      for (const e of entries) {
+        const b = e?.inputs?.bundle?.bars?.last_5_bars?.slice(-1)?.[0];
+        if (b && Number.isFinite(Number(b.time))) series.set(Number(b.time), b);
+      }
+      const sorted = [...series.values()].sort((a, b) => Number(a.time) - Number(b.time));
+      for (const e of entries) {
+        const t = Number(e?.inputs?.bundle?.bars?.last_5_bars?.slice(-1)?.[0]?.time ?? Infinity);
+        if (e?.inputs?.bundle) e.inputs.bundle.full1m = sorted.filter((b) => Number(b.time) <= t);
+      }
+    }
 
     // 3. Fold: the real chain, walker state carried bar to bar (same
     //    semantics as cli/lib/day-tape.js#foldTape).

@@ -121,6 +121,7 @@ export function buildStrategyContext(bundle = {}) {
   const pillar3 = buildPillar3(engine);
   pillar3.ohlcv1m = bundle.ohlcv1m ?? bundle.bars?.m1 ?? [];
   pillar3.ohlcv5m = bundle.ohlcv5m ?? bundle.bars?.m5 ?? [];
+  pillar3.full1m = bundle.full1m ?? [];
 
   return {
     market: bundle.market ?? 'unknown',

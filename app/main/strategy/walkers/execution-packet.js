@@ -173,6 +173,29 @@ function trendStructuralStop(walker, side, entry, context) {
   if (normalizeModelName(walker?.model) !== 'trend') return null;
   const correctSide = (price) => (side === 'long' ? price < entry : price > entry);
 
+  // Trend FVG-candle stop (2026-06-21, SHIPPED default-on; opt out
+  // GOFNQ_P3_TREND_STOP=0): anchor the stop on the candle that CREATED the FVG
+  // (its wick — low for long, high for short), found by the FVG's created_ms in
+  // the full 1m history (entry-models.md Trend §5 "below the FVG low itself" —
+  // the impulse origin, ~100min back). Needs pillar3.full1m: live carries it via
+  // bundle.full1m from the capture; the backtest reconstructs it from the tape.
+  // Falls through to the pullback-swing default when the history/candle is
+  // unreachable (no full1m, or no bar within 90s of created_ms).
+  if (process.env.GOFNQ_P3_TREND_STOP !== '0') {
+    const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+    const createdMs = Number(pd.created_ms);
+    const full = context?.pillar3?.full1m ?? [];
+    if (Number.isFinite(createdMs) && full.length) {
+      let best = null, bestD = Infinity;
+      for (const b of full) { const tt = Number(b?.time) * 1000; if (!Number.isFinite(tt)) continue; const d = Math.abs(tt - createdMs); if (d < bestD) { bestD = d; best = b; } }
+      if (best && bestD <= 90_000) {
+        const px = side === 'short' ? numberOrNull(best.high) : numberOrNull(best.low);
+        if (px != null && correctSide(px)) return { kind: 'trend_fvg_candle', price: px, evidenceRef: 'full1m[fvg_created_ms]' };
+      }
+    }
+    // not found / wrong side → fall through to the default precedence
+  }
+
   const recent = context?.pillar3?.ohlcv1m ?? [];
   const pullbackExtreme = recent.reduce((acc, b) => {
     const px = side === 'short' ? numberOrNull(b?.high) : numberOrNull(b?.low);
