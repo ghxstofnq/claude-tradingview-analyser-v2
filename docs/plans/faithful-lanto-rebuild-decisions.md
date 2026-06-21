@@ -128,3 +128,29 @@ confirmation · sizing/management). **Next:**
    respect/violate confirmation, near-price + relative-displacement price quality, SMT,
    no-trim trail).
 3. **Phase 0 golden sessions** — hand-grade real sessions against the confirmed rules.
+
+---
+
+## Phase 1 — Machinery on trial (keep / rebuild)
+
+Verdicts against the confirmed Parts 1–5. Bar (confirmed): **keep** only if
+strategy-neutral-and-works *or* already expresses the spec; **rebuild** if it bakes in the
+wrong strategy *or* can't express the spec; **"keep the shell, rebuild the logic"** where
+the structure is fine but the rules are wrong. "Performed on the old corpus" is **not** a
+keep reason (baseline retired). Confirmed one component at a time.
+
+### Component 1 — Capture  ·  CONFIRMED 2026-06-22  ·  KEEP pipes, CHANGE captured set
+
+The CDP multi-TF mechanism stays; the captured *data* must be exactly what Lanto looks at:
+- **Symbols:** MES + MNQ, captured **simultaneously** (SMT).
+- **Hours:** **Extended Trading Hours** — required; overnight only exists in ETH (BIAS 12:11).
+- **Timeframes:** Daily, 4H, 1H, **30m**, 15m, 5m, 1m (PRICE 15:16).
+- **Sessions:** Asia 18:00–03:00, London 03:00–09:30, NY 09:30–16:00 ET, with H/L
+  (BIAS 12:11–13:06).
+- **Per TF:** FVG/iFVG/BPR + BSL/SSL liquidity (equal H/L, internal/external wicks) +
+  per-gap displacement + took-liq + near-price distance + candle/range.
+
+Deltas vs today: **+30m TF**; **confirm/lock ETH**; **reliable MES+MNQ simultaneous**;
+**Asia as a session** (not level-only).
+
+*(Component 2 — Pine engine: pending confirmation.)*
