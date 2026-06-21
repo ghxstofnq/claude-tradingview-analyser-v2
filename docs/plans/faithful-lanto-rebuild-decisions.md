@@ -177,4 +177,36 @@ bot-decision fields, no order blocks — OB used only "occasionally", TRADE24 04
 bot decision-tracking fields** (`entry_state`/confirmation + chop) → consumer; **SMT stays a
 cross-symbol consumer layer**; runs on the added **30m**.
 
-*(Component 3 — entry machinery / walker mechanism: pending confirmation.)*
+### Component 3 — Entry machinery (walker state-machine + execution-packet)  ·  CONFIRMED 2026-06-22  ·  KEEP shell, REBUILD rules + packet
+
+- **Walker state-machine shell** (`walker-engine`: spawn → pd-identified → tap-seen →
+  confirmation-pending → confirmed/blocked): **KEEP** — its stages already mirror Lanto's
+  *grab → shift → retrace/tap → confirm → go* sequence; one tracker per live zone.
+- **Per-model rules: REBUILD** to **2 models (Reversal/Continuation) × 2 entry mechanisms
+  (FVG-retrace / inversion)**; confirmation = 1m close **respecting (FVG) / violating
+  (inversion)** the gap, **engulfing-with-speed computed from bars** (not engine flags);
+  **MSS gate = significant liquidity + reversal-speed-match** (uses the new engine fields).
+- **Execution-packet builder: REBUILD** to the **nested 3-pillar grade**, **no-trim trail**,
+  **TP1 1–1.5R / ultimate 2R+**, structural stops. **DELETE the curve-fit overlays**
+  (exhaustion cap, 1.5R floor, 11:40/15:32 cutoffs, 95-pt cap).
+- **Context/pillar gate: keep the shell, rebuild the gate rules** to the nested grade.
+- **SMT + multi-alignment** wired here as consumer logic reading the engine's new fields.
+
+### Component 4 — Bias / open-reaction resolvers  ·  CONFIRMED 2026-06-22  ·  mostly REBUILD to Part 1
+
+- **HTF bias: REBUILD** — bias = the **reaction off the primary draw**; pick the draw by
+  **near-price + displacive + took-liq** (`pickPrimaryDraw` ignores near-price today);
+  consume the engine's reaction-off-zone field.
+- **Overnight: REBUILD** from inert → **first-class directional vote** (read the engine's
+  overnight directional field).
+- **Grade: REBUILD** to the **nested 3-component count** (HTF / overnight / NY-open →
+  1/3 no-trade · 2/3 B · 3/3 A+, nested with pillars 2 & 3).
+- **NY-open reaction:** keep the **window timing (15/30 min)**; rebuild the logic —
+  reject(respect) / invert(flip); **reverse = hands off** (drop the retrace-day framing +
+  divergent gate); flip only on HTF-invalidation or mass-displacement.
+- **SMT / leader: REBUILD** — leader by **ES↔NQ divergence** (not disp-score magnitude);
+  the leader's reaction confirms/flips the open read.
+- **No-single-event bias flip: ADD** (Part 1 §5).
+- **Keep:** the per-session resolver scaffolding + the open-window timing.
+
+*(Component 5 — sizing & execution: pending confirmation.)*
