@@ -98,4 +98,33 @@ TRADE24 15:59); **deliberate**, never sloppy (TRADE24 09:02). Strength = the dis
 
 ---
 
-*(Part 5 — sizing & management: pending confirmation.)*
+## Part 5 — Sizing & management  ·  CONFIRMED 2026-06-22
+
+- **Mindset = 1-and-0 / good probable trades** (probability, not R-engineering). The
+  September **R-based / size-to-the-R experiment is DROPPED** — *"I'm removing all our R
+  trades and focused on probability entirely… going back to what we did pre-September."*
+  (RISK 20:31–21:27)
+- **Sizing = standard day-of-week × grade:** Mon/Fri **half**, Tue–Thu **full** (RISK 00:56);
+  A+ full, B downsized (PRICE 03:09). **Not** R-adjusted sizing.
+- **Targets:** TP1 ≈ **1–1.5R** (intraday liquidity); ultimate ≈ **2R+** (HTF draw). (RISK 01:54)
+- **Management = no-trim ride-the-trail** (his personal style): no trim, **stop to BE at
+  TP1**, hold/trail through the ultimate target, **exit when trailed out on a structure
+  change**. (RISK 12:11–14:55)
+- **Stop = structural invalidation:** under the FVG / relative swing low. (TRADE24 09:02)
+
+---
+
+## ✅ Strategy-definition pass COMPLETE — Parts 1–5 confirmed (2026-06-22)
+
+The decision brain is defined and locked (grade · price quality · entry models ·
+confirmation · sizing/management). **Next:**
+
+1. **Reconcile** the spec docs (`daily-bias.md` §1, `README.md` grade table,
+   `entry-models.md`, `lanto-oracle.md` Part A) to this ledger — they still carry the
+   pre-confirmation (flat-grade / three-flat-models) readings.
+2. **Phase 1 — plumbing on trial** (against this confirmed spec, not the transcripts):
+   capture · Pine engine · walker mechanism · execution · UI — keep / rebuild / replace so
+   each can express Parts 1–5 (3-component nested grade, 2 models × 2 entry mechanisms,
+   respect/violate confirmation, near-price + relative-displacement price quality, SMT,
+   no-trim trail).
+3. **Phase 0 golden sessions** — hand-grade real sessions against the confirmed rules.
