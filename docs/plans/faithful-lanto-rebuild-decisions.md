@@ -55,4 +55,29 @@ structure when reconciling.
 
 ---
 
-*(Part 3 — entry models: pending confirmation.)*
+## Part 3 — Entry models (Pillar 3)  ·  CONFIRMED 2026-06-22
+
+**Two models** — **Reversal (MSS)** and **Continuation (Trend)** — each entered via
+**FVG-retrace** or **gap-inversion (iFVG)**. Inversion is the *entry mechanism*, not a
+third model: *"an inversion always has the same factors as an MSS — it's the exact same
+thing, the entry is just [different]"* (TRADE24 20:57); *"the difference between MSS and
+inversion is you take off the break instead of a retracement"* (TRADE24 18:57).
+
+- **Reversal (MSS):** major/significant liquidity grab → directional change in speed (the
+  move back up **matches or exceeds the down-move speed** — ENTRY 13:07) → LH→HL → enter via
+  FVG-retrace or inversion → confirm.
+- **Continuation (Trend):** taken **off immense conviction** — price already trading
+  strongly/directionally (TRADE24 15:59); runs **into** liquidity → retrace → **slightest
+  tap suffices** (no full/CE fill needed — ENTRY 14:58) or invert → go.
+- **Inversion (entry mechanism):** used when price is **too strong to retrace** (TRADE24
+  19:57); displaces through the opposing gap + invalidates it. Two variants — **aggressive**
+  (enter on the close that inverts the gap) / **conservative** (retrace into the inverted
+  zone, wait for a close) (TRADE24 18:57).
+- **Best gap (all):** displacement **first** (clearest body, min wick); took-liquidity-
+  while-forming as the **fallback**; + near price (ENTRY 05:38–07:30).
+- **Multi-alignment (advanced A+):** stack two imbalances in one (e.g. 5m FVG rebalance +
+  1m iFVG go-invert) — confluence amplifier, not a 4th model (ENTRY 25:13–27:05).
+
+---
+
+*(Part 4 — confirmation: pending confirmation.)*
