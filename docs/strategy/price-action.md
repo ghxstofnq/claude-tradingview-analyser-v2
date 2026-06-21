@@ -7,7 +7,9 @@ Source: *How To Identify Price Action* (`nEAGVMAJypE`).
 > "You can never outrade bad price. That's what's key." (~27:25)
 
 Price is **fractal** — these checks apply on every timeframe (Daily/4H/1H for the
-environment, 15m/5m/1m for the entry).
+environment, 15m/5m/1m for the entry). Quality is judged **relative to the instrument's
+own recent/normal delivery** — compare current gaps/range to the recent average, and
+benchmark gap size against the typical stop — **not** fixed point values. *(PRICE 12:26–14:20)*
 
 ---
 

@@ -22,8 +22,10 @@ components**; Pillars 2–3 are gating filters on top.
   liquidity. Vote = bullish / bearish / chop(=no vote).
 - [ ] **NY-open reaction**: at the key level/gap, **reject** (tap + close back through →
   continuation) or **invert** (close through → flip). Extension vs retrace. Vote.
-- **Grade = votes aligned:** 1/3 → no-trade · 2/3 → B · 3/3 → A+. (A 2/3 day trades with
-  no HTF read.)
+- **Draw-bias pillar = votes aligned:** 1/3 → no-trade · 2/3 → caps at B · 3/3 →
+  A+-eligible (2/3 trades with no HTF read). **Overall grade is nested:** A+ only if
+  draw-bias 3/3 **and** price-action good **and** entry-model clean; any pillar weaker → B.
+  An open-reaction that **reverses** the bias = **hands off**.
 
 **Pillar 2 — price quality (filter):**
 - [ ] Displacement present; engulfing/flush, not mass wicks/dojis.
@@ -31,7 +33,8 @@ components**; Pillars 2–3 are gating filters on top.
 - [ ] Not tight consolidation (the "28pt/3h = stand aside" test).
 
 **Pillar 3 — entry + confirmation (filter):**
-- [ ] Model identified: MSS / Trend / Inversion (or multi-alignment).
+- [ ] Model identified: Reversal (MSS) or Continuation (Trend), entered via FVG-retrace or
+  inversion (or multi-alignment).
 - [ ] Best gap: displacement + took liquidity while forming.
 - [ ] MSS only: significant swept liquidity + reversal speed matches/exceeds the down-move.
 - [ ] Confirmation = 1m candle close, deliberate/engulfing, not a tap alone, doesn't fight

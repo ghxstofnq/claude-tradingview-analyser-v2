@@ -1,13 +1,20 @@
 # Entry Models (Pillar 3)
 
-Three distinct entry models: **MSS (reversal)**, **Trend (continuation)**, and
-**Inversion (failed opposing PD array)**. Each is a structured way to put risk on; all
-three are triggered by a 1-minute candle-close confirmation (see
-[`confirmation.md`](confirmation.md)). Sources: *How I Enter The Market / Entry Models*
-(2/9/2026, `MoFNCTq9aXs`) and *How I Trade The Stock Market 2024* (`TGIUjVBBemo`).
+**Two models × two entry mechanisms.** The two models are **Reversal (MSS)** and
+**Continuation (Trend)**; each is entered via a **FVG-retrace** or a **gap-inversion
+(iFVG)**. "Inversion" is the *entry mechanism*, not a third model — *"an inversion has the
+same factors as an MSS — it's the exact same thing, the entry is just [different]"*
+(TRADE24 20:57); *"the difference between MSS and inversion is you take off the break
+instead of a retracement"* (TRADE24 18:57). All entries trigger on a 1-minute candle-close
+confirmation (see [`confirmation.md`](confirmation.md)). Sources: *How I Enter The Market*
+(2/9/2026, `MoFNCTq9aXs`) + *How I Trade 2024* (`TGIUjVBBemo`).
 
 > "These are one of our three components. Don't blindly take trades off this alone —
 > draw/bias and price action have to align too." (ENTRY ~00:00)
+
+The MSS / Trend / Inversion sections below keep their detail — read **MSS** and
+**Inversion** as the *same Reversal model* with different entries (retrace vs invert), and
+**Trend** as the Continuation model (also enterable by retrace or invert).
 
 ---
 
@@ -17,8 +24,9 @@ Before any model, pick the **best** gap. Two components, in order:
 
 1. **Displacement** — a large body with minimal wickage. A bigger gap is a bigger
    inefficiency the market is motivated to fill.
-2. **Took liquidity while forming** — as the gap printed, it swept an internal high /
-   low / swing point. Liquidity shifted into the gap.
+2. **Took liquidity while forming** *(the fallback when displacement is weak across gaps)*
+   — as the gap printed, it swept an internal high / low / swing point. Liquidity shifted
+   into the gap.
 
 > "Two components: displacement — the body of the gap is large, minimal wicks — and a
 > gap which takes liquidity while forming, taking out an internal high or low as it

@@ -9,7 +9,7 @@ Identify Price Action* and the entry-model classes.
 
 ---
 
-## §1. Three components and the grade
+## §1. Three components and the (nested) grade
 
 Bias is built from **three components**, read in order:
 
@@ -17,21 +17,23 @@ Bias is built from **three components**, read in order:
 2. **Overnight price** — Asia / London behavior (§3).
 3. **NY-open reaction** — the opening-range move (§4).
 
-The day's grade is **a count of how many align**:
+**These three score the draw-bias pillar** — count how many align:
 
-| Aligned | Grade | Action |
-|---|---|---|
-| 1 of 3 | — | No trade |
-| 2 of 3 | B | Trade, lower conviction |
-| 3 of 3 | A+ | Trade, full conviction |
+| Bias components aligned | Draw-bias pillar |
+|---|---|
+| 1 of 3 | unclear → no trade |
+| 2 of 3 | clear, **capped at B** |
+| 3 of 3 | fully confirmed → **A+-eligible** |
 
-> "One out of three — you do not take a trade. Two out of three — it's not A+, but you
-> can trade. Three out of three — it is A+. … This week nothing's been A+ because we've
-> only had overnight price and the opening range move — no higher-time-frame look."
-> (~21:29–22:25)
+> "One out of three — you do not take a trade. Two out of three — not A+ but you can
+> trade. Three out of three — A+. … your draw bias is completely confirmed once you have
+> these three settled." (~21:29–22:25)
 
-A 2/3 day is **tradable with no HTF read** (overnight + open reaction alone). Do not
-require an HTF draw to trade — require two of the three components.
+Draw-bias is **one of three pillars** (with price-action and entry-model); the overall
+A+/B grade is **nested** — see [README](README.md) "The grade." A 2/3 day is **tradable
+with no HTF read** (overnight + open-reaction alone) — require two of the three
+components, not an HTF draw. If the open-reaction **reverses** the bias → **hands off**
+(§4).
 
 ---
 
@@ -100,11 +102,12 @@ At the key HTF gap / overnight level there are **two outcomes**:
 > aggressively and trade below the low again → much lower is valid. Invert the hourly
 > gap → flip bias." (~11:14, ~25:44)
 
-Read it as **extension vs retrace**: break + rejection toward the HTF draw → today
-extends (A+ potential, aligned). Break + continuation **against** the draw → treat today
-as a retrace day, adapt intraday, but keep the HTF draw for later. **Never marry the
-bias** — let the open confirm or challenge it. (Timing: the reaction is usually clear by
-~9:45.)
+If the open **rejects toward the HTF draw** → bias confirmed, today extends (A+
+potential). If the open **wants to reverse the bias** (continuation against it) →
+**hands off — "timing is not there yet"** *(BIAS 18:42)*; wait, do **not** trade the
+reverse. Only **flip** the bias on a true signal: the HTF gap inverts, or an LTF
+sweep-reversal with **mass displacement** *(BIAS 25:44)*. **Never marry the bias** — let
+the open confirm or challenge it. (Timing: the reaction is usually clear by ~9:45.)
 
 ---
 
@@ -160,9 +163,9 @@ Lanto trades NQ (MNQ) and ES (MES) together and constantly reads one as the **le
 
 ### Implementation status
 
-The bot derives HTF bias and the open reaction faithfully (§2 selection, §4
-reject/continuation, exact 15/30-min window), but **diverges** from this doc on: the
-grade (it grades by alignment and cannot trade a no-HTF 2/3 day — §1), overnight as a
-vote (computed but inert — §3), near-price selection (§2), the single-event bias flip
-(§5), and SMT/leading-asset (absent — §6). London is truncated to 03:00–06:00 and Asia
-is not tradable (§7). Details + `file:line`: [`lanto-source-of-truth.md`](lanto-source-of-truth.md) §1, §7.
+This doc is **confirmed** (decisions ledger, 2026-06-22) and is the rebuild target. The
+old/current bot diverges on: the grade (graded by alignment; can't trade a no-HTF 2/3 day
+— §1), overnight as a vote (computed but inert — §3), near-price selection (§2), the
+single-event bias flip (§5), SMT/leading-asset (absent — §6), and sessions (London
+truncated, Asia not tradable — §7). These are rebuild items, not folded against the old
+(retired) baseline. Gap detail + `file:line`: [`lanto-source-of-truth.md`](lanto-source-of-truth.md).

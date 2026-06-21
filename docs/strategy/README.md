@@ -6,10 +6,11 @@ transcripts (vendored in `transcripts/`) and distilled in
 [`lanto-source-of-truth.md`](lanto-source-of-truth.md), which also tracks where the
 bot's current behavior diverges from the spec.
 
-> These docs describe **Lanto's method (the target)**. The bot does not yet implement
-> all of it — see the "Implementation status" footer in each doc and the audit in
-> `lanto-source-of-truth.md`. Behavioral changes toward this spec are folded
-> old-vs-new on the full-year corpus and approved one lever at a time.
+> These docs describe **Lanto's method (the target)** — confirmed line-by-line against
+> his transcripts (see [`lanto-source-of-truth.md`](lanto-source-of-truth.md) and the
+> decisions ledger in `docs/plans/`). The system is being **rebuilt** to implement them
+> faithfully; correctness is judged by **hand-grading sessions against Lanto**, not by the
+> old backtest baseline (retired).
 
 ## The system: three pillars
 
@@ -22,27 +23,35 @@ A trade is taken **only** when all three pillars are acceptable. Otherwise: no t
    Is the environment tradable: displacement, gap size, candle anatomy, consolidation.
 3. **Pillar 3 — Entry Model + Confirmation** →
    [`entry-models.md`](entry-models.md) + [`confirmation.md`](confirmation.md)
-   MSS / Trend / Inversion, always triggered by a 1-minute candle-close confirmation.
+   Two models (Reversal / Continuation), each entered via FVG-retrace or gap-inversion;
+   always triggered by a 1-minute candle-close confirmation.
 
 Risk, sizing, and trade management: [`risk-and-management.md`](risk-and-management.md).
 
-## The grade (count the three bias components)
+## The grade (nested — three pillars)
 
-Lanto grades the day by **counting how many of three bias components align** — HTF
-analysis, overnight price, and the NY-open reaction:
+A trade needs **all three pillars** present — draw-bias, price-action, entry-model.
+*"Without all three, there are no takes."* The overall grade is how strongly all three
+align.
 
-| Components aligned | Grade | Action |
-|---|---|---|
-| 1 of 3 | — | **No trade** |
-| 2 of 3 | **B** | Trade, lower conviction/size |
-| 3 of 3 | **A+** | Trade, full conviction/size |
+The **draw-bias pillar** is scored by **counting three bias components** — HTF analysis,
+overnight price, and the NY-open reaction:
 
-> "One out of three — don't trade. Two out of three — it's not A+, but you can trade.
-> Three out of three — it is A+." — *How I Develop Daily Bias, ~21:29*
+| Bias components aligned | Draw-bias pillar |
+|---|---|
+| 1 of 3 | unclear → **no trade** |
+| 2 of 3 | clear, **capped at B** |
+| 3 of 3 | fully confirmed → **A+-eligible** |
 
-Crucially, **a 2/3 day is tradable even with no clean HTF read** (overnight + open
-reaction alone). Price-quality (Pillar 2) and a valid entry model + confirmation
-(Pillar 3) are gating filters on top of the bias grade, not extra vote counts.
+> "One out of three — don't trade. Two out of three — not A+ but you can trade. Three out
+> of three — A+." *(BIAS ~22:25)* … "your draw bias is completely confirmed once you have
+> these three settled." *(BIAS 21:29)*
+
+**A+ = all three pillars strong** (draw-bias 3/3 **and** price-action good **and**
+entry-model clean). Any pillar weaker → **B**. **Price-action is a grading pillar, not
+just a gate** *(PRICE 02:13–03:09)*. A **2/3 day is tradable with no HTF read** (overnight
++ open-reaction alone). If the open-reaction **reverses** the bias, it's **hands off** —
+timing isn't there yet *(BIAS 18:42)*, not a B trade.
 
 ## 7-step checklist
 
@@ -52,9 +61,10 @@ reaction alone). Price-quality (Pillar 2) and a valid entry model + confirmation
    direction (recency). → [`daily-bias.md`](daily-bias.md) §3
 3. **Price quality** — range, displacement, candle anatomy; stand aside if bad. →
    [`price-action.md`](price-action.md)
-4. **NY-open reaction** — wait 15–30 min; reject vs invert; extension vs retrace day. →
-   [`daily-bias.md`](daily-bias.md) §4
-5. **Entry model** — MSS / Trend / Inversion. → [`entry-models.md`](entry-models.md)
+4. **NY-open reaction** — wait 15–30 min; reject vs invert (open reversing the bias =
+   hands off). → [`daily-bias.md`](daily-bias.md) §4
+5. **Entry model** — Reversal / Continuation × FVG-retrace / inversion. →
+   [`entry-models.md`](entry-models.md)
 6. **Confirmation & execution** — tap → 1m close in direction → enter, structural stop.
    → [`confirmation.md`](confirmation.md)
 7. **Sizing & management** — grade × day-of-week; TP1 at intraday liquidity, ultimate

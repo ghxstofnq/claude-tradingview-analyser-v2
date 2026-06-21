@@ -21,8 +21,10 @@ confirmation on every gap (1m or 5m), every model.
 > short-term traders, we leverage hard — a 1-minute close is good enough." (TRADE24
 > ~24:58)
 
-The close must be **deliberate**: a strong body, sharp displacement, **minimal wicks**.
-A sloppy wick-through or a weak close is not confirmation.
+The close must be **deliberate** and **engulfing**: a strong body, sharp displacement,
+**minimal wicks**, carrying **momentum/speed** — it goes in the money fast, and that speed
+is what lets it run. A sloppy/wicky or sluggish close is not confirmation. *(PRICE 19:55,
+23:41)*
 
 > "When it comes to confirmation it always has to be deliberate. If I see a wick, if I
 > see sloppy delivery, I do not take. I'm always looking for deliberate execution
