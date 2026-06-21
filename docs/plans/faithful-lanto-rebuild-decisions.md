@@ -35,4 +35,24 @@ structure when reconciling.
 
 ---
 
-*(Part 2 — price quality: pending confirmation.)*
+## Part 2 — Price quality (Pillar 2)  ·  CONFIRMED 2026-06-22
+
+- **Judged relative to the instrument's own normal / recent state of delivery** — not
+  fixed numbers, not a body-ratio. *"identifying how price has been as opposed to normal
+  state of delivery"* (PRICE 12:26); *"compare an average PDA… as opposed to price back in
+  July… PDAs now are a lot smaller"* (PRICE 13:24).
+- **Good gap = two factors:** displacive (bigger than recent-normal) **+** took liquidity in
+  creation, and **near price**. (PRICE 14:20)
+- **Benchmark floor = the typical stop:** a gap ≈ the typical stop (~20pt on NQ) is too
+  small to be a magnet / won't get respected. (PRICE 10:34–11:30)
+- **States → grade:** good (displacement/engulfing, minimal wicks, fluidity, clear PDAs) →
+  A+-eligible · marginal / 50-50 / smaller-than-normal → downsize → B · consolidation /
+  tight-vs-normal range / dojis → stand aside (no-trade). (PRICE 15:16, 30:12–31:07)
+- **Fractal:** judge on HTF (4H/daily/hourly) **and** LTF (1m/5m delivery + the confirmation
+  candle).
+- Implementation note: "normal delivery" = a rolling baseline of recent gap/range size (ATR
+  is the mechanical proxy) + the typical stop as the floor. Not hardcoded points.
+
+---
+
+*(Part 3 — entry models: pending confirmation.)*
