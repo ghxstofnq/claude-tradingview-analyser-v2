@@ -116,6 +116,20 @@ type Fvg
     bool chop15 = false
     int invertedMs = na
     int mitigatedMs = na
+    // The 3 candles that form the FVG (c1 = oldest [2], c2 = displacement [1],
+    // c3 = newest [0]) captured at the formation bar — OHLC each.
+    float c1o = na
+    float c1h = na
+    float c1l = na
+    float c1c = na
+    float c2o = na
+    float c2h = na
+    float c2l = na
+    float c2c = na
+    float c3o = na
+    float c3h = na
+    float c3l = na
+    float c3c = na
 
 // A Balanced Price Range — the overlap of a bullish and a bearish FVG formed
 // close in time. `state` advances fresh -> tapped -> invalidated.
@@ -385,6 +399,20 @@ if barstate.isconfirmed
     if not na(newFvg)
         // Tag the size class once, using ATR at the formation bar.
         newFvg.sizeQuality := classifyFvgSize(newFvg.top - newFvg.bottom, atr14)
+        // Capture the 3 forming candles (c1 = [2] oldest, c2 = [1] displacement
+        // — its time is createdMs, c3 = [0] newest). OHLC each.
+        newFvg.c1o := open[2]
+        newFvg.c1h := high[2]
+        newFvg.c1l := low[2]
+        newFvg.c1c := close[2]
+        newFvg.c2o := open[1]
+        newFvg.c2h := high[1]
+        newFvg.c2l := low[1]
+        newFvg.c2c := close[1]
+        newFvg.c3o := open[0]
+        newFvg.c3h := high[0]
+        newFvg.c3l := low[0]
+        newFvg.c3c := close[0]
         // Pair the new FVG with the most recent opposite-direction FVG that
         // overlaps it in price and formed within the lookback window.
         Fvg pairFvg = na
@@ -819,7 +847,19 @@ emitFvg(int row, Fvg f) =>
               "|confirm_ms=" + str.tostring(na(f.confirmMs) ? 0 : f.confirmMs) +
               "|chop_15m=" + (f.chop15 ? "1" : "0") +
               "|entry_state=" + entryState +
-              "|inverted_ms=" + str.tostring(na(f.invertedMs) ? 0 : f.invertedMs)
+              "|inverted_ms=" + str.tostring(na(f.invertedMs) ? 0 : f.invertedMs) +
+              "|c1o=" + str.tostring(f.c1o, format.mintick) +
+              "|c1h=" + str.tostring(f.c1h, format.mintick) +
+              "|c1l=" + str.tostring(f.c1l, format.mintick) +
+              "|c1c=" + str.tostring(f.c1c, format.mintick) +
+              "|c2o=" + str.tostring(f.c2o, format.mintick) +
+              "|c2h=" + str.tostring(f.c2h, format.mintick) +
+              "|c2l=" + str.tostring(f.c2l, format.mintick) +
+              "|c2c=" + str.tostring(f.c2c, format.mintick) +
+              "|c3o=" + str.tostring(f.c3o, format.mintick) +
+              "|c3h=" + str.tostring(f.c3h, format.mintick) +
+              "|c3l=" + str.tostring(f.c3l, format.mintick) +
+              "|c3c=" + str.tostring(f.c3c, format.mintick)
     table.cell(evidence, 0, row, "fvg")
     table.cell(evidence, 1, row, payload)
     row + 1

@@ -40,6 +40,10 @@ const ROW_FIELD_TYPES = {
     entered_ms: 'num', bars_in_zone: 'num', minutes_in_zone: 'num',
     ce_held: 'bool', confirm_close: 'bool', confirm_ms: 'num', chop_15m: 'bool',
     inverted_ms: 'num', // V3: when the FVG flipped to iFVG (violating close)
+    // V3: the 3 forming candles' OHLC (c1 oldest [2], c2 displacement [1], c3 newest [0])
+    c1o: 'num', c1h: 'num', c1l: 'num', c1c: 'num',
+    c2o: 'num', c2h: 'num', c2l: 'num', c2c: 'num',
+    c3o: 'num', c3h: 'num', c3l: 'num', c3c: 'num',
   },
   bpr: {
     top: 'num', bottom: 'num', ce: 'num', created_ms: 'num',

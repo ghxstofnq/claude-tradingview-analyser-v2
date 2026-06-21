@@ -198,3 +198,11 @@ test('parseIctEngineTable accepts schema=3 and coerces the V3 additive fields', 
   assert.equal(parsed.quality.leg_high_ms, 1781290000000);
   assert.equal(parsed.quality.leg_low_ms, 1781295000000);
 });
+
+test('parseRow coerces the 3 FVG forming candles (V3) to numbers', () => {
+  const r = parseRow('fvg | kind=fvg|dir=bull|top=21000|bottom=20980|created_ms=1781010000000|c1o=20970|c1h=20980|c1l=20960|c1c=20975|c2o=20982|c2h=21010|c2l=20981|c2c=21005|c3o=21006|c3h=21020|c3l=21000|c3c=21015');
+  assert.equal(r.fields.c1h, 20980);
+  assert.equal(r.fields.c2l, 20981);
+  assert.equal(r.fields.c3c, 21015);
+  assert.equal(typeof r.fields.c1o, 'number');
+});
