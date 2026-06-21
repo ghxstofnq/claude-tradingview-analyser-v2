@@ -80,4 +80,22 @@ inversion is you take off the break instead of a retracement"* (TRADE24 18:57).
 
 ---
 
-*(Part 4 — confirmation: pending confirmation.)*
+## Part 4 — Confirmation  ·  CONFIRMED 2026-06-22
+
+Confirmation = a **1-minute candle close** (on *every* gap — explicitly **not**
+5m-on-a-5m-gap, ENTRY 04:43), with the rule by entry mechanism:
+
+- **FVG entry → retest + RESPECT:** tap the gap, then an **engulfing** close back over/off
+  it (creates a higher low + fulfils the inefficiency), displacing away. (PRICE 20:52, 21:49)
+- **Inversion entry → DISRESPECT + VIOLATE:** price displaces **through** the opposing gap
+  and closes through it, invalidating it. (PRICE 20:52)
+
+Candle quality: **engulfing**, good closure, **minimal/no big wicks** (PRICE 19:55); carries
+**momentum + speed** → in the money fast, and that speed is what lets it run (PRICE 23:41;
+TRADE24 15:59); **deliberate**, never sloppy (TRADE24 09:02). Strength = the displacement
+(engulfing-with-speed), **not a body-ratio number** (ENTRY 31:25). **Never a tap alone**
+(TRADE24 13:59); **void on consolidation / fighting >10–15 min** (PRICE 20:52; 25:34).
+
+---
+
+*(Part 5 — sizing & management: pending confirmation.)*
