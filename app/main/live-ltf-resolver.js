@@ -145,6 +145,29 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
       htfFallback = true;
     }
   }
+  // HTF-structure alignment (2026-06-21, SHIPPED default-on; opt out
+  // GOFNQ_HTF_STRUCT_ALIGN=0): once the LTF bias is set, A+ requires it to AGREE
+  // with the 4H AND 1H "true structure" — the most recent CLEAN break with
+  // displacement (validation=break + displacement=true), not a sweep/no-disp
+  // counter-move (brief.h4_struct_dir / h1_struct_dir from direct-session-brief).
+  // Against either read — or the two TFs pointing opposite (nothing can match
+  // both) — = retrace day, cap B. A TF with no clean break this session is
+  // ignored. Overrides the blended htf_bias_dir alignment + the §7-7 neutral-open
+  // B-cap. Grade-only: never adds/removes/redirects a trade. Validated full-year
+  // fold: 114.13→114.99R, +4 win-days, −2 −3R days. brief.*_struct_dir absent
+  // (e.g. an LLM-written brief without the field) = graceful no-op.
+  if (process.env.GOFNQ_HTF_STRUCT_ALIGN !== "0" && verdict.ltf_bias) {
+    const present = [brief?.h1_struct_dir, brief?.h4_struct_dir].filter(Boolean);
+    if (present.length) {
+      const aligned = present.every((d) => d === verdict.ltf_bias);
+      verdict = {
+        ...verdict,
+        htf_ltf_alignment: aligned ? "aligned" : "divergent",
+        is_retrace_day: !aligned,
+        grade_cap: aligned ? "A+" : "B",
+      };
+    }
+  }
   const p3 = gates?.pillar3 ?? {};
   const priority = computeEntryModelPriority({
     pillar2_verdict: brief?.pillar2_verdict ?? null,

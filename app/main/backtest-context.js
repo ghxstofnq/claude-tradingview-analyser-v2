@@ -99,6 +99,8 @@ function buildContext({ session, leader, brief, ltf }) {
       pillar1: {
         status: brief?.pillar_grade === "no-trade" ? "fail" : "pass",
         htfBias: ltf.bias ?? brief?.htf_bias_dir ?? biasFromDraw(draw),
+        h4StructDir: brief?.h4_struct_dir ?? null,
+        h1StructDir: brief?.h1_struct_dir ?? null,
         htfDraw: brief?.htf_destination ?? null,
         primaryDraw: draw ?? null,
       },
