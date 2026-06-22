@@ -187,8 +187,12 @@ not a fabricated tick.
 - **ENGINE HTF OVER-READ (key fidelity finding):** my engine read graded this **3/3** (daily bear
   MSS **dp 837** + 4H/1H bear MSS = "strong HTF bearish"), but Lanto says **2/3 / no HTF**. The daily
   break (level 25168) is **~1150 pts BELOW** the open (26317) — a stale/distant/reclaimed structure,
-  not a near-price actionable draw. **Tweak:** the HTF vote must gate on near-price + clean +
-  displacive + reclaim-aware arrays, NOT raw MSS/BoS counts (Stage C). See [[engine-htf-overread]].
+  not a near-price actionable draw. **Tweak (corrected):** Lanto's HTF primitives are **only PD
+  arrays (FVG/iFVG) + buy/sell liquidity** (BIAS 02:48), and the bias is the **reaction (reject /
+  invert) off the near-price displacive took-liq array** (BIAS 11:14). **Structure (MSS/BoS) does
+  NOT vote on HTF bias** — it's the entry model + open-reaction read. (My `is_reclaimed` idea patched
+  the wrong primitive.) Open question: calibrating the "clean/significant-enough array" threshold —
+  Lanto's *"massive"* vs *"nothing crazy"*. Stage-C build item. See [[engine-htf-overread]].
 
 ### D4 · 2025-10-02 (R1) — long, then flip short  ·  status: documented (levels: reconstruct)
 - **Setup A — long:** bullish HTF; entry off the **hourly gap + 4H FVG + overnight lows**
