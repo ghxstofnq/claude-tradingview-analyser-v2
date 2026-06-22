@@ -22,10 +22,18 @@ components**; Pillars 2–3 are gating filters on top.
   liquidity. Vote = bullish / bearish / chop(=no vote).
 - [ ] **NY-open reaction**: at the key level/gap, **reject** (tap + close back through →
   continuation) or **invert** (close through → flip). Extension vs retrace. Vote.
-- **Draw-bias pillar = votes aligned:** 1/3 → no-trade · 2/3 → caps at B · 3/3 →
-  A+-eligible (2/3 trades with no HTF read). **Overall grade is nested:** A+ only if
-  draw-bias 3/3 **and** price-action good **and** entry-model clean; any pillar weaker → B.
-  An open-reaction that **reverses** the bias = **hands off**.
+- **Draw-bias pillar = votes aligned:** 1/3 → no-trade · 2/3 → tradable, capped at B · 3/3
+  → fully-confirmed bias (2/3 trades with no HTF read).
+- **Overall grade (alignment + conviction, NOT a hard 3/3 cap — see daily-bias.md §1):**
+  - **A+** = the three pillars **align (no conflict) with high conviction**, via *either* a
+    3/3 bias *or* an **exceptional entry** (multi-alignment / clean displacement) on an
+    otherwise-aligned, good-price day. (2026-02-09: 2/3 bias but A+ multi-alignment entry → A+.)
+  - **B** = aligned but **one element marginal** — a sloppy/ordinary entry *even at 3/3*, or 2/3
+    with an ordinary entry.
+  - **No-trade** = a real **conflict** among bias inputs (open-reaction **reverses** the bias →
+    **hands off**), a missing/weak pillar, or no clean entry.
+  - A **neutral** input (chop overnight / no HTF) is a non-vote, not a conflict. The entry only
+    **elevates an already-aligned day**; multi-alignment in a conflicted/choppy tape is still no-trade/B.
 
 **Pillar 2 — price quality (filter):**
 - [ ] Displacement present; engulfing/flush, not mass wicks/dojis.
@@ -120,15 +128,23 @@ real FVG/level on the chart (the grade/model/side don't change, only the ticks).
 stop / TP are written as the **level or FVG** (pass bar = same array element ±~2–3 MNQ pts),
 not a fabricated tick.
 
-### D1 · 2026-02-09 NY — multi-alignment A+ long  ·  status: documented (levels: reconstruct)
-- **Bias:** bullish. **Grade:** A+ (the flagship 3/3 + clean case Lanto walks live).
-- **Model / side:** Reversal entered by **multi-alignment** — 5m bullish FVG rebalance **and**
-  a 1m bearish FVG that goes bullish-invert, in one move (ENTRY ~25:13). **Long.**
-- **Entry:** the overlap of the 5m bullish FVG and the 1m iFVG, on the 1m confirming close.
-  **Stop:** below the swept low / the FVG that created the move. **TP1:** nearest intraday
-  buy-side liquidity (~1–1.5R); **ultimate:** the HTF draw above (~2R+).
-- **Discriminator the chain must get right:** two imbalances confirming the *same* move →
-  A+, not two separate B setups.
+### D1 · 2026-02-09 NY-AM — A+ long (multi-alignment)  ·  status: graded (replay + transcript-confirmed)
+- **Grade A+ — and WHY (Lanto's own words, ENTRY 27:05):** the A+ comes from the **entry model**,
+  not a 3/3 bias: *"this entry model with today's trade was [an] A plus because we ended up
+  utilizing a five-minute gap rebalance… and also an inversion fair value gap entry… in one"* —
+  **two imbalances confirming one long.** He calls bias + price the *"two other main component
+  factors."* (31:25: *"perfect… textbook… two and one."*) This is the case that set our
+  **alignment+conviction** grade model — an exceptional entry elevates an aligned 2/3 day to A+.
+- **Bias (replay): ~2/3 bullish, elevated by the entry.** HTF bullish (daily had a bear MSS dp 416
+  but price **reclaimed up** through it; 1H fresh bull MSS 25632; 4H bull FVG at price); NY-open
+  bullish (rallied 25553 → 25864, bull MSS 09:50, **swing-tier** bull BoS 11:30 at 25855);
+  overnight **chop** (net −92 = non-vote). Price-action good (sustained +310 trend).
+- **Model / side:** multi-alignment long (5m bullish FVG rebalance + 1m bearish→bullish iFVG, in one).
+- **Entry (5m-level; exact 1m pinnable):** the 5m bull FVG / 1m iFVG on the 09:40–09:50 reclaim
+  (~25600–25633). **Stop** below the 25553 open low (~25545). **TP1** AS.H 25855 (the untaken upside
+  draw — reached) ≈ ~3R; **ultimate** higher HTF draw.
+- **Discriminator the chain must get right:** two imbalances confirming the *same* move → A+ even at
+  2/3 bias; a single ordinary FVG entry on the same day would be a B.
 
 ### D2 · 2026-06-09 NY-AM — Inversion short  ·  status: hand-grade (one open question)
 - **Bias:** bearish (sell-side delivered the morning; swing-tier structure was MSS-bear).

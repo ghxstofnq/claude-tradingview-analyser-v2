@@ -30,10 +30,25 @@ Bias is built from **three components**, read in order:
 > these three settled." (~21:29–22:25)
 
 Draw-bias is **one of three pillars** (with price-action and entry-model); the overall
-A+/B grade is **nested** — see [README](README.md) "The grade." A 2/3 day is **tradable
-with no HTF read** (overnight + open-reaction alone) — require two of the three
-components, not an HTF draw. If the open-reaction **reverses** the bias → **hands off**
-(§4).
+A+/B grade is **nested** — but it is **not a hard cap on the bias count**. A 3/3 bias is
+**one path to A+**; the **entry model is another**. On **2026-02-09** Lanto graded a *2/3*
+bias day A+ because the ENTRY was a **multi-alignment** (a 5m FVG rebalance *and* a 1m
+bearish-FVG-to-bullish inversion, confirming one long): *"I feel like this entry model with
+today's trade was [an] A plus because we ended up utilizing a five-minute gap rebalance…
+and also an inversion fair value gap entry… in one"* (ENTRY 27:05). So:
+
+- **A+** = the three pillars **align (no conflict) with high conviction** — via *either* a
+  3/3 bias *or* an **exceptional entry** (multi-alignment / clean displacement) on an
+  otherwise-aligned day with good price.
+- **B** = aligned but **one element is marginal** — e.g. a sloppy/ordinary entry, *even at
+  3/3 bias*; or 2/3 with an ordinary entry.
+- **No-trade** = a real **conflict** among the bias inputs (the open-reaction **reverses**
+  the bias → **hands off**, §4), or a **missing/weak pillar**, or no clean entry.
+
+A **neutral** input (chop overnight, no clear HTF) is a **non-vote, not a conflict** — it
+lowers conviction but does not cap A+. A 2/3 day is **tradable with no HTF read**
+(overnight + open-reaction alone). The entry can only **elevate an already-aligned day**;
+multi-alignment inside a conflicted or choppy tape is still no-trade/B.
 
 ---
 
