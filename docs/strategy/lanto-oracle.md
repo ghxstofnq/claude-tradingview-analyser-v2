@@ -135,10 +135,13 @@ not a fabricated tick.
   **two imbalances confirming one long.** He calls bias + price the *"two other main component
   factors."* (31:25: *"perfect… textbook… two and one."*) This is the case that set our
   **alignment+conviction** grade model — an exceptional entry elevates an aligned 2/3 day to A+.
-- **Bias (replay): ~2/3 bullish, elevated by the entry.** HTF bullish (daily had a bear MSS dp 416
-  but price **reclaimed up** through it; 1H fresh bull MSS 25632; 4H bull FVG at price); NY-open
-  bullish (rallied 25553 → 25864, bull MSS 09:50, **swing-tier** bull BoS 11:30 at 25855);
-  overnight **chop** (net −92 = non-vote). Price-action good (sustained +310 trend).
+- **Bias (replay): ~2/3 bullish, elevated by the entry.** HTF **bullish via arrays** (h1 **fresh**
+  bull FVG at price + h4 bull FVG at price — tiny/marginal, tl-light; daily near-price arrays
+  invalidated, so the old "daily bear MSS reclaimed + 1H bull MSS" *structure* language is dropped —
+  re-derived 2026-06-22); NY-open bullish (rallied 25553 → 25864, bull MSS 09:50, **swing-tier** bull
+  BoS 11:30 at 25855); overnight **chop** (net −92 = non-vote). The HTF vote is **marginal** (tiny
+  fresh array) — consistent with Lanto's "A+ from the ENTRY, not a 3/3 bias." Price-action good
+  (sustained +310 trend).
 - **Model / side:** multi-alignment long (5m bullish FVG rebalance + 1m bearish→bullish iFVG, in one).
 - **Entry (1m-pinned): ~25630–25635** — the 1m bullish-inversion close on the reclaim (~09:54–09:56)
   inside the 5m bull FVG, after the **swing-tier bull MSS 09:47** (25665) and the **5m FVG CE-tap** at
@@ -255,38 +258,57 @@ lesson below.
 
 ### Graded OOS sessions
 
-**E? · 2026-06-16 NY-AM — B short (counter-HTF Reversal)  ·  status: graded (user-confirmed; 1m entry to pin)**
-- **HTF:** **long** (daily structure broke up, dp 548; price ran to ~30811). Overnight: chop.
-- **Model / side:** **Reversal — swing-tier bear MSS** (level 30793.5, displacement+sweep).
-  **Short**, against the HTF long → **divergent day → capped at B**.
+**E? · 2026-06-16 NY-AM — B short (Reversal, bias-ALIGNED bearish)  ·  status: graded (user-confirmed; HTF re-derived 2026-06-22; 1m entry to pin)**
+- **HTF: bearish via the LIQUIDITY DRAW** (NOT long — the old "daily dp 548 → long" was an
+  arrays-only/structure over-read). At the open price had **swept the highs (AS.H 30869 / NYAM.H
+  30887 = buy-side taken)** with the **sell-side below untaken (AS.L 30755 / LO.L 30783 / NYAM.L
+  30601)** → the draw is **down**. FVG arrays gave no clean vote (near-price daily bull FVG inverted
+  *without* displacement, ds 0.06; 4H all invalidated), but Lanto's HTF = arrays **AND** buy/sell
+  liquidity (BIAS 00:56) — the liquidity draw votes bearish. Overnight: **chop** (−21 = neutral, no
+  opposing anchor → freer to follow the reaction, BIAS 27:42).
+- **Model / side: Reversal — swing-tier bear MSS** (level 30793.5, displacement+sweep). **Short,
+  bias-ALIGNED** (HTF liquidity-draw down + the open-reaction reversal toward it). A genuine
+  **reversal**, not a retrace — significant grab (AS.H/NYAM.H) + **mass displacement** (swing-tier
+  MSS): Lanto's exact test (BIAS 28:38, RISK 29:43). **2/3 → B** (no clean HTF *array* + no overnight
+  vote caps it; an LTF/liquidity-led read, BIAS 25:44).
 - **The move:** high **30869.75 @ 09:55** → broke down **10:20** → **30601 by 11:00**; **AS.L
   30755 + LO.L 30783 swept** (lower draws taken), bottoming near NYAM.L ~30601.
 - **Entry / stop / TP:** 1m confirming close into the breakdown (~10:15–10:20 retrace to a
   bearish 5m FVG — exact tick to pin). **Stop:** above the 09:55 high 30869.75 (/ NYAM.H
   30887). **TP1:** AS.L 30755 / LO.L 30783; **ultimate:** NYAM.L ~30601.
-- **Discriminator:** counter-HTF reversal — the side gate must allow it but **cap at B**, not
-  promote to A+; and the system must hold the short through the open chop to the lower draw.
-- **Grading lesson (2026-06-22):** my first pass called this NO-TRADE because the window
-  ended at 10:15 (one bar before the breakdown) and only read `most_recent_structure`. Always
-  grade through structure resolution + read the full event list.
+- **Discriminator:** an HTF-liquidity-draw + open-reaction-reversal day is **bias-aligned B** (NOT
+  "counter-HTF divergent" — that label was the arrays-only error). The chain must (a) read the HTF
+  draw from the **liquidity map**, (b) require **mass displacement** to call the reversal real, and
+  (c) hold the short through the open chop to the lower draw.
+- **Grading lessons (2026-06-22):** (1) my first pass called this NO-TRADE because the window ended
+  at 10:15 (one bar before the breakdown) and only read `most_recent_structure` — grade through
+  structure resolution + the full event list. (2) the HTF re-derivation found the original "counter-HTF
+  long" was an **arrays-only over-read**; the HTF vote must include the **liquidity draw**
+  [[engine-htf-overread]].
 
 **E3 · 2026-06-17 NY-AM — no-trade (conflicted + choppy)  ·  status: graded (user-confirmed)**
-- **Votes conflict:** overnight **bullish** (+213, swept AS.H 30546); NY-open **bearish** (opened
-  30527 → sold 30384, bear MSS 10:00 `break` dp 125, swept NYAM.L then LO.L) — the open **reversed**
-  the bullish overnight. HTF **mixed**: daily macro bullish (dp 548) but the near-price daily bull
-  FVG is inverted and 4H+1H carry fresh bear FVGs at price.
-- **Verdict: no-trade.** Quality marginal — range *normal* (rvn ≤ 1.68), two-sided (sold to 30384,
-  **bounced to 30509 ≈85% recovery**, ground to 30359); all structure **internal-tier** (no
-  swing-tier confirmation); neither candidate entry was clean (10:00 MSS whipsawed +120 against;
-  10:25 retrace-short ground 40 min). Conflicted bias + choppy quality + no fast confirmation = stand aside.
-- **Discriminator:** the bearish move eventually reached the lower draw, but a setup with no clean
-  fast entry under conflicting bias is NOT tradeable — the system must stand aside, not chase the
-  eventual delivery. Contrast 06-16 (swing-tier MSS + clean breakdown = tradeable B).
+- **Bias re-derived (arrays + liquidity, 2026-06-22): ~2/3 bearish, NOT "conflicted."** HTF
+  **bearish**: daily bull FVG **inverted *with* displacement** (ds 0.84), 4H **fresh bear FVG** (ds
+  0.73 normal), 1H bear arrays — and the swept AS.H 30546 leaves the draw toward the untaken sell-side.
+  Overnight **bull (+213)** was the **liquidity grab** that set up the reversal (like D2 06-09), not a
+  conflicting vote. NY-open **bearish** (opened 30527 → bull pop → bear MSS 10:00 `break` dp 125 → sold
+  30384, swept NYAM.L then LO.L). HTF + open-reaction agree bearish (~2/3); the old "daily macro bullish
+  dp 548 → mixed/conflicted" was the arrays-only/structure over-read.
+- **Verdict: no-trade — on PRICE QUALITY, not a bias conflict.** Range *normal* (rvn ≤ 1.68), two-sided
+  (sold to 30384, **bounced to 30509 ≈85% recovery**, ground to 30359); all structure **internal-tier**
+  (no swing-tier confirmation); neither candidate entry was clean (10:00 MSS whipsawed +120 against;
+  10:25 retrace-short ground 40 min). A tradeable-direction bias but **no clean fast entry + choppy
+  two-sided quality = stand aside** (Pillar 2/3 veto, not a Pillar 1 conflict).
+- **Discriminator:** the bearish move eventually reached the lower draw, but a setup with no clean fast
+  entry + marginal two-sided quality is NOT tradeable — stand aside, don't chase the eventual delivery.
+  Contrast 06-16 (swing-tier MSS + clean breakdown + mass displacement = tradeable B).
 
 **E2 · 2026-06-18 NY-AM — marginal B long (Continuation / Trend)  ·  status: graded (user-confirmed)**
-- **Bias 3/3 bullish ALIGNED:** overnight bull (+448, swept AS.H/NYAM.H/PDH); HTF bull (daily macro
-  dp 548 + near-price 4H/1H bear FVGs **inverted** up); NY-open bull (shallow dip 30402 → bull BoS
-  10:25 → higher highs to 30646, swept LO.H+PDH). Model/side: **Continuation (Trend), long.**
+- **Bias bullish ALIGNED (2/3–3/3; re-derived 2026-06-22):** overnight bull **+448** (swept
+  AS.H/NYAM.H/PDH — the dominant vote); HTF **bull** via near-price 4H/1H **bear FVGs inverted UP**
+  (tiny) + the buy-side draw (daily arrays invalidated — drop the old "daily dp 548" anchor, that was
+  the structure over-read); NY-open bull (shallow dip 30402 → bull BoS 10:25 → higher highs to 30646,
+  swept LO.H+PDH). Model/side: **Continuation (Trend), long.**
 - **Exact entry:** ~**30452.75** (CE of the dip-reclaim bull FVG **30448.25–30457.25**, formed 09:45,
   took-liq, ds 0.82; long the 1m reclaim ~09:46). **Stop 30400** (below the 30402.5 dip low; risk
   ≈ 52.75). **TP1 30615** (NYAM.H — the only untaken draw above; ≈ +162 / **~3.1R**) — **filled**
