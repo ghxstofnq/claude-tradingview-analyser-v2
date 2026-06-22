@@ -212,6 +212,23 @@ lesson below.
   fast entry under conflicting bias is NOT tradeable — the system must stand aside, not chase the
   eventual delivery. Contrast 06-16 (swing-tier MSS + clean breakdown = tradeable B).
 
+**E2 · 2026-06-18 NY-AM — marginal B long (Continuation / Trend)  ·  status: graded (user-confirmed)**
+- **Bias 3/3 bullish ALIGNED:** overnight bull (+448, swept AS.H/NYAM.H/PDH); HTF bull (daily macro
+  dp 548 + near-price 4H/1H bear FVGs **inverted** up); NY-open bull (shallow dip 30402 → bull BoS
+  10:25 → higher highs to 30646, swept LO.H+PDH). Model/side: **Continuation (Trend), long.**
+- **Exact entry:** ~**30452.75** (CE of the dip-reclaim bull FVG **30448.25–30457.25**, formed 09:45,
+  took-liq, ds 0.82; long the 1m reclaim ~09:46). **Stop 30400** (below the 30402.5 dip low; risk
+  ≈ 52.75). **TP1 30615** (NYAM.H — the only untaken draw above; ≈ +162 / **~3.1R**) — **filled**
+  (ran to 30646). TP2 = trail to the next HTF draw.
+- **Why B not A+ (and near no-trade):** the 3/3 bias is A+-*grade*, but the entry is marginal —
+  not in-money-fast (−34 pt drawdown to 30418 before working), the entry FVG **invalidated** mid-trade
+  (structural stop 30400 held), the window is choppy (FVGs print "invalidated" bar-after-bar), the open
+  dip **swept no significant low** (NYAM.L 30392 never reached), and the structure breaks are weak
+  (internal-tier, dp ~24-25). Caps at B.
+- **Discriminator + lesson:** an aligned-bias trend day with a tradeable-but-sloppy entry = B, not A+.
+  **Drilling to the 1m exact entry is what separates a clean A+ from a marginal B** — the 5m "dip then
+  rally" looked cleaner than the 1m delivery actually was.
+
 ---
 
 ## Pass bar
