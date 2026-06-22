@@ -221,6 +221,15 @@ not a fabricated tick.
   25772 @11:05 → **short ~25780**, stop above the 25846 swing high (~25850 — structural R poor, TP1 only
   0.3R) or tight above the inverted gap 25804.25 (24 pts). **TP1 AS.L 25758.75 — tagged** (low 25753.5)
   then **slowed/chopped**; TP2 NYAM.L 25483.75 not reached in window.
+- **Setup C — bearish-FVG SHORT (found 2026-06-22; the divergent-structure winner Lanto's bias skipped):**
+  the open's bear MSS leg (bear MSS 09:35 internal → swing 09:50 @25801) left a **fresh bearish FVG
+  25839.5–25871 (CE 25855, took-liq)** that stayed live ~65 min; price **retraced into its lower edge
+  (25839–25846, 10:25–10:40) and rejected** (10:45 bearish close 25822). **Short ~25830, stop ~25873**
+  (above FVG top), **TP1 AS.L/NYAM.L ~25755 ≈ 1.7R — hit** (low 25753.5 @11:05). Mechanically a clean
+  MSS-leg-FVG-retrace short that **WORKED** — but it is **counter to Lanto's HTF-bull bias**, so by his
+  own bias rule he passes it (he was long, and lost). This is the divergent-day lesson made concrete:
+  the intraday structure offered the winner the bias said skip. Same "carry the MSS-leg FVG forward"
+  entry as 06-16; I missed it on the first D4 pass [[lanto-entry-on-prior-leg-fvg]].
 - **KEY ORACLE VALUE — the SMT + displacement teaching case:** a textbook confluence long that Lanto
   was *"really convinced in"* still **lost**, for the two gates the engine can't yet see: (1) **SMT** —
   ES (the leader) drew lower and dragged NQ out; (2) **MSS displacement quality** — the reversal off
@@ -258,7 +267,7 @@ lesson below.
 
 ### Graded OOS sessions
 
-**E? · 2026-06-16 NY-AM — B short (Reversal, bias-ALIGNED bearish)  ·  status: graded (user-confirmed; HTF re-derived 2026-06-22; 1m entry to pin)**
+**E? · 2026-06-16 NY-AM — A short (Reversal, bias-ALIGNED bearish)  ·  status: graded (user-confirmed; HTF re-derived + 1m entry pinned 2026-06-22)**
 - **HTF: bearish via the LIQUIDITY DRAW** (NOT long — the old "daily dp 548 → long" was an
   arrays-only/structure over-read). At the open price had **swept the highs (AS.H 30869 / NYAM.H
   30887 = buy-side taken)** with the **sell-side below untaken (AS.L 30755 / LO.L 30783 / NYAM.L
@@ -269,22 +278,32 @@ lesson below.
 - **Model / side: Reversal — swing-tier bear MSS** (level 30793.5, displacement+sweep). **Short,
   bias-ALIGNED** (HTF liquidity-draw down + the open-reaction reversal toward it). A genuine
   **reversal**, not a retrace — significant grab (AS.H/NYAM.H) + **mass displacement** (swing-tier
-  MSS): Lanto's exact test (BIAS 28:38, RISK 29:43). **2/3 → B** (no clean HTF *array* + no overnight
-  vote caps it; an LTF/liquidity-led read, BIAS 25:44).
-- **The move:** high **30869.75 @ 09:55** → broke down **10:20** → **30601 by 11:00**; **AS.L
-  30755 + LO.L 30783 swept** (lower draws taken), bottoming near NYAM.L ~30601.
-- **Entry / stop / TP:** 1m confirming close into the breakdown (~10:15–10:20 retrace to a
-  bearish 5m FVG — exact tick to pin). **Stop:** above the 09:55 high 30869.75 (/ NYAM.H
-  30887). **TP1:** AS.L 30755 / LO.L 30783; **ultimate:** NYAM.L ~30601.
-- **Discriminator:** an HTF-liquidity-draw + open-reaction-reversal day is **bias-aligned B** (NOT
-  "counter-HTF divergent" — that label was the arrays-only error). The chain must (a) read the HTF
-  draw from the **liquidity map**, (b) require **mass displacement** to call the reversal real, and
-  (c) hold the short through the open chop to the lower draw.
-- **Grading lessons (2026-06-22):** (1) my first pass called this NO-TRADE because the window ended
-  at 10:15 (one bar before the breakdown) and only read `most_recent_structure` — grade through
-  structure resolution + the full event list. (2) the HTF re-derivation found the original "counter-HTF
-  long" was an **arrays-only over-read**; the HTF vote must include the **liquidity draw**
-  [[engine-htf-overread]].
+  MSS): Lanto's exact test (BIAS 28:38, RISK 29:43).
+- **Grade A** — bias is 2/3 (no clean HTF *array* + no overnight vote), but the **exceptional clean
+  entry** (MSS-leg FVG retrace + 1m confirmation, swept the highs at the *same* level, ran 9.5R to the
+  draw) elevates the aligned day — exactly as the multi-alignment entry elevated D1's 2/3 (daily-bias
+  §1). Conservative read B+; the entry quality + reach earn A.
+- **The move:** high **30869.75 @ 09:55** → broke down **10:20** → bottomed at **NYAM.L 30561.75 @10:59**;
+  **AS.L 30755 + LO.L 30783 swept** en route (lower draws taken).
+- **Entry / stop / TP (1m-pinned 2026-06-22): MSS-leg FVG retrace.** The **08:24 swing bear MSS** leg
+  left a **fresh bearish FVG 30883.75–30894.25 (CE 30889)** that stayed live ~90 min; at **09:55 the
+  high tapped CE 30889 exactly** (also sweeping AS.H/NYAM.H), and the **09:56 candle closed bearish with
+  a ~1pt upper wick** (O 30883 → C 30864) = the confirmation. **Entry 30864.25**, **stop 30896** (above
+  the FVG high 30894.25; never threatened — max bounce 30867). **TP1 LO.L 30783 (2.6R) / AS.L 30755
+  (3.4R); TP2 NYAM.L 30561.75 (9.5R) — reached.** (NYAM.L = 30561.75 on the 1m engine, not the ~30601
+  in the earlier 5m note.)
+- **Discriminator:** an HTF-liquidity-draw + open-reaction-reversal day is **bias-aligned** (NOT
+  "counter-HTF divergent" — that label was the arrays-only error), and grades **A when the entry is
+  clean** (here it was). The chain must (a) read the HTF draw from the **liquidity map**, (b) require
+  **mass displacement** to call the reversal real, (c) **carry the MSS-leg FVG forward** and fire the
+  entry on the retrace into it, and (d) hold the short through the open chop to the lower draw.
+- **Grading lessons (2026-06-22):** (1) my first pass called this NO-TRADE (window ended 10:15, one bar
+  early; read only `most_recent_structure`) — grade through structure resolution + the full event list.
+  (2) the HTF re-derivation found the original "counter-HTF long" was an **arrays-only over-read**; the
+  HTF vote must include the **liquidity draw** [[engine-htf-overread]]. (3) **the clean entry was an
+  MSS-leg FVG retrace I first MISSED** by windowing to 09:45+ — the entry FVG formed at 08:22 in the
+  08:24 MSS leg. **Carry prior-leg FVGs forward**; the entry is the retrace into a held array, not the
+  impulse break [[lanto-entry-on-prior-leg-fvg]].
 
 **E3 · 2026-06-17 NY-AM — no-trade (conflicted + choppy)  ·  status: graded (user-confirmed)**
 - **Bias re-derived (arrays + liquidity, 2026-06-22): ~2/3 bearish, NOT "conflicted."** HTF
