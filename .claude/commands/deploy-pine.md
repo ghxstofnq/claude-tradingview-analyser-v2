@@ -22,7 +22,25 @@ Wait a few seconds for the indicator to recompute, then:
 - **Exactly one study.** `./bin/tv data tables | grep -c "ICT ENGINE"` → `1`.
 - **No new saved script.** `./bin/tv pine list` count unchanged from baseline.
 
-If all three pass, you're done.
+If all three pass, you're done — but ALSO confirm it PERSISTS (next section).
+
+## Persistence — the duplicate-name trap (2026-06-22, the big one)
+A deploy can verify schema-N live and STILL revert to the old schema on the next page reload
+(every replay / record-tape reloads). Root cause: **two saved scripts sharing a title** (then:
+"ICT Engine" id 8006b4 AND "ICT Engine V3" id 688ea9). The on-chart study was linked to the old
+copy; `pine open` could only reach the OTHER copy; and TV reconciles a study's code back to its
+linked saved script on reload. CLI saves do NOT durably persist on TV Desktop: `Update on chart`
+updates memory only, `pine save`/Ctrl+S returns success but the saved script stays old,
+`saveChartToServer()` held for exactly ONE reload, and `pine new`+save never created a named script
+(the Save-As dialog isn't fillable via CDP).
+- **Always test persistence:** after a clean deploy, reload (`freshChartForReplay`) and re-check
+  schema (see /tv-health). If it reverts → you have the duplicate-name trap.
+- **The fix that works:** give the indicator a UNIQUE title (`indicator("ICT Engine V4", ...)`,
+  the parser matches `/^ICT Engine\b/i`), then have the **USER** click the green
+  **"Save and add to chart"** in the TV Pine editor by hand (a real UI click persists; CDP clicks
+  don't) and remove the old study. Verified: schema then survives reloads.
+- **Before deploying, `pine list` → check for duplicate-titled scripts FIRST.** Details:
+  [[deploy-pine-persistence-gotcha]]. The live engine is now **"ICT Engine V4" (schema 4)**.
 
 ## Recovery (Update-on-chart didn't apply, or you duplicated the study)
 1. Get study ids — evaluate `window.TradingViewApi._activeChartWidgetWV.value().getAllStudies()` (a small node script importing `packages/core/connection.js`'s `evaluate`) → `[{id,name},...]`.
