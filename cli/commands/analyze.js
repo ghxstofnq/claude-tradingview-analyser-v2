@@ -92,6 +92,13 @@ export function computeSessionGate({ quote, replayStatus }) {
   if (isMarketClosed) {
     sessionPhase = 'closed';
     phaseStartMin = 0; nextKillzoneMin = -1; nextKillzoneLabel = null;
+  } else if (etMinutesTotal >= 18 * 60 || etMinutesTotal < 3 * 60) {
+    // Asia session 18:00–03:00 ET (the overnight read; Lanto treats it as a
+    // session, not just a level). The next killzone is London Open at 03:00.
+    sessionPhase = 'asia';
+    // ponytail: minutes_into_phase reads 0 in the post-midnight slice (the
+    // 18:00→24:00 wrap); no consumer needs Asia minute-precision yet.
+    phaseStartMin = 18 * 60; nextKillzoneMin = 3 * 60; nextKillzoneLabel = 'London Open';
   } else if (etMinutesTotal >= 3 * 60 && etMinutesTotal < 5 * 60) {
     sessionPhase = 'london_open';
     phaseStartMin = 3 * 60; nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
@@ -217,12 +224,15 @@ export function computeSessionGate({ quote, replayStatus }) {
   };
 }
 
-// Multi-timeframe set per strategy §2.1 (Daily / 4H / 1H), §3 (4H/1H/15m/5m),
-// §7 step 6 (1m/5m). TradingView resolution strings → safe citation keys.
+// Multi-timeframe set per the Lanto spec: Daily / 4H / 1H / 30m / 15m / 5m / 1m
+// (PRICE 15:16 — 30m is part of his read). TradingView resolution strings →
+// safe citation keys. tf-capture matches "30" against the engine's meta.tf
+// stamp the same way as the other minute resolutions (no special map needed).
 const HTF_LTF_TIMEFRAMES = [
   { tv: 'D',   key: 'daily' },
   { tv: '240', key: 'h4' },
   { tv: '60',  key: 'h1' },
+  { tv: '30',  key: 'm30' },
   { tv: '15',  key: 'm15' },
   { tv: '5',   key: 'm5' },
   { tv: '1',   key: 'm1' },
@@ -477,6 +487,9 @@ async function healAndReportCapture(capture, { bareSymbol, explicitPath, replayA
 async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replayStatus) {
   await chart.setSymbol({ symbol });
   await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+  // Lock ETH on the secondary too — a symbol switch can land on the new
+  // symbol's default (regular) session, which would hide its overnight.
+  await chart.setExtendedHours(true);
   // Force secondary's TF to match primary's so the current-TF data is
   // comparable. captureMultiTf below restores this TF after sweeping the
   // others, so the chart is left on (secondary, originalTf).
@@ -500,6 +513,14 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
   }
 
   const state = await chart.getState();
+  // Fail closed on a symbol hijack: if the chart didn't actually land on the
+  // requested secondary (reload race / wedge), refuse rather than fold the
+  // wrong symbol's bars under it (the 2026-06-12 MES-under-MNQ bug).
+  const landed = String(state?.symbol || '').replace(/^[A-Z_]+:/, '');
+  const want = String(symbol).replace(/^[A-Z_]+:/, '');
+  if (landed !== want) {
+    throw new Error(`symbol_mismatch: requested '${want}' but chart is on '${landed || 'unknown'}'`);
+  }
   const [visibleRange, quote, bars, indicatorValues, tables, full1mRaw] = await Promise.all([
     chart.getVisibleRange(),
     data.getQuote(),
@@ -767,6 +788,9 @@ register('analyze', {
       bars_by_tf = null;
       engine_by_tf = null;
     } else {
+      // Lock Extended Trading Hours before sweeping — overnight (Asia/London)
+      // only shows in ETH (BIAS 12:11). Idempotent: no reload once locked.
+      await chart.setExtendedHours(true);
       const captured = await captureMultiTf(originalTf);
       await healAndReportCapture(captured, {
         bareSymbol: originalSymbol.replace(/^[A-Z_]+:/, ''),
