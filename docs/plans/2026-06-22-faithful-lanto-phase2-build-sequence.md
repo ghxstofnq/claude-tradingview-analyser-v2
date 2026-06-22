@@ -14,11 +14,22 @@ dependency-ordered build. Sources: [decisions ledger](faithful-lanto-rebuild-dec
   mechanism, walker shell, execution pipes, sizing table, and UI shell stay; bias / grade /
   entry rules / management-exit get rebuilt; overlays + scale-in are deleted.
 
-## Prerequisite — Phase 0 oracle (do first or in parallel with Stage A)
+## Stage G owner + Phase 0 oracle — ASSIGNED TO CLAUDE (2026-06-22)
 
-Hand-grade the golden sessions ([lanto-oracle.md](../strategy/lanto-oracle.md) Part C) to
-what Lanto would do: bias · grade · model · side · entry · stop · TP. This is the only thing
-that validates the rebuild, so it must exist before Stage G (and ideally guides each stage).
+Stage G (the oracle **and** the validation) is **Claude's**, confirmed via interview:
+- **Oracle FIRST** (the answer key) → **user approves** → build A–F toward it → **validation
+  LAST** (fold the rebuilt chain vs the oracle).
+- **Ground truth = Lanto.** Documented sessions: truth = his stated call. Fresh sessions:
+  truth = Claude applying the confirmed rules, **user-approved**. Grade only **post-cutoff /
+  OOS** sessions (apply rules, don't recall outcomes); the user's approval of the oracle is
+  the independence check.
+- **Sessions (~6–8):** documented + post-cutoff anchors — **2026-02-09** (multi-alignment
+  A+), **2026-06-09** (Reversal-Inversion) — plus fresh OOS covering **Reversal-MSS**,
+  **Continuation**, a **no-trade/chop** day, and a **2/3-B** day. No fresh grading of
+  pre-cutoff sessions.
+- **Deliverables:** (1) oracle doc — per session: bias / grade / model / side / entry / stop
+  / TP + reasoning, for approval; (2) a validation report at the end (chain-vs-oracle,
+  pass/fail). The oracle is the gate, **never the retired corpus baseline**.
 
 ## Dependency-ordered stages
 
