@@ -209,4 +209,41 @@ cross-symbol consumer layer**; runs on the added **30m**.
 - **No-single-event bias flip: ADD** (Part 1 §5).
 - **Keep:** the per-session resolver scaffolding + the open-window timing.
 
-*(Component 5 — sizing & execution: pending confirmation.)*
+### Component 5 — Sizing & execution  ·  CONFIRMED 2026-06-22
+
+- **Sizing table** (`sizeFor`, day-of-week × grade): **KEEP** — faithful to Part 5. The
+  R-adjusted `computeSize` stays **dropped**.
+- **Management: keep BE-at-TP1 + runner shell, REBUILD the exit** to
+  **trail-and-exit-on-structure-change** (ultimate target = milestone, not a hard close).
+- **Execution engine** (order place/modify/close + guardrails): **KEEP** — strategy-neutral
+  pipes, paper-first, guarded LIVE arm.
+- **Scale-in / adds: DROP.** Lanto is **single entry** — zero adds/pyramiding in the
+  transcripts ("scale" = size-to-the-R [dropped] + account-growth, never adding to a
+  trade; "trim" is always an exit). **Overrides the prior "keep scale-in on"** — that was a
+  bot feature; faithful = single entry.
+
+### Component 6 — UI  ·  CONFIRMED 2026-06-22  ·  KEEP shell, re-point content, remove scale-in controls
+
+UI is a display layer (not in the transcripts). Bar = "shows the confirmed spec's outputs."
+- **Keep:** workstation/popover shell, chart, CLAUDE / ALERTS / ORDERS / NEWS / VER cells.
+- **Re-point:** PREP grade → nested 3-component grade; entry-model panel →
+  Reversal/Continuation × FVG-retrace/inversion; surface new evidence (overnight vote,
+  SMT/leader, near-price draw); LIVE management → no-trim trail / exit-on-structure-change.
+- **Remove:** scale-in / tranche controls (scale-in dropped).
+
+---
+
+## ✅ Phase 1 COMPLETE — machinery map (2026-06-22)
+
+| Component | Verdict |
+|---|---|
+| Capture | KEEP pipes, **change captured set** (+30m, ETH, MES+MNQ simultaneous, Asia session) |
+| Pine engine | KEEP, **emit exactly Lanto's evidence + new fields**; strip decision fields |
+| Entry machinery | **KEEP walker shell; REBUILD** model rules + execution-packet; **DELETE** overlays |
+| Bias / open-reaction | **mostly REBUILD** to Part 1; keep scaffolding + window timing |
+| Sizing / execution | KEEP sizing table + execution pipes; **REBUILD** exit-to-trail; **DROP** scale-in |
+| UI | KEEP shell, re-point content, remove scale-in controls |
+
+**Next — Phase 2:** turn these verdicts into a dependency-ordered rebuild sequence; build as
+one coherent whole; validate against the **Phase-0 hand-grade oracle**, not the retired
+baseline.
