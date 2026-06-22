@@ -196,10 +196,12 @@ not a fabricated tick.
   instrument before, the grade/bias was not).
 - **Two lessons from the real call:** (1) **INSTRUMENT** — I graded the whole oracle on MNQ1!, but
   Lanto picks **ES-or-NQ per day** (here ES); the traded instrument per session must be **confirmed,
-  not assumed**. (2) **STOPS ARE TIGHT** — his real stop was **6.25 pts** (just beyond the entry gap),
-  vs the ~65 pts my engine placed ("above the swing high"). Loose stops **systematically understate R**
-  (his TP1 = 4.4R; my reconstruction read 2.5R). The stop anchors on the **entry array**, not the
-  session swing. [[lanto-discord-actual-calls]]
+  not assumed**. (2) **STOP ANCHORS ON THE ENTRY ARRAY, not the swing high** — his SL sat just beyond
+  the 1H entry gap (entry 6,888.25 / SL 6,894.50), giving **TP1 = 4.44R**; my engine anchored "above the
+  swing high." This is a *placement* rule, **not a point count**. ⚠️ **MES handles ≠ MNQ points** (S&P
+  ~$5/pt, Nasdaq ~$2/pt; index scales differ ~4×) — so the raw "6.25 vs 65" is **NOT** a valid
+  comparison. To judge whether my stop is genuinely looser, compare on **one** instrument or normalize
+  (% of price / R), not raw points. [[lanto-discord-actual-calls]]
 - **(Superseded MNQ reconstruction, kept for the record):** on MNQ the same move read entry ~26,300–
   26,316, stop ~26,375, TP1 PDL 26,139, TP2 PWL 25,951 (low 25,930) — directionally right, wrong
   instrument + far too loose a stop.
