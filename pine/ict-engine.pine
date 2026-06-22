@@ -731,7 +731,9 @@ if barstate.isconfirmed
 
 // ── Market-structure detection ───────────────────────────────────────
 // A close beyond an armed swing level is a break: continuation (bos) or
-// counter-trend (mss). An arm-and-consume flag fires each swing at most once.
+// counter-trend (mss). Each swing emits ONE event (first close), but its
+// validation upgrades sweep→break whenever a later close clears the ATR band —
+// strength always reflects the strongest close, no time window.
 // Tier-separated arrays so internal events can't crowd out external ones.
 var array<Structure> structuresExt = array.new<Structure>()
 var array<Structure> structuresInt = array.new<Structure>()
@@ -748,28 +750,63 @@ trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand
     var int lastLowMs = na
     var bool lowArmed = false
     var bool trendUp = true
+    // Upgrade state. A swing first broken weakly is tagged "sweep" but stays
+    // watchable: any later close that clears the ATR band upgrades that SAME
+    // event to "break" — no time window. Still one event per swing (the first
+    // close emits it; later closes only mutate strength), so no duplicates.
+    // Reset when a new pivot re-arms the level (the watched price changes).
+    var Structure pendingHigh = na
+    var bool highSwept = false
+    var float highMaxDisp = na
+    var Structure pendingLow = na
+    var bool lowSwept = false
+    var float lowMaxDisp = na
     if not na(topPx)
         lastHigh := topPx
         lastHighMs := pivotMs
         highArmed := true
+        highSwept := false
+        pendingHigh := na
     if not na(btmPx)
         lastLow := btmPx
         lastLowMs := pivotMs
         lowArmed := true
+        lowSwept := false
+        pendingLow := na
     rng = high - low
     disp = rng > 0 and math.abs(close - open) / rng >= STRUCT_DISP_MIN
     dispPts = math.abs(close - open)
     events = array.new<Structure>()
-    if highArmed and not na(lastHigh) and close > lastHigh
-        valid = close >= lastHigh + atrBand ? "break" : "sweep"
-        array.push(events, Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid, dispPts))
-        trendUp := true
-        highArmed := false
-    if lowArmed and not na(lastLow) and close < lastLow
-        valid = close <= lastLow - atrBand ? "break" : "sweep"
-        array.push(events, Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid, dispPts))
-        trendUp := false
-        lowArmed := false
+    if not na(lastHigh) and close > lastHigh
+        if highArmed
+            valid = close >= lastHigh + atrBand ? "break" : "sweep"
+            pendingHigh := Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid, dispPts)
+            array.push(events, pendingHigh)
+            trendUp := true
+            highArmed := false
+            highSwept := valid == "sweep"
+            highMaxDisp := dispPts
+        else if highSwept and not na(pendingHigh) and close >= lastHigh + atrBand
+            pendingHigh.validation := "break"
+            highMaxDisp := math.max(highMaxDisp, dispPts)
+            pendingHigh.dispPts := highMaxDisp
+            pendingHigh.displacement := pendingHigh.displacement or disp
+            highSwept := false
+    if not na(lastLow) and close < lastLow
+        if lowArmed
+            valid = close <= lastLow - atrBand ? "break" : "sweep"
+            pendingLow := Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid, dispPts)
+            array.push(events, pendingLow)
+            trendUp := false
+            lowArmed := false
+            lowSwept := valid == "sweep"
+            lowMaxDisp := dispPts
+        else if lowSwept and not na(pendingLow) and close <= lastLow - atrBand
+            pendingLow.validation := "break"
+            lowMaxDisp := math.max(lowMaxDisp, dispPts)
+            pendingLow.dispPts := lowMaxDisp
+            pendingLow.displacement := pendingLow.displacement or disp
+            lowSwept := false
     events
 
 // Running extremes of the CURRENT leg — reset when an external structure
