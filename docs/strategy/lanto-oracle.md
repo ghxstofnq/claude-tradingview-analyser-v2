@@ -140,9 +140,14 @@ not a fabricated tick.
   bullish (rallied 25553 → 25864, bull MSS 09:50, **swing-tier** bull BoS 11:30 at 25855);
   overnight **chop** (net −92 = non-vote). Price-action good (sustained +310 trend).
 - **Model / side:** multi-alignment long (5m bullish FVG rebalance + 1m bearish→bullish iFVG, in one).
-- **Entry (5m-level; exact 1m pinnable):** the 5m bull FVG / 1m iFVG on the 09:40–09:50 reclaim
-  (~25600–25633). **Stop** below the 25553 open low (~25545). **TP1** AS.H 25855 (the untaken upside
-  draw — reached) ≈ ~3R; **ultimate** higher HTF draw.
+- **Entry (1m-pinned): ~25630–25635** — the 1m bullish-inversion close on the reclaim (~09:54–09:56)
+  inside the 5m bull FVG, after the **swing-tier bull MSS 09:47** (25665) and the **5m FVG CE-tap** at
+  the **25611** pullback (09:53). The two imbalances in one: 5m bull FVG rebalance + the 1m bearish FVGs
+  (≈25610–25631) inverting bullish on the reclaim. **Stop ~25605** (below the 25611 reclaim/inversion
+  low; structural alt ~25575 below the 25581 dip) → **1R ≈ 28 pts.**
+- **Draws (untaken buy-side above):** **TP1 = NYAM.H 25707 / LO.H 25723 cluster (~2.6–3.0R)**;
+  **TP2 = AS.H 25855.25 (~7.3R — HIT**, price ran to 25864); ultimate **PWH 26536**. **BE → entry (25630)
+  at TP1.**
 - **Discriminator the chain must get right:** two imbalances confirming the *same* move → A+ even at
   2/3 bias; a single ordinary FVG entry on the same day would be a B.
 
