@@ -178,6 +178,26 @@ Capture each via TV Desktop replay on the deployed schema-4 engine. Target cover
 
 Capture step (per session): `replay_start` at the date → step into the session → record the
 multi-TF schema-4 evidence (D/4H/1H/30m/15m/5m/1m) → hand-grade → fill the D-style entry.
+**Grade the FULL move** — extend the window past the open chop until structure resolves, and
+read the full `structures[]` event list (not just `most_recent_structure`). See the 06-16
+lesson below.
+
+### Graded OOS sessions
+
+**E? · 2026-06-16 NY-AM — B short (counter-HTF Reversal)  ·  status: graded (user-confirmed; 1m entry to pin)**
+- **HTF:** **long** (daily structure broke up, dp 548; price ran to ~30811). Overnight: chop.
+- **Model / side:** **Reversal — swing-tier bear MSS** (level 30793.5, displacement+sweep).
+  **Short**, against the HTF long → **divergent day → capped at B**.
+- **The move:** high **30869.75 @ 09:55** → broke down **10:20** → **30601 by 11:00**; **AS.L
+  30755 + LO.L 30783 swept** (lower draws taken), bottoming near NYAM.L ~30601.
+- **Entry / stop / TP:** 1m confirming close into the breakdown (~10:15–10:20 retrace to a
+  bearish 5m FVG — exact tick to pin). **Stop:** above the 09:55 high 30869.75 (/ NYAM.H
+  30887). **TP1:** AS.L 30755 / LO.L 30783; **ultimate:** NYAM.L ~30601.
+- **Discriminator:** counter-HTF reversal — the side gate must allow it but **cap at B**, not
+  promote to A+; and the system must hold the short through the open chop to the lower draw.
+- **Grading lesson (2026-06-22):** my first pass called this NO-TRADE because the window
+  ended at 10:15 (one bar before the breakdown) and only read `most_recent_structure`. Always
+  grade through structure resolution + read the full event list.
 
 ---
 
