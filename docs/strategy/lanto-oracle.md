@@ -194,14 +194,42 @@ not a fabricated tick.
   the wrong primitive.) Open question: calibrating the "clean/significant-enough array" threshold —
   Lanto's *"massive"* vs *"nothing crazy"*. Stage-C build item. See [[engine-htf-overread]].
 
-### D4 · 2025-10-02 (R1) — long, then flip short  ·  status: documented (levels: reconstruct)
-- **Setup A — long:** bullish HTF; entry off the **hourly gap + 4H FVG + overnight lows**
-  confluence. **Long.** Grade high (confluence stack). Stop below the overnight lows; TP at
-  the HTF draw above.
-- **Setup B — flip short:** later the **hourly gap inverts** → **short** (Inversion). Entry
-  on the close through the inverted hourly gap; stop above it.
-- **Discriminator:** the chain must (a) stack confluence into the long and (b) **flip** on the
-  gap inversion — two distinct, correctly-sided decisions in one session.
+### D4 · 2025-10-02 (R1) NY-AM — B long that FAILED → flip short  ·  status: graded (replay schema-4 + transcript-confirmed)
+- **Lanto's own words (RISK class, THIS day, 25:11–31:34):** *"coming into New York open I [was]
+  bullish higher time frame… overnight we had massive buy sequence creating a new all-time high…
+  I remain bullish"* (25:11); the draw was *"this hourly gap… an hourly internal low… that small
+  4-hour FVG fill… overnight low / London lows sitting right here"* (26:07); the long *"jabbed out…
+  the only reason you see invalidation is because ES had interest in drawing lower"* (26:59/31:34);
+  *"price never showcased that true interest and pivot… you want engulfing displacement… never an
+  MSS off a 1m/5m low, especially with the type of open we had — really bearish"* (28:47–30:39);
+  then *"price traded below this hourly disrespecting it… inverting this gap, you see me shift
+  narrative and go short… price kind of slowed down after that"* (27:00).
+- **Bias: 2/3 bullish** (arrays+reaction read) — HTF bull (fresh bull h1 FVG 25881.75–25901, dist
+  21.75, took-liq, + the confluence FVGs, all `size:tiny`) + overnight bull (+155.5 to a new ATH);
+  NY-open reaction did **NOT** confirm (the bounce off the confluence failed). 2/3 → capped **B**.
+- **Confluence draw (~25786–25811):** h1 bull FVG 25785.75–25804.25 + h4 bull FVG 25794.75–25801 +
+  London low LO.L 25811.5 + swept PDH 25794.75 / PWH 25785.
+- **Setup A — LONG (the primary trade, B, FAILED):** entry ~25805 (reclaim above the h1 gap after
+  the 09:50 tap of 25786.75), **stop ~25780** (below the 09:50 low / swept overnight lows; 1R = 25 pts).
+  **TP1 AS.H 25834.5 (1.18R) — FILLED** (bounce ran to 25846 @10:40); **TP2 LO.H 25937.75 (5.31R) —
+  MISSED**; runner **jabbed out at BE**. Marginal entry — tiny gaps + non-engulfing reversal off a low
+  after a bearish open (the MSS-quality gate Lanto warns against).
+- **Setup B — FLIP SHORT (reactive scalp):** hourly gap **inverts** (close 25780.5 @10:55) → bear BoS
+  25772 @11:05 → **short ~25780**, stop above the 25846 swing high (~25850 — structural R poor, TP1 only
+  0.3R) or tight above the inverted gap 25804.25 (24 pts). **TP1 AS.L 25758.75 — tagged** (low 25753.5)
+  then **slowed/chopped**; TP2 NYAM.L 25483.75 not reached in window.
+- **KEY ORACLE VALUE — the SMT + displacement teaching case:** a textbook confluence long that Lanto
+  was *"really convinced in"* still **lost**, for the two gates the engine can't yet see: (1) **SMT** —
+  ES (the leader) drew lower and dragged NQ out; (2) **MSS displacement quality** — the reversal off
+  the pivot was not engulfing. Both are Stage B–F build items (§6 SMT, displacement-speed gate). Grade
+  going in was **B** (2/3, marginal entry); outcome a **loss → modest flip**.
+- **Calibration note (open threshold):** all the HTF arrays were `size:tiny`, yet Lanto still read
+  himself *"bullish higher time frame"* — so a tiny-but-fresh, took-liq, near-price array DOES carry an
+  HTF vote when overnight reinforces it. Data point for the *"massive" vs "nothing crazy"* threshold
+  ([[engine-htf-overread]]).
+- **Discriminator:** the chain must (a) read HTF bull from the arrays + the confluence, grade **B** (not
+  A+: open-reaction unconfirmed + tiny gaps), and (b) flip short on the gap inversion — while the SMT +
+  displacement gates explain WHY the long was not an A+ winner.
 
 ---
 
