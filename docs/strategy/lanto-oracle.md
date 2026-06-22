@@ -134,14 +134,13 @@ not a fabricated tick.
 - **Bias:** bearish (sell-side delivered the morning; swing-tier structure was MSS-bear).
 - **Model / side:** **Inversion, short** — a bullish FVG violated to an iFVG after the high
   was taken. (High confidence on model + side.)
-- **Entry / stop / TP1 (from the V3 recording):** **29792 / 29847 / 29659.25.**
-- **Grade:** recorded as **A+**; confirm the 3-vote count from the evidence before locking
-  (could be B if only 2/3).
-- **OPEN — your call:** the **confirming candle**. Faithful rule = a **1m close** on every
-  gap, and for inversion the violating close *is* the confirmation
-  ([confirmation.md](confirmation.md)) → the 13:52Z (09:52 ET) violation close, **entry
-  29792**. The earlier GXNQ note used a **5m close** at 09:55 ET (entry 29731.25) — that was
-  the bot's old behavior. I read the 1m violation close as correct; please confirm.
+- **Confirming candle — CONFIRMED (2026-06-22):** the **1m violation close** at 09:52 ET.
+  Lanto uses 1m confirmation on every gap and for inversion the violating close *is* the
+  confirmation ([confirmation.md](confirmation.md)). The old 5m close (09:55 ET, entry
+  29731.25) was the bot's behavior and is **superseded**.
+- **Entry / stop / TP1:** **29792 / 29847 / 29659.25** (the 1m violation close).
+- **Grade:** recorded as **A+**; confirm the 3-vote count from the evidence when the session
+  is fully reconstructed (could be B if only 2/3).
 
 ### D3 · 2025-12-12 (B1) — bearish 2/3 = B  ·  status: documented (levels: reconstruct)
 - **Bias:** bearish, **2/3 → B** (overnight + open-reaction agree; **no strong HTF read**).
