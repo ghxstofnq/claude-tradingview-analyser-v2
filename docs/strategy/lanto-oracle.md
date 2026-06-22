@@ -26,10 +26,11 @@ components**; Pillars 2–3 are gating filters on top.
   → fully-confirmed bias (2/3 trades with no HTF read).
 - **Overall grade (alignment + conviction, NOT a hard 3/3 cap — see daily-bias.md §1):**
   - **A+** = the three pillars **align (no conflict) with high conviction**, via *either* a
-    3/3 bias *or* an **exceptional entry** (multi-alignment / clean displacement) on an
-    otherwise-aligned, good-price day. (2026-02-09: 2/3 bias but A+ multi-alignment entry → A+.)
-  - **B** = aligned but **one element marginal** — a sloppy/ordinary entry *even at 3/3*, or 2/3
-    with an ordinary entry.
+    3/3 bias *or* a **multi-alignment entry** (Lanto's *"two-and-one"* — two imbalances confirming one
+    move, ENTRY 27:05/31:25) on an otherwise-aligned, good-price day. (2026-02-09: 2/3 bias + A+
+    multi-alignment entry → A+.) A **single** clean/displaced entry does **NOT** elevate.
+  - **B** = aligned but **one element marginal** — a **single/ordinary entry (even clean) at 2/3**, or
+    a sloppy entry *even at 3/3*.
   - **No-trade** = a real **conflict** among bias inputs (open-reaction **reverses** the bias →
     **hands off**), a missing/weak pillar, or no clean entry.
   - A **neutral** input (chop overnight / no HTF) is a non-vote, not a conflict. The entry only
@@ -49,8 +50,9 @@ components**; Pillars 2–3 are gating filters on top.
   >10–15 min.
 
 **Risk/management (filter):**
-- [ ] Stop structural (MSS low / FVG edge / swing). TP1 ≈ 1–1.5R intraday liquidity;
-  ultimate ≈ 2R+ HTF draw. Management = trail / BE per style.
+- [ ] Stop structural — just beyond the **entry array** (FVG edge / inversion level), tight, **NOT**
+  above the session swing (12-12: a 6.25-handle MES stop at the 1H gap). TP1 ≈ his stated 1–1.5R but
+  can be far higher off a tight stop (12-12 TP1 = 4.44R); ultimate ≈ 2R+ HTF draw. Mgmt = trail / BE.
 
 ---
 
@@ -134,7 +136,8 @@ not a fabricated tick.
   utilizing a five-minute gap rebalance… and also an inversion fair value gap entry… in one"* —
   **two imbalances confirming one long.** He calls bias + price the *"two other main component
   factors."* (31:25: *"perfect… textbook… two and one."*) This is the case that set our
-  **alignment+conviction** grade model — an exceptional entry elevates an aligned 2/3 day to A+.
+  **alignment+conviction** grade model — a **multi-alignment** entry (this two-and-one) elevates an
+  aligned 2/3 day to A+; a single clean entry does not.
 - **Bias (replay): ~2/3 bullish, elevated by the entry.** HTF **bullish via arrays** (h1 **fresh**
   bull FVG at price + h4 bull FVG at price — tiny/marginal, tl-light; daily near-price arrays
   invalidated, so the old "daily bear MSS reclaimed + 1H bull MSS" *structure* language is dropped —
