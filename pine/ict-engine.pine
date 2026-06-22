@@ -807,6 +807,12 @@ qRangeQuality = bar_index < qRangeBars or na(close) or close <= 0 ? "na" : qRang
 qDisplacement = bar_index < QUALITY_DISP_BARS ? "na" : qCleanRecent >= QUALITY_DISP_CLEAN ? "clean" : qCleanRecent >= QUALITY_DISP_ACCEPT ? "acceptable" : "weak"
 qCandle = qDojiWickRecent > 0 ? "doji_wick" : qEngulfing ? "engulfing" : "normal"
 
+// Regime — price is either displacing (tradable) or consolidating (stand aside).
+qRegime = (qDisplacement == "clean" or qDisplacement == "acceptable") and qRangeQuality == "good" ? "displacement" : "consolidation"
+// Range vs normal — the 3h range in ATR units. Lanto judges range/gap size
+// against the instrument's own recent normal, not fixed points (PRICE 12:26).
+qRangeVsNormal = atr14 > 0 ? qRange3h / atr14 : na
+
 // ── Emitters ─────────────────────────────────────────────────────────
 // Emit one `level` record and, when it has been swept, the matching `sweep`
 // record. Skips a level whose price is na. Returns the next free row.
@@ -954,6 +960,8 @@ emitQuality(int row) =>
               "|range_quality=" + qRangeQuality +
               "|displacement=" + qDisplacement +
               "|candle=" + qCandle +
+              "|regime=" + qRegime +
+              "|range_vs_normal=" + str.tostring(qRangeVsNormal, "#.##") +
               "|atr_14=" + str.tostring(atr14, format.mintick) +
               "|atr_17=" + str.tostring(atr17, format.mintick) +
               "|session=" + currentSession + legPart
