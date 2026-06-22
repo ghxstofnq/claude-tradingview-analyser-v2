@@ -146,17 +146,23 @@ not a fabricated tick.
 - **Discriminator the chain must get right:** two imbalances confirming the *same* move → A+ even at
   2/3 bias; a single ordinary FVG entry on the same day would be a B.
 
-### D2 · 2026-06-09 NY-AM — Inversion short  ·  status: hand-grade (one open question)
-- **Bias:** bearish (sell-side delivered the morning; swing-tier structure was MSS-bear).
-- **Model / side:** **Inversion, short** — a bullish FVG violated to an iFVG after the high
-  was taken. (High confidence on model + side.)
-- **Confirming candle — CONFIRMED (2026-06-22):** the **1m violation close** at 09:52 ET.
-  Lanto uses 1m confirmation on every gap and for inversion the violating close *is* the
-  confirmation ([confirmation.md](confirmation.md)). The old 5m close (09:55 ET, entry
-  29731.25) was the bot's behavior and is **superseded**.
-- **Entry / stop / TP1:** **29792 / 29847 / 29659.25** (the 1m violation close).
-- **Grade:** recorded as **A+**; confirm the 3-vote count from the evidence when the session
-  is fully reconstructed (could be B if only 2/3).
+### D2 · 2026-06-09 NY-AM — A+ Inversion short  ·  status: graded (replay-confirmed; GXNQ's logged draws corrected)
+- **Setup:** overnight rallied (+301) and NY **swept the highs** (AS.H/NYAM.H/PDH) at the 30136
+  spike → reversed **down off the HTF bear draw** (fresh bear daily FVG *at price* + 4H/1H bear
+  FVGs) → **swing-tier bear MSS 10:45** (29595, dp 152) → sold off to 29154. Bias bearish; the
+  bullish overnight was the **liquidity grab** that set up the reversal (not a conflict).
+- **Model / side:** **Inversion short** — the bullish FVGs **29743–29776** violated to bearish
+  (inverted) on the retrace into the bear FVGs; the 1m violation close confirms.
+- **Entry: 29731.25** (1m inversion close, **~10:29–10:34** — NOT 09:50; the documented time was
+  ~40 min early). **Stop: 29851.50** (above the 29836 retrace swing). **1R = 120.25 pts.**
+- **Draws (untaken sell-side below):** **TP1 = AS.L 29595.25 (1.13R)** — nearest sell-side draw;
+  **TP2 = PDL 29113.75 (5.13R)** then **PWL 29071.25 (5.49R)** — the ultimate HTF draw (price hit
+  29154 ≈ PDL). **BE → entry (29731.25) when TP1 fills** (no-trim ride-the-trail).
+- **Grade A+:** significant grab (swept AS.H/NYAM.H/PDH) + swing-tier reversal + clean inversion +
+  reached the draw.
+- **Corrections to GXNQ's label:** logged TP1 **29302** maps to no level/pool (dropped); logged
+  **TP2 "28779 PWL"** is wrong — actual **PWL is 29071.25**; logged entry time **09:50** is ~40 min
+  early (actual ~10:30).
 
 ### D3 · 2025-12-12 (B1) — bearish 2/3 = B  ·  status: documented (levels: reconstruct)
 - **Bias:** bearish, **2/3 → B** (overnight + open-reaction agree; **no strong HTF read**).
