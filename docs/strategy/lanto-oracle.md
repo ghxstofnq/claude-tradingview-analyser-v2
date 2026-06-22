@@ -176,7 +176,7 @@ not a fabricated tick.
   **TP2 "28779 PWL"** is wrong — actual **PWL is 29071.25**; logged entry time **09:50** is ~40 min
   early (actual ~10:30).
 
-### D3 · 2025-12-12 NY-AM — 2/3-B short (the documented B1)  ·  status: graded (replay + transcript-confirmed) — engine HTF over-read flagged
+### D3 · 2025-12-12 NY-AM — 2/3-B short on **MES** (the documented B1)  ·  status: graded (transcript + Lanto's actual Discord call; instrument-corrected 2026-06-23) — engine HTF over-read flagged
 - **Lanto's own words (BIAS class, THIS day):** *"we didn't end up using higher time frame today…
   there wasn't anything massive… we ended up utilizing overnight price **two out of the three
   components** — overnight price and the opening range move"* (25:44/27:42); *"the whole week we
@@ -187,10 +187,22 @@ not a fabricated tick.
 - **No reversal long:** Lanto passed the long when the London lows were swept + price bounced —
   *"we didn't see major displacement… overnight was bearish"* (26:46). A sweep without mass
   displacement is not a reversal.
-- **Trade (5m-level; 1m replay unavailable for Dec 2025):** bearish **continuation short**, entry
-  ~26300–26316 (retrace into the bear 5m FVG after the 9:40 displacement; bear MSS 26290), **stop
-  ~26375** (above the 26366 open high; 1R ≈ 65). **TP1 NYAM.L 26148 / PDL 26139 (~2.5R); TP2 PWL
-  25951 (~5.5R — reached**, low 25930).
+- **Trade (Lanto's ACTUAL call, from his Discord — instrument-corrected 2026-06-23): MES (S&P 500),
+  NOT MNQ.** He traded the **S&P**, not the Nasdaq — the SMT vehicle pick (§6). Bearish **continuation
+  short**: **entry 6,888.25** (the 1H gap / equilibrium), **SL 6,894.50** (just above the gap — **risk
+  only 6.25 pts**), **TP1 6,860.50 = the Hourly Wick Low (4.44R), TP2 6,817.50 (11.32R)** — the deeper
+  draw. Levels verified to the tick against his on-chart position tool (orange box top 6,894.50 = SL,
+  boundary 6,888.25 = entry). Grade unchanged (**2/3-B**, continuation short — the *levels* were wrong
+  instrument before, the grade/bias was not).
+- **Two lessons from the real call:** (1) **INSTRUMENT** — I graded the whole oracle on MNQ1!, but
+  Lanto picks **ES-or-NQ per day** (here ES); the traded instrument per session must be **confirmed,
+  not assumed**. (2) **STOPS ARE TIGHT** — his real stop was **6.25 pts** (just beyond the entry gap),
+  vs the ~65 pts my engine placed ("above the swing high"). Loose stops **systematically understate R**
+  (his TP1 = 4.4R; my reconstruction read 2.5R). The stop anchors on the **entry array**, not the
+  session swing. [[lanto-discord-actual-calls]]
+- **(Superseded MNQ reconstruction, kept for the record):** on MNQ the same move read entry ~26,300–
+  26,316, stop ~26,375, TP1 PDL 26,139, TP2 PWL 25,951 (low 25,930) — directionally right, wrong
+  instrument + far too loose a stop.
 - **ENGINE HTF OVER-READ (key fidelity finding):** my engine read graded this **3/3** (daily bear
   MSS **dp 837** + 4H/1H bear MSS = "strong HTF bearish"), but Lanto says **2/3 / no HTF**. The daily
   break (level 25168) is **~1150 pts BELOW** the open (26317) — a stale/distant/reclaimed structure,
