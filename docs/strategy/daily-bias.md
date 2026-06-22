@@ -38,10 +38,13 @@ today's trade was [an] A plus because we ended up utilizing a five-minute gap re
 and also an inversion fair value gap entry… in one"* (ENTRY 27:05). So:
 
 - **A+** = the three pillars **align (no conflict) with high conviction** — via *either* a
-  3/3 bias *or* an **exceptional entry** (multi-alignment / clean displacement) on an
-  otherwise-aligned day with good price.
-- **B** = aligned but **one element is marginal** — e.g. a sloppy/ordinary entry, *even at
-  3/3 bias*; or 2/3 with an ordinary entry.
+  3/3 bias *or* a **multi-alignment entry** on an otherwise-aligned 2/3 day. Multi-alignment is
+  Lanto's *"two-and-one"*: **two imbalances confirming one move** (e.g. a 5m FVG rebalance **and**
+  a 1m inversion *in one*, ENTRY 27:05 / 31:25). A **single** entry — even a clean, strongly-
+  displaced one — is a *good* entry but **NOT** an A+ elevator.
+- **B** = aligned but **one element is marginal** — a single/ordinary entry (even a clean one) at a
+  2/3 bias; or a sloppy entry *even at 3/3*. Strong displacement + a good candle close is the bar to
+  *trade* it (BIAS 31:25), not the bar to make it A+.
 - **No-trade** = a real **conflict** among the bias inputs (the open-reaction **reverses**
   the bias → **hands off**, §4), or a **missing/weak pillar**, or no clean entry.
 
