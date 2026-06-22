@@ -169,14 +169,26 @@ not a fabricated tick.
   **TP2 "28779 PWL"** is wrong — actual **PWL is 29071.25**; logged entry time **09:50** is ~40 min
   early (actual ~10:30).
 
-### D3 · 2025-12-12 (B1) — bearish 2/3 = B  ·  status: documented (levels: reconstruct)
-- **Bias:** bearish, **2/3 → B** (overnight + open-reaction agree; **no strong HTF read**).
-  Overnight bearish (London sold off); NY swept the London lows then **displaced down ~09:40**.
-- **Model / side:** continuation of the bearish overnight via the open-reaction displacement.
-  **Short.** **Entry:** the post-sweep displacement-down FVG; **stop:** above the sweep high;
-  **TP1:** next sell-side pool below.
-- **Discriminator:** the missing HTF vote **caps it at B** — the chain must not promote a
-  clean 2/3 day to A+.
+### D3 · 2025-12-12 NY-AM — 2/3-B short (the documented B1)  ·  status: graded (replay + transcript-confirmed) — engine HTF over-read flagged
+- **Lanto's own words (BIAS class, THIS day):** *"we didn't end up using higher time frame today…
+  there wasn't anything massive… we ended up utilizing overnight price **two out of the three
+  components** — overnight price and the opening range move"* (25:44/27:42); *"the whole week we
+  didn't have a clear ultra HTF look"* (21:29). So **2/3-B, no HTF.** This IS B1 (not a different date).
+- **Bias:** overnight **bearish** (Asia consolidated, London sold off); NY-open **bearish** — swept
+  the London lows then **displaced down on the 9:40 5m sequence**, confirming downside. HTF **not
+  used** (no clean near-price array). 2/3 → **B**.
+- **No reversal long:** Lanto passed the long when the London lows were swept + price bounced —
+  *"we didn't see major displacement… overnight was bearish"* (26:46). A sweep without mass
+  displacement is not a reversal.
+- **Trade (5m-level; 1m replay unavailable for Dec 2025):** bearish **continuation short**, entry
+  ~26300–26316 (retrace into the bear 5m FVG after the 9:40 displacement; bear MSS 26290), **stop
+  ~26375** (above the 26366 open high; 1R ≈ 65). **TP1 NYAM.L 26148 / PDL 26139 (~2.5R); TP2 PWL
+  25951 (~5.5R — reached**, low 25930).
+- **ENGINE HTF OVER-READ (key fidelity finding):** my engine read graded this **3/3** (daily bear
+  MSS **dp 837** + 4H/1H bear MSS = "strong HTF bearish"), but Lanto says **2/3 / no HTF**. The daily
+  break (level 25168) is **~1150 pts BELOW** the open (26317) — a stale/distant/reclaimed structure,
+  not a near-price actionable draw. **Tweak:** the HTF vote must gate on near-price + clean +
+  displacive + reclaim-aware arrays, NOT raw MSS/BoS counts (Stage C). See [[engine-htf-overread]].
 
 ### D4 · 2025-10-02 (R1) — long, then flip short  ·  status: documented (levels: reconstruct)
 - **Setup A — long:** bullish HTF; entry off the **hourly gap + 4H FVG + overnight lows**
