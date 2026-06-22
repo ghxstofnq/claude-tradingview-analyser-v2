@@ -36,10 +36,12 @@ components**; Pillars 2–3 are gating filters on top.
   - A **neutral** input (chop overnight / no HTF) is a non-vote, not a conflict. The entry only
     **elevates an already-aligned day**; multi-alignment in a conflicted/choppy tape is still no-trade/B.
 
-**Pillar 2 — price quality (filter):**
-- [ ] Displacement present; engulfing/flush, not mass wicks/dojis.
+**Pillar 2 — price quality (filter — *"you can never outrade bad price"*, PRICE 27:25; it gates the
+other two: bad price into confirmation ⇒ the entry model and the draw are unreliable too):**
+- [ ] Displacement present; engulfing/flush, not mass wicks/dojis. *Speed* is the tell (PRICE 28:21,
+  TRADE24 15:59 — the best entries go in-the-money instantly / near-zero drawdown).
 - [ ] Gap size is a real magnet (not a ~20pt 4H gap).
-- [ ] Not tight consolidation (the "28pt/3h = stand aside" test).
+- [ ] Not tight consolidation (the "28pt/3h = stand aside" test — verbatim, PRICE 30:12, on NQ).
 
 **Pillar 3 — entry + confirmation (filter):**
 - [ ] Model identified: Reversal (MSS) or Continuation (Trend), entered via FVG-retrace or
@@ -51,8 +53,11 @@ components**; Pillars 2–3 are gating filters on top.
 
 **Risk/management (filter):**
 - [ ] Stop structural — just beyond the **entry array** (FVG edge / inversion level), tight, **NOT**
-  above the session swing (12-12: a 6.25-handle MES stop at the 1H gap). TP1 ≈ his stated 1–1.5R but
-  can be far higher off a tight stop (12-12 TP1 = 4.44R); ultimate ≈ 2R+ HTF draw. Mgmt = trail / BE.
+  above the session swing (12-12: a 6.25-handle MES stop at the 1H gap). ⚠️ A tight stop only works on
+  **clean/displacing** price — **a tight stop in chop gets wicked out** (PRICE 26:29: that trade lost
+  because the stop was tight relative to how consolidative price was). So the tight stop pairs with the
+  Pillar-2 clean-price filter (don't take the entry if price is consolidative). TP1 ≈ his stated 1–1.5R
+  but can be far higher off a tight stop (12-12 TP1 = 4.44R); ultimate ≈ 2R+ HTF draw. Mgmt = trail / BE.
 
 ---
 
