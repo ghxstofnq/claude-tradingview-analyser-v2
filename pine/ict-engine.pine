@@ -6,13 +6,13 @@
 indicator("ICT Engine V3", "ICT-V3", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // ── Evidence table contract ──────────────────────────────────────────
-// V3 additions (2026-06-12) are purely ADDITIVE — meta.bar_ms/bar_closed,
-// fvg.inverted_ms, quality leg_high/leg_low (+ms), NYPM.H/L levels — and the
-// backend parser tolerates unknown fields, so the schema marker stays 2.
-// The schema number marks BREAKING shape changes only; bumping it would
-// brick any deployed parser that pins supported schemas (the running app
-// rejects unknown schemas as a safety gate).
-SCHEMA_VERSION = 2
+// Schema 4 (2026-06-22, faithful-Lanto rebuild) is a BREAKING shape change:
+// decision fields (entry_state, chop_15m) stripped from fvg/bpr, plus new
+// evidence (wick_tapped, swing significance, sweep significance, leg disp
+// magnitude/speed, regime, range_vs_normal, overnight + open_reaction rows).
+// The bump is intentional — the old parser (supports {1,2,3}) rejects schema 4
+// as a safety gate; only the rebuilt parser accepts it.
+SCHEMA_VERSION = 4
 // Worst case at the old 120: 14 levels + 14 sweeps + 24 fvg + 12 bpr +
 // 26 swings + 24 structures + 12 pools + 1 quality = 127 — table.cell past
 // the row cap is a runtime error. 140 leaves headroom.
@@ -825,7 +825,6 @@ emitLevelAndSweep(int row, string name, float price, string state, int formedMs,
 emitFvg(int row, Fvg f) =>
     ce = (f.top + f.bottom) / 2
     zoneMinutes = zoneMinutesSince(f.enteredMs)
-    entryState = f.state == "invalidated" ? "invalidated" : f.chop15 ? "chop" : f.confirmClose ? "confirmed" : f.entered and not f.ceHeld ? "failed_ce" : f.entered ? "waiting" : "none"
     payload = "kind=" + f.kind +
               "|dir=" + f.dir +
               "|top=" + str.tostring(f.top, format.mintick) +
@@ -845,8 +844,6 @@ emitFvg(int row, Fvg f) =>
               "|confirm_close=" + (f.confirmClose ? "1" : "0") +
               "|confirm_dir=" + f.confirmDir +
               "|confirm_ms=" + str.tostring(na(f.confirmMs) ? 0 : f.confirmMs) +
-              "|chop_15m=" + (f.chop15 ? "1" : "0") +
-              "|entry_state=" + entryState +
               "|inverted_ms=" + str.tostring(na(f.invertedMs) ? 0 : f.invertedMs) +
               "|c1o=" + str.tostring(f.c1o, format.mintick) +
               "|c1h=" + str.tostring(f.c1h, format.mintick) +
@@ -869,7 +866,6 @@ emitFvg(int row, Fvg f) =>
 emitBpr(int row, Bpr b) =>
     ce = (b.top + b.bottom) / 2
     zoneMinutes = zoneMinutesSince(b.enteredMs)
-    entryState = b.state == "invalidated" ? "invalidated" : b.chop15 ? "chop" : b.confirmClose ? "confirmed" : b.entered and not b.ceHeld ? "failed_ce" : b.entered ? "waiting" : "none"
     payload = "dir=" + b.dir +
               "|top=" + str.tostring(b.top, format.mintick) +
               "|bottom=" + str.tostring(b.bottom, format.mintick) +
@@ -885,9 +881,7 @@ emitBpr(int row, Bpr b) =>
               "|ce_held=" + (b.entered and b.ceHeld ? "1" : "0") +
               "|confirm_close=" + (b.confirmClose ? "1" : "0") +
               "|confirm_dir=" + b.confirmDir +
-              "|confirm_ms=" + str.tostring(na(b.confirmMs) ? 0 : b.confirmMs) +
-              "|chop_15m=" + (b.chop15 ? "1" : "0") +
-              "|entry_state=" + entryState
+              "|confirm_ms=" + str.tostring(na(b.confirmMs) ? 0 : b.confirmMs)
     table.cell(evidence, 0, row, "bpr")
     table.cell(evidence, 1, row, payload)
     row + 1
