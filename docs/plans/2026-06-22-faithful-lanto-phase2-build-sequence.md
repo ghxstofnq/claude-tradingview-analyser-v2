@@ -17,8 +17,13 @@ dependency-ordered build. Sources: [decisions ledger](faithful-lanto-rebuild-dec
 ## Stage G owner + Phase 0 oracle — ASSIGNED TO CLAUDE (2026-06-22)
 
 Stage G (the oracle **and** the validation) is **Claude's**, confirmed via interview:
-- **Oracle FIRST** (the answer key) → **user approves** → build A–F toward it → **validation
-  LAST** (fold the rebuilt chain vs the oracle).
+- **Order (corrected 2026-06-22):** **Stage A first (engine → capture)** — so the oracle
+  grades on the *faithful* evidence the chain will use, with the new fields as the grading
+  primitives — → **oracle** (user-approved) → build **B–F** toward it → **validation LAST**
+  (fold the rebuilt chain vs the oracle). ("Oracle before the *decision* logic" still holds;
+  the data layer just precedes the oracle.) The Feb-09 *qualitative* anchor is
+  engine-independent (Lanto's stated call); its exact levels + the fresh grades wait for
+  Stage A.
 - **Ground truth = Lanto.** Documented sessions: truth = his stated call. Fresh sessions:
   truth = Claude applying the confirmed rules, **user-approved**. Grade only **post-cutoff /
   OOS** sessions (apply rules, don't recall outcomes); the user's approval of the oracle is
@@ -30,6 +35,33 @@ Stage G (the oracle **and** the validation) is **Claude's**, confirmed via inter
 - **Deliverables:** (1) oracle doc — per session: bias / grade / model / side / entry / stop
   / TP + reasoning, for approval; (2) a validation report at the end (chain-vs-oracle,
   pass/fail). The oracle is the gate, **never the retired corpus baseline**.
+
+## Corrections folded in from Phase-0 (2026-06-23) — these OVERRIDE the stage text below where they conflict
+
+The oracle + a final 5-transcript audit corrected several things this plan predates. Apply these:
+
+- **HTF vote = a SIGNIFICANT near-price ARRAY (FVG/iFVG, displacive + took-liq) + the reaction off it.**
+  Raw **liquidity (buy/sell side) is the DRAW/target, NOT a vote** (BIAS 09:21 — marking liquidity isn't
+  a bias). "Significant" = Lanto's *massive* vs *nothing crazy* (BIAS 27:42); a small gap doesn't earn
+  the HTF vote even if you trade off it. → C1/C2: don't let a liquidity draw cast an HTF vote.
+- **Grade elevation = MULTI-ALIGNMENT ONLY.** A+ = 3/3 bias **OR** a multi-alignment (*"two-and-one"*)
+  entry on an aligned 2/3 day; a **single clean/displaced entry caps at B** (ENTRY 27:05/31:25). → C6 +
+  D5/D6: encode the grade *consequence*, not just multi-alignment detection.
+- **Stop anchors on the ENTRY ARRAY (FVG edge / inversion level), tight — NOT the swing high**
+  (12-12 MES: a 6.25-handle stop at the 1H gap). A tight stop **only works on clean/displacing price**;
+  in chop it gets wicked (PRICE 26:29) → pair it with the Pillar-2 clean-price gate. → D6.
+- **Carry FVGs alive across the whole session, incl. pre-open/London MSS-leg gaps.** The entry is the
+  **retrace into a held array** (often formed an hour+ earlier) + 1m confirm — NOT the impulse break.
+  When price is too strong to retrace, the **Inversion off the break** is the entry (TRADE24 19:57). →
+  D1/D4 + the walker shell.
+- **Instrument is per-day SMT.** Lanto trades **ES *or* NQ** by the leader (12-12 = MES, 10-02 = MNQ) —
+  the chain must **select the traded vehicle**, not assume one. → C4: SMT picks the instrument, not just
+  confirms bias.
+- **Price quality is the master gate: *"you can never outrade bad price"* (PRICE 27:25).** Bad price into
+  confirmation ⇒ entry model + draw unreliable. → reinforces Stage B's gating role over C and D.
+- **Ground truth = Lanto's actual calls** (Discord: instrument + entry/SL/TP) + the oracle. Most oracle
+  *levels* are engine reconstruction (only 12-12 is Discord-pinned) — validate against the anchors **and**
+  live Discord calls. → Stage G.
 
 ## Dependency-ordered stages
 
