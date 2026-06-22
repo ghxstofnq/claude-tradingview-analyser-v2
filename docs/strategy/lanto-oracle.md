@@ -215,7 +215,7 @@ not a fabricated tick.
   the wrong primitive.) Open question: calibrating the "clean/significant-enough array" threshold —
   Lanto's *"massive"* vs *"nothing crazy"*. Stage-C build item. See [[engine-htf-overread]].
 
-### D4 · 2025-10-02 (R1) NY-AM — B long that FAILED → flip short  ·  status: graded (replay schema-4 + transcript-confirmed)
+### D4 · 2025-10-02 (R1) NY-AM — B long that FAILED → flip short, on **MNQ**  ·  status: graded (replay schema-4 + transcript-confirmed; instrument **MNQ confirmed** 2026-06-23 — ES was the SMT *leader* drawing lower, NQ the vehicle. Exact entry/SL/TP **not shown in the video** → engine reconstruction retained.)
 - **Lanto's own words (RISK class, THIS day, 25:11–31:34):** *"coming into New York open I [was]
   bullish higher time frame… overnight we had massive buy sequence creating a new all-time high…
   I remain bullish"* (25:11); the draw was *"this hourly gap… an hourly internal low… that small
