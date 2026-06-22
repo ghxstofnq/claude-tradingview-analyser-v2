@@ -116,6 +116,7 @@ type Fvg
     bool chop15 = false
     int invertedMs = na
     int mitigatedMs = na
+    bool wickTapped = false
     // The 3 candles that form the FVG (c1 = oldest [2], c2 = displacement [1],
     // c3 = newest [0]) captured at the formation bar — OHLC each.
     float c1o = na
@@ -151,6 +152,7 @@ type Bpr
     int confirmMs = na
     bool chop15 = false
     int mitigatedMs = na
+    bool wickTapped = false
 
 // A confirmed swing point — a two-tier pivot classified vs the prior pivot of
 // its type. `swept` latches once a later bar trades through `price`.
@@ -161,6 +163,7 @@ type Swing
     string tier
     bool isHigh
     bool swept
+    bool significant = false
 
 // A market-structure break — a close beyond a swing level. `event` is bos
 // (continuation) or mss (reversal); `validation` is break or sweep per the
@@ -174,6 +177,7 @@ type Structure
     bool displacement
     string tier
     string validation
+    float dispPts = na
 
 // An equal-high / equal-low liquidity pool — two consecutive external swings
 // within tolerance. `swept` latches once price trades through `price`.
@@ -481,6 +485,7 @@ if barstate.isconfirmed
                 f.confirmDir := "none"
                 f.confirmMs := na
                 f.chop15 := false
+                f.wickTapped := false
                 f.invertedMs := time
             else
                 newState = fvgFillState(f)
@@ -499,6 +504,8 @@ if barstate.isconfirmed
         // Reaction is skipped on the bar a zone inverts or invalidates.
         if runReaction
             ce = (f.top + f.bottom) / 2
+            if not f.wickTapped and high >= f.bottom and low <= f.top
+                f.wickTapped := true
             inZone = meaningfulZoneTouch(f.top, f.bottom, ce)
             if inZone
                 if not f.entered
@@ -556,6 +563,8 @@ if barstate.isconfirmed
                 b.mitigatedMs := time
         // Reaction: entered the zone, then a close cleared the push edge.
         ce = (b.top + b.bottom) / 2
+        if not b.wickTapped and high >= b.bottom and low <= b.top
+            b.wickTapped := true
         inZone = meaningfulZoneTouch(b.top, b.bottom, ce)
         if inZone
             if not b.entered
@@ -621,11 +630,13 @@ trackTier(array<Swing> arr, string tier, int len, float topPx, float btmPx, int 
     var float priorLow = na
     if not na(topPx)
         kind = na(priorHigh) or topPx > priorHigh ? "HH" : "LH"
-        array.push(arr, Swing.new(kind, topPx, time[len], tier, true, false))
+        sigH = (high[len] - low[len]) > 0 and (high[len] - math.max(open[len], close[len])) >= 0.5 * (high[len] - low[len])
+        array.push(arr, Swing.new(kind, topPx, time[len], tier, true, false, sigH))
         priorHigh := topPx
     if not na(btmPx)
         kind = na(priorLow) or btmPx > priorLow ? "HL" : "LL"
-        array.push(arr, Swing.new(kind, btmPx, time[len], tier, false, false))
+        sigL = (high[len] - low[len]) > 0 and (math.min(open[len], close[len]) - low[len]) >= 0.5 * (high[len] - low[len])
+        array.push(arr, Swing.new(kind, btmPx, time[len], tier, false, false, sigL))
         priorLow := btmPx
     if array.size(arr) > maxLen
         array.shift(arr)
@@ -713,15 +724,16 @@ trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand
         lowArmed := true
     rng = high - low
     disp = rng > 0 and math.abs(close - open) / rng >= STRUCT_DISP_MIN
+    dispPts = math.abs(close - open)
     events = array.new<Structure>()
     if highArmed and not na(lastHigh) and close > lastHigh
         valid = close >= lastHigh + atrBand ? "break" : "sweep"
-        array.push(events, Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid))
+        array.push(events, Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid, dispPts))
         trendUp := true
         highArmed := false
     if lowArmed and not na(lastLow) and close < lastLow
         valid = close <= lastLow - atrBand ? "break" : "sweep"
-        array.push(events, Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid))
+        array.push(events, Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid, dispPts))
         trendUp := false
         lowArmed := false
     events
@@ -814,7 +826,8 @@ emitLevelAndSweep(int row, string name, float price, string state, int formedMs,
                            "|price=" + str.tostring(price, format.mintick) +
                            "|side=" + (isHighSide ? "buy" : "sell") +
                            "|swept_ms=" + str.tostring(na(sweptMs) ? 0 : sweptMs) +
-                           "|rejected=" + (rejected ? "1" : "0")
+                           "|rejected=" + (rejected ? "1" : "0") +
+                           "|significance=session_level"
             table.cell(evidence, 0, next, "sweep")
             table.cell(evidence, 1, next, sweepPayload)
             next := next + 1
@@ -837,6 +850,7 @@ emitFvg(int row, Fvg f) =>
               "|reaction_dir=" + f.reactionDir +
               "|state=" + f.state +
               "|size_quality=" + f.sizeQuality +
+              "|wick_tapped=" + (f.wickTapped ? "1" : "0") +
               "|entered_ms=" + str.tostring(na(f.enteredMs) ? 0 : f.enteredMs) +
               "|bars_in_zone=" + str.tostring(f.barsInZone) +
               "|minutes_in_zone=" + str.tostring(zoneMinutes) +
@@ -874,6 +888,7 @@ emitBpr(int row, Bpr b) =>
               "|reacted=" + (b.reacted ? "1" : "0") +
               "|reaction_dir=" + b.reactionDir +
               "|state=" + b.state +
+              "|wick_tapped=" + (b.wickTapped ? "1" : "0") +
               "|ce=" + str.tostring(ce, format.mintick) +
               "|entered_ms=" + str.tostring(na(b.enteredMs) ? 0 : b.enteredMs) +
               "|bars_in_zone=" + str.tostring(b.barsInZone) +
@@ -892,7 +907,8 @@ emitSwing(int row, Swing sw) =>
               "|price=" + str.tostring(sw.price, format.mintick) +
               "|bar_ms=" + str.tostring(sw.barMs) +
               "|tier=" + sw.tier +
-              "|swept=" + (sw.swept ? "1" : "0")
+              "|swept=" + (sw.swept ? "1" : "0") +
+              "|significant=" + (sw.significant ? "1" : "0")
     table.cell(evidence, 0, row, "swing")
     table.cell(evidence, 1, row, payload)
     row + 1
@@ -906,7 +922,8 @@ emitStructure(int row, Structure s) =>
               "|confirmed_ms=" + str.tostring(s.confirmedMs) +
               "|displacement=" + (s.displacement ? "1" : "0") +
               "|tier=" + s.tier +
-              "|validation=" + s.validation
+              "|validation=" + s.validation +
+              "|disp_pts=" + str.tostring(s.dispPts, format.mintick)
     table.cell(evidence, 0, row, "structure")
     table.cell(evidence, 1, row, payload)
     row + 1
