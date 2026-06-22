@@ -199,6 +199,19 @@ lesson below.
   ended at 10:15 (one bar before the breakdown) and only read `most_recent_structure`. Always
   grade through structure resolution + read the full event list.
 
+**E3 · 2026-06-17 NY-AM — no-trade (conflicted + choppy)  ·  status: graded (user-confirmed)**
+- **Votes conflict:** overnight **bullish** (+213, swept AS.H 30546); NY-open **bearish** (opened
+  30527 → sold 30384, bear MSS 10:00 `break` dp 125, swept NYAM.L then LO.L) — the open **reversed**
+  the bullish overnight. HTF **mixed**: daily macro bullish (dp 548) but the near-price daily bull
+  FVG is inverted and 4H+1H carry fresh bear FVGs at price.
+- **Verdict: no-trade.** Quality marginal — range *normal* (rvn ≤ 1.68), two-sided (sold to 30384,
+  **bounced to 30509 ≈85% recovery**, ground to 30359); all structure **internal-tier** (no
+  swing-tier confirmation); neither candidate entry was clean (10:00 MSS whipsawed +120 against;
+  10:25 retrace-short ground 40 min). Conflicted bias + choppy quality + no fast confirmation = stand aside.
+- **Discriminator:** the bearish move eventually reached the lower draw, but a setup with no clean
+  fast entry under conflicting bias is NOT tradeable — the system must stand aside, not chase the
+  eventual delivery. Contrast 06-16 (swing-tier MSS + clean breakdown = tradeable B).
+
 ---
 
 ## Pass bar
