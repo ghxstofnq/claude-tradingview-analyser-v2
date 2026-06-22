@@ -111,6 +111,77 @@ check the rebuilt chain reproduces it.
 
 ---
 
+## Part D — Per-session oracle entries (the gate)
+
+The verdict each reconstructed session must reproduce. **Status** says how grounded each
+field is: `documented` = Lanto's own stated call (authoritative); `hand-grade` = applied
+the Part-A rubric, **needs your sign-off**; `reconstruct` = exact entry/stop/TP pin to the
+real FVG/level on the chart (the grade/model/side don't change, only the ticks). Entry /
+stop / TP are written as the **level or FVG** (pass bar = same array element ±~2–3 MNQ pts),
+not a fabricated tick.
+
+### D1 · 2026-02-09 NY — multi-alignment A+ long  ·  status: documented (levels: reconstruct)
+- **Bias:** bullish. **Grade:** A+ (the flagship 3/3 + clean case Lanto walks live).
+- **Model / side:** Reversal entered by **multi-alignment** — 5m bullish FVG rebalance **and**
+  a 1m bearish FVG that goes bullish-invert, in one move (ENTRY ~25:13). **Long.**
+- **Entry:** the overlap of the 5m bullish FVG and the 1m iFVG, on the 1m confirming close.
+  **Stop:** below the swept low / the FVG that created the move. **TP1:** nearest intraday
+  buy-side liquidity (~1–1.5R); **ultimate:** the HTF draw above (~2R+).
+- **Discriminator the chain must get right:** two imbalances confirming the *same* move →
+  A+, not two separate B setups.
+
+### D2 · 2026-06-09 NY-AM — Inversion short  ·  status: hand-grade (one open question)
+- **Bias:** bearish (sell-side delivered the morning; swing-tier structure was MSS-bear).
+- **Model / side:** **Inversion, short** — a bullish FVG violated to an iFVG after the high
+  was taken. (High confidence on model + side.)
+- **Entry / stop / TP1 (from the V3 recording):** **29792 / 29847 / 29659.25.**
+- **Grade:** recorded as **A+**; confirm the 3-vote count from the evidence before locking
+  (could be B if only 2/3).
+- **OPEN — your call:** the **confirming candle**. Faithful rule = a **1m close** on every
+  gap, and for inversion the violating close *is* the confirmation
+  ([confirmation.md](confirmation.md)) → the 13:52Z (09:52 ET) violation close, **entry
+  29792**. The earlier GXNQ note used a **5m close** at 09:55 ET (entry 29731.25) — that was
+  the bot's old behavior. I read the 1m violation close as correct; please confirm.
+
+### D3 · 2025-12-12 (B1) — bearish 2/3 = B  ·  status: documented (levels: reconstruct)
+- **Bias:** bearish, **2/3 → B** (overnight + open-reaction agree; **no strong HTF read**).
+  Overnight bearish (London sold off); NY swept the London lows then **displaced down ~09:40**.
+- **Model / side:** continuation of the bearish overnight via the open-reaction displacement.
+  **Short.** **Entry:** the post-sweep displacement-down FVG; **stop:** above the sweep high;
+  **TP1:** next sell-side pool below.
+- **Discriminator:** the missing HTF vote **caps it at B** — the chain must not promote a
+  clean 2/3 day to A+.
+
+### D4 · 2025-10-02 (R1) — long, then flip short  ·  status: documented (levels: reconstruct)
+- **Setup A — long:** bullish HTF; entry off the **hourly gap + 4H FVG + overnight lows**
+  confluence. **Long.** Grade high (confluence stack). Stop below the overnight lows; TP at
+  the HTF draw above.
+- **Setup B — flip short:** later the **hourly gap inverts** → **short** (Inversion). Entry
+  on the close through the inverted hourly gap; stop above it.
+- **Discriminator:** the chain must (a) stack confluence into the long and (b) **flip** on the
+  gap inversion — two distinct, correctly-sided decisions in one session.
+
+---
+
+## Part E — Fresh out-of-sample sessions (to capture + hand-grade)
+
+The documented cases above are pre-cutoff (truth = Lanto's stated call). To prove the chain
+on data it has **not** seen, grade **post-cutoff** sessions by applying the Part-A rubric
+**without recalling outcomes** (constraint #10); your approval is the independence check.
+Capture each via TV Desktop replay on the deployed schema-4 engine. Target coverage:
+
+| Slot | Model to exercise | What it tests |
+|---|---|---|
+| E1 | **Reversal (MSS)** | significant sweep + reversal-speed-match gate (D3 of the build) |
+| E2 | **Continuation (Trend)** | retrace-to-FVG/CE in an established trend |
+| E3 | **No-trade / chop** | price-quality filter (the "28pt/3h = stand aside" test) |
+| E4 | **2/3 → B** | the grade count caps at B with one missing vote |
+
+Capture step (per session): `replay_start` at the date → step into the session → record the
+multi-TF schema-4 evidence (D/4H/1H/30m/15m/5m/1m) → hand-grade → fill the D-style entry.
+
+---
+
 ## Pass bar
 
 A reconstructed session **passes** if the deterministic chain matches Lanto on **bias
