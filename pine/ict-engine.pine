@@ -315,6 +315,40 @@ trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
 [pwhSwept, pwhSweptMs, pwhRej] = trackSweep(pwh, true, true)
 [pwlSwept, pwlSweptMs, pwlRej] = trackSweep(pwl, false, true)
 
+// ── Overnight direction + NY open-reaction (Pillar 1 evidence) ────────
+// Overnight (Asia 18:00 -> London 09:30): open captured at Asia start, close
+// tracked through London end; chop if the net move is small vs the overnight
+// range, else bull/bear by sign.
+var float ovOpen = na
+var float ovClose = na
+ovActive = inAsia or inLondon
+if ovActive and not ovActive[1]
+    ovOpen := open
+if ovActive
+    ovClose := close
+ovNet = na(ovOpen) or na(ovClose) ? na : ovClose - ovOpen
+ovHi = na(asiaH) ? lonH : na(lonH) ? asiaH : math.max(asiaH, lonH)
+ovLo = na(asiaL) ? lonL : na(lonL) ? asiaL : math.min(asiaL, lonL)
+ovRange = na(ovHi) or na(ovLo) ? na : ovHi - ovLo
+ovDir = na(ovNet) or na(ovRange) or ovRange <= 0 ? "na" : math.abs(ovNet) < 0.25 * ovRange ? "chop" : ovNet > 0 ? "bull" : "bear"
+// NY open-reaction window — first 30 min of ny_am: range high/low + which
+// overnight level got swept in the window (the reaction off the open Lanto reads).
+OR_WINDOW_MS = 30 * 60 * 1000
+var float orHigh = na
+var float orLow = na
+var int orStartMs = na
+var string orSwept = "none"
+if inNyam and not inNyam[1]
+    orHigh := high
+    orLow := low
+    orStartMs := time
+    orSwept := "none"
+else if inNyam and not na(orStartMs) and time - orStartMs <= OR_WINDOW_MS
+    orHigh := math.max(orHigh, high)
+    orLow := math.min(orLow, low)
+if orSwept == "none" and not na(orStartMs)
+    orSwept := not na(asiaHSweptMs) and asiaHSweptMs >= orStartMs and asiaHSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.H" : not na(asiaLSweptMs) and asiaLSweptMs >= orStartMs and asiaLSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.L" : not na(lonHSweptMs) and lonHSweptMs >= orStartMs and lonHSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.H" : not na(lonLSweptMs) and lonLSweptMs >= orStartMs and lonLSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.L" : "none"
+
 // ── Shared ATR ───────────────────────────────────────────────────────
 // 17-period ATR — the structure break/sweep band, the FVG/BPR reaction
 // threshold, and the equal-high/low tolerance all derive from it.
@@ -964,7 +998,12 @@ emitQuality(int row) =>
               "|range_vs_normal=" + str.tostring(qRangeVsNormal, "#.##") +
               "|atr_14=" + str.tostring(atr14, format.mintick) +
               "|atr_17=" + str.tostring(atr17, format.mintick) +
-              "|session=" + currentSession + legPart
+              "|session=" + currentSession +
+              "|overnight_dir=" + ovDir +
+              "|overnight_net=" + str.tostring(na(ovNet) ? 0 : ovNet, format.mintick) +
+              "|or_high=" + str.tostring(na(orHigh) ? 0 : orHigh, format.mintick) +
+              "|or_low=" + str.tostring(na(orLow) ? 0 : orLow, format.mintick) +
+              "|or_swept=" + orSwept + legPart
     table.cell(evidence, 0, row, "quality")
     table.cell(evidence, 1, row, payload)
     row + 1
