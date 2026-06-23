@@ -4281,3 +4281,15 @@ button { border-radius: var(--r-sm); }
 }
 .cell.pop-cell:hover { background: var(--surface-1); }
 .cell.pop-cell.open { background: var(--surface-2); }
+
+/* Round the remaining panel-header controls + chrome boxes — no square buttons
+   anywhere (2026-06-24): the LIVE header tabs (HUNT/TICKET/IN-TRADE), the
+   detector STOP, the close/float glyphs, the theme toggle, and the topbar
+   info cells (VER/ACCT) whose divider borders made them read as square boxes. */
+.bt-popover .live-tabs .tab,
+.bt-popover .live-head .det .stop,
+.bt-popover .head .x,
+.bt-popover .head .float-btn { border-radius: var(--r-sm); }
+.cell { border-left: 0; border-radius: var(--r-sm); }
+.topbar .status { gap: 4px; }
+.topbar .status .th-btn { border: 1px solid var(--border-d); border-radius: var(--r-sm); }

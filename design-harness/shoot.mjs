@@ -29,6 +29,9 @@ const SAMPLES = [
   ["grade-pill.green", ".grade-pill.green"],
   ["btn (.btn)",       ".btn"],
   ["pop-cell opener",  ".cell.pop-cell"],
+  ["live tab.on",      ".bt-popover .live-tabs .tab.on"],
+  ["det stop",         ".bt-popover .live-head .det .stop"],
+  ["th-btn",           ".th-btn"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report
