@@ -296,6 +296,36 @@ export function overnightHeaderRows(brief) {
   ];
 }
 
+// Map brief.pillar1_votes to the Draw & Bias 3-component vote breakdown
+// (daily-bias §1: grade = count of HTF + overnight + NY-open reaction votes).
+// The brief carries the two PRE-OPEN votes (htf, overnight); the third
+// (NY-open reaction) resolves live, so pre-session it renders PENDING.
+//
+// Returns { rows: [{k,v,tone,tip}], cast, grade } where `cast` is how many
+// pre-open components voted directionally and `grade` is the brief's pillar_grade.
+export function drawBiasVoteRows(brief) {
+  const votes = brief?.pillar1_votes || {};
+  const fmt = (x) => {
+    const s = String(x || "none").toLowerCase();
+    if (s === "bullish" || s === "bull") return { v: "BULL", tone: "bull" };
+    if (s === "bearish" || s === "bear") return { v: "BEAR", tone: "bear" };
+    return { v: "NONE", tone: "dim" };
+  };
+  const htf = fmt(votes.htf);
+  const overnight = fmt(votes.overnight);
+  const isCast = (x) => x != null && String(x).toLowerCase() !== "none";
+  const cast = [votes.htf, votes.overnight].filter(isCast).length;
+  return {
+    rows: [
+      { k: "HTF vote", v: htf.v, tone: htf.tone, tip: "Reaction off the significant near-price HTF PD array (daily-bias §1)" },
+      { k: "Overnight vote", v: overnight.v, tone: overnight.tone, tip: "Overnight directional read (Asia/London) — engine overnight_dir" },
+      { k: "NY-open", v: "PENDING", tone: "dim", tip: "Third component — the NY-open reaction, resolves live after 09:30 ET" },
+    ],
+    cast,
+    grade: brief?.pillar_grade || null,
+  };
+}
+
 // Render the SCENARIOS panel meta — sizing-if-A+ line. Reads sizing_note
 // from the deterministic/direct brief if present.
 export function scenariosMeta(brief) {

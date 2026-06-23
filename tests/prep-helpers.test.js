@@ -13,10 +13,34 @@ import {
   formatChainChip,
   htfBiasToRowsConcise,
   htfBiasToRowsDesigner,
+  drawBiasVoteRows,
   overnightHeaderRows,
   scenariosMeta,
   stripCitations,
 } from "../app/renderer/src/Prep.helpers.js";
+
+describe("drawBiasVoteRows (Stage F — 3-component draw-bias grade)", () => {
+  it("maps both pre-open votes + a pending NY-open row, counts cast votes", () => {
+    const out = drawBiasVoteRows({ pillar1_votes: { htf: "bullish", overnight: "bearish" }, pillar_grade: "B" });
+    assert.equal(out.rows.length, 3);
+    assert.equal(out.rows[0].v, "BULL"); assert.equal(out.rows[0].tone, "bull");
+    assert.equal(out.rows[1].v, "BEAR"); assert.equal(out.rows[1].tone, "bear");
+    assert.equal(out.rows[2].v, "PENDING"); assert.equal(out.rows[2].tone, "dim");
+    assert.equal(out.cast, 2);
+    assert.equal(out.grade, "B");
+  });
+  it("a 'none' vote renders NONE/dim and does not count toward cast", () => {
+    const out = drawBiasVoteRows({ pillar1_votes: { htf: "none", overnight: "bullish" } });
+    assert.equal(out.rows[0].v, "NONE"); assert.equal(out.rows[0].tone, "dim");
+    assert.equal(out.cast, 1);
+  });
+  it("absent votes → all NONE/PENDING, cast 0, grade null", () => {
+    const out = drawBiasVoteRows({});
+    assert.equal(out.cast, 0);
+    assert.equal(out.grade, null);
+    assert.equal(out.rows[0].v, "NONE");
+  });
+});
 
 describe("groupLevelsByPrice", () => {
   const levels = [

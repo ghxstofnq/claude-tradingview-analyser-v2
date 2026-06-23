@@ -3401,6 +3401,10 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .gp.amber { background: rgba(250, 255, 105,0.10); }
 .pill.active { background: rgba(250, 255, 105,0.12); }
 .pill.interactive:hover { background: var(--surface-2); border-color: var(--label); }
+/* Primary CTA pill — design.md electric-yellow action button (REFRESH, ACCEPT).
+   Yellow fill + black text is the brand action signal. */
+.pill.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); font-weight: 600; }
+.pill.primary:hover { background: var(--primary-active); border-color: var(--primary-active); }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 .btn { letter-spacing: 0.07em; }

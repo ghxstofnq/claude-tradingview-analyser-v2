@@ -10,6 +10,7 @@ import {
   pillar2ToRows,
   formatChainChip,
   htfBiasToRowsDesigner,
+  drawBiasVoteRows,
   overnightHeaderRows,
   scenariosMeta,
   stripCitations,
@@ -56,7 +57,7 @@ function SessionBriefPanel({ brief, session, ageMs, status, chainStatus, selecte
             {t.label}
           </span>
         ))}
-        <span className="pill interactive amber" style={{ marginLeft: 8 }} onClick={onRefresh}>REFRESH</span>
+        <span className="pill interactive primary" style={{ marginLeft: 8 }} onClick={onRefresh}>REFRESH</span>
       </div>
     </Panel>
   );
@@ -66,9 +67,18 @@ function SessionBriefPanel({ brief, session, ageMs, status, chainStatus, selecte
 // STEP 1 · HTF BIAS — four concise rows with strategy-doc tooltips.
 function Step1Panel({ brief }) {
   const rows = htfBiasToRowsDesigner(brief);
+  const vote = drawBiasVoteRows(brief);
   const toneCls = (t) => (t === "bull" ? "ok" : t === "bear" ? "bad" : t === "neutral" ? "warn" : "");
   return (
-    <Panel title="STEP 1 · HTF BIAS" meta="D / 4H / 1H">
+    <Panel title="STEP 1 · DRAW & BIAS" meta={`${vote.cast}/3 components`}>
+      {/* 3-component vote (daily-bias §1) — drives the pre-session grade */}
+      {vote.rows.map((r) => (
+        <div className="row" key={r.k} title={r.tip}>
+          <span className="k">{r.k}</span>
+          <span className={"v " + toneCls(r.tone)}>{r.v}</span>
+        </div>
+      ))}
+      {rows.length > 0 && <div className="sect-hd" style={{ marginTop: 12 }}>STRUCTURE · D / 4H / 1H</div>}
       {rows.map((r) => (
         <div className="row" key={r.k} title={r.tip}>
           <span className="k">{r.k}</span>
