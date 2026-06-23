@@ -94,7 +94,7 @@ export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
   const confirmationRows = context?.pillar3?.confirmationRows ?? [];
 
   for (const walker of activeModelWalkers(walkers, 'Inversion')) {
-    const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side)
+    const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side, { requireBody: false })
       && fullCloseThrough(row, walker)
       && invertedOnThisBar(context, walker, row));
     if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed) {

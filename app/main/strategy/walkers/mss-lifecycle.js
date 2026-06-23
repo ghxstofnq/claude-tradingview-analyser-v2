@@ -1,5 +1,6 @@
 import { runWalkerEngine } from './walker-engine.js';
 import { isActiveWalker } from './walker-state.js';
+import { isValidConfirmationForSide } from './lifecycle-utils.js';
 
 function directionForSide(side) {
   if (side === 'long') return { pd: ['bull', 'bullish'], swing: ['bull', 'bullish'], sweepSide: 'sell', confirm: ['bull', 'bullish'] };
@@ -20,10 +21,6 @@ function rowDirection(row) {
 
 function isTruthyFlag(value) {
   return value === true || value === 1 || value === '1' || value === 'true';
-}
-
-function isFalseFlag(value) {
-  return value === false || value === 0 || value === '0' || value === 'false';
 }
 
 function hasCleanDisplacement(context) {
@@ -117,15 +114,6 @@ function findReversalPdArray(context, side) {
       && wanted.pd.includes(rowDirection(pdArray))
       && !['invalidated', 'taken', 'filled'].includes(state);
   });
-}
-
-function isValidConfirmationForSide(row, side) {
-  const wanted = directionForSide(side);
-  return row?.entry_state === 'confirmed'
-    && isTruthyFlag(row?.confirm_close)
-    && isTruthyFlag(row?.ce_held)
-    && isFalseFlag(row?.chop_15m)
-    && wanted.confirm.includes(row?.confirm_dir ?? row?.direction ?? row?.dir);
 }
 
 function matchesTrackedPd(walker, row) {
