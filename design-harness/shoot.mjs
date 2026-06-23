@@ -24,14 +24,14 @@ const SAMPLES = [
   ["grade-pill.green", ".grade-pill.green"],
 ];
 
-// design.md expected anchors, for eyeball-diffing the printed report
+// Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report
 const EXPECT = {
-  canvas:    "rgb(10, 10, 10)",   // --surface-0
-  card:      "rgb(26, 26, 26)",   // --surface-2
-  elevated:  "rgb(36, 36, 36)",   // --surface-3
-  primary:   "rgb(250, 255, 105)",// --primary (electric yellow)
-  label:     "rgb(154, 154, 154)",// --label
-  green:     "rgb(34, 197, 94)",  // --green
+  canvas:    "rgb(7, 8, 10)",      // --surface-0 (Raycast canvas)
+  card:      "rgb(16, 17, 17)",    // --surface-2 (surface-elevated, panels)
+  elevated:  "rgb(18, 18, 18)",    // --surface-3 (surface-card, nested)
+  primary:   "rgb(255, 255, 255)", // --primary (white CTA pill)
+  label:     "rgb(156, 156, 157)", // --label (mute)
+  green:     "rgb(89, 212, 153)",  // --green (Raycast accent-green)
 };
 
 const browser = await chromium.launch();
