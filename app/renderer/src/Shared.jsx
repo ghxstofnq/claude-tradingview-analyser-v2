@@ -281,7 +281,7 @@ function Snapshot({ id = "setup", side = "long", entry, stop, tp1, tp2, w = 124,
         )}
 
         {full && (
-          <g fontFamily="ui-monospace, Menlo, monospace">
+          <g style={{ fontFamily: "var(--mono)" }}>
             <rect x={padL + innerW + 4} y={entryY - 9} width={70} height={18}
                   style={{ fill: "var(--snap-label-bg)", stroke: "var(--amber)" }} />
             <text x={padL + innerW + 9} y={entryY + 4} fontSize={lblFont}

@@ -79,7 +79,7 @@ function JsonNode({ k, value, depth, defaultOpen = false }) {
 function JsonViewer({ data }) {
   return (
     <div style={{
-      fontFamily: "ui-monospace, Menlo, monospace",
+      fontFamily: "var(--mono)",
       fontSize: 11.5,
       lineHeight: 1.55,
       color: "var(--value)",
@@ -119,7 +119,7 @@ function JsonlViewer({ text, maxRows = 500 }) {
       <div style={{ overflow: "auto", border: "1px solid var(--border)" }}>
         <table style={{
           borderCollapse: "collapse",
-          fontFamily: "ui-monospace, Menlo, monospace",
+          fontFamily: "var(--mono)",
           fontSize: 10.5,
           minWidth: "100%",
         }}>
@@ -206,7 +206,7 @@ function PlainViewer({ text }) {
   return (
     <pre style={{
       color: "var(--value)",
-      fontFamily: "ui-monospace, Menlo, monospace",
+      fontFamily: "var(--mono)",
       fontSize: 11.5,
       whiteSpace: "pre-wrap",
       lineHeight: 1.5,
@@ -278,7 +278,7 @@ export function FileViewer({ file, onClose }) {
         border: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "ui-monospace, Menlo, monospace",
+        fontFamily: "var(--mono)",
       }}>
         <div style={{
           padding: "8px 14px",
