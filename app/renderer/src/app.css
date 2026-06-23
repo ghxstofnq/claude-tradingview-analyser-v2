@@ -1,22 +1,42 @@
 :root {
   color-scheme: dark;
-  --surface-0:  #000000;
-  --surface-1:  #0a0a0a;
-  --surface-2:  #131313;
-  --border:     #1f1f1f;
-  --border-d:   #2e2e2e;
-  --label:      #6e6e6e;
-  --label-dim:  #3a3a3a;
-  --value:      #d8dee8;
-  --value-strong: #ffffff;
-  --green:      #6ec788;
-  --amber:      #ebbb3d;
-  --red:        #e0524a;
-  --blue:       #6aa3d1;
-  --prose:      #b5bdc8;
-  --chart-bg:   #04060a;
+  /* design.md token system — ClickHouse near-black canvas + electric-yellow voltage,
+     adapted to dashboard density. Variable names are kept so every panel inherits the
+     new palette without per-component edits. See docs/design.md. */
+  --surface-0:  #0a0a0a;   /* canvas — page floor */
+  --surface-1:  #121212;   /* surface-soft — topbar / bands / dividers */
+  --surface-2:  #1a1a1a;   /* surface-card — panels, popovers, cards */
+  --surface-3:  #242424;   /* surface-elevated — nested cards inside cards */
+  --border:     #2a2a2a;   /* hairline */
+  --border-d:   #3a3a3a;   /* hairline-strong */
+  --label:      #888888;   /* muted */
+  --label-dim:  #5a5a5a;   /* muted-soft */
+  --value:      #cccccc;   /* body */
+  --value-strong: #ffffff; /* ink */
+  --prose:      #e6e6e6;   /* body-strong */
+  --chart-bg:   #0a0a0a;   /* canvas */
 
+  /* brand voltage — electric yellow. Used SCARCELY (primary CTAs, key live numbers,
+     active states). Never body text or large fills (design.md do's/don'ts). */
+  --primary:          #faff69;
+  --primary-active:   #e6eb52;
+  --primary-disabled: #3a3a1f;
+  --on-primary:       #0a0a0a;
+
+  /* semantic accents (design.md) */
+  --green:      #22c55e;   /* accent-emerald — success / up */
+  --amber:      #f59e0b;   /* warning */
+  --red:        #ef4444;   /* accent-rose — error / down */
+  --blue:       #3b82f6;   /* accent-blue — info */
+
+  /* type — Inter for UI (design.md fallback stack: true Inter is an optional
+     @fontsource bundle), JetBrains Mono for code + tabular numbers */
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  /* radius (design.md) */
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-pill: 9999px;
+
   --topbar-h: 30px;
   --statusline-h: 28px;
 }
@@ -1380,25 +1400,10 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 
 /* ==== v4 designer stylesheet: workstation -> refine -> screens (2026-06-15) ==== */
+/* Theme colors now come from the single :root above (design.md tokens, 2026-06-23).
+   This block previously re-declared the old palette and overrode it — kept only for
+   its layout heights so the cascade can't reintroduce the pre-redesign colors. */
 :root {
-  color-scheme: dark;
-  --surface-0:  #000000;
-  --surface-1:  #0a0a0a;
-  --surface-2:  #131313;
-  --border:     #1f1f1f;
-  --border-d:   #2e2e2e;
-  --label:      #6e6e6e;
-  --label-dim:  #3a3a3a;
-  --value:      #d8dee8;
-  --value-strong: #ffffff;
-  --green:      #6ec788;
-  --amber:      #ebbb3d;
-  --red:        #e0524a;
-  --blue:       #6aa3d1;
-  --prose:      #b5bdc8;
-  --chart-bg:   #04060a;
-
-  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   --topbar-h: 30px;
   --statusline-h: 30px;
 }
