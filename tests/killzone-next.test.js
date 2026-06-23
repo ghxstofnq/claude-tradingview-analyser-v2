@@ -59,32 +59,33 @@ test('after NY PM start, next killzone wraps to next-day London Open', () => {
 // reason="no_fvgs_created_in_window" every time, regardless of data.
 // ─────────────────────────────────────────────────────────────────────────
 
-test('open_window bounds match NY-AM 09:30→09:45 ET during NY-AM phases', () => {
+test('open_window bounds match NY-AM 09:30→10:00 ET during NY-AM phases', () => {
   // 09:35 ET on 2026-05-20 (Wed, EDT) — phase open_reaction_ny_am.
+  // 30-min SMT pick window (OPEN_REACTION_MIN, daily-bias §4/§7).
   const s = sessionAt('2026-05-20T13:35:00Z');
   assert.equal(s.phase, 'open_reaction_ny_am');
   const expectedStart = Date.parse('2026-05-20T13:30:00Z'); // 09:30 ET
-  const expectedEnd   = Date.parse('2026-05-20T13:45:00Z'); // 09:45 ET
+  const expectedEnd   = Date.parse('2026-05-20T14:00:00Z'); // 10:00 ET
   assert.equal(s.open_window_start_ms, expectedStart);
   assert.equal(s.open_window_end_ms,   expectedEnd);
 });
 
 test('open_window bounds still anchor to today during pre_session_ny_am', () => {
   // 08:00 ET — before the open window but window bounds should already
-  // point at today's 09:30 ET so compute-leader can pre-emptively read.
+  // point at today's 09:30 ET so the leader pick can pre-emptively read.
   const s = sessionAt('2026-05-20T12:00:00Z');
   assert.equal(s.phase, 'pre_session_ny_am');
   const expectedStart = Date.parse('2026-05-20T13:30:00Z');
   assert.equal(s.open_window_start_ms, expectedStart);
-  assert.equal(s.open_window_end_ms,   expectedStart + 15 * 60 * 1000);
+  assert.equal(s.open_window_end_ms,   expectedStart + 30 * 60 * 1000);
 });
 
-test('open_window bounds shift to NY-PM 13:30→13:45 ET during NY-PM phases', () => {
+test('open_window bounds shift to NY-PM 13:30→14:00 ET during NY-PM phases', () => {
   // 13:35 ET on 2026-05-20 — phase open_reaction_ny_pm.
   const s = sessionAt('2026-05-20T17:35:00Z');
   assert.equal(s.phase, 'open_reaction_ny_pm');
   const expectedStart = Date.parse('2026-05-20T17:30:00Z'); // 13:30 ET
-  const expectedEnd   = Date.parse('2026-05-20T17:45:00Z'); // 13:45 ET
+  const expectedEnd   = Date.parse('2026-05-20T18:00:00Z'); // 14:00 ET
   assert.equal(s.open_window_start_ms, expectedStart);
   assert.equal(s.open_window_end_ms,   expectedEnd);
 });

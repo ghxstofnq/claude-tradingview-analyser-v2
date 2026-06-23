@@ -7,6 +7,7 @@ import {
   overnightVote,
   nyOpenReaction,
   combineBias,
+  smtBiasOf,
   INVERSION_DISP_MIN,
   NEAR_PRICE_PCT,
 } from '../cli/lib/pillar1-bias.js';
@@ -379,4 +380,56 @@ test('combineBias: accepts the nyOpenReaction object (tier/displaced drive the f
   });
   assert.equal(g.bias, 'bearish');     // the swing reversal flips
   assert.equal(g.reason, 'flip_swing_reversal');
+});
+
+// --- SMT / leading-asset confirm-or-flip cross-check (daily-bias §6) ---
+
+test('smtBiasOf: maps the leader bias_dir to a bias word', () => {
+  assert.equal(smtBiasOf('long'), 'bullish');
+  assert.equal(smtBiasOf('short'), 'bearish');
+  assert.equal(smtBiasOf(null), null);
+  assert.equal(smtBiasOf('flat'), null);
+});
+
+test('combineBias: no SMT divergence (smt_bias null) is a no-op — grade unchanged', () => {
+  const g = combineBias({ htf: 'bearish', overnight: 'bearish', nyopen: 'bearish', pillar2: 'good' });
+  assert.equal(g.grade_cap, 'A+');   // same as the no-smt 3/3 case above
+  assert.equal(g.smt, null);
+  assert.equal(g.smt_bias, null);
+});
+
+test('combineBias: SMT leader AGREES with a 3/3 A+ → confirms, A+ stands (§6)', () => {
+  const g = combineBias({ htf: 'bearish', overnight: 'bearish', nyopen: 'bearish', pillar2: 'good', smt_bias: 'bearish' });
+  assert.equal(g.grade_cap, 'A+');
+  assert.equal(g.a_plus_eligible, true);
+  assert.equal(g.smt, 'confirms');
+});
+
+test('combineBias: SMT leader OPPOSES a 3/3 A+ → conflict caps A+ → B (the D4 10-02 loss, §6)', () => {
+  const g = combineBias({ htf: 'bearish', overnight: 'bearish', nyopen: 'bearish', pillar2: 'good', smt_bias: 'bullish' });
+  assert.equal(g.smt, 'conflict');
+  assert.equal(g.grade_cap, 'B');         // lowered conviction, not blocked
+  assert.equal(g.a_plus_eligible, false);
+  assert.equal(g.bias, 'bearish');        // the trade bias is unchanged — SMT only warns
+});
+
+test('combineBias: SMT agreeing with a swing-reversal flip → confirms-flip (§6 high conviction)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: swing('bearish'), pillar2: 'good', smt_bias: 'bearish' });
+  assert.equal(g.bias, 'bearish');
+  assert.equal(g.smt, 'confirms-flip');
+  assert.equal(g.grade_cap, 'B');         // a flip stays B
+});
+
+test('combineBias: SMT opposing a flip → conflict flag (stays B; flip already capped)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: swing('bearish'), pillar2: 'good', smt_bias: 'bullish' });
+  assert.equal(g.bias, 'bearish');
+  assert.equal(g.smt, 'conflict');
+  assert.equal(g.grade_cap, 'B');
+});
+
+test('combineBias: SMT is inert on a no-trade day (confirms/conflicts a TRADE, not a stand-aside)', () => {
+  const g = combineBias({ htf: 'none', overnight: 'none', nyopen: 'none', smt_bias: 'bullish' });
+  assert.equal(g.grade_cap, 'no-trade');
+  assert.equal(g.smt, null);              // nothing tradable to confirm
+  assert.equal(g.smt_bias, 'bullish');    // still recorded for transparency
 });

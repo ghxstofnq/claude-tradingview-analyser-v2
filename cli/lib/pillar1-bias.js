@@ -286,6 +286,47 @@ const dirOf = (v) => {
   return d === 'bullish' || d === 'bearish' ? d : 'none';
 };
 
+/** Map the SMT leader's bias_dir (smt-leader.js) to a bias word. */
+export const smtBiasOf = (biasDir) =>
+  biasDir === 'long' ? 'bullish' : biasDir === 'short' ? 'bearish' : null;
+
+/**
+ * Apply the SMT/leading-asset cross-check to a resolved bias (daily-bias §6:
+ * "use the leader's displacement to CONFIRM or FLIP the open-reaction read").
+ * SMT is NOT a fourth vote (§1 is three components) — it confirms or warns:
+ *
+ *   - leader agrees with the bias        → annotate `confirms` (or `confirms-flip`
+ *                                           on a swing-reversal flip); no change.
+ *   - leader OPPOSES the bias            → the D4 10-02 loss (RISK ~30:39: "ES had
+ *                                           interest in drawing lower" — the NQ long
+ *                                           should have flipped). Lower conviction:
+ *                                           cap A+ → B and flag `conflict`.
+ *
+ * Conservative: never creates or blocks a trade on its own — SMT divergence is
+ * unproven on this corpus (neutral on the validated week), and no-divergence
+ * (smt_bias=null) is a no-op. Calibration-open (Discord calls): whether a clear
+ * opposing leader should hands-off entirely rather than only cap A+.
+ */
+function applySmt(result, smtBias) {
+  if (!smtBias) return { ...result, smt: null, smt_bias: null };
+  const tradable = result.grade_cap === 'A+' || result.grade_cap === 'B';
+  const bias = result.bias;
+  if (!tradable || (bias !== 'bullish' && bias !== 'bearish')) {
+    return { ...result, smt: null, smt_bias: smtBias };
+  }
+  if (smtBias === bias) {
+    const note = result.reason === 'flip_swing_reversal' ? 'confirms-flip' : 'confirms';
+    return { ...result, smt: note, smt_bias: smtBias };
+  }
+  return {
+    ...result,
+    smt: 'conflict',
+    smt_bias: smtBias,
+    a_plus_eligible: false,
+    grade_cap: result.grade_cap === 'A+' ? 'B' : result.grade_cap,
+  };
+}
+
 /**
  * Combine the three components into the draw-bias pillar grade (daily-bias §1, §4,
  * §5). NOT a naive vote count — Lanto's actual mechanism: HTF + overnight set a
@@ -309,8 +350,10 @@ const dirOf = (v) => {
  *
  * @param {object} args htf/overnight/nyopen (directions or vote objects); nyopen
  *   may carry { tier, displaced } so the swing-reversal flip can be detected.
+ *   `smt_bias` (optional, 'bullish'|'bearish'|null) is the SMT leader's direction
+ *   (smtBiasOf(leader_evidence.bias_dir), §6) — confirms or caps the resolved bias.
  */
-export function combineBias({ htf, overnight, nyopen, pillar2 = null } = {}) {
+export function combineBias({ htf, overnight, nyopen, pillar2 = null, smt_bias = null } = {}) {
   const h = dirOf(htf);
   const o = dirOf(overnight);
   const n = dirOf(nyopen);
@@ -326,7 +369,7 @@ export function combineBias({ htf, overnight, nyopen, pillar2 = null } = {}) {
   if (h !== 'none' && o !== 'none') lean = h === o ? h : null;
   else lean = h !== 'none' ? h : o !== 'none' ? o : null;
 
-  const out = (extra) => ({
+  const out = (extra) => applySmt({
     bias: null,
     votes,
     lean,
@@ -338,7 +381,7 @@ export function combineBias({ htf, overnight, nyopen, pillar2 = null } = {}) {
     b_elevatable: false,
     requires_clean_entry,
     ...extra,
-  });
+  }, smt_bias);
 
   // No open reaction yet → the bias is not confirmed (§4 needs the reaction).
   if (n === 'none') {

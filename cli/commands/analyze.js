@@ -161,7 +161,13 @@ export function computeSessionGate({ quote, replayStatus }) {
   // Outside NY phases, leaving the fields null means analyze.js skips
   // compute-leader. That matches the strategy chain's intent: leader
   // picks only happen relative to the most recent NY open-reaction.
-  const OPEN_REACTION_MIN = 15; // window length matches compute-leader's 15-min slice
+  // 30 min — the SMT leader pick (computeSmtLeader) reads cross-asset divergence
+  // off pivots created in this window; a divergence often hasn't formed by minute
+  // 15, so a 15-min cap defaulted to MNQ most days. daily-bias §4/§7: the open-
+  // reaction window is the "first 15–30 min". This matches the legacy open-reaction
+  // resolver's interaction window (openReactionWindowMs endMs = minute 30); the
+  // verdict still first resolves at minute 15 (resolveMs / phaseFor 9:45).
+  const OPEN_REACTION_MIN = 30;
   const etMidnightMs = ts - (etMinutesTotal * 60_000 + Number(parts.second || 0) * 1000);
   let openWindowStartMin = null;
   if (/_ny_am$/.test(sessionPhase) || sessionPhase === 'pre_session_ny_am') {
