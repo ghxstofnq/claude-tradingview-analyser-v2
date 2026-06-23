@@ -122,6 +122,10 @@ export function buildStrategyContext(bundle = {}) {
   pillar3.ohlcv1m = bundle.ohlcv1m ?? bundle.bars?.m1 ?? [];
   pillar3.ohlcv5m = bundle.ohlcv5m ?? bundle.bars?.m5 ?? [];
   pillar3.full1m = bundle.full1m ?? [];
+  // 5m FVG zones — the partner imbalance for the multi-alignment "two-and-one"
+  // elevator (entry-models.md: a 5m FVG rebalance lined up with a 1m iFVG in one
+  // spot). Read from the per-bar m5 overlay; absent → [] (no elevation, safe).
+  pillar3.fvgs5m = bundle.engine_by_tf?.m5?.fvgs ?? [];
 
   return {
     market: bundle.market ?? 'unknown',

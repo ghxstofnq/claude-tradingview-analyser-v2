@@ -442,6 +442,31 @@ function nearestIntradayTarget(context, side, entry, stop) {
 // grading element: the 2026-06-09 hand-graded A+ Inversion rode a medium
 // zone (GXNQ ruling 2026-06-12); the strategy grades alignment, not zone
 // size.
+// D5 multi-alignment (the "two-and-one", entry-models.md / ENTRY 25:13-27:05):
+// "two imbalances making one move — a 5m FVG rebalance paired with a 1m iFVG
+// go-invert in one spot." Detected as a DISTINCT same-direction 5m FVG
+// overlapping the walker's 1m entry zone. Elevates an otherwise-aligned 2/3
+// (b_elevatable) day to A+; never creates a trade on its own. Absent 5m data →
+// false (no elevation, the day stays B).
+function hasMultiAlignment(context, walker) {
+  const pd = walker?.evidence?.pdArray?.rawPayload
+    ?? walker?.evidence?.confirmation?.rawPayload ?? {};
+  const top = Number(pd.top ?? pd.zone_top);
+  const bottom = Number(pd.bottom ?? pd.zone_bottom);
+  if (!Number.isFinite(top) || !Number.isFinite(bottom)) return false;
+  const wantDir = walker?.side === 'long' ? ['bull', 'bullish']
+    : walker?.side === 'short' ? ['bear', 'bearish'] : [];
+  const near = (a, b) => Number.isFinite(a) && Math.abs(a - b) < 0.26;
+  return (context?.pillar3?.fvgs5m ?? []).some((z) => {
+    const zt = Number(z?.top), zb = Number(z?.bottom);
+    if (!Number.isFinite(zt) || !Number.isFinite(zb)) return false;
+    // a DISTINCT 5m zone (not the entry zone itself) that overlaps it, same dir.
+    if (near(zt, top) && near(zb, bottom)) return false;
+    const overlaps = bottom <= zt && zb <= top;
+    return overlaps && wantDir.includes(String(z?.dir ?? z?.direction ?? '').toLowerCase());
+  });
+}
+
 function deriveGrade({ context, walker }) {
   const chain = context?.sessionChain ?? {};
   const pillarsPass = context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass';
@@ -461,6 +486,9 @@ function deriveGrade({ context, walker }) {
   if (chain.drawBiasPillar != null) {
     if (!modelKnown || !sideAligned) return capGrade('B', chain.gradeCap);
     if (chain.aPlusEligible) return capGrade('A+', chain.gradeCap);
+    // D5: a 2/3 (b_elevatable) day elevates to A+ via a multi-alignment entry —
+    // the "two-and-one". This LIFTS the B cap (the elevation IS the A+ path).
+    if (chain.bElevatable && chain.gradeCap !== 'no-trade' && hasMultiAlignment(context, walker)) return 'A+';
     return capGrade('B', chain.gradeCap);
   }
 

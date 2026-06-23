@@ -55,6 +55,37 @@ test('pillars not passing → no-trade regardless of nested grade', () => {
   assert.equal(g, 'no-trade');
 });
 
+// D5 — multi-alignment ("two-and-one") elevates a 2/3 b_elevatable day to A+.
+const elevCtx = (fvgs5m) => ({
+  pillar1: { status: 'pass' },
+  pillar2: { status: 'pass' },
+  pillar3: { fvgs5m },
+  sessionChain: { ltfBias: 'bearish', gradeCap: 'B', drawBiasPillar: 'clear-2of3', aPlusEligible: false, bElevatable: true },
+});
+const elevWalker = { model: 'Inversion', side: 'short', evidence: { pdArray: { rawPayload: { top: 29795, bottom: 29790 } } } };
+
+test('D5: 2/3 + a distinct overlapping same-direction 5m FVG → elevated to A+', () => {
+  const g = deriveGrade({
+    context: elevCtx([{ dir: 'bear', top: 29796, bottom: 29788 }]), // overlaps the 1m entry zone, distinct, bearish
+    walker: elevWalker,
+  });
+  assert.equal(g, 'A+');
+});
+
+test('D5: 2/3 with NO 5m FVG partner → stays B', () => {
+  assert.equal(deriveGrade({ context: elevCtx([]), walker: elevWalker }), 'B');
+});
+
+test('D5: 2/3 with an OPPOSITE-direction 5m FVG → stays B (not a real alignment)', () => {
+  const g = deriveGrade({ context: elevCtx([{ dir: 'bull', top: 29796, bottom: 29788 }]), walker: elevWalker });
+  assert.equal(g, 'B');
+});
+
+test('D5: the entry zone itself does not self-elevate (must be a DISTINCT 5m zone)', () => {
+  const g = deriveGrade({ context: elevCtx([{ dir: 'bear', top: 29795, bottom: 29790 }]), walker: elevWalker });
+  assert.equal(g, 'B');
+});
+
 test('legacy fallback: no drawBiasPillar → old alignment+displacement path still grades A+', () => {
   const g = deriveGrade({
     context: {
