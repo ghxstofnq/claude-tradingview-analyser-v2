@@ -447,19 +447,25 @@ function deriveGrade({ context, walker }) {
   const pillarsPass = context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass';
   if (!pillarsPass) return capGrade('no-trade', chain.gradeCap);
   const modelKnown = ['mss', 'trend', 'inversion'].includes(normalizeModelName(walker?.model));
-  // A+ requires the packet to BE the aligned trade: bias present, HTF/LTF
-  // aligned, and the side in the bias direction (§2.4 / constraint #9).
+  // A+ requires the packet to BE the aligned trade: a known model in the bias
+  // direction (§2.4 / constraint #9).
   const sideAligned =
     (walker?.side === 'long' && chain.ltfBias === 'bullish') ||
     (walker?.side === 'short' && chain.ltfBias === 'bearish');
+
+  // Stage-C 3-vote NESTED grade (daily-bias §1) when the live resolver supplied
+  // it (chain.drawBiasPillar present): a_plus_eligible = 3/3 + good price → A+;
+  // 2/3 → B (D5 multi-alignment elevation is added in the next slice). The grade
+  // is the COUNT of HTF + overnight + NY-open votes, not the old alignment
+  // heuristic. Field-less old tapes/fixtures fall back to the legacy logic below.
+  if (chain.drawBiasPillar != null) {
+    if (!modelKnown || !sideAligned) return capGrade('B', chain.gradeCap);
+    if (chain.aPlusEligible) return capGrade('A+', chain.gradeCap);
+    return capGrade('B', chain.gradeCap);
+  }
+
+  // Legacy fallback (no nested grade in the inputs): alignment + displacement.
   const reactionConfirmed = Boolean(chain.ltfBias) && chain.htfLtfAlignment === 'aligned' && sideAligned;
-  // Constraint #9 + §7 Step 3: A+ needs real displacement. The engine's enum
-  // draws the line at weak (clean/acceptable keep A+; weak/na → B). FIX A
-  // (SHIPPED default-on, opt out GOFNQ_P2_DISP_HTF=0): the doc judges displacement
-  // on 4H/1H — read the session's HTF displacement (context.pillar2.htfDisplacement)
-  // instead of current_tf (1m live chart). SAFE FALLBACK: when HTF displacement is
-  // unavailable (no h4/h1 capture), fall back to current_tf so live never silently
-  // loses A+ (the runners) on a degraded capture.
   const htfDisp = context?.pillar2?.htfDisplacement;
   const dispSource = process.env.GOFNQ_P2_DISP_HTF !== '0' && htfDisp != null && htfDisp !== ''
     ? htfDisp
@@ -644,4 +650,4 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 }
 
 // Test surface for the pure target-selection helpers.
-export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget };
+export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget, deriveGrade };

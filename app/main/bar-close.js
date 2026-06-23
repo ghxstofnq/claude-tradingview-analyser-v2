@@ -1331,6 +1331,10 @@ function buildStrategyBundleForRuntime(inputs, ev, session) {
       isRetraceDay: inputs.ltf_bias_context?.is_retrace_day ?? false,
       entryModelPriority: inputs.ltf_bias_context?.entry_model_priority ?? null,
       gradeCap: inputs.ltf_bias_context?.grade_cap ?? null,
+      // Stage C nested 3-vote grade (drives deriveGrade's A+/B label).
+      drawBiasPillar: inputs.ltf_bias_context?.draw_bias_pillar ?? null,
+      bElevatable: inputs.ltf_bias_context?.b_elevatable ?? false,
+      aPlusEligible: inputs.ltf_bias_context?.a_plus_eligible ?? false,
       pillar1: inputs.session_state?.pillar1 ?? null,
       pillar2: inputs.session_state?.pillar2 ?? null,
     },

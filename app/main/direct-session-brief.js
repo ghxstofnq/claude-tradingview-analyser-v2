@@ -444,6 +444,11 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
         : `${sizing.r_size} R · direct ${pillar_grade} (strategy.sizing-table)`,
       ...(draw ? { primary_draw: draw } : {}),
       ...(htfBiasDir ? { htf_bias_dir: htfBiasDir } : {}),
+      // The two pre-open votes, separately (the brief's htf_bias_dir is their
+      // combined lean). The live open-reaction resolver adds the third vote
+      // (the NY-open reaction) and runs combineBias for the 3-vote nested grade
+      // (daily-bias §1) — see app/main/live-ltf-resolver.js.
+      pillar1_votes: { htf: p1bias.htf.vote, overnight: p1bias.overnight.vote },
       htf_destination: htfBiasDir === "bullish" ? "above nearest untaken liquidity"
         : htfBiasDir === "bearish" ? "below nearest untaken liquidity"
         : (targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity"),
