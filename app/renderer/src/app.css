@@ -3248,8 +3248,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  margin: 10px 12px;
-  padding: 16px 18px;
+  margin: 12px;
+  padding: 18px 20px;
 }
 .bt-popover .work-scroll > .panel:last-child { margin-bottom: 12px; }
 .bt-popover .body > .section { margin: 10px; }
@@ -3264,8 +3264,9 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 }
 .bt-popover .panel-head .title {
   color: var(--value-strong);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 .bt-popover .panel-head .meta { color: var(--label); font-size: 9px; letter-spacing: 0.05em; }
 
@@ -3296,7 +3297,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .row,
 .bt-popover .panel .row {
   border-bottom: 0;
-  padding: 4px 0;
+  padding: 6px 0;
   grid-template-columns: 128px 1fr;
   gap: 12px;
 }
@@ -4153,3 +4154,16 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .t-link { background: none; border: none; color: var(--label-dim); font-size: 10px;
   cursor: pointer; font-family: var(--sans); text-decoration: underline; }
 .bt-popover .t-link:hover { color: var(--red); }
+
+/* ── design.md FILLED status badges (2026-06-23) ─────────────────────────────
+   Grades + status pills render as solid filled badges (design.md badge style):
+   semantic fill + readable text, instead of thin outlines. Appended last so it
+   wins by cascade over the base outline rules (.grade-pill / .pill are 0,2,0).
+   Interactive tabs use .pill.interactive/.active (untouched). */
+.grade-pill.green, .pill.green { background: var(--green); color: var(--on-primary); border-color: var(--green); }
+.grade-pill.amber, .pill.amber { background: var(--amber); color: var(--on-primary); border-color: var(--amber); }
+.grade-pill.red,   .pill.red   { background: var(--red);   color: #ffffff;          border-color: var(--red); }
+.grade-pill.blue,  .pill.blue  { background: var(--blue);  color: #ffffff;          border-color: var(--blue); }
+.grade-pill.dim,   .pill.dim   { background: var(--surface-3); color: var(--value);  border-color: var(--border-d); }
+/* The grade badge is the card's headline status — give it a touch more weight. */
+.grade-pill { font-weight: 700; }
