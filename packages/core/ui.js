@@ -177,6 +177,31 @@ export async function layoutSwitch({ name }) {
   return { success: true, layout: result.name || name, layout_id: result.id, source: result.source, action: 'switched', unsaved_dialog_dismissed: dismissed };
 }
 
+// Persist the CURRENT chart layout to the server (study instances + their
+// sources). This is what survives a page reload — a Pine deploy applied only via
+// CDP ("Update on chart" + editor Ctrl+S) updates the running study but is NOT
+// written to the saved chart, so a reload restores the old code (the engine-
+// revert trap). saveChartToServer closes that gap; verified to persist coherence
+// across a reload (2026-06-23). Wraps window.TradingViewApi.saveChartToServer.
+export async function saveChart() {
+  const result = await evaluateAsync(`
+    new Promise(function(resolve) {
+      try {
+        var api = window.TradingViewApi;
+        if (!api || typeof api.saveChartToServer !== 'function') { resolve({success: false, error: 'saveChartToServer unavailable', source: 'internal_api'}); return; }
+        api.saveChartToServer(
+          function() { resolve({success: true, source: 'internal_api'}); },
+          function(e) { resolve({success: false, error: 'saveChartToServer failed: ' + (e && e.message ? e.message : e), source: 'internal_api'}); },
+          {}
+        );
+        setTimeout(function() { resolve({success: false, error: 'saveChartToServer timed out', source: 'internal_api'}); }, 12000);
+      } catch(e) { resolve({success: false, error: e.message, source: 'internal_api'}); }
+    })
+  `);
+  if (!result?.success) throw new Error(result?.error || 'Unknown error saving chart');
+  return { success: true, action: 'saved_to_server', source: result.source };
+}
+
 export async function keyboard({ key, modifiers }) {
   const c = await getClient();
   let mod = 0;
