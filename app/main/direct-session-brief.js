@@ -7,6 +7,7 @@ import { surfaceSessionBrief } from "./tools/surface.js";
 import { applyCodexAnalysisToBriefPayloads, runCodexStructuredAnalysis } from "./codex-structured-analysis.js";
 import { biasFromDraw } from "./backtest-context.js";
 import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
+import { pillar2Verdict } from "../../cli/lib/pillar2-verdict.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -174,20 +175,11 @@ function htfBiasRows(symbol, digestSymbol) {
 }
 
 function pillar2Status(digestSymbol) {
-  const p2 = digestSymbol?.pillar2 ?? {};
-  // §7 Step 3 grades Pillar 2 on 5m/15m candle anatomy ("not dominated by
-  // dojis/wicks"); the chart's current-TF row is a non-authoritative live gauge
-  // (2026-05-20 decision), NOT a grading input. Counting it tipped a clean MNQ
-  // session to "poor" off a stale/odd current-TF row (598pt 3h range + 12h-old
-  // leg) while 5m read normal. Use 5m/15m only; fall back to current_tf solely
-  // when both LTF rows are absent (degraded capture).
-  const ltf = [p2.m5, p2.m15].filter(Boolean);
-  const checks = ltf.length ? ltf : [p2.current_tf].filter(Boolean);
-  const bad = checks.filter((check) => /poor|chop|doji/i.test(`${check.range_quality ?? ""} ${check.displacement ?? ""} ${check.candle ?? ""}`)).length;
-  if (!checks.length) return { verdict: "poor", status: "fail" };
-  if (bad >= 2) return { verdict: "poor", status: "fail" };
-  if (bad === 1) return { verdict: "marginal", status: "weak" };
-  return { verdict: "good", status: "pass" };
+  // §7 Step 3 grades Pillar 2 on 5m/15m candle anatomy; current_tf is a fallback
+  // only (degraded capture). The verdict logic — and the master-gate stand-aside
+  // (poor) — lives in the shared pillar2Verdict helper so the gate and the brief
+  // agree. See cli/lib/pillar2-verdict.js.
+  return pillar2Verdict(digestSymbol?.pillar2 ?? {});
 }
 
 // HTF quality from the digest's real h4/h1 engine quality rows. The previous

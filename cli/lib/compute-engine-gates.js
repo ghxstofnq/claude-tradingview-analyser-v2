@@ -10,6 +10,8 @@
  * independent); this module only covers the indicator-derived pillars.
  */
 
+import { pillar2Verdict } from './pillar2-verdict.js';
+
 /** "AS.H" -> "AS_H": dots are illegal in citation paths. */
 function levelKey(name) {
   return typeof name === 'string' ? name.replace(/\./g, '_') : name;
@@ -141,10 +143,16 @@ export function computeEngineGates({
         .sort((a, b) => b.price - a.price);
 
   // -- Pillar 2: price-action quality, sourced from the engine quality row --
+  // verdict is the master gate (good|marginal|poor) — see pillar2-verdict.js.
   const pillar2 = {
     current_tf: engine.quality,
     m5: engineByTf?.m5?.quality ?? null,
     m15: engineByTf?.m15?.quality ?? null,
+    ...pillar2Verdict({
+      current_tf: engine.quality,
+      m5: engineByTf?.m5?.quality ?? null,
+      m15: engineByTf?.m15?.quality ?? null,
+    }),
   };
 
   // -- Pillar 3: FVGs, BPRs, swings, structure events --
