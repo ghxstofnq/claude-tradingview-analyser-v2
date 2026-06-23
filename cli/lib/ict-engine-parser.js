@@ -59,7 +59,7 @@ const ROW_FIELD_TYPES = {
   liquidity: { price: 'num', swept: 'bool' },
   // V2 dropped has_chop, added session (str default). atr_14/17 stay num.
   // V3 adds the current leg's running extremes (stop-anchor evidence).
-  quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num', leg_high: 'num', leg_low: 'num', leg_high_ms: 'num', leg_low_ms: 'num', range_vs_normal: 'num', overnight_net: 'num', or_high: 'num', or_low: 'num' },
+  quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num', leg_high: 'num', leg_low: 'num', leg_high_ms: 'num', leg_low_ms: 'num', range_vs_normal: 'num', coherence: 'num', overnight_net: 'num', or_high: 'num', or_low: 'num' },
 };
 
 /** Coerce one payload value. 'num' → finite Number or null; 'bool' → v==='1'. */

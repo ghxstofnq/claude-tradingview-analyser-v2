@@ -2,30 +2,42 @@
  * pillar2-verdict.js — Pillar 2 price-action quality verdict (good|marginal|poor).
  *
  * "You can never outrade bad price." (PRICE 27:25) Pillar 2 is the MASTER GATE:
- * a `poor` verdict stands the session aside regardless of bias (it gates Pillars
- * 1 & 3 — bad price into confirmation makes the entry model and the draw
- * unreliable too). docs/strategy/price-action.md.
+ * a `poor` verdict stands the session aside regardless of bias. docs/strategy/price-action.md.
  *
- * Rebuilt 2026-06-23 (Stage B). The old verdict regex-matched /poor|chop|doji/
- * against the quality row, but the schema-4 engine enums never contain those
- * words for the two stand-aside cases — range_quality:"tight" (the verbatim
- * "28pt/3h = stand aside" test, PRICE 30:12) and displacement:"weak" (the
- * two-sided no-displacement chop, oracle 06-17) — so both were silently ignored
- * and the hard stand-aside never fired. This reads the enums directly.
+ * PRIMARY signal = directional COHERENCE (engine field `coherence`, an efficiency
+ * ratio = net move / gross path travelled). Added 2026-06-23 after calibration
+ * showed the engine's clean-bar `displacement` count gets price quality BACKWARDS:
+ * a two-sided whipsaw (oracle 06-17 — sold, ~85% bounce, sold) prints clean-bodied
+ * bars in BOTH directions, so `displacement` reads "clean" and the day looks good,
+ * when it is exactly the stand-aside chop. Coherence captures follow-through: low =
+ * round-trip/whipsaw (poor), high = clean directional delivery (good). It is
+ * TF-dependent in magnitude (finer TF = more path wiggle = lower ratio), so it is
+ * read off the 15m row — follow-through is a higher-TF judgment anyway.
+ *
+ * Verified on the oracle (2026-06-23, 15m trailing median): 06-16 good ~0.81,
+ * 06-18 marginal ~0.39, 06-17 poor ~0.23.
  *
  * Engine quality-row enums (cli/lib/ict-engine-parser.js, pine/ict-engine.pine):
  *   range_quality: na | good | tight
- *   displacement : na | clean | acceptable | weak
+ *   displacement : na | clean | acceptable | weak     (bar decisiveness — fallback only)
  *   candle       : engulfing | normal | doji_wick
- *   regime       : displacement | consolidation   (engine's own combined read:
- *                  displacement iff clean/acceptable disp AND good range)
+ *   regime       : displacement | consolidation
+ *   coherence    : 0..1 efficiency ratio (na until the window fills)
  */
 
 const STATUS = { good: 'pass', marginal: 'weak', poor: 'fail' };
 
+// Directional-coherence bands, read off the 15m row (see header). Calibration
+// knobs — tuned against the oracle, revisit as the golden set grows.
+const COH_GOOD = 0.55; // >= -> clean follow-through
+const COH_POOR = 0.30; // <= -> two-sided / whipsaw (stand aside)
+
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
 /**
- * One schema-4 quality row → 'good' | 'marginal' | 'poor' | null.
- * null = not enough bars yet (na/na) — defer to bias / LLM judgment.
+ * Fallback per-row read (used only when no coherence field is present — older
+ * captures / pre-coherence test fixtures). One schema-4 quality row →
+ * 'good' | 'marginal' | 'poor' | null. null = not enough bars (na/na).
  */
 export function rowVerdict(q) {
   if (!q) return null;
@@ -35,52 +47,49 @@ export function rowVerdict(q) {
   if ((range === 'na' || range == null) && (disp === 'na' || disp == null)) return null;
 
   // Hard stand-aside (master gate) — "good price displaces, bad price
-  // consolidates" (price-action.md). Any one of these is decisive:
-  //  - a tight 3h range (the verbatim "28pt/3h = stand aside" test, PRICE 30:12)
-  //  - no displacement at all (displacement weak)
-  //  - two-sided doji delivery without decisive displacement (oracle 06-17)
+  // consolidates". Any one of these is decisive: a tight 3h range (the verbatim
+  // "28pt/3h = stand aside" test, PRICE 30:12), no displacement at all, or
+  // two-sided doji delivery without decisive displacement.
   if (range === 'tight') return 'poor';
   if (disp === 'weak') return 'poor';
   if (candle === 'doji_wick' && disp !== 'clean') return 'poor';
 
-  // Clean displacing price: decisive displacement on a healthy range, delivery
-  // not doji. Trust an explicit regime when the engine ships one; otherwise
-  // derive it from the primitives (regime := clean/acceptable disp AND good range).
   const displacing = q.regime === 'displacement'
     || (q.regime == null && (disp === 'clean' || disp === 'acceptable') && range === 'good');
   if (displacing && candle !== 'doji_wick') return 'good';
 
-  // Between — e.g. acceptable displacement on a non-good (but not tight) range,
-  // or clean displacement undercut by a doji candle.
   return 'marginal';
 }
 
 /**
- * Session verdict from the authoritative 5m/15m rows (§7 Step 3 grades quality
- * on 5m/15m candle anatomy). Falls back to the current-TF row only when both LTF
- * rows are absent (degraded / pillar3-only capture). `poor` on ANY graded LTF
- * row stands the session aside — bad price on the entry TF is decisive — so a
- * single tight-range or chop read vetoes. No quality data → conservative `poor`.
+ * Session verdict. A tight 3h range vetoes on its own (dead environment). The
+ * primary read is the 15m directional coherence; when it is absent (older
+ * capture / fixture) fall back to the per-row displacement/candle aggregation.
  *
  * @param {{m5?:object, m15?:object, current_tf?:object}} pillar2
  * @returns {{verdict:'good'|'marginal'|'poor', status:'pass'|'weak'|'fail'}}
  */
 export function pillar2Verdict({ m5, m15, current_tf } = {}) {
-  const graded = (r) => rowVerdict(r) != null;
-  const ltf = [m5, m15].filter(graded);
-  const rows = ltf.length ? ltf : [current_tf].filter(graded);
+  const ltf = [m5, m15].filter(Boolean);
+  const rows = ltf.length ? ltf : [current_tf].filter(Boolean);
   if (!rows.length) return { verdict: 'poor', status: 'fail' };
 
-  // A tight 3h range is a macro stand-aside — it vetoes on its own even if one
-  // TF still prints a clean bar (the verbatim "28pt/3h = stand aside" test,
-  // PRICE 30:12; the whole environment is a micro-chop band).
-  if (rows.some((r) => r.range_quality === 'tight')) return { verdict: 'poor', status: STATUS.poor };
+  // A tight 3h range is a macro stand-aside — vetoes even if a TF still shows a
+  // clean bar (the whole environment is a micro-chop band; 28pt/3h, PRICE 30:12).
+  if (rows.some((r) => r?.range_quality === 'tight')) return { verdict: 'poor', status: STATUS.poor };
 
-  // Otherwise bad price needs the dominant LTF delivery to be bad. ALL graded
-  // rows poor → stand aside (oracle 06-17 — two-sided, no clean fast entry). A
-  // mix, where one TF still displaces cleanly, is marginal not a veto (oracle
-  // 06-18 — "some displacement but sloppy" = a tradeable B, downsized).
-  const verdicts = rows.map(rowVerdict);
+  // PRIMARY: directional coherence off the 15m row — the follow-through tell the
+  // clean-bar displacement count gets backwards (oracle 06-17 whipsaw).
+  const coh = num(m15?.coherence);
+  if (coh != null) {
+    const verdict = coh <= COH_POOR ? 'poor' : coh >= COH_GOOD ? 'good' : 'marginal';
+    return { verdict, status: STATUS[verdict] };
+  }
+
+  // FALLBACK (no 15m coherence): per-row displacement/candle. All graded rows
+  // poor → stand aside (06-17); all clean → good; a mix → marginal (06-18).
+  const verdicts = rows.map(rowVerdict).filter((v) => v != null);
+  if (!verdicts.length) return { verdict: 'poor', status: 'fail' };
   const verdict = verdicts.every((v) => v === 'poor') ? 'poor'
     : verdicts.every((v) => v === 'good') ? 'good'
       : 'marginal';

@@ -81,6 +81,7 @@ QUALITY_CLEAN_BODY  = 0.5      // body/range >= 0.5 = clean bar
 QUALITY_CANDLE_BARS = 3        // window for doji/wick detection
 QUALITY_DOJI_BODY   = 0.25     // body/range < 25% AND...
 QUALITY_DOJI_WICK   = 0.60     // ...max wick/range > 60% -> doji_wick
+QUALITY_COH_HOURS   = 1.5      // directional-coherence (efficiency-ratio) window
 
 // Entry-model evidence tuning. The strategy waits for a 1m/5m candle-close
 // confirmation after a PD-array tap/retest, and blocks if price chops inside
@@ -884,6 +885,19 @@ qRegime = (qDisplacement == "clean" or qDisplacement == "acceptable") and qRange
 // against the instrument's own recent normal, not fixed points (PRICE 12:26).
 qRangeVsNormal = atr14 > 0 ? qRange3h / atr14 : na
 
+// Directional coherence — efficiency ratio (net move / gross path travelled)
+// over a trailing window. Low = two-sided / round-trip whipsaw (stand aside,
+// oracle 06-17); high = clean follow-through (good price). This is the tell the
+// clean-bar displacement count gets BACKWARDS: two-sided whipsaw prints clean-
+// bodied bars in BOTH directions (high displacement) yet nets nowhere (low
+// coherence). Unlike the dropped has_chop boolean, this ships RAW — the
+// good/poor bands live in the backend verdict (cli/lib/pillar2-verdict.js), and
+// it's TF-dependent in magnitude (finer TF = more path wiggle), so the verdict
+// reads it off the 15m row. emitted; never gates inside Pine.
+qCohBars = math.max(3, int(QUALITY_COH_HOURS * 3600 / timeframe.in_seconds()))
+qGross = math.sum(math.abs(close - close[1]), qCohBars)
+qCoherence = bar_index < qCohBars or qGross <= 0 ? na : math.abs(close - close[qCohBars]) / qGross
+
 // ── Emitters ─────────────────────────────────────────────────────────
 // Emit one `level` record and, when it has been swept, the matching `sweep`
 // record. Skips a level whose price is na. Returns the next free row.
@@ -1033,6 +1047,7 @@ emitQuality(int row) =>
               "|candle=" + qCandle +
               "|regime=" + qRegime +
               "|range_vs_normal=" + str.tostring(qRangeVsNormal, "#.##") +
+              "|coherence=" + str.tostring(qCoherence, "#.##") +
               "|atr_14=" + str.tostring(atr14, format.mintick) +
               "|atr_17=" + str.tostring(atr17, format.mintick) +
               "|session=" + currentSession +

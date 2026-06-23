@@ -72,3 +72,33 @@ test('no quality data at all → conservative poor', () => {
   assert.deepEqual(pillar2Verdict({}), { verdict: 'poor', status: 'fail' });
   assert.deepEqual(pillar2Verdict({ m5: na, m15: na, current_tf: na }), { verdict: 'poor', status: 'fail' });
 });
+
+// ── coherence gate (primary directional signal, off the 15m row) ────────
+test('06-16 fix: high 15m coherence → good even when the 15m bars look doji', () => {
+  // Clean breakdown with wicky trend bars: displacement reads weak/doji, but
+  // follow-through (coherence 0.81) makes it good.
+  const m15 = { range_quality: 'good', displacement: 'weak', candle: 'doji_wick', regime: 'consolidation', coherence: 0.81 };
+  assert.deepEqual(pillar2Verdict({ m5: clean, m15 }), { verdict: 'good', status: 'pass' });
+});
+
+test('06-17 fix: low 15m coherence → poor even when displacement reads clean', () => {
+  // The whipsaw case: clean-bodied bars in both directions (displacement clean)
+  // but nets nowhere (coherence 0.23) → stand aside.
+  const m15 = { range_quality: 'good', displacement: 'clean', candle: 'normal', regime: 'displacement', coherence: 0.23 };
+  assert.deepEqual(pillar2Verdict({ m5: clean, m15 }), { verdict: 'poor', status: 'fail' });
+});
+
+test('06-18: mid 15m coherence → marginal', () => {
+  const m15 = { range_quality: 'good', displacement: 'clean', candle: 'doji_wick', regime: 'displacement', coherence: 0.39 };
+  assert.deepEqual(pillar2Verdict({ m5: clean, m15 }), { verdict: 'marginal', status: 'weak' });
+});
+
+test('tight 3h range still vetoes over high coherence', () => {
+  const m5t = { ...tight, coherence: 0.9 };
+  assert.deepEqual(pillar2Verdict({ m5: m5t, m15: { ...clean, coherence: 0.9 } }), { verdict: 'poor', status: 'fail' });
+});
+
+test('no 15m coherence field → falls back to displacement/candle aggregation', () => {
+  assert.deepEqual(pillar2Verdict({ m5: clean, m15: clean }), { verdict: 'good', status: 'pass' });
+  assert.deepEqual(pillar2Verdict({ m5: choppy, m15: choppy }), { verdict: 'poor', status: 'fail' });
+});
