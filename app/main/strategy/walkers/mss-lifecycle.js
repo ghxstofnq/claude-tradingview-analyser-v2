@@ -31,6 +31,35 @@ function hasCleanDisplacement(context) {
   return displacement === 'clean' || displacement === 'acceptable';
 }
 
+// EM MSS §2 (significant grab): "Asia low, London low, prior-day low, or a very
+// clear intraday swing low… never an MSS off a 1m equal-low" (BIAS 29:43-31:34).
+// Named session / PD draws are significant by definition — the levels Lanto
+// names. A sweep of an unnamed internal/equal level is not.
+const SIGNIFICANT_SWEEP_TARGETS = new Set([
+  'AS.H', 'AS.L', 'LO.H', 'LO.L', 'PDH', 'PDL', 'PWH', 'PWL', 'NYAM.H', 'NYAM.L', 'NYPM.H', 'NYPM.L',
+]);
+
+// Filter-only-when-present: real V3/V4 sweeps always stamp `target`; field-less
+// hand-built fixtures keep the legacy (ungated) behavior.
+function isSignificantSweepTarget(sweep) {
+  const target = sweep?.target;
+  if (target == null || target === '') return true;
+  return SIGNIFICANT_SWEEP_TARGETS.has(String(target));
+}
+
+// EM MSS §3 (displaced reversal at matching speed): the shift must break the
+// recent lower high WITH displacement — "displace at the same speed it came
+// down, if not more" (ENTRY 08:26; BIAS 28:47). The engine's structure
+// `displacement` flag marks a large-bodied breaking candle (pine: "displacement
+// marks a large-bodied breaking candle") = that speed; and the shift must be
+// swing-tier — a real structural turn, not an internal poke (the analog of the
+// rejected "1m equal-low" grab). Both gated only when the engine stamped them.
+function isSignificantDisplacedShift(fs) {
+  if (fs?.tier != null && fs.tier !== 'swing') return false;
+  if (fs?.displacement != null && !isTruthyFlag(fs.displacement)) return false;
+  return true;
+}
+
 // The MOST RECENT rejected sweep of opposing liquidity anchors the model —
 // the shift must follow the latest grab, not any grab on record (June 10
 // 10:06: NYPM.H from the prior afternoon + an overnight bear MSS would have
@@ -38,7 +67,7 @@ function hasCleanDisplacement(context) {
 function findRejectedSweep(context, side) {
   const wanted = directionForSide(side);
   return (context?.pillar3?.sweeps ?? context?.pillar1?.sweeps ?? [])
-    .filter((sweep) => sweep?.side === wanted.sweepSide && sweep?.rejected === true)
+    .filter((sweep) => sweep?.side === wanted.sweepSide && sweep?.rejected === true && isSignificantSweepTarget(sweep))
     .sort((a, b) => (Number(b?.swept_ms) || 0) - (Number(a?.swept_ms) || 0))[0] ?? null;
 }
 
@@ -55,6 +84,7 @@ function findMssDisplacement(context, side, sweep) {
     if (!wanted.swing.includes(failureSwing?.dir ?? failureSwing?.direction)) return false;
     if (failureSwing?.event != null && failureSwing.event !== 'mss') return false;
     if (failureSwing?.validation != null && failureSwing.validation !== 'sweep') return false;
+    if (!isSignificantDisplacedShift(failureSwing)) return false;
     const shiftMs = Number(failureSwing?.confirmed_ms ?? failureSwing?.created_ms);
     return Number.isFinite(shiftMs) && shiftMs > sweptMs;
   });
@@ -71,6 +101,7 @@ function findSwingGrab(context, side) {
     if (!wanted.swing.includes(fs?.dir ?? fs?.direction)) return false;
     if (fs?.event != null && fs.event !== 'mss') return false;
     if (fs?.validation != null && fs.validation !== 'sweep') return false;
+    if (!isSignificantDisplacedShift(fs)) return false;
     const brokenMs = Number(fs?.broken_swing_ms);
     const shiftMs = Number(fs?.confirmed_ms ?? fs?.created_ms);
     return Number.isFinite(brokenMs) && Number.isFinite(shiftMs) && shiftMs > brokenMs;
