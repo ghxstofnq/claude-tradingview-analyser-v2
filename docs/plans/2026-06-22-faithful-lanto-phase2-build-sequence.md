@@ -76,9 +76,23 @@ The oracle + a final 5-transcript audit corrected several things this plan preda
 - *Verify:* the bundle carries every spec field for **both** symbols across
   D/4H/1H/30m/15m/5m/1m on ETH; parser reads it clean.
 
-### Stage B — Price quality (Pillar 2)  [Part 2]
-- Consume engine regime + range-vs-normal + displacement/candle → **good / marginal / bad**.
-- *Verify:* pillar-2 verdict matches the hand-grade quality calls on the golden sessions.
+### Stage B — Price quality (Pillar 2)  [Part 2]  ✅ DONE + VALIDATED (2026-06-23)
+- Verdict in `cli/lib/pillar2-verdict.js` → **good / marginal / poor** (codebase enum is `poor`, not
+  `bad`), single-sourced for `gates.engine.pillar2` + the brief.
+- **PRIMARY signal = directional COHERENCE** (new engine field, efficiency ratio = net move / gross
+  path over a 1.5h window; read off the 15m row). Calibration found the engine's clean-bar
+  `displacement` count read price quality BACKWARDS (two-sided whipsaw scores as "clean"); coherence
+  fixes it. Engine deployed (schema 4, additive); persists via `tv layout save` (saveChartToServer).
+- *Validated* on 10 sessions (7 oracle + 3 user-confirmed June chop days, 2026-06-23): coherence
+  correctly separates good price (06-16 0.82, 06-09 0.80) from chop (06-17 0.19, 06-12 0.17, 06-02 0.25,
+  06-04 0.22); **NO tradeable A+/B day ever false-reads poor**.
+- **DECISION (locked) — `poor` is a DOWNGRADE/CAP, not a hard veto.** Validation showed poor-coherence
+  (choppy price) is COMMON, and a choppy session is still tradeable when a clean entry exists (06-18 =
+  poor price + clean entry → downsized B) vs no-trade when none does (06-17/06-12/06-02/06-04 = poor +
+  no clean entry). Per "stand aside **OR** heavily downsize" (price-action.md). → **Stage C/D must NOT
+  let `pillar2_verdict==='poor'` hard-block; it caps the grade and demands a clean Pillar-3 entry.** The
+  trade-vs-no-trade split lives in **Pillar 3 (clean entry?)**, not Pillar 2. (Resolves the 06-18
+  question.)
 
 ### Stage C — Bias + grade (Pillar 1)  [Component 4, Part 1]
 - **C1** primary-draw = near-price + displacive + took-liq.
