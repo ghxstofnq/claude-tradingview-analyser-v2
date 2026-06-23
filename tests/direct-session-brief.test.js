@@ -415,7 +415,7 @@ test("primary_draw carries reaction + position evidence for bias derivation", ()
     took_liq: true, state: "fresh", reacted: true, reaction_dir: "bear",
     cite: "engine_by_tf.h4.fvgs[17]",
   };
-  b.quote = { last: 29800 };
+  b.quote = { last: 29950 }; // zone ce ~30002 is then ~0.17% away = near (0.3% gate)
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   const draw = payloads[0].primary_draw;
   assert.equal(draw.reacted, true);
@@ -425,7 +425,7 @@ test("primary_draw carries reaction + position evidence for bias derivation", ()
 
 test("primary_draw position derives from the paired symbol quote when present", () => {
   const b = bundle();
-  b.pair = { symbols: { "MNQ1!": { quote: { last: 30100 } } } };
+  b.pair = { symbols: { "MNQ1!": { quote: { last: 30050 } } } };
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(payloads[0].primary_draw.position, "below_price"); // ce 29975 < last 30100
 });
@@ -463,32 +463,29 @@ test("overnight_verdict computes extending/retracing/consolidating from sweeps",
   assert.equal(p[0].overnight_block.overnight_verdict, "consolidating");
 });
 
-// Doc correction (user Q2): §2.1 step 3 — bias comes from REACTIONS.
-// The payload carries htf_bias derived as: zone's own reaction → latest
-// REJECTED HTF-level sweep → magnet/destination (§2.3) → zone dir.
-// June 9: the pre-open sharp rejection at PDH (engine: swept 09:05,
-// rejected) set the bearish day despite the unreacted bear zone overhead.
-test("payload htf_bias: a rejected high-sweep sets bearish despite an unreacted zone above", () => {
+// Stage C (2026-06-23): htf_bias_dir now comes from the ARRAY-STATE vote (the
+// reaction off the significant near-price PD array — fresh bear = supply,
+// inverted = flipped), NOT the old rejected-sweep / §2.1-supply heuristics. A
+// fresh near-price bear FVG votes bearish on its own; the sweep no longer sets
+// direction. (Open calibration: the near-price gate is 0.3%; a 4H supply zone
+// ~0.5-0.7% above — the June-5 case — is now too far to be the pre-open draw.
+// Revisit the HTF near-threshold against the Discord calls.)
+test("payload htf_bias: a fresh near-price bear FVG votes bearish (array-state vote)", () => {
   const b = bundle();
   const ds = b.brief_digest.symbols["MNQ1!"];
   ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91, took_liq: true, state: "fresh", reacted: false, cite: "engine_by_tf.h4.fvgs[17]" }];
   ds.pillar1.sweeps = [{ target: "PDH", price: 29850, side: "buy", swept_ms: 100, rejected: true }];
-  b.quote = { last: 29800 };
+  b.quote = { last: 29950 }; // zone ce ~30002 is then ~0.17% away = near (0.3% gate)
   const p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(p[0].htf_bias_dir, "bearish");
 });
 
-test("payload htf_bias: a fresh took-liq bear zone above price is SUPPLY → bearish (§2.1 supply rejection; corrected 2026-06-13)", () => {
-  // Previously this read bullish ("unreacted zone above is a bullish magnet").
-  // §2.1 corrects it: a fresh, liquidity-taking 4H bear FVG above price is
-  // supply — price rallies INTO it and rejects sharply → bearish toward the
-  // sell-side below. This is the June 5 case (the day fell -381 under exactly
-  // this overhead zone). Refold-verified frozen-safe (June 10 trades identical).
+test("payload htf_bias: a fresh took-liq bear zone (supply) near price votes bearish", () => {
   const b = bundle();
   const ds = b.brief_digest.symbols["MNQ1!"];
   ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91, took_liq: true, state: "fresh", reacted: false, cite: "engine_by_tf.h4.fvgs[17]" }];
   ds.pillar1.sweeps = [];
-  b.quote = { last: 29800 };
+  b.quote = { last: 29950 }; // zone ce ~30002 is then ~0.17% away = near (0.3% gate)
   const p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(p[0].htf_bias_dir, "bearish");
 });

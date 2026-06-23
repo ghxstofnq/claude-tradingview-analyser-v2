@@ -11,6 +11,7 @@
  */
 
 import { pillar2Verdict } from './pillar2-verdict.js';
+import { htfVote, overnightVote } from './pillar1-bias.js';
 
 /** "AS.H" -> "AS_H": dots are illegal in citation paths. */
 function levelKey(name) {
@@ -142,6 +143,20 @@ export function computeEngineGates({
         .filter((p) => p.kind === 'eql' && p.swept === false && p.price < px)
         .sort((a, b) => b.price - a.price);
 
+  // Pillar 1 bias (Stage C) — the engine-pure components of the pre-open lean:
+  // the HTF array vote (reaction off the significant near-price PD array) + the
+  // overnight vote. The NY-open reaction and the confirm/reverse/flip combine
+  // need the session clock, so the live consumer (brief / live chain) adds them;
+  // here we expose the lean inputs every bundle can read. See cli/lib/pillar1-bias.js.
+  const htfByTf = {
+    daily: { top_fvgs: engineByTf?.daily?.fvgs ?? [], top_bprs: engineByTf?.daily?.bprs ?? [] },
+    h4: { top_fvgs: engineByTf?.h4?.fvgs ?? [], top_bprs: engineByTf?.h4?.bprs ?? [] },
+    h1: { top_fvgs: engineByTf?.h1?.fvgs ?? [], top_bprs: engineByTf?.h1?.bprs ?? [] },
+  };
+  const htf_vote = htfVote(htfByTf, { price: px });
+  const overnight_vote = overnightVote(engine.quality);
+  const bias = { htf: htf_vote, overnight: overnight_vote, draw: htf_vote.draw };
+
   // -- Pillar 2: price-action quality, sourced from the engine quality row --
   // verdict is the master gate (good|marginal|poor) — see pillar2-verdict.js.
   const pillar2 = {
@@ -255,6 +270,7 @@ export function computeEngineGates({
       liquidity_pools: pools,
       untaken_pools_above,
       untaken_pools_below,
+      bias,
     },
     pillar2,
     pillar3: {

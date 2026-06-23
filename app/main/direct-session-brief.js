@@ -8,6 +8,7 @@ import { applyCodexAnalysisToBriefPayloads, runCodexStructuredAnalysis } from ".
 import { biasFromDraw } from "./backtest-context.js";
 import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
 import { pillar2Verdict } from "../../cli/lib/pillar2-verdict.js";
+import { htfVote, overnightVote, combineBias } from "../../cli/lib/pillar1-bias.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -253,41 +254,6 @@ function pillar2Elements(symbol, digestSymbol) {
   ];
 }
 
-function pickPrimaryDraw(digestSymbol, { price = null } = {}) {
-  // §2.1: "Primary charts: Daily and 4H (sometimes 1H)" + "prefers 4H PD
-  // arrays when possible" — so 4H first, then DAILY, then 1H. (The previous
-  // h4→h1→daily order put 1H above Daily, backwards from the doc.)
-  for (const tf of ["h4", "daily", "h1"]) {
-    const block = digestSymbol?.htf?.[tf] ?? {};
-    const candidates = [...(block.top_fvgs ?? []), ...(block.top_bprs ?? [])];
-    const found = candidates.find((row) => Number.isFinite(row?.top) && Number.isFinite(row?.bottom) && row?.cite);
-    if (found) {
-      const kind = /bprs/.test(found.cite) ? "bpr" : "fvg";
-      const dir = /bear/i.test(found.direction ?? found.dir ?? "") ? "bear" : "bull";
-      const ce = Number.isFinite(found.ce) ? found.ce : (found.top + found.bottom) / 2;
-      return {
-        tf,
-        kind,
-        dir,
-        top: found.top,
-        bottom: found.bottom,
-        ce,
-        disp_score: Number.isFinite(found.disp_score) ? found.disp_score : 0,
-        took_liq: !!found.took_liq,
-        state: found.state || "fresh",
-        // Reaction + position evidence for downstream bias derivation
-        // (strategy §2.1 step 3: reactions off the PD array set bias;
-        // §2.3: an unreacted zone is a destination — path toward it).
-        reacted: !!found.reacted,
-        ...(found.reaction_dir ? { reaction_dir: found.reaction_dir } : {}),
-        ...(Number.isFinite(price) ? { position: ce > price ? "above_price" : "below_price" } : {}),
-        cite: found.cite,
-      };
-    }
-  }
-  return null;
-}
-
 // §7 Step 2 / §2.2: decide whether overnight is extending the HTF move or
 // consolidating — computed from sweep evidence, never hardcoded. The most
 // recent sweep's resulting direction (a rejection flips the break, mirroring
@@ -365,6 +331,27 @@ function symbolQuote(bundle, symbol) {
   return Number.isFinite(single) ? single : null;
 }
 
+// Stage C Pillar-1 bias for the brief. Prefer the gate's forwarded
+// `pillar1.bias` (htf + overnight votes + draw — single-sourced in
+// cli/lib/pillar1-bias.js via compute-engine-gates); fall back to computing it
+// from the digest's HTF arrays + overnight quality when the gate didn't forward
+// it (older bundles / test fixtures). The brief is PRE-OPEN, so the NY-open
+// reaction is pending (nyopen='none') — combineBias yields the pre-open LEAN
+// (HTF + overnight); the confirm/reverse/flip grade resolves live.
+function pillar1BiasFor(digestSymbol, price) {
+  const forwarded = digestSymbol?.pillar1?.bias;
+  if (forwarded?.htf) return forwarded;
+  const htfByTf = {
+    daily: { top_fvgs: digestSymbol?.htf?.daily?.top_fvgs ?? [], top_bprs: digestSymbol?.htf?.daily?.top_bprs ?? [] },
+    h4: { top_fvgs: digestSymbol?.htf?.h4?.top_fvgs ?? [], top_bprs: digestSymbol?.htf?.h4?.top_bprs ?? [] },
+    h1: { top_fvgs: digestSymbol?.htf?.h1?.top_fvgs ?? [], top_bprs: digestSymbol?.htf?.h1?.top_bprs ?? [] },
+  };
+  const htf = htfVote(htfByTf, { price });
+  const ovQuality = digestSymbol?.htf?.h1?.quality ?? digestSymbol?.htf?.h4?.quality
+    ?? digestSymbol?.pillar2?.m15 ?? digestSymbol?.pillar2?.current_tf ?? null;
+  return { htf, overnight: overnightVote(ovQuality), draw: htf.draw };
+}
+
 export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade = {}, symbols = [PAIR_PRIMARY, PAIR_SECONDARY] } = {}) {
   const digest = bundle?.brief_digest;
   if (!digest?.symbols) throw new Error("direct session brief requires bundle.brief_digest.symbols");
@@ -373,8 +360,16 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     const levels = levelRows(symbol, ds);
     const htf = htfBiasRows(symbol, ds);
     const p2 = pillar2Status(ds);
-    const draw = pickPrimaryDraw(ds, { price: symbolQuote(bundle, symbol) });
-    const drawStatus = draw ? "pass" : "weak";
+    const price = symbolQuote(bundle, symbol);
+    // Stage C: HTF array vote + overnight vote → the pre-open LEAN (the NY-open
+    // reaction is pending pre-session and resolves live). Replaces the old
+    // momentum/structure derivation (deriveHtfBiasDir/htfTrendDir).
+    const p1bias = pillar1BiasFor(ds, price);
+    const lean = combineBias({ htf: p1bias.htf, overnight: p1bias.overnight, nyopen: "none", pillar2: p2.verdict });
+    const draw = p1bias.draw;
+    // Draw & Bias passes when there is ANY lean (HTF array OR overnight) — a
+    // no-HTF day is still tradeable 2/3 on overnight + open-reaction (BIAS 21:29).
+    const drawStatus = lean.lean ? "pass" : "weak";
     // Capture provenance (brief_digest data_status, 2026-06-11): a missing HTF
     // capture is an instrument failure (data_gap), not a market verdict
     // (htf_unclear). 8 of 13 June briefs died as htf_unclear when the H4/H1
@@ -388,7 +383,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     let no_trade_reason;
     if (!draw && missingTfs.length) { pillar_grade = "no-trade"; no_trade_reason = "data_gap"; }
     else if (p2.status === "fail") { pillar_grade = "no-trade"; no_trade_reason = "pillar2_poor"; }
-    else if (!draw) { pillar_grade = "no-trade"; no_trade_reason = "htf_unclear"; }
+    else if (!lean.lean) { pillar_grade = "no-trade"; no_trade_reason = "htf_unclear"; }
     const targetLevel = levels.find((l) => l.state === "untaken") ?? levels[0] ?? { name: "reference", price: 0 };
     const stopLevel = [...levels].reverse().find((l) => l.price !== targetLevel.price) ?? targetLevel;
     const sizing = sizingByGrade[pillar_grade] ?? sizingByGrade.B ?? { r_size: pillar_grade === "no-trade" ? 0 : 1, override_reason: null };
@@ -397,7 +392,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     // a "draw" that contradicted the traded bias (bull bias shown as a bear
     // draw) and fed setup-detector.resolveSidesToEvaluate the wrong side on a
     // manual /analyze. Display + manual-side now follow one HTF read.
-    const htfBiasDir = draw ? deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) : null;
+    const htfBiasDir = lean.lean ?? null;
     // HTF structure direction for the GOFNQ_HTF4H_ALIGN grading rule (h4 default,
     // h1 via GOFNQ_HTF_ALIGN_TF=h1). TRUE structure only: most recent CLEAN break
     // (validation=break — cleared the level by ≥1 ATR band) WITH displacement —
@@ -447,7 +442,8 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       sizing_note: sizing.override_reason
         ? `${sizing.r_size} R · override: ${sizing.override_reason} (strategy.sizing-table)`
         : `${sizing.r_size} R · direct ${pillar_grade} (strategy.sizing-table)`,
-      ...(draw ? { primary_draw: draw, htf_bias_dir: htfBiasDir } : {}),
+      ...(draw ? { primary_draw: draw } : {}),
+      ...(htfBiasDir ? { htf_bias_dir: htfBiasDir } : {}),
       htf_destination: htfBiasDir === "bullish" ? "above nearest untaken liquidity"
         : htfBiasDir === "bearish" ? "below nearest untaken liquidity"
         : (targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity"),
@@ -455,7 +451,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
         ...mergeDraws(overnightDrawTargets(symbol, ds), sessionHistoryDraws(bundle, symbol)),
         overnight_verdict: computeOvernightVerdict({
           sweeps: ds?.pillar1?.sweeps ?? [],
-          htfBias: biasFromDraw(draw),
+          htfBias: htfBiasDir ?? biasFromDraw(draw),
         }),
         path_to_destination: targetLevel.name,
       },

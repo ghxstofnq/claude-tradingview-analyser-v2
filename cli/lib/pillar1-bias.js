@@ -85,7 +85,8 @@ export function arrayVote(zone) {
 
 /** |ce - price| / |price| ≤ NEAR_PRICE_PCT — a realistic destination today. */
 function nearPrice(ce, price) {
-  if (!Number.isFinite(ce) || !Number.isFinite(price) || price === 0) return false;
+  if (!Number.isFinite(ce)) return false;
+  if (!Number.isFinite(price) || price === 0) return true; // no price → can't assess nearness, don't filter
   return Math.abs(ce - price) / Math.abs(price) <= NEAR_PRICE_PCT;
 }
 
@@ -141,6 +142,13 @@ export function pickPrimaryDraw(htfByTf, { price = null } = {}) {
         took_liq: true,
         state: z.state || 'fresh',
         distance_to_ce: Number.isFinite(price) ? price - ce : null,
+        // zone above/below current price — for the legacy biasFromDraw fallback
+        // (live-ltf-resolver) when htf_bias_dir is absent.
+        position: Number.isFinite(price) ? (ce > price ? 'above_price' : 'below_price') : null,
+        // observed-reaction passthrough (engine FVG fields) — the vote reads
+        // state, but downstream biasFromDraw + PREP still read these.
+        reacted: !!z.reacted,
+        ...(z.reaction_dir ? { reaction_dir: z.reaction_dir } : {}),
         near: true,
         significant: true,
         vote,
