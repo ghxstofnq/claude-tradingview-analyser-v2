@@ -10,7 +10,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export function useAiAnalysis({ symbol, session, brief }) {
+// `prompt` (optional) overrides the default pre-open prompt — LIVE passes a
+// live-context prompt (read the current setup/trade) so the same on-demand
+// streaming machinery serves both surfaces.
+export function useAiAnalysis({ symbol, session, brief, prompt: customPrompt } = {}) {
   const [text, setText] = useState("");
   const [running, setRunning] = useState(false);
   const [ts, setTs] = useState(null);
@@ -49,16 +52,17 @@ export function useAiAnalysis({ symbol, session, brief }) {
     const sym = symbol || "the lead symbol";
     const sess = session ? session.toUpperCase() : "the upcoming session";
     const gradeLine = brief?.pillar_grade ? ` The deterministic pre-session grade is ${brief.pillar_grade}.` : "";
-    const prompt =
+    const prompt = customPrompt || (
       `In-depth pre-open read for ${sym}, ${sess}. Walk Lanto's three components as concise prose: ` +
       `(1) draw & bias — the near-price HTF arrays + liquidity, the overnight read, and the provisional bias with why; ` +
       `(2) price action — is price good or bad right now (displacement vs consolidation, gap sizes, overnight range); ` +
       `(3) the open scenarios — the two reactions to watch for after 09:30 and what would make today A+ vs a stand-aside.` +
-      `${gradeLine} Ground every number in today's brief. No tool calls needed — just the read.`;
+      `${gradeLine} Ground every number in today's brief. No tool calls needed — just the read.`
+    );
 
     Promise.resolve(window.api?.chat?.send?.(prompt, { provider: "claude" }))
       .catch(() => { runningRef.current = false; setRunning(false); });
-  }, [symbol, session, brief]);
+  }, [symbol, session, brief, customPrompt]);
 
   return { text, running, ts, run };
 }

@@ -125,3 +125,19 @@ export function modelLabel(setup) {
   if (/^inversion$/i.test(m)) return "Inversion";
   return m;
 }
+
+// Roll the four Pillar-3 confirmation rows into one verdict for the entry
+// header (verdict-first). Lanto's confirmation = a deliberate 1m close, so the
+// AWAITING state names it explicitly. Returns { label, tone } where tone is a
+// pill class (green | amber | red | dim).
+//   - any row fail            → INVALIDATED (red)
+//   - all rows pass           → CONFIRMED (green)
+//   - otherwise (pending/etc) → AWAITING 1m CLOSE (amber)
+//   - no rows                 → "—" (dim)
+export function entryConfirmationVerdict(confRows) {
+  const rows = Array.isArray(confRows) ? confRows : [];
+  if (!rows.length) return { label: "—", tone: "dim" };
+  if (rows.some((r) => r.status === "fail")) return { label: "INVALIDATED", tone: "red" };
+  if (rows.every((r) => r.status === "pass")) return { label: "CONFIRMED", tone: "green" };
+  return { label: "AWAITING 1m CLOSE", tone: "amber" };
+}

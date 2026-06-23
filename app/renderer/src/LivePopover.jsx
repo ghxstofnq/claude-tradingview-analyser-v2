@@ -16,8 +16,9 @@ import {
   liveGridFromTrade,
   modelLabel,
   normalizeSide,
+  entryConfirmationVerdict,
 } from "./Live.helpers.js";
-import { stripCitations } from "./Prep.helpers.js";
+import { stripCitations, openReactionVerdict } from "./Prep.helpers.js";
 import { realAccountView } from "./Account.helpers.js";
 import { walkerTruthToProse } from "./Brain.helpers.js";
 import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
@@ -33,6 +34,9 @@ import { useHealth } from "./hooks/useHealth.js";
 import { useChat } from "./hooks/useChat.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
 import { useExecutionState } from "./hooks/useExecutionState.js";
+import { useSessionBrief } from "./hooks/useSessionBrief.js";
+import { useOpenReaction } from "./hooks/useOpenReaction.js";
+import { useAiAnalysis } from "./hooks/useAiAnalysis.js";
 
 // ── Price with hover data-source tooltip (designer's Px) ─────────────────
 function Px({ v, children, src, tone, big }) {
@@ -67,6 +71,77 @@ function latestReadText(messages) {
     }
   }
   return null;
+}
+
+// ── DET / AI toggle — shared by HUNT + IN-TRADE ──────────────────────────
+function DetAiToggle({ mode, onMode }) {
+  return (
+    <span className="seg" style={{ display: "inline-flex", gap: 4 }}>
+      <span className={"pill interactive" + (mode === "det" ? " active" : "")} onClick={() => onMode("det")}>DET</span>
+      <span className={"pill interactive" + (mode === "ai" ? " active" : "")} onClick={() => onMode("ai")}>AI</span>
+    </span>
+  );
+}
+
+function ModeBar({ mode, onMode }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 12px 0" }}>
+      <DetAiToggle mode={mode} onMode={onMode} />
+    </div>
+  );
+}
+
+// ── OPEN REACTION (live) — Lanto's third bias component resolving in-session.
+// Reuses the same deterministic verdict logic as PREP; pre-open shows PENDING,
+// then flips to CONFIRMS / FLIPS / NOT YET once the resolver writes a read.
+const OR_PILL = { ok: "green", green: "green", warn: "amber", amber: "amber", bad: "red", red: "red", dim: "dim" };
+function LiveOpenReactionPanel({ latest, brief }) {
+  const orv = openReactionVerdict(latest, brief);
+  return (
+    <Panel title="OPEN REACTION" right={<span className={"pill " + (OR_PILL[orv.verdictTone] || "dim")}>{orv.verdict}</span>}>
+      {orv.rows.map((r) => <Row key={r.k} k={r.k} v={r.v} tone={r.tone} />)}
+      <div className="or-note">{orv.note}</div>
+    </Panel>
+  );
+}
+
+// ── AI · LIVE READ — Claude's per-bar reads streaming in (already produced
+// on packet / stage / 5m close), plus a DEEPEN NOW button for one fresh
+// in-depth pass on demand. The DET/AI difference from PREP: this is live.
+function LiveAiStream({ chat, symbol, session, brief, deepenPrompt }) {
+  const ai = useAiAnalysis({ symbol, session, brief, prompt: deepenPrompt });
+  const reads = (chat?.messages || [])
+    .filter((m) => m && (m.type === "bar-read" || m.type === "reply") && m.body)
+    .slice(-12);
+  const tsLabel = ai.ts
+    ? new Date(ai.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" }) + " ET"
+    : null;
+  return (
+    <Panel title="AI · LIVE READ"
+      right={ai.running
+        ? <span className="pill dim">deepening…</span>
+        : <span className="pill interactive" onClick={ai.run}>DEEPEN NOW</span>}>
+      {ai.text ? (
+        <div className="lv-box" style={{ marginTop: 0 }}>
+          <div className="lv-box-hd">DEEPER READ{tsLabel ? ` · ${tsLabel}` : ""}</div>
+          <div className="ai-prose">{ai.text}</div>
+        </div>
+      ) : null}
+      <div className="lv-box" style={{ marginTop: ai.text ? 10 : 0 }}>
+        <div className="lv-box-hd">PER-BAR READ · LIVE</div>
+        {reads.length ? (
+          reads.slice().reverse().map((m, i) => (
+            <div key={i} className="ai-prose" style={{ marginBottom: 6 }}>
+              {m.t ? <span style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".06em" }}>{m.t} · </span> : null}
+              {stripCitations(m.body.replace(/<[^>]+>/g, " "))}
+            </div>
+          ))
+        ) : (
+          <div className="ai-prose">no live reads yet this session — they stream in on packet / stage / 5m close.</div>
+        )}
+      </div>
+    </Panel>
+  );
 }
 
 // ── ORDER TICKET — type $ risk → computed micros → accepting fires ───────
@@ -166,7 +241,7 @@ function TicketView({ setup, account, guards, symbol, onFire, onCancel }) {
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
-function InTradeView({ position, trade, lastBar, price, symbol, workingOrders }) {
+function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, detAi, setDetAi, chat, brief, session }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -209,8 +284,18 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders })
     }
   }
   const mng = (fn) => () => { try { executionAdapter[fn]({ symbol: position?.symbol || symbol, tradeId: t.id }); } catch { /* best-effort */ } };
+  if (detAi === "ai") {
+    const deepenPrompt = `Live read of the open ${t.model || side} ${side} trade on ${sym} (entry ${entry} / stop ${stop} / TP1 ${tp1}). Per Lanto — is price respecting the setup, has it confirmed continuation toward the ultimate target, and should the runner trail or is structure breaking? Concise prose, no tool calls.`;
+    return (
+      <div className="work-scroll">
+        <ModeBar mode={detAi} onMode={setDetAi} />
+        <LiveAiStream chat={chat} symbol={sym} session={session} brief={brief} deepenPrompt={deepenPrompt} />
+      </div>
+    );
+  }
   return (
     <div className="work-scroll">
+      <ModeBar mode={detAi} onMode={setDetAi} />
       <Panel title="IN-TRADE"
         right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
           {live && <span className="acct live">● LIVE</span>}
@@ -229,6 +314,7 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders })
 
         <div className="lv-box plan-rows">
           <div className="lv-box-hd">RISK PLAN</div>
+          <div className="ai-prose" style={{ color: "var(--label)", marginBottom: 6, fontSize: 10 }}>T1 ≈ 1–1.5R · Ultimate ≈ 2R+ (HTF draw)</div>
           <Row k="Entry" v={<Px v={entry ?? "—"} />} />
           <Row k="Stop" v={<Px v={`${stop ?? "—"}${t.tp1_hit ? " · BE" : ""}`} tone="red" />} />
           <Row k="TP1" v={<Px v={tp1 ?? "—"} tone="green" />} />
@@ -265,64 +351,76 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders })
   );
 }
 
-// ── ENTRY HUNT (and ADD) — vladder + confirmation + brain read ──────────
-function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject }) {
+// ── ENTRY (verdict-first) — open-reaction verdict + entry model + 1m
+// confirmation. DET = structured candidate; AI = live per-bar reads + DEEPEN.
+function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject, openReaction, brief, session, symbol, detAi, setDetAi }) {
   const read = latestReadText(chat?.messages || []);
+  const orPanel = <LiveOpenReactionPanel latest={openReaction?.latest} brief={brief} />;
+
   if (!setup) {
     const prose = { color: "var(--prose)", fontSize: 11, lineHeight: 1.55, overflowWrap: "anywhere", wordBreak: "break-word" };
     const sh = noTrade?.sourceHealth;
+    const deepenPrompt = `Live read of ${symbol || "the lead symbol"}${session ? `, ${session.toUpperCase()}` : ""}: no setup is surfaced yet. Per Lanto — what is price doing right now (displacement vs consolidation), is the open-reaction bias confirming, and what would the next clean MSS / Trend / Inversion entry need? Concise prose, no tool calls.`;
     return (
       <div className="work-scroll">
-        <Panel title="ENTRY CANDIDATE" right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
-          <div className="lv-box" style={{ marginTop: 0 }}>
-            <div className="lv-box-hd">{noTradeReason ? "NO-TRADE REASON" : "STATUS"}</div>
-            <div style={prose}>{noTradeReason || "awaiting next walker fire."}</div>
-          </div>
-          {noTrade?.blockers?.length ? (
-            <div className="lv-box" style={{ marginTop: 10 }}>
-              <div className="lv-box-hd">NO-TRADE BLOCKERS</div>
-              <div style={prose}>{noTrade.blockers.join(", ")}</div>
+        <ModeBar mode={detAi} onMode={setDetAi} />
+        {orPanel}
+        {detAi === "ai" ? (
+          <LiveAiStream chat={chat} symbol={symbol} session={session} brief={brief} deepenPrompt={deepenPrompt} />
+        ) : (
+          <Panel title="ENTRY CANDIDATE" right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
+            <div className="lv-box" style={{ marginTop: 0 }}>
+              <div className="lv-box-hd">{noTradeReason ? "NO-TRADE REASON" : "STATUS"}</div>
+              <div style={prose}>{noTradeReason || "awaiting next walker fire."}</div>
             </div>
-          ) : null}
-          {sh ? (
-            <div className="lv-box" style={{ marginTop: 10 }}>
-              <div className="lv-box-hd">SOURCE HEALTH</div>
-              <div style={prose}>
-                {sh.status || "unknown"}
-                {sh.stale === true ? " · stale" : ""}
-                {sh.schemaSupported === false ? " · unsupported schema" : ""}
-                {sh.blockers?.length ? ` · ${sh.blockers.join(", ")}` : ""}
+            {noTrade?.blockers?.length ? (
+              <div className="lv-box" style={{ marginTop: 10 }}>
+                <div className="lv-box-hd">NO-TRADE BLOCKERS</div>
+                <div style={prose}>{noTrade.blockers.join(", ")}</div>
               </div>
-            </div>
-          ) : null}
-          {noTrade?.strategyChainStatus || noTrade?.evaluationStatus ? (
-            <div className="lv-box" style={{ marginTop: 10 }}>
-              <div className="lv-box-hd">EVALUATION STATUS</div>
-              <div style={prose}>
-                {noTradeStatusLabel(noTrade)}
-                {noTrade.evaluationStatus ? ` · ${noTrade.evaluationStatus}` : ""}
-                {noTrade.strategyChainStatus ? ` · chain ${noTrade.strategyChainStatus}` : ""}
+            ) : null}
+            {sh ? (
+              <div className="lv-box" style={{ marginTop: 10 }}>
+                <div className="lv-box-hd">SOURCE HEALTH</div>
+                <div style={prose}>
+                  {sh.status || "unknown"}
+                  {sh.stale === true ? " · stale" : ""}
+                  {sh.schemaSupported === false ? " · unsupported schema" : ""}
+                  {sh.blockers?.length ? ` · ${sh.blockers.join(", ")}` : ""}
+                </div>
               </div>
-            </div>
-          ) : null}
-          {noTrade?.evidenceRefs?.length ? (
-            <div className="lv-box" style={{ marginTop: 10 }}>
-              <div className="lv-box-hd">EVIDENCE REFS</div>
-              <div style={prose}>{noTrade.evidenceRefs.join(", ")}</div>
-            </div>
-          ) : null}
-          {read?.text && (
-            <div className="lv-box" style={{ marginTop: 10 }}>
-              <div className="lv-box-hd">BRAIN READ {read.t ? `· ${read.t}` : ""}</div>
-              <div className="ai-prose">{read.text}</div>
-            </div>
-          )}
-        </Panel>
+            ) : null}
+            {noTrade?.strategyChainStatus || noTrade?.evaluationStatus ? (
+              <div className="lv-box" style={{ marginTop: 10 }}>
+                <div className="lv-box-hd">EVALUATION STATUS</div>
+                <div style={prose}>
+                  {noTradeStatusLabel(noTrade)}
+                  {noTrade.evaluationStatus ? ` · ${noTrade.evaluationStatus}` : ""}
+                  {noTrade.strategyChainStatus ? ` · chain ${noTrade.strategyChainStatus}` : ""}
+                </div>
+              </div>
+            ) : null}
+            {noTrade?.evidenceRefs?.length ? (
+              <div className="lv-box" style={{ marginTop: 10 }}>
+                <div className="lv-box-hd">EVIDENCE REFS</div>
+                <div style={prose}>{noTrade.evidenceRefs.join(", ")}</div>
+              </div>
+            ) : null}
+            {read?.text && (
+              <div className="lv-box" style={{ marginTop: 10 }}>
+                <div className="lv-box-hd">BRAIN READ {read.t ? `· ${read.t}` : ""}</div>
+                <div className="ai-prose">{read.text}</div>
+              </div>
+            )}
+          </Panel>
+        )}
       </div>
     );
   }
+
   const grade = setup.grade || "—";
   const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : "dim";
+  const side = (setup.side || "").toLowerCase();
   const price = Number.isFinite(lastBarPrice) ? lastBarPrice : Number(setup.entry);
   const fmtD = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(1);
   // Build the rungs then order top→bottom by price (correct for long AND short).
@@ -334,56 +432,72 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
     { tag: "STOP", cls: "stop", px: Number(setup.stop) },
   ].filter((r) => Number.isFinite(r.px)).sort((a, b) => b.px - a.px);
   const confRows = pillar3ToConfirmationRows(selectPillar3(setup.pillar_breakdown));
+  const confV = entryConfirmationVerdict(confRows);
   const mark = { pass: "✓", weak: "~", fail: "✗", missing: "·", pending: "·" };
   const stTxt = { pass: "yes", weak: "weak", fail: "fail", missing: "—", pending: "pending" };
+  const deepenPrompt = `Live read of the ${modelLabel(setup)} ${side} setup on ${symbol || "the lead symbol"}${session ? `, ${session.toUpperCase()}` : ""} (entry ${setup.entry} / stop ${setup.stop} / TP1 ${setup.tp1}). Per Lanto — did it take significant liquidity, is displacement clean, is the 1m confirmation deliberate (not wicky), and is it aligned with the open-reaction bias? What invalidates it? Concise prose, no tool calls.`;
+
   return (
     <div className="work-scroll">
-      <Panel title="ENTRY CANDIDATE"
-        right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-          <span className={"pill " + (setup.side === "long" ? "green" : "red")}>{(setup.side || "").toUpperCase()}</span>
-          <span className={"pill " + gradeTone}>{grade}</span>
-          <span style={{ color: "var(--label)", fontSize: 10 }}>{modelLabel(setup)}</span>
-        </span>}>
-        <div className="intrade-cols">
-          <div className="vlad hunt">
-            {rungs.map((r) => (
-              <div key={r.tag} className={"rung " + r.cls}>
-                <span className="tag">{r.tag}</span>
-                <span className="px"><Px v={r.now ? r.px.toFixed(2) : r.px} /></span>
-                <span className="dist">{r.now ? "now" : fmtD(r.px - price)}</span>
-              </div>
-            ))}
+      <ModeBar mode={detAi} onMode={setDetAi} />
+      {orPanel}
+      {detAi === "ai" ? (
+        <LiveAiStream chat={chat} symbol={symbol} session={session} brief={brief} deepenPrompt={deepenPrompt} />
+      ) : (
+        <Panel title="ENTRY"
+          right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+            <span className={"pill " + (side === "long" ? "green" : "red")}>{(setup.side || "").toUpperCase()}</span>
+            <span className={"pill " + gradeTone}>{grade}</span>
+            <span style={{ color: "var(--label)", fontSize: 10 }}>{modelLabel(setup)}</span>
+          </span>}>
+          <div className="lv-box" style={{ marginTop: 0 }}>
+            <div className="lv-box-hd">CONFIRMATION</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span className={"pill " + confV.tone}>{confV.label}</span>
+              <span style={{ color: "var(--label)", fontSize: 11 }}>{modelLabel(setup)} · {(setup.side || "").toUpperCase()}</span>
+            </div>
           </div>
-          <div className="side">
-            <div className="conf">
-              {confRows.map((c) => (
-                <div className="citem" key={c.label} title={c.detail}>
-                  <span className={"mk " + c.status}>{mark[c.status] || "·"}</span>
-                  <span className="lbl">{c.label}</span>
-                  <span className={"st " + c.status}>{stTxt[c.status] || c.status}</span>
+          <div className="intrade-cols">
+            <div className="vlad hunt">
+              {rungs.map((r) => (
+                <div key={r.tag} className={"rung " + r.cls}>
+                  <span className="tag">{r.tag}</span>
+                  <span className="px"><Px v={r.now ? r.px.toFixed(2) : r.px} /></span>
+                  <span className="dist">{r.now ? "now" : fmtD(r.px - price)}</span>
                 </div>
               ))}
             </div>
-            <div className="conf-foot">
-              <div className="mtile"><span className="k">R : R</span><span className="v">{setup.rr ?? "—"}</span></div>
-              <div className="mtile"><span className="k">SIZE</span><span className="v">{sizeLabel(setup.size)}</span></div>
+            <div className="side">
+              <div className="conf">
+                {confRows.map((c) => (
+                  <div className="citem" key={c.label} title={c.detail}>
+                    <span className={"mk " + c.status}>{mark[c.status] || "·"}</span>
+                    <span className="lbl">{c.label}</span>
+                    <span className={"st " + c.status}>{stTxt[c.status] || c.status}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="conf-foot">
+                <div className="mtile"><span className="k">R : R</span><span className="v">{setup.rr ?? "—"}</span></div>
+                <div className="mtile"><span className="k">SIZE</span><span className="v">{sizeLabel(setup.size)}</span></div>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="lv-box" style={{ marginTop: 12 }}>
-          <div className="lv-box-hd">ACTIONS</div>
-          <div style={{ display: "flex", justifyContent: "flex-start", gap: 6 }}>
-            <button className="btn red" onClick={() => onReject?.(setup)}>REJECT</button>
-            <button className="btn green" onClick={() => onAccept?.(setup)}>ACCEPT</button>
+          <div className="lv-box" style={{ marginTop: 12 }}>
+            <div className="lv-box-hd">ACTIONS</div>
+            <div style={{ display: "flex", justifyContent: "flex-start", gap: 6 }}>
+              <button className="btn red" onClick={() => onReject?.(setup)}>REJECT</button>
+              <button className="btn green" onClick={() => onAccept?.(setup)}>ACCEPT</button>
+            </div>
           </div>
-        </div>
-        {read?.text && (
-          <div className="lv-box" style={{ marginTop: 10 }}>
-            <div className="lv-box-hd">BRAIN READ {read.t ? `· ${read.t}` : ""}</div>
-            <div className="ai-prose">{read.text}</div>
-          </div>
-        )}
-      </Panel>
+          {read?.text && (
+            <div className="lv-box" style={{ marginTop: 10 }}>
+              <div className="lv-box-hd">BRAIN READ {read.t ? `· ${read.t}` : ""}</div>
+              <div className="ai-prose">{read.text}</div>
+            </div>
+          )}
+        </Panel>
+      )}
     </div>
   );
 }
@@ -413,6 +527,9 @@ function LiveCell({ guards, symbol }) {
   const lastBar = useLastBar();
   const chat = useChat();
   const exec = useExecutionState();
+  const { brief, session } = useSessionBrief();
+  const openReaction = useOpenReaction(session);
+  const [detAi, setDetAi] = useState("det");
   // Real account orders route to (paper/live) — for the ticket badge + journal
   // metadata. Routing itself is enforced main-side by the confirmed account.
   const { acct } = useBrokerAccount();
@@ -516,7 +633,8 @@ function LiveCell({ guards, symbol }) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveView === "intrade") {
     body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders} />
+      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
+                     detAi={detAi} setDetAi={setDetAi} chat={chat} brief={brief} session={session} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
@@ -526,7 +644,9 @@ function LiveCell({ guards, symbol }) {
   } else {
     body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
                           noTrade={noTrade} noTradeReason={noTradeReason}
-                          onAccept={onHuntAccept} onReject={() => pickView("hunt")} />;
+                          onAccept={onHuntAccept} onReject={() => pickView("hunt")}
+                          openReaction={openReaction} brief={brief} session={session} symbol={symbol}
+                          detAi={detAi} setDetAi={setDetAi} />;
   }
 
   return (

@@ -404,10 +404,11 @@ export function openReactionVerdict(latest, brief) {
     ny = rdir.startsWith("bull") ? { v: "BULL", tone: "ok" }
        : rdir.startsWith("bear") ? { v: "BEAR", tone: "bad" }
        : { v: "MIXED", tone: "warn" };
-    if (conf.includes("confirm") || conf.includes("aligned")) { verdict = "CONFIRMS"; verdictTone = "ok"; }
+    // verdictTone is a pill class (green | amber | red | dim).
+    if (conf.includes("confirm") || conf.includes("aligned")) { verdict = "CONFIRMS"; verdictTone = "green"; }
     else if (conf.includes("flip") || conf.includes("revers") || conf.includes("divergent")) { verdict = "FLIPS"; verdictTone = "amber"; }
     else if (conf.includes("stand") || conf.includes("hands") || conf.includes("unclear") || conf.includes("no")) { verdict = "NOT YET"; verdictTone = "dim"; }
-    else { verdict = String(latest.verdict || latest.confirmation || "READ").toUpperCase(); verdictTone = "warn"; }
+    else { verdict = String(latest.verdict || latest.confirmation || "READ").toUpperCase(); verdictTone = "amber"; }
     note = latest.note || latest.summary || latest.reason || note;
   }
 

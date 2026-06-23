@@ -9,7 +9,27 @@ import {
   liveGridFromTrade,
   modelLabel,
   normalizeSide,
+  entryConfirmationVerdict,
 } from "../app/renderer/src/Live.helpers.js";
+
+describe("entryConfirmationVerdict", () => {
+  it("all pass → CONFIRMED (green)", () => {
+    const rows = [{ status: "pass" }, { status: "pass" }, { status: "pass" }, { status: "pass" }];
+    assert.deepEqual(entryConfirmationVerdict(rows), { label: "CONFIRMED", tone: "green" });
+  });
+  it("any fail → INVALIDATED (red)", () => {
+    const rows = [{ status: "pass" }, { status: "fail" }, { status: "pending" }];
+    assert.deepEqual(entryConfirmationVerdict(rows), { label: "INVALIDATED", tone: "red" });
+  });
+  it("pending/weak (no fail, not all pass) → AWAITING 1m CLOSE (amber)", () => {
+    const rows = [{ status: "pass" }, { status: "pending" }, { status: "missing" }];
+    assert.deepEqual(entryConfirmationVerdict(rows), { label: "AWAITING 1m CLOSE", tone: "amber" });
+  });
+  it("empty / non-array → dim dash", () => {
+    assert.deepEqual(entryConfirmationVerdict([]), { label: "—", tone: "dim" });
+    assert.deepEqual(entryConfirmationVerdict(null), { label: "—", tone: "dim" });
+  });
+});
 
 describe("normalizeSide", () => {
   it("maps order vocabulary buy/sell → long/short", () => {
