@@ -4,9 +4,15 @@ import {
   arrayVote,
   pickPrimaryDraw,
   htfVote,
+  overnightVote,
+  nyOpenReaction,
   INVERSION_DISP_MIN,
   NEAR_PRICE_PCT,
 } from '../cli/lib/pillar1-bias.js';
+
+// open window = 09:30-10:00 ET on an arbitrary day, in ms
+const OPEN = { startMs: 1_000_000, endMs: 1_000_000 + 30 * 60 * 1000 };
+const at = (minsIntoWindow) => OPEN.startMs + minsIntoWindow * 60 * 1000;
 
 // --- arrayVote: the directional read of a single PD array (daily-bias §2) ---
 
@@ -151,4 +157,94 @@ test('pickPrimaryDraw: within a TF, the nearest qualifying array wins', () => {
   });
   const draw = pickPrimaryDraw(blocks, { price: 30492 });
   assert.equal(draw.cite, 'near');
+});
+
+// --- overnightVote: the engine's Asia+London directional read (daily-bias §3) ---
+
+test('overnightVote: bull / bear map to directional votes', () => {
+  assert.equal(overnightVote({ overnight_dir: 'bull', overnight_net: 301 }).vote, 'bullish');
+  assert.equal(overnightVote({ overnight_dir: 'bear', overnight_net: -120 }).vote, 'bearish');
+});
+
+test('overnightVote: chop is a non-vote, not a conflict (§1)', () => {
+  const v = overnightVote({ overnight_dir: 'chop', overnight_net: 5 });
+  assert.equal(v.vote, 'none');
+  assert.equal(v.reason, 'overnight-chop');
+});
+
+test('overnightVote: na / missing → no vote', () => {
+  assert.equal(overnightVote({ overnight_dir: 'na' }).vote, 'none');
+  assert.equal(overnightVote({}).vote, 'none');
+  assert.equal(overnightVote(null).vote, 'none');
+});
+
+test('overnightVote: carries net through for the combiner grab test (D2 06-09 +301 bull)', () => {
+  assert.equal(overnightVote({ overnight_dir: 'bull', overnight_net: 301 }).net, 301);
+});
+
+// --- nyOpenReaction: the open-window reaction signal (daily-bias §4) ---
+
+test('nyOpenReaction: 06-16 / D2 — swept overnight high then rejected → bearish', () => {
+  const r = nyOpenReaction({
+    sweeps: [{ target: 'AS.H', swept_ms: at(25), rejected: true, price: 30889 }],
+    window: OPEN,
+  });
+  assert.equal(r.direction, 'bearish');
+  assert.equal(r.interaction, 'sweep_rejection');
+  assert.equal(r.level, 'AS.H');
+});
+
+test('nyOpenReaction: 12-12 — swept London low, continuation down → bearish', () => {
+  const r = nyOpenReaction({
+    sweeps: [{ target: 'LO.L', swept_ms: at(10), rejected: false, price: 6890 }],
+    window: OPEN,
+  });
+  assert.equal(r.direction, 'bearish');
+  assert.equal(r.interaction, 'sweep_continuation');
+});
+
+test('nyOpenReaction: D1 — swing bull MSS in window → bullish (the reaction is displacement)', () => {
+  const r = nyOpenReaction({
+    structures: [{ dir: 'bull', tier: 'swing', validation: 'break', confirmed_ms: at(17) }],
+    window: OPEN,
+  });
+  assert.equal(r.direction, 'bullish');
+  assert.equal(r.source, 'structure');
+  assert.equal(r.tier, 'swing');
+});
+
+test('nyOpenReaction: D4 — swing bear MSS in window reads bearish (combiner decides grab vs flip)', () => {
+  const r = nyOpenReaction({
+    structures: [{ dir: 'bear', tier: 'swing', validation: 'break', confirmed_ms: at(20) }],
+    window: OPEN,
+  });
+  assert.equal(r.direction, 'bearish');
+  assert.equal(r.tier, 'swing');
+});
+
+test('nyOpenReaction: a swing-tier break outranks a contemporaneous sweep continuation', () => {
+  const r = nyOpenReaction({
+    sweeps: [{ target: 'LO.H', swept_ms: at(5), rejected: false, price: 30500 }], // would say bullish
+    structures: [{ dir: 'bear', tier: 'swing', validation: 'break', confirmed_ms: at(12) }],
+    window: OPEN,
+  });
+  assert.equal(r.direction, 'bearish');
+  assert.equal(r.source, 'structure');
+});
+
+test('nyOpenReaction: 06-18 — late BoS (out of window), no overnight sweep → no vote', () => {
+  const r = nyOpenReaction({
+    structures: [{ dir: 'bull', tier: 'internal', validation: 'break', confirmed_ms: OPEN.endMs + 25 * 60 * 1000 }],
+    window: OPEN,
+  });
+  assert.equal(r.direction, null);
+  assert.equal(r.vote, 'none');
+});
+
+test('nyOpenReaction: sweeps/structures outside the window are ignored', () => {
+  const r = nyOpenReaction({
+    sweeps: [{ target: 'AS.H', swept_ms: OPEN.startMs - 60 * 1000, rejected: true }],
+    window: OPEN,
+  });
+  assert.equal(r.vote, 'none');
 });

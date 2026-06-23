@@ -4,7 +4,11 @@
  * Faithful to docs/strategy/daily-bias.md and the oracle (docs/strategy/lanto-oracle.md).
  * Single-sourced for gates.engine.pillar1.bias + the brief, mirroring Stage B's
  * cli/lib/pillar2-verdict.js. Pure — no CDP, no I/O.
- *
+ */
+
+import { overnightTargetsForSession } from './open-reaction-resolver.js';
+
+/*
  * Bias is THREE votes (daily-bias §1): HTF + overnight + NY-open reaction.
  * Count aligned votes → 1/3 no-trade · 2/3 B-cap · 3/3 A+-eligible.
  *
@@ -133,4 +137,102 @@ export function htfVote(htfByTf, { price = null } = {}) {
   const draw = pickPrimaryDraw(htfByTf, { price });
   if (!draw) return { vote: 'none', significant: false, draw: null, reason: 'no-significant-near-price-array' };
   return { vote: draw.vote, significant: true, draw, reason: draw.vote_reason };
+}
+
+// --- Slice 2: the overnight vote (daily-bias §3) ---
+
+/**
+ * Overnight directional vote (daily-bias §3). Reads the engine's overnight_dir
+ * (Asia+London net move vs overnight range; the engine flags "chop" when
+ * |net| < 0.25× overnight range). bull→bullish, bear→bearish, chop/na→no vote
+ * (a non-vote, not a conflict — §1). overnight_net carried through for the
+ * combiner's grab-vs-conflict test.
+ *
+ * @param {object} qualityRow engine quality row: { overnight_dir, overnight_net }
+ * @returns {{vote:'bullish'|'bearish'|'none', reason:string, net:number|null}}
+ */
+export function overnightVote(qualityRow) {
+  const d = String(qualityRow?.overnight_dir || 'na').toLowerCase();
+  const net = Number.isFinite(Number(qualityRow?.overnight_net)) ? Number(qualityRow.overnight_net) : null;
+  if (d === 'bull') return { vote: 'bullish', reason: 'overnight-bull', net };
+  if (d === 'bear') return { vote: 'bearish', reason: 'overnight-bear', net };
+  return { vote: 'none', reason: d === 'chop' ? 'overnight-chop' : 'overnight-na', net };
+}
+
+// --- Slice 3: the NY-open reaction (daily-bias §4) ---
+
+const isHighLevel = (name) => /\.H$/.test(String(name || ''));
+const inWindow = (ms, { startMs = -Infinity, endMs = Infinity } = {}) =>
+  Number.isFinite(ms) && ms >= startMs && ms < endMs;
+
+/**
+ * Raw NY-open reaction signal (daily-bias §4): what did price DO in the open
+ * window (first 15-30 min)? "It's not the initial liquidity we take — it's the
+ * reaction." Two sources, in priority order:
+ *   1. A SWING-tier structure break (displacement = the strongest reaction, §5).
+ *   2. Reject / continuation off the latest overnight-level sweep — a high swept
+ *      then closed back through = bearish rejection; held = bullish continuation
+ *      (mirror for lows).
+ *   3. An internal-tier structure break.
+ * Returns the direction + tier/displacement metadata so the combiner can decide
+ * confirm vs grab vs reverse (§5: don't flip the day off a single event). No
+ * in-window interaction → direction null (a non-vote, not a conflict). Pure.
+ *
+ * @param {object} args { sweeps[], structures[], window:{startMs,endMs}, session }
+ */
+export function nyOpenReaction({ sweeps = [], structures = [], window = {}, session = 'ny-am' } = {}) {
+  const targets = overnightTargetsForSession(session);
+  const sweepHits = (sweeps || []).filter((s) => targets.has(s?.target) && inWindow(s?.swept_ms, window));
+  const structHits = (structures || []).filter(
+    (s) => inWindow(s?.confirmed_ms, window) && (s?.dir === 'bull' || s?.dir === 'bear'),
+  );
+
+  let sweepDir = null;
+  let sweepInteraction = null;
+  let level = null;
+  if (sweepHits.length) {
+    const last = sweepHits.reduce((a, b) => (b.swept_ms >= a.swept_ms ? b : a));
+    const high = isHighLevel(last.target);
+    const rejected = last.rejected === true;
+    sweepInteraction = rejected ? 'rejection' : 'continuation';
+    sweepDir = high ? (rejected ? 'bearish' : 'bullish') : rejected ? 'bullish' : 'bearish';
+    level = last.target;
+  }
+
+  // Latest structure break in window; prefer swing-tier — the "mass displacement"
+  // reversal §5 demands before the day's direction can be set/flipped.
+  let struct = null;
+  if (structHits.length) {
+    const swing = structHits.filter((s) => s.tier === 'swing');
+    const pool = swing.length ? swing : structHits;
+    struct = pool.reduce((a, b) => ((b.confirmed_ms || 0) >= (a.confirmed_ms || 0) ? b : a));
+  }
+  const structDir = struct ? (struct.dir === 'bear' ? 'bearish' : 'bullish') : null;
+
+  let direction = null;
+  let interaction = 'none';
+  let source = null;
+  if (struct?.tier === 'swing') {
+    direction = structDir;
+    interaction = 'structure_break';
+    source = 'structure';
+  } else if (sweepDir) {
+    direction = sweepDir;
+    interaction = `sweep_${sweepInteraction}`;
+    source = 'sweep';
+  } else if (structDir) {
+    direction = structDir;
+    interaction = 'structure_break';
+    source = 'structure';
+  }
+
+  return {
+    vote: direction ?? 'none',
+    direction,
+    interaction,
+    source,
+    level,
+    tier: struct?.tier ?? null,
+    displaced: struct ? struct.displacement === true || struct.validation === 'break' : !!sweepDir,
+  };
 }
