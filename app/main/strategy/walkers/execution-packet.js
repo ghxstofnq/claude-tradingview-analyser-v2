@@ -260,18 +260,24 @@ function inversionStructuralStop(walker, side, entry, context) {
   }, null);
   const candle = walker?.evidence?.confirmation?.rawPayload?.last_bar ?? {};
   const candleExtreme = side === 'short' ? numberOrNull(candle.high) : numberOrNull(candle.low);
-  // Wide-leg risk cap (user ruling 2026-06-14): in high-volatility regimes the
-  // failed leg can be enormous (June 11: 131 pts), so the leg-extreme stop
-  // deflates every target's R and the trade reaches past nearer liquidity. When
-  // the leg stop exceeds WIDE_LEG_PTS, fall back to the tighter violating-candle
-  // stop (entry-models.md Inversion §5 — "below the candle that closed through
-  // it"). Threshold chosen by a 4-week fold sweep: 90-99 is a flat plateau
-  // (+6.13R, zero week-level losses, no winner broken); <85 falls off a whipsaw
-  // cliff (80pt: -1.37 May25-29, breaks the June 3 winner); 100 leaves +2.1 on
-  // the table. 95 sits mid-plateau. MNQ-point scale (the only calibrated symbol;
-  // rarely fires on MES, whose stops are an order of magnitude smaller).
-  const WIDE_LEG_PTS = 95;
-  if (legExtreme != null && correctSide(legExtreme) && Math.abs(legExtreme - entry) > WIDE_LEG_PTS
+  // VOLATILITY-RELATIVE wide-leg cap — the stop is sized to current conditions,
+  // not a fixed number. PRICE 10:34: "in normal conditions our typical stop loss
+  // is 20 points" — the stop scales with the prevailing delivery (a 20-pt 4H
+  // candle → a 20-pt stop; a 130-pt one → far wider). TRADE24 15:59: "we're not
+  // going to have as wide of a stop." The failed-leg extreme is the default
+  // structural anchor, but when its distance is disproportionate to the current
+  // delivery size — wider than WIDE_LEG_ATR_MULT × the Wilder ATR — tighten to
+  // the violating-candle (entry-array) stop (entry-models.md Inversion §5 "below
+  // the candle that closed through it"). Dynamic: the budget expands in a fast
+  // morning (June 9: atr 13.25 → budget 66 keeps the 55-pt leg) and contracts in
+  // chop, replacing the old fixed 95-pt cap (which equalled ~5×ATR at a normal
+  // ~19-pt ATR). atr_14 unavailable → the leg anchor stands (no volatility read →
+  // cannot judge "too wide"). The 5× multiple is the lone calibration knob,
+  // refined in the verification pass against the Discord-call stops.
+  const atr14 = numberOrNull(context?.pillar2?.atr14);
+  const WIDE_LEG_ATR_MULT = 5;
+  const wideLegBudget = atr14 != null && atr14 > 0 ? WIDE_LEG_ATR_MULT * atr14 : Infinity;
+  if (legExtreme != null && correctSide(legExtreme) && Math.abs(legExtreme - entry) > wideLegBudget
       && candleExtreme != null && correctSide(candleExtreme)) {
     return { kind: 'inversion_violating_candle', price: candleExtreme, evidenceRef: 'gates.engine.confirmation.last_bar' };
   }

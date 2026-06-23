@@ -67,6 +67,10 @@ function buildPillar2(engine, blocked, sessionChain = {}) {
     status: blockers.length === 0 ? 'pass' : 'blocked',
     candleQuality: current.candle ?? 'unknown',
     displacement: current.displacement ?? 'unknown',
+    // Current delivery size (Wilder ATR) — PRICE 10:34 sizes the stop to the
+    // current candle/gap ("4H candle trades 20 points → stop 20 points"), which
+    // is what scales the inversion wide-leg stop cap dynamically.
+    atr14: Number.isFinite(Number(current.atr_14)) ? Number(current.atr_14) : null,
     // §7 Step 3: displacement is a 4H/1H judgment. Carried from the session brief
     // (sessionChain.pillar2.htf_displacement) — the per-bar engine is on the LTF
     // chart, so the HTF displacement can only come from the brief snapshot.

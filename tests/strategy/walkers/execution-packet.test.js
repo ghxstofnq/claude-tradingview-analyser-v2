@@ -639,10 +639,11 @@ test('inversion stop: the failed-leg extreme across visible 1m bars outranks the
   assert.equal(packet.stop.price, 21022.5);
 });
 
-// Wide-leg risk cap (user ruling 2026-06-14): when the failed-leg extreme is
-// more than 95 pts from entry (high-volatility regime), fall back to the tighter
-// violating-candle stop. 4-week fold: 90-99pt plateau, +6.13R, no winner broken.
-function wideLegInversion({ legHigh, candleHigh, close }) {
+// Volatility-relative wide-leg cap (PRICE 10:34: the stop is sized to the current
+// delivery; TRADE24 15:59 "not as wide a stop"). When the failed-leg extreme is
+// wider than 5 × the Wilder ATR, fall back to the tighter violating-candle stop —
+// the budget scales with volatility instead of a fixed 95-pt number.
+function wideLegInversion({ legHigh, candleHigh, close, atr14 }) {
   const walker = {
     ...confirmedMssWalker({ top: 21010, bottom: 21000, direction: 'bullish' }),
     model: 'Inversion',
@@ -652,6 +653,7 @@ function wideLegInversion({ legHigh, candleHigh, close }) {
   return buildExecutionPacketForWalker({
     context: executableContext({
       sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      ...(atr14 != null ? { pillar2: { status: 'pass', displacement: 'clean', blockers: [], atr14 } } : {}),
       pillar1: { status: 'pass', untakenTargets: { above: [], below: [{ price: 20700, label: 'PDL', evidenceRef: 'p1.targets.pdl' }] } },
       pillar3: {
         structuralStops: [{ kind: 'swing_high', side: 'short', price: 21030, evidenceRef: 'p3.stops.high' }],
@@ -666,16 +668,23 @@ function wideLegInversion({ legHigh, candleHigh, close }) {
   });
 }
 
-test('inversion stop: a leg wider than 95pt falls back to the tighter violating candle', () => {
-  // entry 20900, leg high 21000 = 100pt (> 95) → use the 50pt candle instead.
-  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900 });
+// Same 100-pt leg, three volatility regimes — the boundary is dynamic, not 95pt.
+test('inversion stop: a leg wider than 5×ATR falls back to the tighter violating candle (chop)', () => {
+  // entry 20900, leg high 21000 = 100pt; ATR 15 → budget 75 (<100) → tighten.
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900, atr14: 15 });
   assert.equal(packet.stop.kind, 'inversion_violating_candle');
   assert.equal(packet.stop.price, 20950);
 });
 
-test('inversion stop: a 95pt leg is NOT wide enough — leg extreme kept (boundary)', () => {
-  // entry 20905, leg high 21000 = 95pt exactly; the cap is strictly > 95.
-  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20905 });
+test('inversion stop: the SAME 100pt leg is kept when ATR is high (trending — budget scales up)', () => {
+  // entry 20900, leg high 21000 = 100pt; ATR 25 → budget 125 (>100) → leg kept.
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900, atr14: 25 });
+  assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
+  assert.equal(packet.stop.price, 21000);
+});
+
+test('inversion stop: no ATR reading → the leg anchor stands (cannot judge "too wide")', () => {
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900 }); // no atr14
   assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
   assert.equal(packet.stop.price, 21000);
 });
