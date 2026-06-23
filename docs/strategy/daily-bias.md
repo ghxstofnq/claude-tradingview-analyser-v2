@@ -150,15 +150,33 @@ displacement / multiple arrays invalidated** before reversing.
 
 ## §6. SMT / leading asset (ES ↔ NQ)
 
-Lanto trades NQ (MNQ) and ES (MES) together and constantly reads one as the **leader**:
+Lanto trades NQ (MNQ) and ES (MES) together and constantly reads one as the **leader**,
+comparing their relative strength at the open to pick the day's vehicle and direction:
 
-> "ES is a bit more leading… NQ was the weaker asset… as soon as ES showcased that sell,
-> that told me price most likely were to drive lower — so I flipped on ES and looked to
-> ride NQ." (~36:32–37:28)
+> "ES is a bit more leading… look at the zone at the time of entry on ES compared to NQ…
+> a lot more aggressive in terms of the sell." (~33:16–36:32)
 
-- Watch for **divergence**: when one index makes a new high/low and the other does not,
-  the **stronger/leading** asset signals direction; the weaker one is the trade vehicle.
-- Use the leader's displacement to **confirm or flip** the open-reaction read.
+He traded **ES** in both worked cases — picking, per day, whichever index the divergence
+made the right vehicle:
+
+- **Short day (12-12):** ES led the sell. *"As soon as **ES showcased that sell**… that told
+  me price most likely were to drive lower."* (~28:38) ES was the weaker into the high (it
+  broke first) → **short ES**.
+- **Long day:** NQ swept its London low and was the weaker; ES held. *"We recognized that **NQ
+  was the weaker asset**… which caused me to flip interest **on ES and… ride up higher**."*
+  (~37:28) → **long ES** (the stronger).
+
+So the rule is **short the weaker, long the stronger** — trade the index the divergence
+favours, not always the same one. (Correction 2026-06-23: an earlier draft of this section
+mis-stitched two passages into "I flipped on ES and looked to ride NQ"; the transcript says
+he *longed ES* — "ride up higher" — and the 12-12 sell is a separate day. The deterministic
+`cli/lib/smt-leader.js` follows the transcript, not the old quote.)
+
+- Watch for **divergence**: when one index makes a new high/low and the other does not, the
+  one that **fails to confirm** is weaker; the divergence sets direction.
+- Use the leader's displacement to **confirm or flip** the open-reaction read — the part
+  Lanto leans on most (the D4 10-02 loss: *"the issue was ES had interest in drawing lower."*
+  RISK ~30:39 — ES led down; the NQ long should have flipped).
 
 ---
 
