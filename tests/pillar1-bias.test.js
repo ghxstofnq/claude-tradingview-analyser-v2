@@ -183,22 +183,14 @@ test('overnightVote: carries net through for the combiner grab test (D2 06-09 +3
   assert.equal(overnightVote({ overnight_dir: 'bull', overnight_net: 301 }).net, 301);
 });
 
-// --- nyOpenReaction: the open-window reaction signal (daily-bias §4) ---
+// --- nyOpenReaction: the open reaction (daily-bias §4). window = open→read;
+//     grab = first 30 min; the swing displacement can confirm later. ---
+const READ = { startMs: OPEN.startMs, endMs: OPEN.startMs + 120 * 60 * 1000 }; // open → +2h
 
-test('nyOpenReaction: 06-16 / D2 — swept overnight high then rejected → bearish', () => {
-  const r = nyOpenReaction({
-    sweeps: [{ target: 'AS.H', swept_ms: at(25), rejected: true, price: 30889 }],
-    window: OPEN,
-  });
-  assert.equal(r.direction, 'bearish');
-  assert.equal(r.interaction, 'sweep_rejection');
-  assert.equal(r.level, 'AS.H');
-});
-
-test('nyOpenReaction: 12-12 — swept London low, continuation down → bearish', () => {
+test('nyOpenReaction: 12-12 — swept London low, continuation down (no swing) → bearish', () => {
   const r = nyOpenReaction({
     sweeps: [{ target: 'LO.L', swept_ms: at(10), rejected: false, price: 6890 }],
-    window: OPEN,
+    window: READ,
   });
   assert.equal(r.direction, 'bearish');
   assert.equal(r.interaction, 'sweep_continuation');
@@ -207,45 +199,65 @@ test('nyOpenReaction: 12-12 — swept London low, continuation down → bearish'
 test('nyOpenReaction: D1 — swing bull MSS in window → bullish (the reaction is displacement)', () => {
   const r = nyOpenReaction({
     structures: [{ dir: 'bull', tier: 'swing', validation: 'break', confirmed_ms: at(17) }],
-    window: OPEN,
+    window: READ,
   });
   assert.equal(r.direction, 'bullish');
-  assert.equal(r.source, 'structure');
+  assert.equal(r.interaction, 'swing_displacement');
   assert.equal(r.tier, 'swing');
 });
 
-test('nyOpenReaction: D4 — swing bear MSS in window reads bearish (combiner decides grab vs flip)', () => {
+test('nyOpenReaction: 06-09 — the LATER swing bear MSS (at +70 min) is the reaction (the window-fix)', () => {
   const r = nyOpenReaction({
-    structures: [{ dir: 'bear', tier: 'swing', validation: 'break', confirmed_ms: at(20) }],
-    window: OPEN,
+    sweeps: [{ target: 'LO.H', swept_ms: at(10), rejected: false, price: 30040 }], // early bullish grab
+    structures: [
+      { dir: 'bull', tier: 'swing', validation: 'break', confirmed_ms: at(10) },  // 09:40 bos bull
+      { dir: 'bear', tier: 'swing', validation: 'break', confirmed_ms: at(70) },  // 10:40 bear MSS
+    ],
+    window: READ,
   });
-  assert.equal(r.direction, 'bearish');
-  assert.equal(r.tier, 'swing');
+  assert.equal(r.direction, 'bearish');           // the later displacement wins
+  assert.equal(r.interaction, 'swing_displacement');
 });
 
-test('nyOpenReaction: a swing-tier break outranks a contemporaneous sweep continuation', () => {
+test('nyOpenReaction: 06-16 — low-sweep BOUNCE grab against a standing swing bear → failed break, bearish', () => {
   const r = nyOpenReaction({
-    sweeps: [{ target: 'LO.H', swept_ms: at(5), rejected: false, price: 30500 }], // would say bullish
-    structures: [{ dir: 'bear', tier: 'swing', validation: 'break', confirmed_ms: at(12) }],
-    window: OPEN,
+    sweeps: [{ target: 'LO.L', swept_ms: at(2), rejected: true, price: 30783 }], // bounce = bullish grab
+    structures: [{ dir: 'bear', tier: 'swing', validation: 'break', confirmed_ms: at(-25) }], // 09:05 standing swing bear
+    window: READ,
   });
   assert.equal(r.direction, 'bearish');
-  assert.equal(r.source, 'structure');
+  assert.equal(r.interaction, 'failed_break');
 });
 
-test('nyOpenReaction: 06-18 — late BoS (out of window), no overnight sweep → no vote', () => {
+test('nyOpenReaction: a standing swing that AGREES with the grab keeps the structure direction', () => {
   const r = nyOpenReaction({
-    structures: [{ dir: 'bull', tier: 'internal', validation: 'break', confirmed_ms: OPEN.endMs + 25 * 60 * 1000 }],
-    window: OPEN,
+    sweeps: [{ target: 'AS.H', swept_ms: at(5), rejected: true, price: 30500 }], // high rejected = bearish grab
+    structures: [{ dir: 'bear', tier: 'swing', validation: 'break', confirmed_ms: at(-20) }],
+    window: READ,
   });
-  assert.equal(r.direction, null);
+  assert.equal(r.direction, 'bearish');
+  assert.equal(r.interaction, 'standing_swing');
+});
+
+test('nyOpenReaction: 06-17 — internal bear break (LH-sequence) outranks the raw low-sweep grab', () => {
+  const r = nyOpenReaction({
+    sweeps: [{ target: 'LO.L', swept_ms: at(25), rejected: true, price: 30387 }], // low bounce = bullish grab
+    structures: [{ dir: 'bear', tier: 'internal', validation: 'break', confirmed_ms: at(25) }],
+    window: READ,
+  });
+  assert.equal(r.direction, 'bearish');           // structure (LH break) over the raw grab
+  assert.equal(r.interaction, 'internal_break');
+});
+
+test('nyOpenReaction: no interaction at all → no vote', () => {
+  const r = nyOpenReaction({ sweeps: [], structures: [], window: READ });
   assert.equal(r.vote, 'none');
 });
 
-test('nyOpenReaction: sweeps/structures outside the window are ignored', () => {
+test('nyOpenReaction: a pre-open grab (before the open) is ignored', () => {
   const r = nyOpenReaction({
-    sweeps: [{ target: 'AS.H', swept_ms: OPEN.startMs - 60 * 1000, rejected: true }],
-    window: OPEN,
+    sweeps: [{ target: 'AS.H', swept_ms: READ.startMs - 60 * 1000, rejected: true }],
+    window: READ,
   });
   assert.equal(r.vote, 'none');
 });

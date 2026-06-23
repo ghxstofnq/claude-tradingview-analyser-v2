@@ -164,77 +164,84 @@ export function overnightVote(qualityRow) {
 const isHighLevel = (name) => /\.H$/.test(String(name || ''));
 const inWindow = (ms, { startMs = -Infinity, endMs = Infinity } = {}) =>
   Number.isFinite(ms) && ms >= startMs && ms < endMs;
+const dispBreak = (s) => s?.displacement === true || s?.validation === 'break';
+const latestBy = (arr, key) => (arr.length ? arr.reduce((a, b) => ((Number(b?.[key]) || 0) >= (Number(a?.[key]) || 0) ? b : a)) : null);
+const structBias = (s) => (s?.dir === 'bear' ? 'bearish' : s?.dir === 'bull' ? 'bullish' : null);
+
+// The opening-range grab is the FIRST 30 min after the open (daily-bias §4 /
+// BIAS 24:50 "we get the opening range move ~15 min after"); the REACTION can
+// confirm later, so the structure horizon runs to the read time.
+const GRAB_WINDOW_MS = 30 * 60 * 1000;
+// How far back before the open a swing-tier break still counts as the "standing"
+// structure the open grab is read against (the leg into the open, BIAS 38:23).
+const STANDING_LOOKBACK_MS = 4 * 60 * 60 * 1000;
 
 /**
- * Raw NY-open reaction signal (daily-bias §4): what did price DO in the open
- * window (first 15-30 min)? "It's not the initial liquidity we take — it's the
- * reaction." Two sources, in priority order:
- *   1. A SWING-tier structure break (displacement = the strongest reaction, §5).
- *   2. Reject / continuation off the latest overnight-level sweep — a high swept
- *      then closed back through = bearish rejection; held = bullish continuation
- *      (mirror for lows).
- *   3. An internal-tier structure break.
- * Returns the direction + tier/displacement metadata so the combiner can decide
- * confirm vs grab vs reverse (§5: don't flip the day off a single event). No
- * in-window interaction → direction null (a non-vote, not a conflict). Pure.
+ * NY-open reaction direction (daily-bias §4). "It's not the initial liquidity we
+ * take — it's the reaction" (BIAS 20:33); "wait for later displacement" (38:23);
+ * gauge it "through breaking these lower-high sequences" — structure, above the
+ * raw grab (BIAS 27:42). Priority:
+ *   1. Latest SWING-tier displaced break from the open to the read time — the
+ *      reaction Lanto waits for (often after the first 30 min, e.g. 06-09's 10:40
+ *      bear MSS). Catches genuine reversals (§5).
+ *   2. Else the STANDING swing structure (the leg into the open). A grab OPPOSING
+ *      it is a failed break — the grab is the liquidity, the structure the
+ *      reaction (06-16: the low-sweep bounce was the grab, the reaction down).
+ *   3. Else a post-open INTERNAL-tier displaced break — the LH/HL-sequence break
+ *      that sets the open's direction (06-17 the bear MSS that sold the open).
+ *   4. Else the raw opening grab (reject/continuation off the overnight sweep).
+ *   5. Else no vote (a non-vote, not a conflict).
  *
- * @param {object} args { sweeps[], structures[], window:{startMs,endMs}, session }
+ * `window` = { startMs: session open, endMs: read time }. Pure.
  */
 export function nyOpenReaction({ sweeps = [], structures = [], window = {}, session = 'ny-am' } = {}) {
+  const { startMs = -Infinity, endMs = Infinity } = window;
   const targets = overnightTargetsForSession(session);
-  const sweepHits = (sweeps || []).filter((s) => targets.has(s?.target) && inWindow(s?.swept_ms, window));
-  const structHits = (structures || []).filter(
-    (s) => inWindow(s?.confirmed_ms, window) && (s?.dir === 'bull' || s?.dir === 'bear'),
+  const structs = (structures || []).filter((s) => s?.dir === 'bull' || s?.dir === 'bear');
+  const mk = (dir, interaction, source, level, tier, displaced) => ({
+    vote: dir ?? 'none', direction: dir ?? null, interaction, source, level: level ?? null, tier: tier ?? null, displaced: !!displaced,
+  });
+
+  const grab = latestBy(
+    (sweeps || []).filter((s) => targets.has(s?.target) && inWindow(s?.swept_ms, { startMs, endMs: startMs + GRAB_WINDOW_MS })),
+    'swept_ms',
   );
+  const grabDir = grab
+    ? (isHighLevel(grab.target) ? (grab.rejected === true ? 'bearish' : 'bullish') : grab.rejected === true ? 'bullish' : 'bearish')
+    : null;
 
-  let sweepDir = null;
-  let sweepInteraction = null;
-  let level = null;
-  if (sweepHits.length) {
-    const last = sweepHits.reduce((a, b) => (b.swept_ms >= a.swept_ms ? b : a));
-    const high = isHighLevel(last.target);
-    const rejected = last.rejected === true;
-    sweepInteraction = rejected ? 'rejection' : 'continuation';
-    sweepDir = high ? (rejected ? 'bearish' : 'bullish') : rejected ? 'bullish' : 'bearish';
-    level = last.target;
+  // (1) Post-open swing-tier displacement — the reaction (catches reversals, §5).
+  const postOpenSwing = latestBy(
+    structs.filter((s) => s.tier === 'swing' && dispBreak(s) && inWindow(s.confirmed_ms, { startMs, endMs })),
+    'confirmed_ms',
+  );
+  if (postOpenSwing) return mk(structBias(postOpenSwing), 'swing_displacement', 'structure', postOpenSwing.level, 'swing', true);
+
+  // (2) Standing swing structure (the leg into the open); a grab opposing it fails.
+  const standingSwing = latestBy(
+    structs.filter((s) => s.tier === 'swing' && dispBreak(s)
+      && Number(s.confirmed_ms) <= endMs && Number(s.confirmed_ms) >= startMs - STANDING_LOOKBACK_MS),
+    'confirmed_ms',
+  );
+  if (standingSwing) {
+    const dir = structBias(standingSwing);
+    const interaction = grabDir && grabDir !== dir ? 'failed_break' : 'standing_swing';
+    return mk(dir, interaction, 'structure', grab?.target ?? standingSwing.level, 'swing', true);
   }
 
-  // Latest structure break in window; prefer swing-tier — the "mass displacement"
-  // reversal §5 demands before the day's direction can be set/flipped.
-  let struct = null;
-  if (structHits.length) {
-    const swing = structHits.filter((s) => s.tier === 'swing');
-    const pool = swing.length ? swing : structHits;
-    struct = pool.reduce((a, b) => ((b.confirmed_ms || 0) >= (a.confirmed_ms || 0) ? b : a));
-  }
-  const structDir = struct ? (struct.dir === 'bear' ? 'bearish' : 'bullish') : null;
+  // (3) Post-open internal-tier displaced break — breaking the LH/HL sequence
+  // (BIAS 27:42 "gauge through breaking these lower-high sequences"), above the
+  // raw grab.
+  const internal = latestBy(
+    structs.filter((s) => s.tier === 'internal' && dispBreak(s) && inWindow(s.confirmed_ms, { startMs, endMs })),
+    'confirmed_ms',
+  );
+  if (internal) return mk(structBias(internal), 'internal_break', 'structure', internal.level, 'internal', false);
 
-  let direction = null;
-  let interaction = 'none';
-  let source = null;
-  if (struct?.tier === 'swing') {
-    direction = structDir;
-    interaction = 'structure_break';
-    source = 'structure';
-  } else if (sweepDir) {
-    direction = sweepDir;
-    interaction = `sweep_${sweepInteraction}`;
-    source = 'sweep';
-  } else if (structDir) {
-    direction = structDir;
-    interaction = 'structure_break';
-    source = 'structure';
-  }
+  // (4) The raw opening grab.
+  if (grab) return mk(grabDir, `sweep_${grab.rejected === true ? 'rejection' : 'continuation'}`, 'sweep', grab.target, null, false);
 
-  return {
-    vote: direction ?? 'none',
-    direction,
-    interaction,
-    source,
-    level,
-    tier: struct?.tier ?? null,
-    displaced: struct ? struct.displacement === true || struct.validation === 'break' : !!sweepDir,
-  };
+  return mk(null, 'none', null, null, null, false);
 }
 
 // --- Slice 4: the nested 3-component grade (daily-bias §1; README grade table) ---
