@@ -67,5 +67,23 @@ console.table(report);
 await page.screenshot({ path: path.join(dir, "shot-full.png"), fullPage: true });
 const pop = await page.$(".bt-popover");
 if (pop) await pop.screenshot({ path: path.join(dir, "shot-popover.png") });
+
+// light theme pass — flip data-theme and re-probe + shoot
+await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
+await new Promise((r) => setTimeout(r, 120));
+const lightRows = [];
+for (const [name, sel] of SAMPLES) {
+  const d = await page.evaluate((sel) => {
+    const el = document.querySelector(sel); if (!el) return null;
+    const s = getComputedStyle(el); return { bg: s.backgroundColor, color: s.color };
+  }, sel);
+  lightRows.push({ name, ...(d || {}) });
+}
+console.log("\n=== LIGHT THEME ===");
+console.table(lightRows);
+await page.screenshot({ path: path.join(dir, "shot-light.png"), fullPage: true });
+const popL = await page.$(".bt-popover");
+if (popL) await popL.screenshot({ path: path.join(dir, "shot-popover-light.png") });
+
 await browser.close();
-console.log("\nwrote shot-full.png + shot-popover.png");
+console.log("\nwrote shot-full.png + shot-popover.png + shot-light.png + shot-popover-light.png");
