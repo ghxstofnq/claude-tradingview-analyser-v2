@@ -220,16 +220,9 @@ export function registerExecutionIpc() {
     });
   }
 
-  // ADD / scale-in: open a tranche as its OWN standalone position (entry + its
-  // own stop + its own target), per the netting workaround. Supersedes the old
-  // averaging addToPosition. Used by the manual ADD button (auto modes open
-  // tranches via the bar-close tranche manager). payload = the setup/packet.
-  ipcMain.handle("execution:openTranche", async (_e, payload) => {
-    try {
-      const { openTrancheNow } = await import("./execution/tranche-manager.js");
-      return await openTrancheNow({ packet: payload, role: payload?.tranche_role || "add" });
-    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
-  });
+  // (execution:openTranche / the manual ADD path removed 2026-06-23 — scale-in
+  // deleted; the bot trades one position at a time. The renderer ADD control is
+  // removed in Stage F.)
 
   // BE: move the stop to the entry (break-even) via modify_position.
   ipcMain.handle("execution:moveStopToBE", async () => {

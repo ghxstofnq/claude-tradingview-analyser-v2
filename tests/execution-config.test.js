@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { readExecConfig, DEFAULT_EXEC_CONFIG, mergeExecConfig } from "../app/main/execution/config.js";
 
 describe("exec config defaults", () => {
-  it("defaults are backtest-exact", () => {
+  it("defaults are backtest-exact (scale-in maxAdds/combinedCapUsd removed 2026-06-23)", () => {
     assert.equal(DEFAULT_EXEC_CONFIG.automationMode, "manual");
-    assert.equal(DEFAULT_EXEC_CONFIG.maxAdds, 5);
-    assert.equal(DEFAULT_EXEC_CONFIG.combinedCapUsd, null);
+    assert.equal(DEFAULT_EXEC_CONFIG.maxAdds, undefined);
+    assert.equal(DEFAULT_EXEC_CONFIG.combinedCapUsd, undefined);
     assert.equal(DEFAULT_EXEC_CONFIG.guards.perTradeMax, 250);
     assert.equal(DEFAULT_EXEC_CONFIG.guards.dailyLimit, 600);
     assert.equal(DEFAULT_EXEC_CONFIG.guards.defaultRisk, 120);
@@ -15,7 +15,6 @@ describe("exec config defaults", () => {
   it("readExecConfig returns defaults when no file", () => {
     const cfg = readExecConfig();
     assert.equal(typeof cfg.automationMode, "string");
-    assert.equal(cfg.maxAdds >= 0, true);
     assert.equal(typeof cfg.guards, "object");
   });
 });
