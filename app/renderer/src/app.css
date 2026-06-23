@@ -4216,7 +4216,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .prep-decision .draw { margin-top: 10px; color: var(--label); font-size: 11px; letter-spacing: 0.06em; }
 .prep-decision .draw b { color: var(--value-strong); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .prep-decision .reason { margin-top: 6px; color: var(--label); font-size: 11px; line-height: 1.5; }
-.prep-decision .ctl { margin-top: 12px; display: flex; gap: 6px; justify-content: flex-end; }
+.prep-decision .ctl { margin-top: 12px; display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
 
 .or-note { margin-top: 8px; color: var(--label); font-size: 11px; line-height: 1.5; }
 .prep-empty { color: var(--label); font-size: 11px; padding: 6px 0; }

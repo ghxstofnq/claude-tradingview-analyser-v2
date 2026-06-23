@@ -38,14 +38,15 @@ const toneCls = (t) =>
 
 // ───────────────────────────────────────────────────────────────────────
 // DECISION strip — the one thing you open PREP to learn, up top.
-function DecisionStrip({ brief, view, onView, selectedSymbol, setSelectedSymbol, onRefresh }) {
+function DecisionStrip({ brief, view, onView, selectedSymbol, setSelectedSymbol, onRefresh, status }) {
   const d = decisionLine(brief);
+  const refreshing = status === "running";
   return (
     <div className="prep-decision">
       <div className="top">
         <span className={"grade-pill grade-lg " + d.gradeTone}>{d.grade}</span>
         <span className={"bias " + d.biasTone}>{d.bias}</span>
-        <span className="count">{d.cast}/3{d.cast >= 3 ? "" : " · NY open pending"}</span>
+        <span className="count">{d.cast}/3{d.cast >= 3 ? "" : " · open pending"}</span>
         <span className="seg">
           <span className={"pill interactive" + (view === "det" ? " active" : "")} {...clickable(() => onView("det"))}>DET</span>
           <span className={"pill interactive" + (view === "ai" ? " active" : "")} {...clickable(() => onView("ai"))}>AI</span>
@@ -59,7 +60,9 @@ function DecisionStrip({ brief, view, onView, selectedSymbol, setSelectedSymbol,
                 className={"pill interactive" + (t.sym === selectedSymbol ? " active" : "")}
                 {...clickable(() => setSelectedSymbol(t.sym))}>{t.label}</span>
         ))}
-        <span className="pill interactive primary" {...clickable(onRefresh)}>REFRESH</span>
+        {refreshing
+          ? <span className="pill dim" title="refreshing the brief…">REFRESHING…</span>
+          : <span className="pill interactive" {...clickable(onRefresh, { label: "refresh brief" })}>↻ REFRESH</span>}
       </div>
     </div>
   );
@@ -178,7 +181,7 @@ function LevelsPanel({ brief, currentPrice, armed, fired, onArm, onDisarm }) {
 
 // ───────────────────────────────────────────────────────────────────────
 // OPEN REACTION — Lanto's third bias component: the reaction (not the grab)
-// after 09:30. PENDING pre-open; flips to CONFIRMS / FLIPS / NOT YET live.
+// after the session open. PENDING pre-open; flips to CONFIRMS / FLIPS / NOT YET live.
 function OpenReactionPanel({ brief, session }) {
   const { latest } = useOpenReaction(session);
   const orv = openReactionVerdict(latest, brief);
@@ -244,7 +247,7 @@ function AiView({ symbol, session, brief }) {
 // ───────────────────────────────────────────────────────────────────────
 function PrepBody({ symbol, currentPrice }) {
   const backtest = useBacktestRunning();
-  const { brief, selectedSymbol, setSelectedSymbol, session, refresh } = useSessionBrief();
+  const { brief, selectedSymbol, setSelectedSymbol, session, status, refresh } = useSessionBrief();
   const [view, setView] = useState("det");
 
   useEffect(() => {
@@ -284,6 +287,7 @@ function PrepBody({ symbol, currentPrice }) {
         selectedSymbol={selectedSymbol}
         setSelectedSymbol={setSelectedSymbol}
         onRefresh={refresh}
+        status={status}
       />
       {view === "det" ? (
         <>

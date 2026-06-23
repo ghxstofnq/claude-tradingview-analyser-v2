@@ -319,7 +319,7 @@ export function drawBiasVoteRows(brief) {
     rows: [
       { k: "HTF vote", v: htf.v, tone: htf.tone, tip: "Reaction off the significant near-price HTF PD array (daily-bias §1)" },
       { k: "Overnight vote", v: overnight.v, tone: overnight.tone, tip: "Overnight directional read (Asia/London) — engine overnight_dir" },
-      { k: "NY-open", v: "PENDING", tone: "dim", tip: "Third component — the NY-open reaction, resolves live after 09:30 ET" },
+      { k: "Open", v: "PENDING", tone: "dim", tip: "Third component — the session-open reaction, resolves live after the open" },
     ],
     cast,
     grade: brief?.pillar_grade || null,
@@ -396,7 +396,7 @@ export function openReactionVerdict(latest, brief) {
   let ny = { v: "PENDING", tone: "dim" };
   let verdict = "PENDING";
   let verdictTone = "dim";
-  let note = "Resolves after 09:30 — the initial NY move into opposing / overnight liquidity, then the reaction (not the grab).";
+  let note = "Resolves at the session open — the initial move into opposing / overnight liquidity, then the reaction (not the grab).";
 
   if (resolved) {
     const conf = String(latest.verdict || latest.confirmation || "").toLowerCase();
@@ -415,7 +415,7 @@ export function openReactionVerdict(latest, brief) {
     rows: [
       { k: "HTF", v: htf.v, tone: htf.tone },
       { k: "Overnight", v: overnight.v, tone: overnight.tone },
-      { k: "NY open", v: ny.v, tone: ny.tone },
+      { k: "Open", v: ny.v, tone: ny.tone },
     ],
     verdict, verdictTone, note, resolved,
   };
