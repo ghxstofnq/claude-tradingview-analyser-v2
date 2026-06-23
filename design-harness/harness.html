@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>design harness</title>
+  <!-- the REAL stylesheet — @font-face urls resolve relative to app.css -->
+  <link rel="stylesheet" href="../app/renderer/src/app.css" />
+  <style>
+    /* harness-only: un-float the popover + stack chrome so one shot shows it all */
+    body { margin: 0; padding: 24px; background: var(--surface-0);
+           display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .topbar, .statusline { position: static !important; }
+    .bt-popover { position: static !important; inset: auto !important; margin: 0 !important; }
+    .stage { display: flex; justify-content: center; }
+    .pill-rail { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 14px; }
+  </style>
+</head>
+<body>
+
+  <!-- TOPBAR chrome (the "gray bar" up top) -->
+  <header class="topbar">
+    <div class="id"><span class="wm">G<span class="accent">X</span>OFNQ</span></div>
+    <div class="status">
+      <div class="cell"><span class="k">VER</span><span class="v">9c3aafe</span></div>
+      <div class="cell"><span class="k">ACCT</span><span class="v">PAPER · 9256021</span></div>
+      <div class="cell pop-cell"><span class="k">ALERTS</span><span class="count">3</span></div>
+      <div class="cell pop-cell"><span class="k">NEWS</span><span class="count">2</span></div>
+      <div class="cell"><button class="th-btn">◐</button></div>
+    </div>
+  </header>
+
+  <!-- STATUSLINE chrome (the "gray bar" down bottom) -->
+  <div class="statusline">
+    <div class="grp">
+      <div class="cell pop-cell open"><span class="k">PREP</span><span class="dot"></span></div>
+      <div class="cell pop-cell"><span class="k">LIVE</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">REVIEW</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">BACKTEST</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">CHAT</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">ORDERS</span><span class="dot dim"></span></div>
+    </div>
+    <div class="grp">
+      <span class="item"><span class="k">PH</span><span class="v amber">NY-AM</span></span>
+      <span class="item"><span class="k">KZ</span><span class="v">09:30–10:00</span></span>
+      <span class="item"><span class="k">LAST BAR</span><span class="v">21512.25</span></span>
+    </div>
+  </div>
+
+  <!-- PREP popover (head bar + body cards) -->
+  <div class="stage">
+    <div class="bt-popover w-660">
+      <div class="head">
+        <span class="t">PREP</span>
+        <span class="sub">2026-06-23 · NY-AM</span>
+        <span class="x">×</span>
+      </div>
+      <div class="body">
+
+        <section class="panel">
+          <header class="panel-head">
+            <span class="title">SESSION BRIEF · NY-AM</span>
+            <span class="meta">
+              <span style="color:var(--label);font-size:10px;">2m ago</span>
+              <span class="pill amber">clean</span>
+              <span class="grade-pill green">B</span>
+            </span>
+          </header>
+          <div class="panel-body">
+            <div style="color:var(--prose);font-size:12px;line-height:1.6;padding:6px 0 12px 0;">
+              Daily draw sits below at the prior-week low; price swept the Asia high overnight and
+              rejected. NY open should react off the NYAM range — favor shorts into the unfilled
+              bearish FVG if the 1m confirms.
+            </div>
+            <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;padding-top:8px;border-top:1px dashed var(--label-dim);">
+              <span class="pill interactive active">MNQ</span>
+              <span class="pill interactive">MES</span>
+              <span class="pill interactive primary" style="margin-left:8px;">REFRESH</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><span class="title">STEP 1 · DRAW &amp; BIAS</span><span class="meta">2 / 3 cast</span></header>
+          <div class="panel-body">
+            <div class="row"><span class="k">HTF draw</span><span class="v">PW low (bearish)</span></div>
+            <div class="row"><span class="k">Overnight</span><span class="v">Asia high swept</span></div>
+            <div class="row"><span class="k">NY open</span><span class="v amber">pending</span></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><span class="title">STEP 2 · OVERNIGHT + LEVELS</span></header>
+          <div class="panel-body">
+            <div class="lv-box">
+              <div class="row"><span class="k">NYAM.H</span><span class="v">21540.00</span></div>
+              <div class="row"><span class="k">Asia.H</span><span class="v">21528.50</span></div>
+            </div>
+            <div class="lv-box" style="margin-top:8px;">
+              <div class="row"><span class="k">PW.L</span><span class="v">21455.75</span></div>
+              <div class="row"><span class="k">PD.L</span><span class="v">21470.25</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><span class="title">STEP 3 · PRICE QUALITY</span></header>
+          <div class="panel-body">
+            <div class="row"><span class="k">Displacement</span><span class="v green">clean</span></div>
+            <div class="row"><span class="k">Range (3h)</span><span class="v">acceptable</span></div>
+            <div class="row"><span class="k">Candle</span><span class="v red">weak body</span></div>
+          </div>
+        </section>
+
+        <div class="pill-rail">
+          <span class="grade-pill green">A+</span>
+          <span class="grade-pill amber">B</span>
+          <span class="grade-pill red">no-trade</span>
+          <span class="pill">idle</span>
+          <span class="pill active">active</span>
+          <span class="pill amber">amber</span>
+          <span class="pill green">green</span>
+          <span class="pill red">red</span>
+          <span class="pill primary">PRIMARY</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

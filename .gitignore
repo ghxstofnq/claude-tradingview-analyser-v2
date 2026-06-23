@@ -4,6 +4,8 @@ node_modules/
 .env
 .env.local
 .claude/settings.local.json
+.claude/skills/impeccable/
+.impeccable/
 state/
 
 # Go compiled artifacts (tv-dash). Source lives in cmd/tv-dash/.
