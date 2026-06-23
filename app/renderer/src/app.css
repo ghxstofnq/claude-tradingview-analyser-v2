@@ -3110,8 +3110,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 /* LIVE section boxes — unify ACTIONS / BRAIN / CLAUDE READ into the same
    bordered black box as WALKER STATUS and the ladder. */
-.bt-popover .lv-box { background: var(--surface-0); border: 1px solid var(--border-d); padding: 12px 14px; margin-top: 10px; }
-.bt-popover .lv-box-hd { color: var(--label-dim); font-size: 9px; letter-spacing: 0.24em; margin-bottom: 10px; }
+.bt-popover .lv-box { background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-md); padding: 13px 15px; margin-top: 12px; }
+.bt-popover .lv-box-hd { color: var(--label); font-size: 9px; letter-spacing: 0.08em; margin-bottom: 10px; }
 .bt-popover .lv-box .trade-actions { margin: 0; }
 .bt-popover .ai-prose { border-left: 2px solid var(--blue); padding-left: 12px; color: var(--prose); font-size: 11px; line-height: 1.65; }
 .bt-popover .ai-prose .ts { color: var(--label-dim); font-size: 9.5px; letter-spacing: 0.06em; margin-right: 6px; }
@@ -3141,7 +3141,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .news-popover .head .t,
 .alerts-popover .head .t {
   font-size: 9.5px;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.09em;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -3277,7 +3277,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   margin: 18px 0 10px;
   color: var(--label);
   font-size: 9px;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.09em;
   border-bottom: 0;
 }
 .bt-popover .sect-hd::before {
@@ -3434,7 +3434,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 /* ── News + alerts rows ────────────────────────────────────────────────── */
 .news-row { border-bottom: 1px solid var(--border); padding: 9px 12px; }
 .alert-row { border-bottom: 1px solid var(--border); padding: 9px 12px; }
-.news-popover .day-header { letter-spacing: 0.24em; background: var(--surface-2); }
+.news-popover .day-header { letter-spacing: 0.09em; background: var(--surface-2); }
 
 /* NEWS + ALERTS open consistently at the top-right (mirror of the bottom-left
    popovers), and ALERTS matches the NEWS popover's size. */
@@ -3656,7 +3656,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   width: 100%; margin-top: 12px;
   background: rgba(110,199,136,0.08); border: 1px solid var(--green);
   color: var(--green); font-family: var(--sans); font-weight: 600;
-  font-size: 12px; letter-spacing: 0.24em; padding: 14px 12px; cursor: pointer;
+  font-size: 12px; letter-spacing: 0.09em; padding: 14px 12px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; gap: 10px; white-space: nowrap;
 }
 .bt-popover .tk-fire:hover { background: rgba(110,199,136,0.16); }
