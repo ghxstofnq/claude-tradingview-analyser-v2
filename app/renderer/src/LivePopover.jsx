@@ -73,24 +73,6 @@ function latestReadText(messages) {
   return null;
 }
 
-// ── DET / AI toggle — shared by HUNT + IN-TRADE ──────────────────────────
-function DetAiToggle({ mode, onMode }) {
-  return (
-    <span className="seg" style={{ display: "inline-flex", gap: 4 }}>
-      <span className={"pill interactive" + (mode === "det" ? " active" : "")} onClick={() => onMode("det")}>DET</span>
-      <span className={"pill interactive" + (mode === "ai" ? " active" : "")} onClick={() => onMode("ai")}>AI</span>
-    </span>
-  );
-}
-
-function ModeBar({ mode, onMode }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 12px 0" }}>
-      <DetAiToggle mode={mode} onMode={onMode} />
-    </div>
-  );
-}
-
 // ── OPEN REACTION (live) — Lanto's third bias component resolving in-session.
 // Reuses the same deterministic verdict logic as PREP; pre-open shows PENDING,
 // then flips to CONFIRMS / FLIPS / NOT YET once the resolver writes a read.
@@ -105,42 +87,35 @@ function LiveOpenReactionPanel({ latest, brief }) {
   );
 }
 
-// ── AI · LIVE READ — Claude's per-bar reads streaming in (already produced
-// on packet / stage / 5m close), plus a DEEPEN NOW button for one fresh
-// in-depth pass on demand. The DET/AI difference from PREP: this is live.
-function LiveAiStream({ chat, symbol, session, brief, deepenPrompt }) {
-  const ai = useAiAnalysis({ symbol, session, brief, prompt: deepenPrompt });
-  const reads = (chat?.messages || [])
-    .filter((m) => m && (m.type === "bar-read" || m.type === "reply") && m.body)
-    .slice(-12);
+// ── AI · DEEPER READ — an on-demand button that lives INSIDE a card. The
+// structured/computed view is always shown; click this only when you want a
+// fresh in-depth analysis of the current moment. Re-run while open.
+function AiDeepen({ symbol, session, brief, prompt }) {
+  const ai = useAiAnalysis({ symbol, session, brief, prompt });
+  const [open, setOpen] = useState(false);
+  const start = () => { setOpen(true); ai.run(); };
+  if (!open) {
+    return (
+      <button className="btn" style={{ marginTop: 12 }} onClick={start} title="run a deeper AI analysis of this">
+        AI · DEEPER READ ▸
+      </button>
+    );
+  }
   const tsLabel = ai.ts
     ? new Date(ai.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" }) + " ET"
     : null;
   return (
-    <Panel title="AI · LIVE READ"
-      right={ai.running
-        ? <span className="pill dim">deepening…</span>
-        : <span className="pill interactive" onClick={ai.run}>DEEPEN NOW</span>}>
-      {ai.text ? (
-        <div className="lv-box" style={{ marginTop: 0 }}>
-          <div className="lv-box-hd">DEEPER READ{tsLabel ? ` · ${tsLabel}` : ""}</div>
-          <div className="ai-prose">{ai.text}</div>
-        </div>
-      ) : null}
-      <div className="lv-box" style={{ marginTop: ai.text ? 10 : 0 }}>
-        <div className="lv-box-hd">PER-BAR READ · LIVE</div>
-        {reads.length ? (
-          reads.slice().reverse().map((m, i) => (
-            <div key={i} className="ai-prose" style={{ marginBottom: 6 }}>
-              {m.t ? <span style={{ color: "var(--label)", fontSize: 9.5, letterSpacing: ".06em" }}>{m.t} · </span> : null}
-              {stripCitations(m.body.replace(/<[^>]+>/g, " "))}
-            </div>
-          ))
-        ) : (
-          <div className="ai-prose">no live reads yet this session — they stream in on packet / stage / 5m close.</div>
-        )}
+    <div className="lv-box" style={{ marginTop: 12 }}>
+      <div className="lv-box-hd" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>AI · DEEPER READ{tsLabel ? ` · ${tsLabel}` : ""}</span>
+        {ai.running
+          ? <span className="pill dim">analyzing…</span>
+          : <span className="pill interactive" onClick={ai.run}>RE-RUN</span>}
       </div>
-    </Panel>
+      <div className="ai-prose">
+        {ai.text || (ai.running ? "running a deeper read… (~a few seconds; costs a turn)" : "no read returned.")}
+      </div>
+    </div>
   );
 }
 
@@ -241,7 +216,7 @@ function TicketView({ setup, account, guards, symbol, onFire, onCancel }) {
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
-function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, detAi, setDetAi, chat, brief, session }) {
+function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, brief, session }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -284,18 +259,9 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, d
     }
   }
   const mng = (fn) => () => { try { executionAdapter[fn]({ symbol: position?.symbol || symbol, tradeId: t.id }); } catch { /* best-effort */ } };
-  if (detAi === "ai") {
-    const deepenPrompt = `Live read of the open ${t.model || side} ${side} trade on ${sym} (entry ${entry} / stop ${stop} / TP1 ${tp1}). Per Lanto — is price respecting the setup, has it confirmed continuation toward the ultimate target, and should the runner trail or is structure breaking? Concise prose, no tool calls.`;
-    return (
-      <div className="work-scroll">
-        <ModeBar mode={detAi} onMode={setDetAi} />
-        <LiveAiStream chat={chat} symbol={sym} session={session} brief={brief} deepenPrompt={deepenPrompt} />
-      </div>
-    );
-  }
+  const deepenPrompt = `Live read of the open ${t.model || side} ${side} trade on ${sym} (entry ${entry} / stop ${stop} / TP1 ${tp1}). Per Lanto — is price respecting the setup, has it confirmed continuation toward the ultimate target, and should the runner trail or is structure breaking? Concise prose, no tool calls.`;
   return (
     <div className="work-scroll">
-      <ModeBar mode={detAi} onMode={setDetAi} />
       <Panel title="IN-TRADE"
         right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
           {live && <span className="acct live">● LIVE</span>}
@@ -346,14 +312,15 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, d
             <div className="ai-prose">{walkerTruthToProse(latestBrain.truth)}</div>
           </div>
         )}
+        <AiDeepen symbol={sym} session={session} brief={brief} prompt={deepenPrompt} />
       </Panel>
     </div>
   );
 }
 
 // ── ENTRY (verdict-first) — open-reaction verdict + entry model + 1m
-// confirmation. DET = structured candidate; AI = live per-bar reads + DEEPEN.
-function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject, openReaction, brief, session, symbol, detAi, setDetAi }) {
+// confirmation. Always structured; an in-card AI button runs a deeper read.
+function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject, openReaction, brief, session, symbol }) {
   const read = latestReadText(chat?.messages || []);
   const orPanel = <LiveOpenReactionPanel latest={openReaction?.latest} brief={brief} />;
 
@@ -363,12 +330,8 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
     const deepenPrompt = `Live read of ${symbol || "the lead symbol"}${session ? `, ${session.toUpperCase()}` : ""}: no setup is surfaced yet. Per Lanto — what is price doing right now (displacement vs consolidation), is the open-reaction bias confirming, and what would the next clean MSS / Trend / Inversion entry need? Concise prose, no tool calls.`;
     return (
       <div className="work-scroll">
-        <ModeBar mode={detAi} onMode={setDetAi} />
         {orPanel}
-        {detAi === "ai" ? (
-          <LiveAiStream chat={chat} symbol={symbol} session={session} brief={brief} deepenPrompt={deepenPrompt} />
-        ) : (
-          <Panel title="ENTRY CANDIDATE" right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
+        <Panel title="ENTRY CANDIDATE" right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
             <div className="lv-box" style={{ marginTop: 0 }}>
               <div className="lv-box-hd">{noTradeReason ? "NO-TRADE REASON" : "STATUS"}</div>
               <div style={prose}>{noTradeReason || "awaiting next walker fire."}</div>
@@ -412,8 +375,8 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
                 <div className="ai-prose">{read.text}</div>
               </div>
             )}
-          </Panel>
-        )}
+            <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
+        </Panel>
       </div>
     );
   }
@@ -439,17 +402,13 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
 
   return (
     <div className="work-scroll">
-      <ModeBar mode={detAi} onMode={setDetAi} />
       {orPanel}
-      {detAi === "ai" ? (
-        <LiveAiStream chat={chat} symbol={symbol} session={session} brief={brief} deepenPrompt={deepenPrompt} />
-      ) : (
-        <Panel title="ENTRY"
-          right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-            <span className={"pill " + (side === "long" ? "green" : "red")}>{(setup.side || "").toUpperCase()}</span>
-            <span className={"pill " + gradeTone}>{grade}</span>
-            <span style={{ color: "var(--label)", fontSize: 10 }}>{modelLabel(setup)}</span>
-          </span>}>
+      <Panel title="ENTRY"
+        right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+          <span className={"pill " + (side === "long" ? "green" : "red")}>{(setup.side || "").toUpperCase()}</span>
+          <span className={"pill " + gradeTone}>{grade}</span>
+          <span style={{ color: "var(--label)", fontSize: 10 }}>{modelLabel(setup)}</span>
+        </span>}>
           <div className="lv-box" style={{ marginTop: 0 }}>
             <div className="lv-box-hd">CONFIRMATION</div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -496,8 +455,8 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
               <div className="ai-prose">{read.text}</div>
             </div>
           )}
+          <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
         </Panel>
-      )}
     </div>
   );
 }
@@ -529,7 +488,6 @@ function LiveCell({ guards, symbol }) {
   const exec = useExecutionState();
   const { brief, session } = useSessionBrief();
   const openReaction = useOpenReaction(session);
-  const [detAi, setDetAi] = useState("det");
   // Real account orders route to (paper/live) — for the ticket badge + journal
   // metadata. Routing itself is enforced main-side by the confirmed account.
   const { acct } = useBrokerAccount();
@@ -634,7 +592,7 @@ function LiveCell({ guards, symbol }) {
   } else if (effectiveView === "intrade") {
     body = (exec.position || activeTrade)
       ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
-                     detAi={detAi} setDetAi={setDetAi} chat={chat} brief={brief} session={session} />
+                     brief={brief} session={session} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
@@ -645,8 +603,7 @@ function LiveCell({ guards, symbol }) {
     body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
                           noTrade={noTrade} noTradeReason={noTradeReason}
                           onAccept={onHuntAccept} onReject={() => pickView("hunt")}
-                          openReaction={openReaction} brief={brief} session={session} symbol={symbol}
-                          detAi={detAi} setDetAi={setDetAi} />;
+                          openReaction={openReaction} brief={brief} session={session} symbol={symbol} />;
   }
 
   return (
