@@ -23,6 +23,7 @@
     "packages/*"
   ],
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@tvmcp/core": "*",
     "chrome-remote-interface": "^0.33.2"
   }
