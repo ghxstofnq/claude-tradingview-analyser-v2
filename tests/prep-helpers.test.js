@@ -17,6 +17,8 @@ import {
   overnightHeaderRows,
   scenariosMeta,
   stripCitations,
+  decisionLine,
+  openReactionVerdict,
 } from "../app/renderer/src/Prep.helpers.js";
 
 describe("drawBiasVoteRows (Stage F — 3-component draw-bias grade)", () => {
@@ -240,11 +242,74 @@ describe("scenariosMeta", () => {
   });
 });
 
-describe("PrepPopover deterministic labels", () => {
-  it("does not brand deterministic prep sections as Claude-authored", () => {
-    assert.match(prepPopoverSource, /Panel title="BRIEF · DETERMINISTIC"/);
+describe("PrepPopover deterministic / AI separation", () => {
+  it("renders deterministic structured panels (not Claude-branded prose)", () => {
+    // Verdict-first redesign: the DET view is structured panels, not prose.
+    assert.match(prepPopoverSource, /title="BIAS"/);
+    assert.match(prepPopoverSource, /title="OPEN REACTION"/);
+    assert.match(prepPopoverSource, /title="PLAN/);
+    // The deterministic body must never be branded as Claude/AI-authored.
     assert.doesNotMatch(prepPopoverSource, /BRIEF · CLAUDE/);
     assert.doesNotMatch(prepPopoverSource, /Claude will propose/);
+  });
+  it("gates AI analysis behind an explicit DET/AI toggle + labelled AI view", () => {
+    assert.match(prepPopoverSource, /onView\("det"\)/);
+    assert.match(prepPopoverSource, /onView\("ai"\)/);
+    assert.match(prepPopoverSource, /AI IN-DEPTH/);
+  });
+});
+
+describe("decisionLine (verdict-first hero)", () => {
+  it("maps grade → tone, net bias, cast count, draw, and a deterministic reason", () => {
+    const out = decisionLine({
+      pillar_grade: "B",
+      htf_bias_dir: "bearish",
+      pillar1_votes: { htf: "bearish", overnight: "bearish" },
+      pillar2_verdict: "marginal",
+      primary_draw: { tf: "h4", kind: "ifvg", dir: "bull", ce: 29916.5, vote_reason: "inverted-displaced(0.52)" },
+    });
+    assert.equal(out.grade, "B");
+    assert.equal(out.gradeTone, "amber");
+    assert.equal(out.bias, "BEARISH");
+    assert.equal(out.biasTone, "bad");
+    assert.equal(out.cast, 2);
+    assert.equal(out.draw, "h4 bull IFVG · 29916.5");
+    assert.equal(out.reason, "inverted-displaced(0.52) · price quality marginal");
+  });
+
+  it("no-trade grade → red; empty brief → neutral defaults with cast 0", () => {
+    assert.equal(decisionLine({ pillar_grade: "no-trade" }).gradeTone, "red");
+    const empty = decisionLine({});
+    assert.equal(empty.grade, "—");
+    assert.equal(empty.bias, "NEUTRAL");
+    assert.equal(empty.biasTone, "warn");
+    assert.equal(empty.cast, 0);
+    assert.equal(empty.draw, "—");
+    assert.equal(empty.reason, "");
+  });
+
+  it("falls back to htf_destination when no primary_draw", () => {
+    assert.equal(decisionLine({ htf_destination: "below nearest untaken liquidity" }).draw, "below nearest untaken liquidity");
+  });
+});
+
+describe("openReactionVerdict (Lanto's 3rd component)", () => {
+  const brief = { pillar1_votes: { htf: "bearish", overnight: "bearish" } };
+
+  it("pre-open (no live read) → PENDING with HTF/Overnight votes mapped", () => {
+    const out = openReactionVerdict(null, brief);
+    assert.equal(out.resolved, false);
+    assert.equal(out.verdict, "PENDING");
+    assert.equal(out.rows[0].v, "BEAR");
+    assert.equal(out.rows[1].v, "BEAR");
+    assert.equal(out.rows[2].v, "PENDING");
+    assert.equal(out.rows[2].tone, "dim");
+  });
+
+  it("live confirm → CONFIRMS; flip → FLIPS; stand-aside → NOT YET", () => {
+    assert.equal(openReactionVerdict({ verdict: "confirmed", bias: "bearish" }, brief).verdict, "CONFIRMS");
+    assert.equal(openReactionVerdict({ verdict: "flip", bias: "bullish" }, brief).verdict, "FLIPS");
+    assert.equal(openReactionVerdict({ confirmation: "stand aside", reaction_dir: "mixed" }, brief).verdict, "NOT YET");
   });
 });
 

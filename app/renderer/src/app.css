@@ -4195,3 +4195,40 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
    tabindex + Enter/Space activation. */
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 [role="button"] { cursor: pointer; }
+
+/* ── PREP verdict-first redesign (2026-06-23) ──────────────────────────────────
+   DECISION strip is the hero: grade + bias + 3-component count + draw, with the
+   DET⇄AI toggle. Reuses .panel / .row / .pill / .grade-pill / .lvl / .scn below.
+   Appended last so it wins the cascade over the duplicated stylesheet copies. */
+.prep-decision {
+  margin: 10px 12px; padding: 14px 16px;
+  background: var(--surface-3); border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.prep-decision .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prep-decision .grade-lg { height: 28px; min-width: 54px; font-size: 14px; font-weight: 700; }
+.prep-decision .bias { font-size: 13px; letter-spacing: 0.06em; font-weight: 600; }
+.prep-decision .bias.ok { color: var(--green); }
+.prep-decision .bias.bad { color: var(--red); }
+.prep-decision .bias.warn { color: var(--amber); }
+.prep-decision .count { color: var(--label); font-size: 10.5px; letter-spacing: 0.04em; }
+.prep-decision .seg { margin-left: auto; display: inline-flex; gap: 4px; }
+.prep-decision .draw { margin-top: 10px; color: var(--label); font-size: 11px; letter-spacing: 0.06em; }
+.prep-decision .draw b { color: var(--value-strong); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.prep-decision .reason { margin-top: 6px; color: var(--label); font-size: 11px; line-height: 1.5; }
+.prep-decision .ctl { margin-top: 12px; display: flex; gap: 6px; justify-content: flex-end; }
+
+.or-note { margin-top: 8px; color: var(--label); font-size: 11px; line-height: 1.5; }
+.prep-empty { color: var(--label); font-size: 11px; padding: 6px 0; }
+
+.prep-ai {
+  margin: 10px 12px; padding: 14px 16px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.prep-ai .meta { display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  color: var(--label); font-size: 9.5px; letter-spacing: 0.08em; }
+.prep-ai .meta .spacer { flex: 1; }
+.prep-ai .meta .ts { color: var(--label-dim); font-size: 9.5px; letter-spacing: 0.04em; }
+.prep-ai .prose { color: var(--prose); font-size: 12px; line-height: 1.6;
+  white-space: pre-wrap; overflow-wrap: anywhere; }

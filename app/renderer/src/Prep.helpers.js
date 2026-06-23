@@ -333,3 +333,90 @@ export function scenariosMeta(brief) {
   if (!note) return "deterministic prep";
   return `deterministic prep · ${note}`;
 }
+
+// Build the verdict-first DECISION strip line from a deterministic brief.
+// Pure — used by PrepPopover's hero. Returns:
+//   { grade, gradeTone, bias, biasTone, cast, draw, reason }
+// `cast` is the count of pre-open components that voted (HTF + overnight) of 3;
+// the third (NY-open reaction) resolves live. `draw` is the primary HTF draw
+// rendered as "<tf> <dir> <KIND> · <price>". `reason` is a one-line
+// deterministic justification (no LLM).
+export function decisionLine(brief) {
+  const grade = brief?.pillar_grade || "—";
+  const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : grade === "no-trade" ? "red" : "dim";
+
+  const dirRaw = String(brief?.htf_bias_dir || brief?.primary_draw?.dir || "").toLowerCase();
+  const bias = dirRaw.startsWith("bull") ? "BULLISH"
+             : dirRaw.startsWith("bear") ? "BEARISH"
+             : dirRaw ? dirRaw.toUpperCase() : "NEUTRAL";
+  const biasTone = bias === "BULLISH" ? "ok" : bias === "BEARISH" ? "bad" : "warn";
+
+  const votes = brief?.pillar1_votes || {};
+  const isCast = (x) => x != null && String(x).toLowerCase() !== "none";
+  const cast = [votes.htf, votes.overnight].filter(isCast).length;
+
+  const pd = brief?.primary_draw;
+  let draw = "—";
+  if (pd) {
+    const price = pd.ce ?? pd.top ?? pd.bottom;
+    const tf = pd.tf || pd.timeframe || "";
+    const kind = String(pd.kind || pd.type || "").toUpperCase();
+    const d = pd.dir ? String(pd.dir).toLowerCase() : "";
+    const head = [tf, d, kind].filter(Boolean).join(" ");
+    draw = head + (price != null ? ` · ${price}` : "");
+  } else if (brief?.htf_destination) {
+    draw = brief.htf_destination;
+  }
+
+  const reasonParts = [];
+  if (pd?.vote_reason) reasonParts.push(pd.vote_reason);
+  if (brief?.pillar2_verdict) reasonParts.push(`price quality ${brief.pillar2_verdict}`);
+  const reason = reasonParts.join(" · ");
+
+  return { grade, gradeTone, bias, biasTone, cast, draw, reason };
+}
+
+// Resolve the OPEN-REACTION verdict block. Pre-open the third component is
+// PENDING; once the live open-reaction read exists (useOpenReaction.latest),
+// derive CONFIRMS / FLIPS / NOT YET from its fields. Defensive about the
+// open-reaction.json shape (verdict/confirmation/bias/reaction_dir/note all
+// optional). Returns { rows:[{k,v,tone}], verdict, verdictTone, note, resolved }.
+export function openReactionVerdict(latest, brief) {
+  const votes = brief?.pillar1_votes || {};
+  const fmtVote = (x) => {
+    const s = String(x || "none").toLowerCase();
+    if (s.startsWith("bull")) return { v: "BULL", tone: "ok" };
+    if (s.startsWith("bear")) return { v: "BEAR", tone: "bad" };
+    return { v: "NONE", tone: "dim" };
+  };
+  const htf = fmtVote(votes.htf);
+  const overnight = fmtVote(votes.overnight);
+
+  const resolved = !!latest && !!(latest.verdict || latest.confirmation || latest.bias || latest.reaction_dir);
+  let ny = { v: "PENDING", tone: "dim" };
+  let verdict = "PENDING";
+  let verdictTone = "dim";
+  let note = "Resolves after 09:30 — the initial NY move into opposing / overnight liquidity, then the reaction (not the grab).";
+
+  if (resolved) {
+    const conf = String(latest.verdict || latest.confirmation || "").toLowerCase();
+    const rdir = String(latest.bias || latest.reaction_dir || "").toLowerCase();
+    ny = rdir.startsWith("bull") ? { v: "BULL", tone: "ok" }
+       : rdir.startsWith("bear") ? { v: "BEAR", tone: "bad" }
+       : { v: "MIXED", tone: "warn" };
+    if (conf.includes("confirm") || conf.includes("aligned")) { verdict = "CONFIRMS"; verdictTone = "ok"; }
+    else if (conf.includes("flip") || conf.includes("revers") || conf.includes("divergent")) { verdict = "FLIPS"; verdictTone = "amber"; }
+    else if (conf.includes("stand") || conf.includes("hands") || conf.includes("unclear") || conf.includes("no")) { verdict = "NOT YET"; verdictTone = "dim"; }
+    else { verdict = String(latest.verdict || latest.confirmation || "READ").toUpperCase(); verdictTone = "warn"; }
+    note = latest.note || latest.summary || latest.reason || note;
+  }
+
+  return {
+    rows: [
+      { k: "HTF", v: htf.v, tone: htf.tone },
+      { k: "Overnight", v: overnight.v, tone: overnight.tone },
+      { k: "NY open", v: ny.v, tone: ny.tone },
+    ],
+    verdict, verdictTone, note, resolved,
+  };
+}
