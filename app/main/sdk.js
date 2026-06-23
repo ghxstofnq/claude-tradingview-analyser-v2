@@ -663,14 +663,15 @@ function buildMcpServer() {
         session: z.enum(["london", "ny-am", "ny-pm"]).describe("Which session this decision is for"),
         primary: z.string().describe("Primary symbol from the pair (e.g. 'MNQ1!')"),
         secondary: z.string().describe("Secondary symbol from the pair (e.g. 'MES1!')"),
-        leader: z.string().nullable().describe("The chosen leader symbol, or null if inconclusive (margin too small / no FVGs in window / etc.)"),
+        leader: z.string().nullable().describe("The chosen leader/vehicle symbol, or null when there is no SMT divergence (caller defaults to the primary) or the data is unreadable (stand aside)."),
         evidence: z.object({
-          primary_disp_score: z.number(),
-          secondary_disp_score: z.number(),
-          margin: z.number(),
-          threshold: z.number(),
-        }).describe("The numeric evidence from compute-leader. Always cite from pair.leader_evidence in the bundle."),
-        reason: z.string().describe("The reason from compute-leader: primary_higher_disp_score | secondary_higher_disp_score | inconclusive_margin_below_threshold | no_fvgs_created_in_window | secondary_engine_missing"),
+          bias_dir: z.string().nullable().optional(),
+          divergence: z.boolean().optional(),
+          gap: z.number().nullable().optional(),
+          strengths: z.record(z.any()).optional(),
+          criteria: z.record(z.any()).optional(),
+        }).passthrough().describe("The SMT evidence from compute-smt-leader (pair.leader_evidence): bias_dir, divergence, gap, per-symbol strengths/criteria. Always cite verbatim."),
+        reason: z.string().describe("The SMT reason from pair.leader_evidence: smt_divergence | no_divergence_measured | smt_unreadable_data"),
       },
       async (args) => {
         try {

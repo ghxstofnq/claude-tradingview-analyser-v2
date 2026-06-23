@@ -5,7 +5,8 @@ import * as replay from '@tvmcp/core/replay';
 import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser.js';
 import { computeEngineGates } from '../lib/compute-engine-gates.js';
 import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
-import { computeLeader } from '../lib/compute-leader.js';
+import { computeSmtLeader } from '../lib/smt-leader.js';
+import { smtLeaderEvidence } from '../lib/smt-leader-evidence.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
 import { captureMultiTfWithHealth, applyBaselineFallback, tfMatchesMeta } from '../lib/tf-capture.js';
@@ -869,11 +870,16 @@ register('analyze', {
       const windowStartMs = sessionGate?.open_window_start_ms;
       const windowEndMs = sessionGate?.open_window_end_ms;
 
-      const leader = computeLeader({
+      // SMT leader (Stage C / daily-bias §6): divergence-based ES↔NQ selection
+      // (short the weaker, long the stronger), opposite-sign-only, ATR-normalized.
+      // No divergence → leader null (caller defaults the primary); unreadable →
+      // null (stand aside, never a silent wrong pick).
+      const smt = computeSmtLeader({
         primary: pairConfig.primary,
         secondary: pairConfig.secondary,
         primaryEngine: engine,
         secondaryEngine: secondaryBundle.engine,
+        context: 'auto',
         windowStartMs: windowStartMs ?? Number.POSITIVE_INFINITY,
         windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
       });
@@ -898,30 +904,16 @@ register('analyze', {
           },
           [pairConfig.secondary]: secondaryBundle,
         },
-        leader_evidence: {
-          primary_disp_score: leader.primary_disp_score,
-          secondary_disp_score: leader.secondary_disp_score,
-          margin: leader.margin,
-          threshold: leader.threshold,
-          reason: leader.reason,
-          // cite-or-reject anchors. The exact FVG index isn't plumbed
-          // through compute-leader in v1 — paths point at the array.
-          primary_fvg_path: leader.primary_disp_score > 0
-            ? `pair.symbols.${pairConfig.primary}.engine.fvgs`
-            : null,
-          secondary_fvg_path: leader.secondary_disp_score > 0
-            ? `pair.symbols.${pairConfig.secondary}.engine.fvgs`
-            : null,
-        },
+        leader_evidence: smtLeaderEvidence(smt, pairConfig),
         leader_decided: false,
         leader: null,    // set by surface_leader_decision, not by tv analyze
       };
 
       // Loud warning when the secondary engine is missing so the user can
       // load the ICT Engine indicator on the secondary chart and retry.
-      if (leader.reason === 'secondary_engine_missing') {
+      if (!secondaryBundle.engine) {
         process.stderr.write(
-          `warning: ICT Engine missing on ${pairConfig.secondary}. Leader pick will be inconclusive until the engine is loaded on both charts.\n`,
+          `warning: ICT Engine missing on ${pairConfig.secondary}. SMT leader pick will read unreadable until the engine is loaded on both charts.\n`,
         );
       }
     }
