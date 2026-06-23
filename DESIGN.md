@@ -144,6 +144,13 @@ typography:
     lineHeight: 1.6
     letterSpacing: 0.2px
     fontFeature: '"calt", "kern", "liga", "ss03"'
+  code:
+    fontFamily: JetBrains Mono
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 1.5
+    letterSpacing: 0
+    fontFeature: '"calt", "liga"'
 
 rounded:
   none: 0px
