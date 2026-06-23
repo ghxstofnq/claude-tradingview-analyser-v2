@@ -201,7 +201,13 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 }
 
 .work-scroll { overflow-y: auto; height: 100%; }
-.panel { border-bottom: 1px solid var(--border); padding: 14px 16px; }
+.panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  margin: 10px 12px;
+}
 .panel:last-child { border-bottom: 0; }
 .panel-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -954,7 +960,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .head .meta-pill.red   { color: var(--red);   border-color: var(--red); }
 .bt-popover .head .spacer { flex: 1; }
 
-.bt-popover .body { flex: 1; overflow-y: auto; }
+.bt-popover .body { flex: 1; overflow-y: auto; background: var(--surface-0); }
 .bt-popover .section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .bt-popover .section:last-child { border-bottom: 0; }
 .bt-popover .sect-hd { color: var(--label); letter-spacing: 0.07em; font-size: 9.5px;
@@ -1568,7 +1574,13 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 }
 
 .work-scroll { overflow-y: auto; height: 100%; }
-.panel { border-bottom: 1px solid var(--border); padding: 14px 16px; }
+.panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  margin: 10px 12px;
+}
 .panel:last-child { border-bottom: 0; }
 .panel-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -2321,7 +2333,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .head .meta-pill.red   { color: var(--red);   border-color: var(--red); }
 .bt-popover .head .spacer { flex: 1; }
 
-.bt-popover .body { flex: 1; overflow-y: auto; }
+.bt-popover .body { flex: 1; overflow-y: auto; background: var(--surface-0); }
 .bt-popover .section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .bt-popover .section:last-child { border-bottom: 0; }
 .bt-popover .sect-hd { color: var(--label); letter-spacing: 0.07em; font-size: 9.5px;
@@ -3233,12 +3245,13 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .bt-popover .panel,
 .bt-popover .body > .section {
-  background: var(--surface-1);
-  border: 1px solid var(--border-d);
-  margin: 0 0 10px 0;
-  padding: 14px 15px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  margin: 10px 12px;
+  padding: 16px 18px;
 }
-.bt-popover .work-scroll > .panel:last-child { margin-bottom: 0; }
+.bt-popover .work-scroll > .panel:last-child { margin-bottom: 12px; }
 .bt-popover .body > .section { margin: 10px; }
 .bt-popover .body > .section + .section { margin-top: 0; }
 
