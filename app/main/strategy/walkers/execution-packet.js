@@ -60,30 +60,6 @@ function psychFallback(context, side, entry) {
   return lvls.map((l) => ({ ...l, name: `psych_${l.grid}`, target_class: 'psych', cite: 'psych_grid' }));
 }
 
-// No new entries after the late-session cutoff (user ruling 2026-06-13): a
-// trade confirmed too close to the 16:00 ET forced close has no runway to
-// reach its target before it. The last 1m candle that may confirm a NEW
-// entry is the 15:30 ET candle (which closes at 15:31); confirmations whose
-// bar closes at 15:32 ET or later are blocked. Wall-clock (the 16:00 close is
-// session-agnostic); inert for AM trades, which confirm before noon.
-const ENTRY_CUTOFF_ET_MIN = 15 * 60 + 32; // 15:32 ET (15:31-candle close onward)
-// Grade-tiered AM cutoff (user ruling 2026-06-13): in the NY-AM session a B
-// setup may only surface until 11:40 ET; A+ setups keep the full window to
-// 12:00. Conviction-tiered latitude — higher grade earns more rope in time
-// (mirrors A+→TP2 giving it more rope in target).
-const AM_B_CUTOFF_ET_MIN = 11 * 60 + 40; // 11:40 ET
-function etMinutesOfUtc(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(d);
-  const hh = Number(parts.find((p) => p.type === 'hour')?.value || 0);
-  const mm = Number(parts.find((p) => p.type === 'minute')?.value || 0);
-  return hh * 60 + mm;
-}
-
 function normalizeModelName(model) {
   const value = String(model ?? '').trim().toLowerCase();
   if (value === 'mss') return 'mss';
@@ -561,7 +537,8 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
-  if (tp1Candidate && tp1Candidate.rMultiple < 1.5) blockers.push('tp1_below_1_5r');
+  // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
+  // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
   const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
     : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
@@ -572,35 +549,12 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     ? null
     : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price);
 
-  // Late-session cutoff: no NEW entry once the confirming bar closes at 15:32
-  // ET or later (user ruling 2026-06-13) — too little runway to the 16:00
-  // forced close. Uses the bar being evaluated (eventTimeUtc); inert for AM.
-  const entryEtMin = etMinutesOfUtc(context?.eventTimeUtc);
-  if (entryEtMin != null && entryEtMin >= ENTRY_CUTOFF_ET_MIN) blockers.push('entry_after_session_cutoff');
-
+  // (D6: the bot-specific late-session overlays with no transcript basis are
+  // removed — the 15:32 ET entry cutoff, the 11:00 ET exhaustion-runner A+→B cap,
+  // and the 11:40 ET NY-AM B cutoff, per lanto-source-of-truth.md §5. Lanto
+  // grades by the three components + the entry, not the clock.)
   let grade = deriveGrade({ context, walker });
-  // Exhaustion-runner conviction cap (auto-research finding 2026-06-20): a CLEAN
-  // (sharp) displacement means the impulsive move has already fired, so a clean
-  // entry taken LATE (>= 11:00 ET) is an exhaustion entry — as an A+ runner it
-  // tends to tag TP1 then trail back to break-even (0R), giving back R. Folded
-  // MNQ corpus: clean/"good"-quality entries win 32% vs 52% for "marginal"
-  // (n=119), and capping the late-clean A+ runner to B (bank the TP1 win, skip
-  // the TP2 ride) nets +1.03R corpus-wide. EARLY clean runners are spared — those
-  // are genuine breakouts (e.g. the 2026-06-09 +25R day), not exhaustion.
-  const EXHAUSTION_ET_MIN = 11 * 60; // 11:00 ET
-  if (grade === 'A+' && context?.pillar2?.displacement === 'clean'
-      && entryEtMin != null && entryEtMin >= EXHAUSTION_ET_MIN) {
-    grade = 'B';
-  }
   if (grade === 'no-trade') blockers.push('grade_blocked');
-
-  // Grade-tiered AM cutoff (user ruling 2026-06-13): a non-A+ setup confirming
-  // at 11:40 ET or later in the NY-AM session is blocked — late-session B
-  // chop. A+ setups keep the full window to noon.
-  if (grade !== 'A+' && context?.session === 'ny-am'
-      && entryEtMin != null && entryEtMin >= AM_B_CUTOFF_ET_MIN) {
-    blockers.push('b_grade_after_am_cutoff');
-  }
 
   // entry_model_priority is a SELECTION preference (resolver spec §3.4:
   // "which model to walk first"), applied in deterministic-strategy's
