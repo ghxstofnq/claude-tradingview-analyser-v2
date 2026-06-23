@@ -33,9 +33,12 @@ export function useFloat() {
     if (!floating) return;
     if (e.button !== 0) return;                 // left-button only
     // Drag from the title/empty header area only — never hijack a head control
-    // (close, float, tabs, detector, back, pills, inputs).
+    // (close, float, tabs, detector, back, pills, inputs). NOTE: do NOT include
+    // [role='button'] here — the whole popover lives inside its topbar cell, and
+    // that cell is itself role="button" (click-to-open), so closest() would match
+    // the cell on every header mousedown and silently kill the drag.
     if (e.target.closest(
-      "button, input, select, textarea, a, [role='button'], " +
+      "button, input, select, textarea, a, " +
       ".x, .float-btn, .tab, .live-tabs, .pill, .seg, .back, .det, .stop, .meta-pill"
     )) return;
     const base = pos || { x: 0, y: 0 };
