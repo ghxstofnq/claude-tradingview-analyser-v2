@@ -17,9 +17,9 @@
 
 :root {
   color-scheme: dark;
-  /* design.md token system — ClickHouse near-black canvas + electric-yellow voltage,
-     adapted to dashboard density. Variable names are kept so every panel inherits the
-     new palette without per-component edits. See docs/design.md. */
+  /* Active design reference: Raycast DESIGN.md (repo root). The palette below is the
+     prior ClickHouse/electric-yellow system, kept until the Raycast re-skin lands;
+     variable names are stable so panels re-skin via :root. See DESIGN.md. */
   --surface-0:  #0a0a0a;   /* canvas — page floor */
   --surface-1:  #121212;   /* surface-soft — topbar / bands / dividers */
   --surface-2:  #1a1a1a;   /* surface-card — panels, popovers, cards */
