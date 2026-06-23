@@ -122,8 +122,7 @@ function LedgerTradeExpand({ row }) {
                     : "var(--label)";
   return (
     <div style={{
-      borderLeft: "2px solid var(--green)",
-      background: "rgba(110,199,136,0.04)",
+      background: "rgba(89,212,153,0.06)",
       paddingLeft: 6,
     }}>
       <div style={{

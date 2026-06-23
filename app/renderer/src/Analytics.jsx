@@ -77,8 +77,8 @@ function EquityCurve({ equity = [] }) {
 
       // area fill under the curve
       const grad = ctx.createLinearGradient(0, padT, 0, padT + ih);
-      grad.addColorStop(0, up ? "rgba(110,199,136,0.20)" : "rgba(224,108,117,0.20)");
-      grad.addColorStop(1, up ? "rgba(110,199,136,0.01)" : "rgba(224,108,117,0.01)");
+      grad.addColorStop(0, up ? "rgba(89,212,153,0.20)" : "rgba(255,97,97,0.20)");
+      grad.addColorStop(1, up ? "rgba(89,212,153,0.01)" : "rgba(255,97,97,0.01)");
       ctx.beginPath();
       ctx.moveTo(x(0), y0);
       for (let i = 0; i < cum.length; i++) ctx.lineTo(x(i), y(cum[i]));

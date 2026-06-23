@@ -35,9 +35,9 @@ function JsonNode({ k, value, depth, defaultOpen = false }) {
   if (!isObj) {
     let str;
     let color;
-    if (typeof value === "string") { str = `"${value}"`; color = "#9ed98a"; }
-    else if (typeof value === "number") { str = String(value); color = "#7fc6ff"; }
-    else if (typeof value === "boolean") { str = String(value); color = "#e3b341"; }
+    if (typeof value === "string") { str = `"${value}"`; color = "#59d499"; }
+    else if (typeof value === "number") { str = String(value); color = "#57c1ff"; }
+    else if (typeof value === "boolean") { str = String(value); color = "#ffc533"; }
     else if (value === null) { str = "null"; color = "var(--label)"; }
     else { str = String(value); color = "var(--value)"; }
     return (
