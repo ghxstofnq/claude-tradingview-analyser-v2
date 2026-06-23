@@ -32,7 +32,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ORACLE = {
   "2026-06-09": { bias: "bearish", grade_cap: "B", note: "D2 — B, entry→A+" },
   "2026-06-16": { bias: "bearish", grade_cap: "B", note: "B short" },
-  "2026-06-17": { bias: "bearish", grade_cap: "B", note: "bearish B; no-trade via price + P3" },
+  // no-trade — the open's internal bear reverses the bull lean WITHOUT mass
+  // displacement → §4 hands-off ("timing not there yet"). Bias moot on a no-trade.
+  "2026-06-17": { bias: null, grade_cap: "no-trade", note: "hands-off no-trade (non-swing reversal)" },
   "2026-06-18": { bias: "bullish", grade_cap: "B", note: "B long; poor price + marginal entry → P3" },
   "2026-02-09": { bias: "bullish", grade_cap: "B", note: "D1 — B, multi-align→A+" },
 };

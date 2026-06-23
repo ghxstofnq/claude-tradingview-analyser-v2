@@ -253,37 +253,51 @@ const dirOf = (v) => {
 };
 
 /**
- * Combine the three bias votes into the draw-bias pillar grade (daily-bias §1):
- * count aligned votes → 1/3 no-trade · 2/3 B · 3/3 A+-eligible.
+ * Combine the three components into the draw-bias pillar grade (daily-bias §1, §4,
+ * §5). NOT a naive vote count — Lanto's actual mechanism: HTF + overnight set a
+ * PRE-OPEN LEAN, then the NY-open reaction CONFIRMS or REVERSES it.
  *
- * - A real CONFLICT — a TIE between opposing votes (one HTF read reversed by the
- *   open with no overnight support) — is hands-off → no-trade (§4).
- * - A minority vote that does NOT break the majority (the overnight that gets
- *   swept+reversed at the open = the grab, not a conflict; §4) is absorbed —
- *   the day still grades on the majority count (D2 06-09, D4 10-02).
- * - pillar2 'poor' CAPS the grade and demands a clean Pillar-3 entry — it never
- *   hard-blocks here (Stage B locked decision); the trade/no-trade split lives
- *   in Pillar 3. 'marginal'/'poor' both block A+ (README: any pillar weaker → B).
- * - A+ via 3/3 is the only A+ this pillar grants alone; a 2/3 day is `b_elevatable`
- *   — Pillar 3 elevates it to A+ ONLY with a multi-alignment entry (D1/D2).
+ *   - CONFIRM (open agrees with the lean, or sets it when there's no lean): count
+ *     the aligned components → 2/3 B (b_elevatable: Pillar 3 multi-alignment → A+),
+ *     3/3 A+-eligible.
+ *   - REVERSE (open opposes the lean): flip ONLY on a swing-tier mass-displacement
+ *     move (§5 "need more displacement, multiple arrays invalidated") → bias = the
+ *     open direction, grade B (a reversal day is lower conviction, §2.4; still
+ *     b_elevatable via a multi-alignment entry — D2 06-09). A non-swing reversal is
+ *     "timing not there yet" → HANDS-OFF no-trade (§4; 06-17).
+ *   - No open reaction yet → unconfirmed; don't trade pre-confirmation (§4).
  *
- * @param {object} args { htf, overnight, nyopen } (directions or vote objects), pillar2 verdict
+ * Validated on the engine's at-open arrays: the overnight rallies leave a bull
+ * lean on every oracle day; the bearish days turn bearish via the open-reaction
+ * swing reversal (D2/06-16), the choppy day hands-off (06-17), the bull days
+ * confirm (D1/06-18). pillar2 'poor' caps the grade + demands a clean Pillar-3
+ * entry; it never hard-blocks here (Stage B locked decision).
+ *
+ * @param {object} args htf/overnight/nyopen (directions or vote objects); nyopen
+ *   may carry { tier, displaced } so the swing-reversal flip can be detected.
  */
 export function combineBias({ htf, overnight, nyopen, pillar2 = null } = {}) {
-  const votes = { htf: dirOf(htf), overnight: dirOf(overnight), nyopen: dirOf(nyopen) };
-  const all = [votes.htf, votes.overnight, votes.nyopen];
-  const bull = all.filter((v) => v === 'bullish').length;
-  const bear = all.filter((v) => v === 'bearish').length;
-  const aligned = Math.max(bull, bear);
-  const opposing = Math.min(bull, bear);
+  const h = dirOf(htf);
+  const o = dirOf(overnight);
+  const n = dirOf(nyopen);
+  const votes = { htf: h, overnight: o, nyopen: n };
+  const openObj = nyopen && typeof nyopen === 'object' ? nyopen : {};
+  const openSwing = openObj.tier === 'swing' && openObj.displaced === true; // mass displacement (§5)
   const priceGood = pillar2 === 'good' || pillar2 == null;
   const requires_clean_entry = pillar2 === 'poor';
+
+  // Pre-open lean = HTF + overnight. Both present + agree → that direction; both
+  // present + disagree → no clean lean; one present → that one; neither → none.
+  let lean = null;
+  if (h !== 'none' && o !== 'none') lean = h === o ? h : null;
+  else lean = h !== 'none' ? h : o !== 'none' ? o : null;
 
   const out = (extra) => ({
     bias: null,
     votes,
-    aligned_count: aligned,
-    opposing_count: opposing,
+    lean,
+    open: n,
+    open_swing: openSwing,
     draw_bias_pillar: 'unclear',
     grade_cap: 'no-trade',
     a_plus_eligible: false,
@@ -292,27 +306,33 @@ export function combineBias({ htf, overnight, nyopen, pillar2 = null } = {}) {
     ...extra,
   });
 
-  if (aligned === 0) return out({ reason: 'no_bias', no_trade_reason: 'no_bias' });
-  if (aligned === opposing) return out({ reason: 'conflict_hands_off', no_trade_reason: 'conflict_hands_off' });
-
-  const bias = bull > bear ? 'bullish' : 'bearish';
-  if (aligned === 1) return out({ bias, reason: 'one_of_three', no_trade_reason: 'one_of_three' });
-
-  if (aligned === 2) {
-    return out({
-      bias,
-      draw_bias_pillar: 'clear-2of3',
-      grade_cap: 'B',
-      b_elevatable: priceGood, // Pillar 3 multi-alignment entry can elevate to A+
-      reason: 'two_of_three',
-    });
+  // No open reaction yet → the bias is not confirmed (§4 needs the reaction).
+  if (n === 'none') {
+    if (!lean) return out({ reason: 'no_read', no_trade_reason: 'no_bias' });
+    return out({ bias: lean, reason: 'unconfirmed_lean', no_trade_reason: 'open_unconfirmed' });
   }
-  // aligned === 3 — fully-confirmed bias
-  return out({
-    bias,
-    draw_bias_pillar: 'confirmed-3of3',
-    grade_cap: priceGood ? 'A+' : 'B',
-    a_plus_eligible: priceGood,
-    reason: 'three_of_three',
-  });
+
+  // No pre-open lean → the open reaction alone sets the bias.
+  if (!lean) {
+    if (openSwing) {
+      return out({ bias: n, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: priceGood, reason: 'open_swing_no_lean' });
+    }
+    return out({ bias: n, reason: 'open_only_weak', no_trade_reason: 'one_of_three' });
+  }
+
+  // CONFIRM — the open agrees with the lean.
+  if (n === lean) {
+    const count = (h === lean ? 1 : 0) + (o === lean ? 1 : 0) + 1;
+    if (count >= 3) {
+      return out({ bias: lean, draw_bias_pillar: 'confirmed-3of3', grade_cap: priceGood ? 'A+' : 'B', a_plus_eligible: priceGood, reason: 'three_of_three' });
+    }
+    return out({ bias: lean, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: priceGood, reason: 'two_of_three' });
+  }
+
+  // REVERSE — the open opposes the lean. Flip only on mass displacement (§5).
+  if (openSwing) {
+    return out({ bias: n, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: priceGood, reason: 'flip_swing_reversal' });
+  }
+  // Not enough to flip → timing not there yet (§4).
+  return out({ bias: lean, reason: 'reversal_hands_off', no_trade_reason: 'conflict_hands_off' });
 }

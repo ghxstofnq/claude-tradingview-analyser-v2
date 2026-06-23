@@ -262,100 +262,102 @@ test('nyOpenReaction: a pre-open grab (before the open) is ignored', () => {
   assert.equal(r.vote, 'none');
 });
 
-// --- combineBias: the nested 3-component grade — END-TO-END oracle reproduction.
-//     Each case feeds the three vote DIRECTIONS the slices produce for that
-//     session and asserts the oracle's bias direction + grade tier (Part D). ---
+// --- combineBias: the confirm / reverse / flip grade (daily-bias §1/§4/§5),
+//     END-TO-END oracle reproduction. HTF + overnight set the pre-open LEAN; the
+//     open-reaction confirms or reverses it. Cases feed the directions the slices
+//     produce on the engine's at-open arrays + the open-reaction tier/displacement. ---
+const swing = (dir) => ({ vote: dir, tier: 'swing', displaced: true });   // mass-displacement open
+const internal = (dir) => ({ vote: dir, tier: 'internal', displaced: false });
 
-test('combineBias: 12-12 (D3) — no HTF + overnight bear + open bear → 2/3 B bearish', () => {
+test('combineBias: 12-12 (D3) — overnight bear lean, open bear CONFIRMS → 2/3 B bearish', () => {
   const g = combineBias({ htf: 'none', overnight: 'bearish', nyopen: 'bearish', pillar2: 'good' });
   assert.equal(g.bias, 'bearish');
   assert.equal(g.draw_bias_pillar, 'clear-2of3');
   assert.equal(g.grade_cap, 'B');
+  assert.equal(g.reason, 'two_of_three');
 });
 
-test('combineBias: 06-16 — HTF bear + chop + open bear → 2/3 B bearish (single entry caps B)', () => {
-  const g = combineBias({ htf: 'bearish', overnight: 'none', nyopen: 'bearish', pillar2: 'good' });
-  assert.equal(g.bias, 'bearish');
-  assert.equal(g.grade_cap, 'B');
-  assert.equal(g.aligned_count, 2);
-});
-
-test('combineBias: D2 06-09 — HTF bear + overnight-bull GRAB + open bear → 2/3 B, b_elevatable (entry→A+)', () => {
-  const g = combineBias({ htf: 'bearish', overnight: 'bullish', nyopen: 'bearish', pillar2: 'good' });
-  assert.equal(g.bias, 'bearish');        // overnight bull (the grab) is the absorbed minority
-  assert.equal(g.aligned_count, 2);
-  assert.equal(g.opposing_count, 1);
-  assert.equal(g.grade_cap, 'B');
-  assert.equal(g.b_elevatable, true);     // Pillar 3 multi-alignment makes it A+
-});
-
-test('combineBias: D4 10-02 — HTF bull + overnight bull + open-bear (non-confirm) → 2/3 B bull, NOT hands-off', () => {
-  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: 'bearish', pillar2: 'good' });
-  assert.equal(g.bias, 'bullish');        // overnight breaks the tie → majority holds
-  assert.equal(g.grade_cap, 'B');
-  assert.notEqual(g.no_trade_reason, 'conflict_hands_off');
-});
-
-test('combineBias: D1 02-09 — HTF bull + chop + open bull → 2/3 B, b_elevatable (multi-align entry→A+)', () => {
+test('combineBias: D1 02-09 — HTF bull lean, open bull CONFIRMS → 2/3 B, b_elevatable (multi-align→A+)', () => {
   const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: 'bullish', pillar2: 'good' });
   assert.equal(g.bias, 'bullish');
   assert.equal(g.draw_bias_pillar, 'clear-2of3');
   assert.equal(g.b_elevatable, true);
 });
 
-test('combineBias: 06-17 — HTF bear + grab + open bear but pillar2 POOR → B + requires clean entry', () => {
-  const g = combineBias({ htf: 'bearish', overnight: 'bullish', nyopen: 'bearish', pillar2: 'poor' });
-  assert.equal(g.bias, 'bearish');
+test('combineBias: D2 06-09 — bull lean (HTF+overnight), open SWING bear REVERSES → flip bearish B', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: swing('bearish'), pillar2: 'good' });
+  assert.equal(g.lean, 'bullish');
+  assert.equal(g.bias, 'bearish');         // swing-tier mass-displacement reversal flips the day
   assert.equal(g.grade_cap, 'B');
-  assert.equal(g.requires_clean_entry, true); // no clean entry → Pillar 3 makes it no-trade
-  assert.equal(g.b_elevatable, false);        // poor price cannot elevate
+  assert.equal(g.b_elevatable, true);      // a flip is still elevatable via a multi-alignment entry
+  assert.equal(g.reason, 'flip_swing_reversal');
 });
 
-test('combineBias: 06-18 — HTF bull + overnight bull + open none, pillar2 poor → 2/3 B bull + requires clean entry', () => {
-  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: 'none', pillar2: 'poor' });
-  assert.equal(g.bias, 'bullish');
+test('combineBias: 06-16 — bull lean, open SWING bear REVERSES → flip bearish B', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: swing('bearish'), pillar2: 'good' });
+  assert.equal(g.bias, 'bearish');
   assert.equal(g.grade_cap, 'B');
+});
+
+test('combineBias: 06-17 — bull lean, open INTERNAL bear (no mass displacement) → HANDS-OFF no-trade (§4)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: internal('bearish'), pillar2: 'marginal' });
+  assert.equal(g.grade_cap, 'no-trade');
+  assert.equal(g.no_trade_reason, 'conflict_hands_off'); // "timing is not there yet"
+});
+
+test('combineBias: 06-18 — bull lean, open SWING bull CONFIRMS, poor price → 3/3 capped B + clean entry', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: swing('bullish'), pillar2: 'poor' });
+  assert.equal(g.bias, 'bullish');
+  assert.equal(g.draw_bias_pillar, 'confirmed-3of3');
+  assert.equal(g.grade_cap, 'B');             // poor price caps A+ → B
   assert.equal(g.requires_clean_entry, true);
 });
 
-test('combineBias: 3/3 aligned + price good → A+-eligible (the only A+ this pillar grants alone)', () => {
+test('combineBias: 3/3 confirm + price good → A+-eligible (the only A+ this pillar grants alone)', () => {
   const g = combineBias({ htf: 'bearish', overnight: 'bearish', nyopen: 'bearish', pillar2: 'good' });
   assert.equal(g.draw_bias_pillar, 'confirmed-3of3');
   assert.equal(g.grade_cap, 'A+');
   assert.equal(g.a_plus_eligible, true);
 });
 
-test('combineBias: 3/3 but pillar2 marginal → capped to B (README: any pillar weaker → B)', () => {
-  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: 'bullish', pillar2: 'marginal' });
+test('combineBias: a FLIP is capped at B even on good price (a reversal day is lower conviction, §2.4)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: swing('bearish'), pillar2: 'good' });
   assert.equal(g.grade_cap, 'B');
   assert.equal(g.a_plus_eligible, false);
 });
 
-test('combineBias: TIE (1 HTF vs 1 open, no overnight) → hands-off no-trade (§4)', () => {
-  const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: 'bearish', pillar2: 'good' });
-  assert.equal(g.grade_cap, 'no-trade');
+test('combineBias: a non-swing reversal can NOT flip — needs mass displacement (§5)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: internal('bearish'), pillar2: 'good' });
   assert.equal(g.no_trade_reason, 'conflict_hands_off');
 });
 
-test('combineBias: 1/3 (one lone vote) → no-trade (§1 "one out of three, don\'t trade")', () => {
-  const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: 'none', pillar2: 'good' });
-  assert.equal(g.grade_cap, 'no-trade');
-  assert.equal(g.no_trade_reason, 'one_of_three');
+test('combineBias: no lean + open SWING sets the bias at B (a swing reversal off a grab)', () => {
+  const g = combineBias({ htf: 'none', overnight: 'none', nyopen: swing('bearish'), pillar2: 'good' });
+  assert.equal(g.bias, 'bearish');
+  assert.equal(g.grade_cap, 'B');
+  assert.equal(g.reason, 'open_swing_no_lean');
 });
 
-test('combineBias: 0/3 (no read at all) → no-trade', () => {
+test('combineBias: lean but NO open reaction yet → unconfirmed, no trade pre-confirmation (§4)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: 'none', pillar2: 'good' });
+  assert.equal(g.bias, 'bullish');
+  assert.equal(g.grade_cap, 'no-trade');
+  assert.equal(g.no_trade_reason, 'open_unconfirmed');
+});
+
+test('combineBias: nothing at all → no-trade', () => {
   const g = combineBias({ htf: 'none', overnight: 'none', nyopen: 'none' });
   assert.equal(g.grade_cap, 'no-trade');
   assert.equal(g.no_trade_reason, 'no_bias');
 });
 
-test('combineBias: accepts vote objects, not just direction strings', () => {
+test('combineBias: accepts the nyOpenReaction object (tier/displaced drive the flip)', () => {
   const g = combineBias({
-    htf: { vote: 'bearish' },
-    overnight: { vote: 'none' },
-    nyopen: { direction: 'bearish' },
+    htf: { vote: 'bullish' },
+    overnight: 'bullish',
+    nyopen: { direction: 'bearish', interaction: 'swing_displacement', tier: 'swing', displaced: true },
     pillar2: 'good',
   });
-  assert.equal(g.bias, 'bearish');
-  assert.equal(g.aligned_count, 2);
+  assert.equal(g.bias, 'bearish');     // the swing reversal flips
+  assert.equal(g.reason, 'flip_swing_reversal');
 });
