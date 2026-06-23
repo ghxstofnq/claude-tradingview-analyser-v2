@@ -5,6 +5,7 @@
 // confirmed account; one-tap Flatten. All math in main (execution:order*).
 // Laid out with the shared Panel/Row system to match PREP/LIVE/REVIEW.
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { clickable } from "./a11y.js";
 import { Panel, Row } from "./Shared.jsx";
 import { executionAdapter } from "./execution/executionAdapter.js";
 import { formatStopSource, routingLabel, blockMessage, orderResultToast } from "./Orders.helpers.js";
@@ -207,7 +208,7 @@ export function OrdersCell({ symbol }) {
 
   return (
     <div className={"cell pop-cell" + (open ? " open" : "")}
-         onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}>
+         {...clickable((e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); })}>
       <span className="k">ORDERS</span>
       {open && (
         <div className="bt-popover w-660 orders-pop" onClick={(e) => e.stopPropagation()}>

@@ -6,6 +6,7 @@
 // persist there. Arming sets UI state now; the executionAdapter retargets the
 // broker when the execution engine lands.
 import React, { useState, useEffect, useRef } from "react";
+import { clickable } from "./a11y.js";
 import { armReady as isArmReady, realAccountView } from "./Account.helpers.js";
 import { useExecutionState } from "./hooks/useExecutionState.js";
 import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
@@ -183,7 +184,7 @@ export function AccountCell({ guards, setGuards }) {
   const live = realAccountView(acct).live;
   return (
     <div className={"cell pop-cell acct-cell" + (live ? " live" : "") + (open ? " open" : "")} ref={ref}
-      onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}
+      {...clickable((e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); })}
       title="account & execution settings">
       <span className={"acct-badge " + (live ? "live" : "paper")}>
         <span className="d" />{live ? "LIVE" : "PAPER"}<span className="sub">{live ? "REAL" : "SIM"}</span>

@@ -6,6 +6,7 @@
 // thought from the channel you're not looking at.
 
 import React, { useState, useEffect, useRef } from "react";
+import { clickable } from "./a11y.js";
 import { buildProviderSubmitOptions } from "./provider-popover-contract.js";
 import { useWalkers } from "./hooks/useWalkers.js";
 import { useDeterministicBrain } from "./hooks/useDeterministicBrain.js";
@@ -155,7 +156,7 @@ export function ChatCell({ chats }) {
 
   return (
     <div className={"cell pop-cell" + (open ? " open" : "")}
-         onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}>
+         {...clickable((e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); })}>
       <span className="k">CHAT</span>
       <span className={"claude-dot" + (live ? " active" : "")} />
       {open && (

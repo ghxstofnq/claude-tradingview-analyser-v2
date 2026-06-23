@@ -3,6 +3,7 @@
 // STEP 3 PRICE QUALITY · SCENARIOS. Reads hooks directly.
 
 import React, { useState, useEffect } from "react";
+import { clickable } from "./a11y.js";
 import { Panel, Row, Grade, ScenarioCard } from "./Shared.jsx";
 import {
   groupLevelsByPrice,
@@ -320,7 +321,7 @@ function PrepCell({ symbol, currentPrice }) {
   };
 
   return (
-    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={onCellClick}>
+    <div className={"cell pop-cell" + (open ? " open" : "")} {...clickable(onCellClick)}>
       <span className="k">PREP</span>
       <span className={"dot " + (hasBrief ? "" : "dim")} />
       {open && (

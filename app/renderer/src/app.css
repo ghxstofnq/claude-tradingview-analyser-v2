@@ -4187,3 +4187,11 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .grade-pill.dim,   .pill.dim   { background: var(--surface-3); color: var(--value);  border-color: var(--border-d); }
 /* The grade badge is the card's headline status — give it a touch more weight. */
 .grade-pill { font-weight: 700; }
+
+/* ── Keyboard accessibility ──────────────────────────────────────────────────
+   Visible focus ring for keyboard users only — :focus-visible never fires on mouse
+   clicks. var(--primary) adapts: white on dark, dark on light. Non-button interactive
+   elements are made operable via the clickable() helper (a11y.js): role=button +
+   tabindex + Enter/Space activation. */
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+[role="button"] { cursor: pointer; }

@@ -3,6 +3,7 @@
 // Logic + IPC bridge live in hooks/useBacktest.js; this file is presentation.
 
 import React, { useState, useMemo } from "react";
+import { clickable } from "./a11y.js";
 import { useBacktest } from "./hooks/useBacktest.js";
 import { useBaseline } from "./hooks/useBaseline.js";
 import { useTests } from "./hooks/useTests.js";
@@ -43,7 +44,7 @@ export function BacktestCell() {
   const close = () => setOpen(false);
 
   return (
-    <div className={"cell pop-cell bt" + (open ? " open" : "")} onClick={onCellClick}>
+    <div className={"cell pop-cell bt" + (open ? " open" : "")} {...clickable(onCellClick)}>
       <span className="k">BACKTEST</span>
       <BadgeForState state={state} />
       {open && (

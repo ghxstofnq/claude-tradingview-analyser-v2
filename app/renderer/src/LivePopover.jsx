@@ -7,6 +7,7 @@
 // default view follows the data (activeTrade → IN-TRADE, else HUNT).
 
 import React, { useState, useEffect, useRef } from "react";
+import { clickable } from "./a11y.js";
 import { Panel, Row } from "./Shared.jsx";
 import {
   selectPillar3,
@@ -527,7 +528,7 @@ function LiveCell({ guards, symbol }) {
   }
 
   return (
-    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}>
+    <div className={"cell pop-cell" + (open ? " open" : "")} {...clickable((e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); })}>
       <span className="k">LIVE</span>
       {badge}
       {open && (

@@ -4,6 +4,7 @@
 // expand into a full TradeCard for confirmed/accepted rows.
 
 import React, { useState, useEffect } from "react";
+import { clickable } from "./a11y.js";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
@@ -411,7 +412,7 @@ function ReviewCell() {
   };
 
   return (
-    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={onCellClick}>
+    <div className={"cell pop-cell" + (open ? " open" : "")} {...clickable(onCellClick)}>
       <span className="k">REVIEW</span>
       {badge}
       {open && (
