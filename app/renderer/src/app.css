@@ -3698,20 +3698,6 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .order-block .hd .code { margin-left: auto; font-size: 9px; letter-spacing: 0.07em; border: 1px solid var(--red); padding: 1px 7px; }
 .bt-popover .order-block .msg { padding: 10px 13px; color: var(--prose); font-size: 11px; line-height: 1.6; }
 
-/* ADD scale-in badge */
-.bt-popover .add-badge {
-  font-size: 9px; letter-spacing: 0.08em; color: var(--amber);
-  border: 1px solid var(--amber); background: rgba(255,255,255,0.1);
-  padding: 1px 7px; font-weight: 600;
-}
-.bt-popover .scale-note {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; margin-bottom: 10px;
-  border: 1px solid var(--amber);
-  background: rgba(255,255,255,0.06);
-  color: var(--amber); font-size: 10px; letter-spacing: 0.05em; white-space: nowrap;
-}
-.bt-popover .setup-card.add { border-color: var(--amber); }
 
 /* LIVE sub-state tabs already exist (.live-tabs); add TICKET / ADD pills inherit */
 
