@@ -66,33 +66,11 @@ const SESSION_MAX_LOSS_R = -3;
 // concurrent-adds bleed the cumulative −3R let slip (June 11 AM −4 → −3).
 const SESSION_MAX_LOSS_STREAK = 3;
 
-// Break-even scale-in — DEFAULT ON (user ruling 2026-06-13; opt out with
-// TV_SCALEIN=0). The anchor keeps its ORIGINAL stop and rides to TP1 as normal;
-// once it travels 50% of the way to TP1 (the "green light" = the move is
-// proven), up to SCALE_IN_MAX additional SAME-DIRECTION confirmed setups may
-// open as concurrent adds (10-min dedup so near-identical entries collapse to
-// one). No break-even stop move anywhere — winners are never scratched; the
-// adds carry their own -1R risk and the 2-stop breaker caps chop-day bleed.
-const SCALE_IN = process.env.TV_SCALEIN !== "0";
-const SCALE_IN_MAX = 5;                 // up to 5 concurrent adds (user 2026-06-13)
-const SCALE_IN_STOP_STREAK = 2;         // 2 add stop-outs in a row → adds off for the session
-// Green-light off the anchor's nearest INTRADAY objective (packet.greenlight_ref)
-// instead of its TP1 — DEFAULT ON (opt out with TV_GREENLIGHT_INTRADAY=0).
-// Decouples add-timing from how far the HTF/session draw sits: the target model
-// can push TP1 out to a far draw, which delayed the green light and dropped adds
-// (June-15). Keying off the nearest intraday objective restores the original add
-// cadence. Corpus-validated +4.82R (helps trend days, costs ~1R on chop days);
-// inert on frozen days (no session draws there, so greenlight_ref == TP1).
-const GREENLIGHT_INTRADAY = process.env.TV_GREENLIGHT_INTRADAY !== "0";
-// Dedup: setups that are the same side + same draw (same TP1) within this
-// window of an already-taken position are "basically the same trade" (e.g.
-// June 2's 10:32 + 10:33, one minute apart) — collapse them to the first, so
-// adds are genuinely distinct entries, not duplicates of each other.
-const DEDUP_WINDOW_MS = 10 * 60 * 1000;
+// Scale-in (concurrent adds) REMOVED 2026-06-23 — the faithful rebuild trades
+// ONE position at a time (risk-and-management.md §"Management styles": no-trim
+// ride-the-trail on a single position; "overlays + scale-in are deleted",
+// build-sequence E2). AUTO opens the single position and never stacks adds.
 
-function anchorGreenLit(anchor) {
-  return Boolean(anchor?.greenLight);
-}
 // A+ → TP2 (user ruling 2026-06-13): only A+ trades run past TP1, and only when
 // TP2 sits BEYOND TP1 in the trade's direction (otherwise there's no runner
 // room and it banks at TP1 like a B trade).
@@ -101,20 +79,6 @@ function isRunnerEligible(trade) {
   const t1 = Number(trade.tp1), t2 = Number(trade.tp2);
   if (!Number.isFinite(t1) || !Number.isFinite(t2)) return false;
   return trade.side === "short" ? t2 < t1 : t2 > t1;
-}
-function isNearDuplicate(setup, takenLog) {
-  const ms = Date.parse(setup.event_ts);
-  if (!Number.isFinite(ms)) return false;
-  // Same SIDE within the window is "basically the same trade" — the targets may
-  // differ slightly (May 26: 29975 vs 29913.5) but it's one continuation idea.
-  return takenLog.some((t) =>
-    t.side === setup.side && ms - t.ms < DEDUP_WINDOW_MS && ms - t.ms >= 0);
-}
-function canScaleInto(anchor, setup, openCount, takenLog) {
-  if (!SCALE_IN || !anchorGreenLit(anchor)) return false;
-  if (openCount >= 1 + SCALE_IN_MAX) return false;
-  if (setup.side !== anchor.side) return false;  // SAME DIRECTION (was: same draw)
-  return !isNearDuplicate(setup, takenLog);      // not a 10-min duplicate
 }
 
 const OPEN_REACTION_RESOLVE_MIN = 15; // §2.3 / §7 Step 4: verdict from minute 15…
@@ -186,9 +150,6 @@ export async function runBacktest({
 
   const surfaced = [];
   const openTrades = [];
-  const takenLog = []; // {side, tp1, ms} of every position opened — for scale-in dedup
-  let addStopStreak = 0;     // consecutive ADD stop-outs (winning add resets)
-  let addsDisabled = false;  // tripped once addStopStreak hits SCALE_IN_STOP_STREAK
   const closedTrades = [];
   let sessionRealizedR = 0;
   let lossStreak = 0;        // consecutive losing trades (any win resets)
@@ -219,20 +180,6 @@ export async function runBacktest({
     });
     closedTrades.push({ ...trade, ...verdict, realized_r: realizedR });
     sessionRealizedR += realizedR;
-    // Scale-in circuit breaker: 2 ADD stop-outs in a row → adds off for the
-    // rest of the session (a winning add resets). The anchor's own outcome
-    // and a 16:00 close never count toward the streak.
-    if (SCALE_IN && trade.scale_in_add) {
-      if (verdict.outcome === "stop_hit") {
-        addStopStreak += 1;
-        if (addStopStreak >= SCALE_IN_STOP_STREAK) {
-          addsDisabled = true;
-          appendActivity({ kind: "scale_in_breaker", rule: `${SCALE_IN_STOP_STREAK} add stops in a row` });
-        }
-      } else if (verdict.outcome === "tp1_hit") {
-        addStopStreak = 0;
-      }
-    }
     // 3-losses-in-a-row halt (user ruling 2026-06-13). A loss is realized R < 0
     // (stop, or a 16:00 close underwater); any non-loss resets the streak.
     if (realizedR < 0) lossStreak += 1; else lossStreak = 0;
@@ -493,7 +440,6 @@ export async function runBacktest({
           stop: payload.stop ?? null,
           tp1: payload.tp1 ?? null,
           tp2: payload.tp2 ?? null,
-          greenlight_ref: payload.greenlight_ref ?? null,
           grade: payload.grade ?? null,
           rationale: payload.rationale ?? null,
           event_ts: entry.event?.ts ?? null,
@@ -523,26 +469,11 @@ export async function runBacktest({
             appendSetupRow({ type: "session_halted", ts: Date.now(), setup_id: setup.id, session_r: round2(sessionRealizedR) });
           } else if (openTrades.length === 0) {
             openTrades.push(setup);
-            takenLog.push({ side: setup.side, tp1: Number(setup.tp1), ms: Date.parse(setup.event_ts) });
             appendSetupRow({ type: "open", ts: Date.now(), accepted_by: "auto", ...setup });
-          } else if (SCALE_IN && anchorGreenLit(openTrades[0]) && setup.side === openTrades[0].side
-                     && isNearDuplicate(setup, takenLog)) {
-            // Same side within 10 min of a position already taken — "basically
-            // the same trade." Collapse it (don't double-count).
-            appendSetupRow({ type: "dedup_skipped", ts: Date.now(), setup_id: setup.id });
-          } else if (!addsDisabled && canScaleInto(openTrades[0], setup, openTrades.length, takenLog)) {
-            // Break-even scale-in (flagged): the anchor is green-lit (past 50%
-            // to TP1) and this is a same-side, same-draw, NON-duplicate
-            // confirmation — open it as a concurrent add rather than skipping.
-            setup.scale_in_add = true;
-            openTrades.push(setup);
-            takenLog.push({ side: setup.side, tp1: Number(setup.tp1), ms: Date.parse(setup.event_ts) });
-            appendSetupRow({ type: "open", ts: Date.now(), accepted_by: "auto", scale_in_add: true, ...setup });
-            bus.emit("backtest:event", { type: "setup_accepted", runId, setupId: setup.id });
           } else {
-            // One position at a time (§7 Step 7 sizing/management): the
-            // setup still counts as surfaced, but AUTO doesn't stack
-            // positions — recorded so the review shows what was skipped.
+            // One position at a time (§7 Step 7 sizing/management; scale-in
+            // removed 2026-06-23): the setup still counts as surfaced, but AUTO
+            // never stacks positions — recorded so the review shows the skip.
             appendSetupRow({ type: "skipped_active_trade", ts: Date.now(), setup_id: setup.id });
           }
         }
@@ -553,21 +484,6 @@ export async function runBacktest({
       //    bar AFTER the one that surfaced the packet.
       const bar = lastClosedBarOf(entry);
       if (bar) {
-        // Green light: the anchor (oldest open trade) has travelled 50% of the
-        // way to its TP1 → the move is proven, concurrent adds become allowed.
-        // The anchor itself keeps its ORIGINAL stop (no break-even move).
-        if (SCALE_IN && openTrades.length > 0 && !openTrades[0].greenLight) {
-          const a = openTrades[0];
-          const e = Number(a.entry);
-          // Default: 50% to the anchor's TP1. Opt-in: 50% to its nearest
-          // intraday objective (greenlight_ref) so add-timing is independent of
-          // how far the HTF draw sits. Falls back to TP1 when no intraday ref.
-          const t = Number(GREENLIGHT_INTRADAY ? (a.greenlight_ref ?? a.tp1) : a.tp1);
-          if (Number.isFinite(e) && Number.isFinite(t)) {
-            const half = a.side === "long" ? e + 0.5 * (t - e) : e - 0.5 * (e - t);
-            if (a.side === "long" ? Number(bar.high) >= half : Number(bar.low) <= half) a.greenLight = true;
-          }
-        }
         for (const trade of [...openTrades]) {
           if (trade.event_ts === entry.event?.ts) continue; // packet bar itself
           gradeOneTrade(trade, bar, entry.event?.ts ?? null);
