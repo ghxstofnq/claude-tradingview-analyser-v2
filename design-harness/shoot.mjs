@@ -27,6 +27,7 @@ const SAMPLES = [
   ["row .v (value)",   ".row .v"],
   ["pill.primary",     ".pill.primary"],
   ["grade-pill.green", ".grade-pill.green"],
+  ["btn (.btn)",       ".btn"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report

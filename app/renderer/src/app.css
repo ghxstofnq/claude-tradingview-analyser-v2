@@ -4262,3 +4262,9 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 }
 .bt-popover .head .float-btn:hover { color: var(--value); }
 .bt-popover .head .float-btn.on { color: var(--primary); }
+
+/* No square buttons — round every <button> to the pill radius (2026-06-24).
+   Appended last so it wins over the duplicated stylesheet copies; catches
+   class-based buttons (.btn, .tk-fire, .itbtn, .arm-confirm, .th-btn) AND
+   any inline-styled ones (e.g. the Settings mode buttons). */
+button { border-radius: var(--r-sm); }
