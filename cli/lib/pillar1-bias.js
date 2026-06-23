@@ -33,6 +33,16 @@ import { overnightTargetsForSession } from './open-reaction-resolver.js';
 // 0.5 is the conservative midpoint. Tune at Stage G with more graded days.
 export const INVERSION_DISP_MIN = 0.5;
 
+// Significance gate (Q1, transcript-grounded): a gap earns the HTF vote only
+// when it is DISPLACIVE — "a large body, minimal wickage… the bigger the body,
+// the bigger the inefficiency" (ENTRY 05:38); among candidates take "which gap
+// clearly shows the BEST displacement… block out the noise" (ENTRY 06:35). A
+// small, low-displacement gap is "nothing crazy" → no HTF vote, the day is 2/3
+// (BIAS 27:42). Disp-based, NOT a raw size veto ("it doesn't have to be entirely
+// large", ENTRY 05:38) — calibrated so 06-16's ds 0.74 array still counts (you
+// traded it). Tune with the Discord calls.
+export const SIG_DISP_MIN = 0.5;
+
 // "Near price" = a realistic intraday destination today (daily-bias §2). Scale-
 // free as a fraction of price so it works on MNQ and MES alike (Stage B lesson:
 // express scale-free where possible). 0.3% ≈ 90pt at 30000. Calibrated: 06-16's
@@ -79,6 +89,21 @@ function nearPrice(ce, price) {
   return Math.abs(ce - price) / Math.abs(price) <= NEAR_PRICE_PCT;
 }
 
+/** Significant = a real displacive/large gap, not "nothing crazy" noise (Q1). */
+function isSignificant(zone) {
+  const sq = String(zone?.size_quality || '');
+  const ds = Number(zone?.disp_score);
+  // Neither size nor displacement known → don't penalize (real engine emits both).
+  if (sq === '' && !Number.isFinite(ds)) return true;
+  return sq === 'large' || sq === 'normal' || (Number.isFinite(ds) && ds >= SIG_DISP_MIN);
+}
+/** Rank: best displacement first ("the clearest gap"), size as the tiebreak. */
+function sigScore(zone) {
+  const sizeBoost = zone?.size_quality === 'large' ? 1 : zone?.size_quality === 'tiny' ? 0 : 0.5;
+  const ds = Number(zone?.disp_score);
+  return (Number.isFinite(ds) ? ds : 0) + sizeBoost;
+}
+
 /**
  * Pick the ONE significant near-price PD array that sets HTF bias (daily-bias
  * §2: "pick one primary draw … read the reaction off it"). Walks TFs 4H→Daily→1H;
@@ -99,8 +124,9 @@ export function pickPrimaryDraw(htfByTf, { price = null } = {}) {
         const v = arrayVote(z);
         return { z, ce, vote: v.vote, voteReason: v.reason };
       })
-      .filter((c) => c.vote !== 'none' && c.z?.took_liq === true && nearPrice(c.ce, price))
-      .sort((a, b) => Math.abs(a.ce - price) - Math.abs(b.ce - price));
+      .filter((c) => c.vote !== 'none' && c.z?.took_liq === true && nearPrice(c.ce, price) && isSignificant(c.z))
+      // best displacement first ("block out the noise"); nearest as the tiebreak.
+      .sort((a, b) => sigScore(b.z) - sigScore(a.z) || Math.abs(a.ce - price) - Math.abs(b.ce - price));
     if (qualifying.length) {
       const { z, ce, vote, voteReason } = qualifying[0];
       return {
@@ -312,12 +338,14 @@ export function combineBias({ htf, overnight, nyopen, pillar2 = null } = {}) {
     return out({ bias: lean, reason: 'unconfirmed_lean', no_trade_reason: 'open_unconfirmed' });
   }
 
-  // No pre-open lean → the open reaction alone sets the bias.
+  // No pre-open lean (no HTF + no overnight) → the open reaction is just ONE
+  // component. §1 "one out of three → you do not take a trade" (BIAS 22:25). A
+  // reversal not backed by a 2nd component is a lower-timeframe scalp at most
+  // (BIAS 25:44) — this pillar does not green-light it on its own, even a
+  // swing-tier one. (Open question for the Discord calls: does a strong reversal
+  // off a significant grab override "1/3"? Conservative default = stand aside.)
   if (!lean) {
-    if (openSwing) {
-      return out({ bias: n, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: priceGood, reason: 'open_swing_no_lean' });
-    }
-    return out({ bias: n, reason: 'open_only_weak', no_trade_reason: 'one_of_three' });
+    return out({ bias: n, reason: 'open_only_one_of_three', no_trade_reason: 'one_of_three' });
   }
 
   // CONFIRM — the open agrees with the lean.

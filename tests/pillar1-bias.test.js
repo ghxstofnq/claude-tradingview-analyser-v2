@@ -106,15 +106,35 @@ test('htfVote: 06-18 — near-price bear FVG inverted UP (displaced) → bullish
   assert.equal(v.vote, 'bullish');
 });
 
-test('htfVote: D1 02-09 / D4 10-02 — a tiny-but-fresh, took-liq, near array DOES vote (the floor)', () => {
+test('htfVote: a tiny, LOW-displacement gap is "nothing crazy" → no HTF vote (Q1 / BIAS 27:42)', () => {
   const blocks = htf({
     h4: [],
     daily: [],
     h1: [{ dir: 'bull', state: 'fresh', took_liq: true, size_quality: 'tiny', disp_score: 0.1, ce: 25890 }],
   });
-  const v = htfVote(blocks, { price: 25900 }); // dist 10pt ≈ 0.04% = near
-  assert.equal(v.vote, 'bullish');
-  assert.equal(v.draw.size_quality, 'tiny');
+  assert.equal(htfVote(blocks, { price: 25900 }).vote, 'none'); // abstains → the day is 2/3
+});
+
+test('htfVote: a tiny but CLEANLY-displaced gap still votes ("doesn\'t have to be entirely large", ENTRY 05:38)', () => {
+  const blocks = htf({
+    h4: [],
+    daily: [],
+    h1: [{ dir: 'bull', state: 'fresh', took_liq: true, size_quality: 'tiny', disp_score: 0.74, ce: 25890 }],
+  });
+  assert.equal(htfVote(blocks, { price: 25900 }).vote, 'bullish'); // ds 0.74 ≥ 0.5 (06-16 calibration)
+});
+
+test('pickPrimaryDraw: among near took-liq gaps, the BEST-displaced one wins ("block out the noise")', () => {
+  const blocks = htf({
+    h4: [
+      { dir: 'bull', state: 'fresh', took_liq: true, disp_score: 0.55, size_quality: 'normal', ce: 30495, cite: 'weaker-near' },
+      { dir: 'bear', state: 'fresh', took_liq: true, disp_score: 0.92, size_quality: 'large', ce: 30505, cite: 'best-disp' },
+    ],
+    daily: [],
+    h1: [],
+  });
+  const draw = pickPrimaryDraw(blocks, { price: 30500 });
+  assert.equal(draw.cite, 'best-disp');
 });
 
 test('pickPrimaryDraw: a fresh array that took NO liquidity is not significant → no draw', () => {
@@ -331,11 +351,10 @@ test('combineBias: a non-swing reversal can NOT flip — needs mass displacement
   assert.equal(g.no_trade_reason, 'conflict_hands_off');
 });
 
-test('combineBias: no lean + open SWING sets the bias at B (a swing reversal off a grab)', () => {
+test('combineBias: lone reversal (no HTF + no overnight) → 1/3 no-trade, even swing-tier (§1 BIAS 22:25)', () => {
   const g = combineBias({ htf: 'none', overnight: 'none', nyopen: swing('bearish'), pillar2: 'good' });
-  assert.equal(g.bias, 'bearish');
-  assert.equal(g.grade_cap, 'B');
-  assert.equal(g.reason, 'open_swing_no_lean');
+  assert.equal(g.grade_cap, 'no-trade');
+  assert.equal(g.no_trade_reason, 'one_of_three');
 });
 
 test('combineBias: lean but NO open reaction yet → unconfirmed, no trade pre-confirmation (§4)', () => {

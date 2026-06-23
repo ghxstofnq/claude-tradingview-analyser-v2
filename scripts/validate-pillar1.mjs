@@ -153,7 +153,7 @@ try {
   console.log(`  Overnight vote: ${ov.vote} (${ov.reason})`);
   console.log(`  Open reaction: ${orx.vote} via ${orx.interaction} ${orx.level ?? ""} tier=${orx.tier ?? "-"} (structs=${(B.eng.m5?.structures ?? []).length})`);
   console.log(`  Pillar 2: ${p2.verdict} (${p2.status})`);
-  console.log(`  --> votes ${J(grade.votes)} | bias=${grade.bias} | ${grade.draw_bias_pillar} | grade_cap=${grade.grade_cap} | b_elevatable=${grade.b_elevatable} | requires_clean_entry=${grade.requires_clean_entry}`);
+  console.log(`  --> lean=${grade.lean} | votes ${J(grade.votes)} | bias=${grade.bias} | ${grade.draw_bias_pillar} | grade_cap=${grade.grade_cap} | PATH=${grade.reason} | b_elevatable=${grade.b_elevatable} | clean=${grade.requires_clean_entry}`);
   console.log(`  ORACLE: bias=${exp.bias ?? "moot"} grade_cap=${exp.grade_cap} clean=${exp.clean ?? "-"} (${exp.note ?? ""})`);
   console.log(`  ${verdict}  (bias ${biasOk ? "ok" : "MISS"}, grade ${gradeOk ? "ok" : "MISS"}, clean ${cleanOk ? "ok" : "MISS"})`);
   console.log("================================================================");
