@@ -236,3 +236,76 @@ export function nyOpenReaction({ sweeps = [], structures = [], window = {}, sess
     displaced: struct ? struct.displacement === true || struct.validation === 'break' : !!sweepDir,
   };
 }
+
+// --- Slice 4: the nested 3-component grade (daily-bias §1; README grade table) ---
+
+const dirOf = (v) => {
+  if (v === 'bullish' || v === 'bearish') return v;
+  const d = v?.vote ?? v?.direction;
+  return d === 'bullish' || d === 'bearish' ? d : 'none';
+};
+
+/**
+ * Combine the three bias votes into the draw-bias pillar grade (daily-bias §1):
+ * count aligned votes → 1/3 no-trade · 2/3 B · 3/3 A+-eligible.
+ *
+ * - A real CONFLICT — a TIE between opposing votes (one HTF read reversed by the
+ *   open with no overnight support) — is hands-off → no-trade (§4).
+ * - A minority vote that does NOT break the majority (the overnight that gets
+ *   swept+reversed at the open = the grab, not a conflict; §4) is absorbed —
+ *   the day still grades on the majority count (D2 06-09, D4 10-02).
+ * - pillar2 'poor' CAPS the grade and demands a clean Pillar-3 entry — it never
+ *   hard-blocks here (Stage B locked decision); the trade/no-trade split lives
+ *   in Pillar 3. 'marginal'/'poor' both block A+ (README: any pillar weaker → B).
+ * - A+ via 3/3 is the only A+ this pillar grants alone; a 2/3 day is `b_elevatable`
+ *   — Pillar 3 elevates it to A+ ONLY with a multi-alignment entry (D1/D2).
+ *
+ * @param {object} args { htf, overnight, nyopen } (directions or vote objects), pillar2 verdict
+ */
+export function combineBias({ htf, overnight, nyopen, pillar2 = null } = {}) {
+  const votes = { htf: dirOf(htf), overnight: dirOf(overnight), nyopen: dirOf(nyopen) };
+  const all = [votes.htf, votes.overnight, votes.nyopen];
+  const bull = all.filter((v) => v === 'bullish').length;
+  const bear = all.filter((v) => v === 'bearish').length;
+  const aligned = Math.max(bull, bear);
+  const opposing = Math.min(bull, bear);
+  const priceGood = pillar2 === 'good' || pillar2 == null;
+  const requires_clean_entry = pillar2 === 'poor';
+
+  const out = (extra) => ({
+    bias: null,
+    votes,
+    aligned_count: aligned,
+    opposing_count: opposing,
+    draw_bias_pillar: 'unclear',
+    grade_cap: 'no-trade',
+    a_plus_eligible: false,
+    b_elevatable: false,
+    requires_clean_entry,
+    ...extra,
+  });
+
+  if (aligned === 0) return out({ reason: 'no_bias', no_trade_reason: 'no_bias' });
+  if (aligned === opposing) return out({ reason: 'conflict_hands_off', no_trade_reason: 'conflict_hands_off' });
+
+  const bias = bull > bear ? 'bullish' : 'bearish';
+  if (aligned === 1) return out({ bias, reason: 'one_of_three', no_trade_reason: 'one_of_three' });
+
+  if (aligned === 2) {
+    return out({
+      bias,
+      draw_bias_pillar: 'clear-2of3',
+      grade_cap: 'B',
+      b_elevatable: priceGood, // Pillar 3 multi-alignment entry can elevate to A+
+      reason: 'two_of_three',
+    });
+  }
+  // aligned === 3 — fully-confirmed bias
+  return out({
+    bias,
+    draw_bias_pillar: 'confirmed-3of3',
+    grade_cap: priceGood ? 'A+' : 'B',
+    a_plus_eligible: priceGood,
+    reason: 'three_of_three',
+  });
+}

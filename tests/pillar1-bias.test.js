@@ -6,6 +6,7 @@ import {
   htfVote,
   overnightVote,
   nyOpenReaction,
+  combineBias,
   INVERSION_DISP_MIN,
   NEAR_PRICE_PCT,
 } from '../cli/lib/pillar1-bias.js';
@@ -247,4 +248,102 @@ test('nyOpenReaction: sweeps/structures outside the window are ignored', () => {
     window: OPEN,
   });
   assert.equal(r.vote, 'none');
+});
+
+// --- combineBias: the nested 3-component grade — END-TO-END oracle reproduction.
+//     Each case feeds the three vote DIRECTIONS the slices produce for that
+//     session and asserts the oracle's bias direction + grade tier (Part D). ---
+
+test('combineBias: 12-12 (D3) — no HTF + overnight bear + open bear → 2/3 B bearish', () => {
+  const g = combineBias({ htf: 'none', overnight: 'bearish', nyopen: 'bearish', pillar2: 'good' });
+  assert.equal(g.bias, 'bearish');
+  assert.equal(g.draw_bias_pillar, 'clear-2of3');
+  assert.equal(g.grade_cap, 'B');
+});
+
+test('combineBias: 06-16 — HTF bear + chop + open bear → 2/3 B bearish (single entry caps B)', () => {
+  const g = combineBias({ htf: 'bearish', overnight: 'none', nyopen: 'bearish', pillar2: 'good' });
+  assert.equal(g.bias, 'bearish');
+  assert.equal(g.grade_cap, 'B');
+  assert.equal(g.aligned_count, 2);
+});
+
+test('combineBias: D2 06-09 — HTF bear + overnight-bull GRAB + open bear → 2/3 B, b_elevatable (entry→A+)', () => {
+  const g = combineBias({ htf: 'bearish', overnight: 'bullish', nyopen: 'bearish', pillar2: 'good' });
+  assert.equal(g.bias, 'bearish');        // overnight bull (the grab) is the absorbed minority
+  assert.equal(g.aligned_count, 2);
+  assert.equal(g.opposing_count, 1);
+  assert.equal(g.grade_cap, 'B');
+  assert.equal(g.b_elevatable, true);     // Pillar 3 multi-alignment makes it A+
+});
+
+test('combineBias: D4 10-02 — HTF bull + overnight bull + open-bear (non-confirm) → 2/3 B bull, NOT hands-off', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: 'bearish', pillar2: 'good' });
+  assert.equal(g.bias, 'bullish');        // overnight breaks the tie → majority holds
+  assert.equal(g.grade_cap, 'B');
+  assert.notEqual(g.no_trade_reason, 'conflict_hands_off');
+});
+
+test('combineBias: D1 02-09 — HTF bull + chop + open bull → 2/3 B, b_elevatable (multi-align entry→A+)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: 'bullish', pillar2: 'good' });
+  assert.equal(g.bias, 'bullish');
+  assert.equal(g.draw_bias_pillar, 'clear-2of3');
+  assert.equal(g.b_elevatable, true);
+});
+
+test('combineBias: 06-17 — HTF bear + grab + open bear but pillar2 POOR → B + requires clean entry', () => {
+  const g = combineBias({ htf: 'bearish', overnight: 'bullish', nyopen: 'bearish', pillar2: 'poor' });
+  assert.equal(g.bias, 'bearish');
+  assert.equal(g.grade_cap, 'B');
+  assert.equal(g.requires_clean_entry, true); // no clean entry → Pillar 3 makes it no-trade
+  assert.equal(g.b_elevatable, false);        // poor price cannot elevate
+});
+
+test('combineBias: 06-18 — HTF bull + overnight bull + open none, pillar2 poor → 2/3 B bull + requires clean entry', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: 'none', pillar2: 'poor' });
+  assert.equal(g.bias, 'bullish');
+  assert.equal(g.grade_cap, 'B');
+  assert.equal(g.requires_clean_entry, true);
+});
+
+test('combineBias: 3/3 aligned + price good → A+-eligible (the only A+ this pillar grants alone)', () => {
+  const g = combineBias({ htf: 'bearish', overnight: 'bearish', nyopen: 'bearish', pillar2: 'good' });
+  assert.equal(g.draw_bias_pillar, 'confirmed-3of3');
+  assert.equal(g.grade_cap, 'A+');
+  assert.equal(g.a_plus_eligible, true);
+});
+
+test('combineBias: 3/3 but pillar2 marginal → capped to B (README: any pillar weaker → B)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'bullish', nyopen: 'bullish', pillar2: 'marginal' });
+  assert.equal(g.grade_cap, 'B');
+  assert.equal(g.a_plus_eligible, false);
+});
+
+test('combineBias: TIE (1 HTF vs 1 open, no overnight) → hands-off no-trade (§4)', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: 'bearish', pillar2: 'good' });
+  assert.equal(g.grade_cap, 'no-trade');
+  assert.equal(g.no_trade_reason, 'conflict_hands_off');
+});
+
+test('combineBias: 1/3 (one lone vote) → no-trade (§1 "one out of three, don\'t trade")', () => {
+  const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: 'none', pillar2: 'good' });
+  assert.equal(g.grade_cap, 'no-trade');
+  assert.equal(g.no_trade_reason, 'one_of_three');
+});
+
+test('combineBias: 0/3 (no read at all) → no-trade', () => {
+  const g = combineBias({ htf: 'none', overnight: 'none', nyopen: 'none' });
+  assert.equal(g.grade_cap, 'no-trade');
+  assert.equal(g.no_trade_reason, 'no_bias');
+});
+
+test('combineBias: accepts vote objects, not just direction strings', () => {
+  const g = combineBias({
+    htf: { vote: 'bearish' },
+    overnight: { vote: 'none' },
+    nyopen: { direction: 'bearish' },
+    pillar2: 'good',
+  });
+  assert.equal(g.bias, 'bearish');
+  assert.equal(g.aligned_count, 2);
 });
