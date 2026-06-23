@@ -4268,3 +4268,16 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
    class-based buttons (.btn, .tk-fire, .itbtn, .arm-confirm, .th-btn) AND
    any inline-styled ones (e.g. the Settings mode buttons). */
 button { border-radius: var(--r-sm); }
+
+/* Popover-opener cells render as rounded buttons (curved, not flush strip
+   segments) — drop the divider, round to the pill radius, sit at button height
+   with a hover / open highlight. (2026-06-24) */
+.cell.pop-cell {
+  border-left: 0;
+  border-radius: var(--r-sm);
+  align-self: center;
+  padding: 4px 10px;
+  margin: 0 1px;
+}
+.cell.pop-cell:hover { background: var(--surface-1); }
+.cell.pop-cell.open { background: var(--surface-2); }
