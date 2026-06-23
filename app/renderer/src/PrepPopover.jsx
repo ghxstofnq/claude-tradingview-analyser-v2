@@ -26,6 +26,7 @@ import { useOpenReaction } from "./hooks/useOpenReaction.js";
 import { useAiAnalysis } from "./hooks/useAiAnalysis.js";
 import { armAlertReal, disarmAlertReal, normalizeArmed, useAlertStateListener, useAlertFiredListener } from "./hooks/useAlerts.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
+import { useFloat } from "./hooks/useFloat.js";
 
 const SYMBOL_TABS = [
   { sym: "MNQ1!", label: "MNQ" },
@@ -311,6 +312,7 @@ function PrepCell({ symbol, currentPrice }) {
   const { brief } = useSessionBrief();
   const hasBrief = !!brief;
   const grade = brief?.pillar_grade;
+  const float = useFloat();
 
   useEffect(() => {
     const onOpen = (e) => {
@@ -331,10 +333,13 @@ function PrepCell({ symbol, currentPrice }) {
       <span className="k">PREP</span>
       <span className={"dot " + (hasBrief ? "" : "dim")} />
       {open && (
-        <div className="bt-popover w-660" onClick={(e) => e.stopPropagation()}>
-          <div className="head">
+        <div className={"bt-popover w-660" + float.popoverClass} style={float.popoverStyle} onClick={(e) => e.stopPropagation()}>
+          <div className="head" onMouseDown={float.onDragStart}>
             <span className="t">PREP</span>
             <span className="sub">{brief?.date ?? "—"} · {sessionShort(brief?.session) ?? ""}{grade ? ` · ${grade}` : ""}</span>
+            <span className={"float-btn" + (float.floating ? " on" : "")}
+                  title={float.floating ? "Dock window" : "Float — move & resize freely"}
+                  {...clickable(float.toggle, { label: "toggle floating window" })}>⛶</span>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <div className="body">

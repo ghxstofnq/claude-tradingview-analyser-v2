@@ -4232,3 +4232,29 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .prep-ai .meta .ts { color: var(--label-dim); font-size: 9.5px; letter-spacing: 0.04em; }
 .prep-ai .prose { color: var(--prose); font-size: 12px; line-height: 1.6;
   white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── Popover rounded corners + floating window (detach / move / resize) ─────────
+   Appended last so the radius wins over the duplicated .bt-popover copies. Docked
+   popovers round their bottom corners (top is flush to the anchoring cell); a
+   floating popover detaches (position:fixed, JS-positioned), rounds all corners,
+   restores its top border, and gets a native resize grip. */
+.bt-popover { border-radius: var(--r-lg); border-top: 1px solid var(--border); overflow: hidden; }
+
+.bt-popover.floating {
+  position: fixed; right: auto; left: 24px; top: 64px; /* JS supplies exact left/top inline */
+  border-radius: var(--r-lg);
+  z-index: 120;
+  height: 70vh;
+  min-width: 360px; min-height: 220px;
+  max-width: 96vw; max-height: 92vh;
+  resize: both; overflow: hidden;
+  box-shadow: 0 18px 56px rgba(0,0,0,0.62);
+}
+.bt-popover.floating .head { cursor: move; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+
+.bt-popover .head .float-btn {
+  color: var(--label); cursor: pointer; font-size: 12px; line-height: 1;
+  padding: 2px 6px; user-select: none;
+}
+.bt-popover .head .float-btn:hover { color: var(--value); }
+.bt-popover .head .float-btn.on { color: var(--primary); }
