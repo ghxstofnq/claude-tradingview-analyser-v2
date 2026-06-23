@@ -4238,7 +4238,11 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
    popovers round their bottom corners (top is flush to the anchoring cell); a
    floating popover detaches (position:fixed, JS-positioned), rounds all corners,
    restores its top border, and gets a native resize grip. */
-.bt-popover { border-radius: var(--r-lg); border-top: 1px solid var(--border); overflow: hidden; }
+.bt-popover { border-radius: var(--r-lg); border-top: 1px solid var(--border); overflow: hidden;
+  /* The popover cells live in the topbar, which is a -webkit-app-region:drag zone;
+     without this the OS captures header drags (moving the window) and the resize
+     grip, so the floating window can't be moved or resized. */
+  -webkit-app-region: no-drag; }
 
 .bt-popover.floating {
   position: fixed; right: auto; left: 24px; top: 64px; /* JS supplies exact left/top inline */
