@@ -61,6 +61,33 @@ export function useFloat() {
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, [floating]);
 
+  // The chart is an Electron <webview>, which swallows mousemove the instant the
+  // cursor crosses it — so a header-drag (window mousemove) AND the native resize
+  // grip both stall mid-gesture. While a drag/resize gesture is active on a
+  // floating popover, make the webview pointer-events:none so the mouse passes
+  // through to the document; restore on mouseup. Capture phase so it arms before
+  // the gesture (incl. the native resize grip, which fires no JS event of its own).
+  useEffect(() => {
+    if (!floating) return;
+    const wv = document.querySelector("webview");
+    if (!wv) return;
+    let armed = false;
+    const arm = (e) => {
+      if (e.target.closest && e.target.closest(".bt-popover.floating")) {
+        armed = true;
+        wv.style.pointerEvents = "none";
+      }
+    };
+    const disarm = () => { if (armed) { armed = false; wv.style.pointerEvents = ""; } };
+    window.addEventListener("mousedown", arm, true);
+    window.addEventListener("mouseup", disarm, true);
+    return () => {
+      window.removeEventListener("mousedown", arm, true);
+      window.removeEventListener("mouseup", disarm, true);
+      wv.style.pointerEvents = "";
+    };
+  }, [floating]);
+
   return {
     floating,
     toggle,
