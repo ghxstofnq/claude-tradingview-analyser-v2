@@ -302,7 +302,7 @@ export function FileViewer({ file, onClose }) {
               onClick={() => window.api?.files?.open?.(file.path)}
               style={{
                 color: "var(--amber)", background: "transparent",
-                border: "1px solid var(--amber, #e3b341)",
+                border: "1px solid var(--amber)",
                 padding: "3px 9px", fontSize: 9.5, letterSpacing: ".16em",
                 cursor: "pointer", fontFamily: "inherit",
               }}>

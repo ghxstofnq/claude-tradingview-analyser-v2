@@ -193,7 +193,7 @@ function TvFailed({ failure, onRetry }) {
                 marginTop: 6,
                 color: "var(--amber)",
                 background: "transparent",
-                border: "1px solid var(--amber, #e3b341)",
+                border: "1px solid var(--amber)",
                 padding: "6px 14px",
                 fontFamily: "ui-monospace, Menlo, monospace",
                 fontSize: 10.5,
