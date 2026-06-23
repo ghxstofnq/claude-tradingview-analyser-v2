@@ -302,10 +302,14 @@ export const smtBiasOf = (biasDir) =>
  *                                           should have flipped). Lower conviction:
  *                                           cap A+ → B and flag `conflict`.
  *
- * Conservative: never creates or blocks a trade on its own — SMT divergence is
- * unproven on this corpus (neutral on the validated week), and no-divergence
- * (smt_bias=null) is a no-op. Calibration-open (Discord calls): whether a clear
- * opposing leader should hands-off entirely rather than only cap A+.
+ * WARNING-ONLY by decision (2026-06-23). The transcript says an opposing leader
+ * is a STAND-ASIDE, not a smaller trade — the D4 10-02 loss took a long while ES
+ * "had interest in drawing lower" (RISK ~30:39); the faithful behavior (spec §6)
+ * is hands-off / follow the leader. But SMT divergence is unproven on this corpus
+ * (neutral on the validated week), so an opposing leader is held warning-only
+ * (cap A+ -> B + flag `conflict`) and never blocks or flips a trade on its own;
+ * no-divergence (smt_bias=null) is a no-op. PROMOTE `conflict` to a hands-off
+ * no-trade once SMT proves out on more paired sessions (the Discord calls).
  */
 function applySmt(result, smtBias) {
   if (!smtBias) return { ...result, smt: null, smt_bias: null };
