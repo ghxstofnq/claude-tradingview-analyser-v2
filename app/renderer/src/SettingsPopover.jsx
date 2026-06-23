@@ -7,6 +7,7 @@
 // broker when the execution engine lands.
 import React, { useState, useEffect, useRef } from "react";
 import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { armReady as isArmReady, realAccountView } from "./Account.helpers.js";
 import { useExecutionState } from "./hooks/useExecutionState.js";
 import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
@@ -30,7 +31,7 @@ function GuardField({ label, hint, value, onChange }) {
   );
 }
 
-function SettingsPopover({ guards, setGuards, onClose }) {
+function SettingsPopover({ guards, setGuards, onClose, float }) {
   const exec = useExecutionState();
 
   // Execution config (automation mode + risk knobs) lives in main so auto-fire
@@ -78,10 +79,15 @@ function SettingsPopover({ guards, setGuards, onClose }) {
   );
 
   return (
-    <div className="bt-popover settings-pop" onClick={(e) => e.stopPropagation()}>
-      <div className="head">
+    <div className={"bt-popover settings-pop" + (float?.popoverClass || "")} style={float?.popoverStyle} onClick={(e) => e.stopPropagation()}>
+      <div className="head" onMouseDown={float?.onDragStart}>
         <span className={"t" + (live ? " pause" : "")}>ACCOUNT &amp; EXECUTION</span>
         <span className="spacer" style={{ flex: 1 }} />
+        {float && (
+          <span className={"float-btn" + (float.floating ? " on" : "")}
+                title={float.floating ? "Dock window" : "Float — move & resize freely"}
+                onClick={float.toggle}>⛶</span>
+        )}
         <span className="x" onClick={onClose}>×</span>
       </div>
       <div className="body">
@@ -175,11 +181,14 @@ function SettingsPopover({ guards, setGuards, onClose }) {
 export function AccountCell({ guards, setGuards }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const float = useFloat();
   useEffect(() => {
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    // While floating, the popover is a detached window — don't close it on an
+    // outside click; only the × (or re-clicking the cell) closes it.
+    const close = (e) => { if (float.floating) return; if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
-  }, []);
+  }, [float.floating]);
   const { acct } = useBrokerAccount();
   const live = realAccountView(acct).live;
   return (
@@ -190,7 +199,7 @@ export function AccountCell({ guards, setGuards }) {
         <span className="d" />{live ? "LIVE" : "PAPER"}<span className="sub">{live ? "REAL" : "SIM"}</span>
         <span className="gear">▾</span>
       </span>
-      {open && <SettingsPopover guards={guards} setGuards={setGuards} onClose={() => setOpen(false)} />}
+      {open && <SettingsPopover guards={guards} setGuards={setGuards} onClose={() => setOpen(false)} float={float} />}
     </div>
   );
 }

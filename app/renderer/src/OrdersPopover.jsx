@@ -6,6 +6,7 @@
 // Laid out with the shared Panel/Row system to match PREP/LIVE/REVIEW.
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { Panel, Row } from "./Shared.jsx";
 import { executionAdapter } from "./execution/executionAdapter.js";
 import { formatStopSource, routingLabel, blockMessage, orderResultToast } from "./Orders.helpers.js";
@@ -195,6 +196,7 @@ function OrdersBody({ onToast, toast, symbol }) {
 
 export function OrdersCell({ symbol }) {
   const [open, setOpen] = useState(false);
+  const float = useFloat();
   const [toast, setToast] = useState(null);
   useEffect(() => {
     const onOpen = (e) => {
@@ -211,10 +213,13 @@ export function OrdersCell({ symbol }) {
          {...clickable((e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); })}>
       <span className="k">ORDERS</span>
       {open && (
-        <div className="bt-popover w-660 orders-pop" onClick={(e) => e.stopPropagation()}>
-          <div className="head">
+        <div className={"bt-popover w-660 orders-pop" + float.popoverClass} style={float.popoverStyle} onClick={(e) => e.stopPropagation()}>
+          <div className="head" onMouseDown={float.onDragStart}>
             <span className="t">ORDERS · manual ticket</span>
             <span className="spacer" style={{ flex: 1 }} />
+            <span className={"float-btn" + (float.floating ? " on" : "")}
+                  title={float.floating ? "Dock window" : "Float — move & resize freely"}
+                  onClick={float.toggle}>⛶</span>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <OrdersBody onToast={setToast} toast={toast} symbol={symbol} />

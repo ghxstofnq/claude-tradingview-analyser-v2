@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { Panel, Row } from "./Shared.jsx";
 import {
   selectPillar3,
@@ -400,6 +401,7 @@ function BacktestRunningPlaceholder({ session }) {
 // ── LiveCell — topbar cell + 660px tabbed popover ────────────────────────
 function LiveCell({ guards, symbol }) {
   const [open, setOpen] = useState(false);
+  const float = useFloat();
   const [view, setView] = useState("hunt");   // hunt | ticket | intrade
   const [userPickedView, setUserPickedView] = useState(false);
   const [fireMsg, setFireMsg] = useState(null);   // placement failure banner
@@ -532,8 +534,8 @@ function LiveCell({ guards, symbol }) {
       <span className="k">LIVE</span>
       {badge}
       {open && (
-        <div className="bt-popover w-660" onClick={(e) => e.stopPropagation()}>
-          <div className="head live-head">
+        <div className={"bt-popover w-660" + float.popoverClass} style={float.popoverStyle} onClick={(e) => e.stopPropagation()}>
+          <div className="head live-head" onMouseDown={float.onDragStart}>
             <span className="t">LIVE</span>
             <span className="det">
               <i className="dot" />
@@ -547,6 +549,9 @@ function LiveCell({ guards, symbol }) {
                 <span key={v} className={"tab" + (effectiveView === v ? " on" : "")} onClick={() => pickView(v)}>{l}</span>
               ))}
             </div>
+            <span className={"float-btn" + (float.floating ? " on" : "")}
+                  title={float.floating ? "Dock window" : "Float — move & resize freely"}
+                  onClick={float.toggle}>⛶</span>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <div className="body">

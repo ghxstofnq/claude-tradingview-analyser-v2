@@ -4,6 +4,7 @@
 
 import React, { useState, useMemo } from "react";
 import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { useBacktest } from "./hooks/useBacktest.js";
 import { useBaseline } from "./hooks/useBaseline.js";
 import { useTests } from "./hooks/useTests.js";
@@ -26,6 +27,7 @@ const BT_SWITCHER = [
 
 export function BacktestCell() {
   const [open, setOpen] = useState(false);
+  const float = useFloat();
   const { state, actions } = useBacktest();
   // Instrument view — scopes the configure form's recents and the analytics to
   // one symbol. Persists while the popover is open; the configure SYMBOL
@@ -49,10 +51,11 @@ export function BacktestCell() {
       <BadgeForState state={state} />
       {open && (
         <div
-          className={"bt-popover " + (state.ui === "LIBRARY" || state.ui === "TESTS" ? "w-analytics" : "w-660 bt-fixed")}
+          className={"bt-popover " + (state.ui === "LIBRARY" || state.ui === "TESTS" ? "w-analytics" : "w-660 bt-fixed") + float.popoverClass}
+          style={float.popoverStyle}
           onClick={(e) => e.stopPropagation()}
         >
-          <Header state={state} actions={actions} onClose={close} />
+          <Header state={state} actions={actions} onClose={close} float={float} />
           {(state.ui === "IDLE" || state.ui === "LIBRARY") && (
             <div className="bt-sym-bar">
               <span className="bt-sym-label">INSTRUMENT</span>
@@ -77,11 +80,16 @@ export function BacktestCell() {
 // ─────────────────────────────────────────────────────────────────────
 // Header — varies by state.ui
 // ─────────────────────────────────────────────────────────────────────
-function Header({ state, actions, onClose }) {
+function Header({ state, actions, onClose, float }) {
+  const floatBtn = float ? (
+    <span className={"float-btn" + (float.floating ? " on" : "")}
+          title={float.floating ? "Dock window" : "Float — move & resize freely"}
+          onClick={float.toggle}>⛶</span>
+  ) : null;
   if (state.ui === "DETAIL") {
     const run = state.detail?.entry;
     return (
-      <div className="head">
+      <div className="head" onMouseDown={float?.onDragStart}>
         <span className="back" onClick={(e) => { e.stopPropagation(); actions.back(); }}>← LIBRARY</span>
         <span className="t">{run?.date ?? state.selectedRunId} · {sessionLabel(run?.session)}</span>
         {run && (
@@ -91,6 +99,7 @@ function Header({ state, actions, onClose }) {
         )}
         {run && <span className="meta-pill amber">{(run.mode ?? "").toUpperCase()}</span>}
         <span className="spacer" />
+        {floatBtn}
         <span className="x" onClick={(e) => { e.stopPropagation(); onClose(); }}>×</span>
       </div>
     );
@@ -116,7 +125,7 @@ function Header({ state, actions, onClose }) {
   };
 
   return (
-    <div className="head">
+    <div className="head" onMouseDown={float?.onDragStart}>
       <span className={"t " + cfg.cls}>
         {cfg.pulse && <span className="pulse" />}
         BACKTEST
@@ -129,6 +138,7 @@ function Header({ state, actions, onClose }) {
         ))}
       </span>
       <span className="spacer" />
+      {floatBtn}
       <span
         className="x"
         onClick={(e) => {

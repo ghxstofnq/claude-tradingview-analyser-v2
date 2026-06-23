@@ -32,7 +32,12 @@ export function useFloat() {
   const onDragStart = useCallback((e) => {
     if (!floating) return;
     if (e.button !== 0) return;                 // left-button only
-    if (e.target.closest(".x, .float-btn")) return; // not on the head buttons
+    // Drag from the title/empty header area only — never hijack a head control
+    // (close, float, tabs, detector, back, pills, inputs).
+    if (e.target.closest(
+      "button, input, select, textarea, a, [role='button'], " +
+      ".x, .float-btn, .tab, .live-tabs, .pill, .seg, .back, .det, .stop, .meta-pill"
+    )) return;
     const base = pos || { x: 0, y: 0 };
     drag.current = { startX: e.clientX, startY: e.clientY, baseX: base.x, baseY: base.y };
     e.preventDefault();

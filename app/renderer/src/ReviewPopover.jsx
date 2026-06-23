@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
@@ -410,14 +411,15 @@ function ReviewCell() {
     if (e.target.closest(".bt-popover")) return;
     setOpen((o) => !o);
   };
+  const float = useFloat();
 
   return (
     <div className={"cell pop-cell" + (open ? " open" : "")} {...clickable(onCellClick)}>
       <span className="k">REVIEW</span>
       {badge}
       {open && (
-        <div className={"bt-popover " + (view === "TRACK" ? "w-analytics" : "w-660")} onClick={(e) => e.stopPropagation()}>
-          <div className="head">
+        <div className={"bt-popover " + (view === "TRACK" ? "w-analytics" : "w-660") + float.popoverClass} style={float.popoverStyle} onClick={(e) => e.stopPropagation()}>
+          <div className="head" onMouseDown={float.onDragStart}>
             <span className="t">REVIEW</span>
             <span className="live-tabs" style={{ marginLeft: 10 }} onClick={(e) => e.stopPropagation()}>
               {RV_TABS.map(([v, l]) => (
@@ -425,6 +427,9 @@ function ReviewCell() {
               ))}
             </span>
             <span className="spacer" style={{ flex: 1 }} />
+            <span className={"float-btn" + (float.floating ? " on" : "")}
+                  title={float.floating ? "Dock window" : "Float — move & resize freely"}
+                  onClick={float.toggle}>⛶</span>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <div className="body">
