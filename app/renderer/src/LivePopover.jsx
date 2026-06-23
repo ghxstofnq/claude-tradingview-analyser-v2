@@ -12,8 +12,7 @@ import {
   selectPillar3,
   pillar3ToConfirmationRows,
   liveGridFromTrade,
-  deriveAddCandidate,
-  trancheStackFromState,
+  modelLabel,
   normalizeSide,
 } from "./Live.helpers.js";
 import { stripCitations } from "./Prep.helpers.js";
@@ -69,7 +68,7 @@ function latestReadText(messages) {
 }
 
 // ── ORDER TICKET — type $ risk → computed micros → accepting fires ───────
-function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, onCancel }) {
+function TicketView({ setup, account, guards, symbol, onFire, onCancel }) {
   const G = guards || { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120 };
   const [risk, setRisk] = useState(() => loadRiskOr(G.defaultRisk));
   const [type, setType] = useState("market");
@@ -97,9 +96,8 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
 
   return (
     <div className="work-scroll">
-      <Panel title={isAdd ? "ADD TICKET" : "ORDER TICKET"}
+      <Panel title="ORDER TICKET"
         right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-          {isAdd && <span className="add-badge">ADD</span>}
           <span className={"pill " + (setup.side === "long" ? "green" : "red")}>{setup.side.toUpperCase()}</span>
           <span style={{ color: "var(--label)", fontSize: 10 }}>{setup.model}</span>
         </span>}>
@@ -109,7 +107,6 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
           <span className="model">{setup.model}</span>
           <span>{symbol} · {type === "market" ? "MARKET" : "LIMIT"}</span>
           <span className="spacer" />
-          {isAdd && tradeId && <span style={{ color: "var(--amber)", fontSize: 9, letterSpacing: ".14em" }}>ADDS TO #{tradeId}</span>}
           <span className={"acct " + (account === "live" ? "live" : "paper")}>{account === "live" ? "● LIVE" : "PAPER"}</span>
         </div>
 
@@ -156,8 +153,8 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
             <button className="tk-fire locked" disabled>▸ CAN'T SEND — {block.code}</button>
           </>
         ) : (
-          <button className={"tk-fire" + (isAdd ? " add" : "")} onClick={fire}>
-            ▸ ACCEPT — {isAdd ? `ADD ${contracts}c TO #${tradeId}` : `SENDS ${type.toUpperCase()} ORDER`}
+          <button className="tk-fire" onClick={fire}>
+            ▸ ACCEPT — SENDS {type.toUpperCase()} ORDER
           </button>
         )}
         <button className="tk-cancel" onClick={onCancel}>CANCEL · BACK</button>
@@ -167,7 +164,7 @@ function TicketView({ setup, isAdd, account, guards, symbol, tradeId, onFire, on
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
-function InTradeView({ position, trade, tranches, lastBar, price, symbol, workingOrders, addCandidate, onAdd }) {
+function InTradeView({ position, trade, lastBar, price, symbol, workingOrders }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -228,21 +225,6 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, workin
           <div className="lcell"><span className="k">→ STOP</span><span className={"v " + grid.toStop.tone}><Px v={grid.toStop.v} /></span><span className="sub">{grid.toStop.sub}</span></div>
         </div>
 
-        {Array.isArray(tranches) && tranches.length > 1 && (
-          <div className="lv-box">
-            <div className="lv-box-hd">TRANCHE STACK · {tranches.length}</div>
-            {tranches.map((tr) => (
-              <Row key={tr.id}
-                k={<span>{tr.role === "anchor" ? "ANCHOR" : `ADD ${tr.seq}`} · #{tr.id}</span>}
-                v={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-                  <span className={"pill " + (tr.grade === "A+" ? "green" : tr.grade === "B" ? "amber" : "dim")}>{tr.grade}</span>
-                  <Px v={tr.entry} />
-                  <span className={tr.tone}>{tr.r}</span>
-                </span>} />
-            ))}
-          </div>
-        )}
-
         <div className="lv-box plan-rows">
           <div className="lv-box-hd">RISK PLAN</div>
           <Row k="Entry" v={<Px v={entry ?? "—"} />} />
@@ -255,6 +237,11 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, workin
 
         <div className="lv-box">
           <div className="lv-box-hd">MANAGE POSITION</div>
+          <div className="ai-prose" style={{ marginBottom: 8, color: "var(--label)" }}>
+            {t.tp1_hit
+              ? "Runner · no-trim — stop at break-even, trailing structurally to TP2 / structure-change exit."
+              : "No-trim ride-the-trail — hold full size to TP1, then trail; never scaled."}
+          </div>
           <div className="itbtns">
             <button className="itbtn flatten" onClick={mng("flatten")}>▣ FLATTEN</button>
             <button className="itbtn be" onClick={mng("moveStopToBE")}>⇲ BE</button>
@@ -264,15 +251,6 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, workin
             <button className="itbtn-sec" onClick={mng("cancel")}>CANCEL</button>
           </div>
         </div>
-
-        {addCandidate && (
-          <div className="lv-box">
-            <div className="scale-note" style={{ margin: 0 }}><span className="add-badge">ADD</span> {sizeLabel(addCandidate.size)} scale-in surfaced — review to add to #{trade.id}</div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-              <button className="btn amber" onClick={onAdd}>▸ REVIEW ADD CARD</button>
-            </div>
-          </div>
-        )}
 
         {latestBrain && (
           <div className="lv-box">
@@ -286,14 +264,14 @@ function InTradeView({ position, trade, tranches, lastBar, price, symbol, workin
 }
 
 // ── ENTRY HUNT (and ADD) — vladder + confirmation + brain read ──────────
-function EntryHuntView({ setup, isAdd, tradeId, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject }) {
+function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject }) {
   const read = latestReadText(chat?.messages || []);
   if (!setup) {
     const prose = { color: "var(--prose)", fontSize: 11, lineHeight: 1.55, overflowWrap: "anywhere", wordBreak: "break-word" };
     const sh = noTrade?.sourceHealth;
     return (
       <div className="work-scroll">
-        <Panel title={isAdd ? "ADD CANDIDATE" : "ENTRY CANDIDATE"} right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
+        <Panel title="ENTRY CANDIDATE" right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
           <div className="lv-box" style={{ marginTop: 0 }}>
             <div className="lv-box-hd">{noTradeReason ? "NO-TRADE REASON" : "STATUS"}</div>
             <div style={prose}>{noTradeReason || "awaiting next walker fire."}</div>
@@ -358,14 +336,12 @@ function EntryHuntView({ setup, isAdd, tradeId, lastBarPrice, chat, noTrade, noT
   const stTxt = { pass: "yes", weak: "weak", fail: "fail", missing: "—", pending: "pending" };
   return (
     <div className="work-scroll">
-      <Panel title={isAdd ? "ADD CANDIDATE" : "ENTRY CANDIDATE"}
+      <Panel title="ENTRY CANDIDATE"
         right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-          {isAdd && <span className="add-badge">ADD</span>}
           <span className={"pill " + (setup.side === "long" ? "green" : "red")}>{(setup.side || "").toUpperCase()}</span>
           <span className={"pill " + gradeTone}>{grade}</span>
-          <span style={{ color: "var(--label)", fontSize: 10 }}>{setup.model}</span>
+          <span style={{ color: "var(--label)", fontSize: 10 }}>{modelLabel(setup)}</span>
         </span>}>
-        {isAdd && tradeId && <div className="scale-note"><span className="add-badge">ADD</span> SCALE-IN · adds to #{tradeId} — not a new position</div>}
         <div className="intrade-cols">
           <div className="vlad hunt">
             {rungs.map((r) => (
@@ -423,14 +399,13 @@ function BacktestRunningPlaceholder({ session }) {
 // ── LiveCell — topbar cell + 660px tabbed popover ────────────────────────
 function LiveCell({ guards, symbol }) {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState("hunt");   // hunt | ticket | intrade | add
-  const [ticketAdd, setTicketAdd] = useState(false);
+  const [view, setView] = useState("hunt");   // hunt | ticket | intrade
   const [userPickedView, setUserPickedView] = useState(false);
   const [fireMsg, setFireMsg] = useState(null);   // placement failure banner
 
   const backtest = useBacktestRunning();
   const health = useHealth();
-  const { trades, activeTrade, accept } = useTrades();
+  const { activeTrade, accept } = useTrades();
   const { activeSetup, noTrade, noTradeReason } = useActiveSetup();
   const lastBar = useLastBar();
   const chat = useChat();
@@ -497,30 +472,17 @@ function LiveCell({ guards, symbol }) {
   };
 
   const pickView = (v) => {
-    if (v === "ticket") setTicketAdd(false);
     setUserPickedView(true);
     setView(v);
   };
 
   const lastPrice = lastBar?.close;
-  // Scale-in: a same-side live candidate onto a green-lit open position.
-  const addCandidate = deriveAddCandidate({
-    position: exec.position,
-    anchor: activeTrade,   // journal anchor carries greenlight_ref (auto-parity)
-    activeSetup,
-    price: (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastPrice,
-  });
-  const ticketSetup = ticketAdd ? addCandidate : activeSetup;
-  // Open tranches (anchor + adds) for the IN-TRADE stack — each is its own
-  // journal trade on a netting account.
-  const trancheRows = trancheStackFromState(
-    Object.values(trades || {}),
-    (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastPrice,
-  );
-  const TABS = [["hunt", "HUNT"], ["ticket", "TICKET"], ["intrade", "IN-TRADE"], ["add", "ADD"]];
+  const ticketSetup = activeSetup;
+  const TABS = [["hunt", "HUNT"], ["ticket", "TICKET"], ["intrade", "IN-TRADE"]];
 
-  // Accept from HUNT → size in TICKET; fire in TICKET → real accept + (stub) order → IN-TRADE.
-  const onHuntAccept = () => { setTicketAdd(false); setUserPickedView(true); setView("ticket"); };
+  // Accept from HUNT → size in TICKET; fire in TICKET → real accept + order → IN-TRADE.
+  // One position at a time (scale-in removed 2026-06-23).
+  const onHuntAccept = () => { setUserPickedView(true); setView("ticket"); };
   const onTicketFire = async (order) => {
     setFireMsg(null);
     try {
@@ -528,17 +490,8 @@ function LiveCell({ guards, symbol }) {
         const req = buildOrderRequest({
           setup: ticketSetup, sizing: order.sizing, guards, account: accountType, symbol, type: order.type,
         });
-        let res;
-        if (ticketAdd) {
-          // Scale-in: open the add as its OWN standalone tranche (own stop +
-          // target), not an average-in. The main-process tranche path journals
-          // the accept (tagged add) and lays the bracket; exits are managed by
-          // the outcome ticker like any tranche.
-          res = await executionAdapter.openTranche({ ...ticketSetup, symbol, tranche_role: "add" });
-        } else {
-          await accept({ ...ticketSetup, symbol });
-          res = await executionAdapter.placeOrder(req);
-        }
+        await accept({ ...ticketSetup, symbol });
+        const res = await executionAdapter.placeOrder(req);
         // Surface a failed/blocked placement instead of silently advancing to
         // IN-TRADE — otherwise a rejected order looks like a live trade.
         if (!res?.ok) {
@@ -552,7 +505,7 @@ function LiveCell({ guards, symbol }) {
       setFireMsg(`ORDER NOT PLACED — ${String(e?.message || e)}`);
       return;
     }
-    setTicketAdd(false); setUserPickedView(true); setView("intrade");
+    setUserPickedView(true); setView("intrade");
   };
 
   let body;
@@ -560,19 +513,13 @@ function LiveCell({ guards, symbol }) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveView === "intrade") {
     body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} tranches={trancheRows} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders} addCandidate={addCandidate} onAdd={() => pickView("add")} />
+      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
   } else if (effectiveView === "ticket") {
     body = ticketSetup
-      ? <TicketView setup={ticketSetup} isAdd={ticketAdd} account={accountType} guards={guards} symbol={symbol}
-                    tradeId={activeTrade?.id} onFire={onTicketFire} onCancel={() => pickView(ticketAdd ? "add" : "hunt")} />
+      ? <TicketView setup={ticketSetup} account={accountType} guards={guards} symbol={symbol}
+                    onFire={onTicketFire} onCancel={() => pickView("hunt")} />
       : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no candidate to ticket ]</div>;
-  } else if (effectiveView === "add") {
-    body = <EntryHuntView setup={addCandidate} isAdd tradeId={activeTrade?.id} lastBarPrice={lastPrice}
-                          chat={chat}
-                          noTrade={!addCandidate} noTradeReason={addCandidate ? undefined : "no scale-in candidate yet"}
-                          onAccept={() => { setTicketAdd(true); setUserPickedView(true); setView("ticket"); }}
-                          onReject={() => pickView("intrade")} />;
   } else {
     body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
                           noTrade={noTrade} noTradeReason={noTradeReason}

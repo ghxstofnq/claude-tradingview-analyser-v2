@@ -1,6 +1,5 @@
 // Pure helpers for Live.jsx — extracted so they can be unit-tested with
 // `node --test`. Importing this file has no side effects.
-import { greenLightReached } from "../../../cli/lib/scale-in-rules.js";
 
 // Normalize a position/order "side" to "long" | "short" | null, accepting every
 // vocabulary the execution feeds emit: order side ("buy"/"sell"), TradingView's
@@ -111,63 +110,18 @@ export function liveGridFromTrade(trade, lastClose) {
   };
 }
 
-// Decide whether a same-side scale-in ("ADD") should surface onto the open
-// position. Per strategy §7 Step 7, you only add to a WINNER: the anchor must
-// be green-lit and the new live candidate must be the SAME side as the
-// position — never reverse via an add.
-//
-// Green-light uses the SAME shared rule as the auto tranche engine
-// (greenLightReached: 50% to the anchor's nearest intraday objective
-// greenlight_ref, falling back to TP1) so MANUAL and AUTO add-timing are
-// identical. Pass the journal anchor (carries greenlight_ref); when it's
-// absent we judge off the live position's avgFill/tp.
-//
-// Inputs:
-//   position    — live broker position { side:"buy"|"sell", avgFill, tp, ... }
-//   anchor      — journal anchor { side, entry, tp1, greenlight_ref } (optional)
-//   activeSetup — the live walker candidate { side:"long"|"short", entry, ... }
-//   price       — current mid price
-// Returns the activeSetup (the add candidate) when all conditions hold, else null.
-export function deriveAddCandidate({ position, anchor = null, activeSetup, price } = {}) {
-  if (!position || !activeSetup) return null;
-  const posSide = normalizeSide(position.side);
-  if (!posSide || activeSetup.side !== posSide) return null;     // same side only
-  const gl = anchor && Number.isFinite(Number(anchor.entry))
-    ? { side: posSide, entry: Number(anchor.entry), tp1: Number(anchor.tp1), greenlight_ref: anchor.greenlight_ref }
-    : { side: posSide, entry: Number(position.avgFill), tp1: Number(position.tp) };
-  // Target must be finite and beyond entry in the trade's direction — a broker
-  // position can momentarily lack a tp; don't judge green-lit off garbage.
-  const target = Number(gl.greenlight_ref ?? gl.tp1);
-  if (!Number.isFinite(gl.entry) || !Number.isFinite(target)) return null;
-  if (posSide === "long" ? target <= gl.entry : target >= gl.entry) return null;
-  return greenLightReached(gl, price) ? activeSetup : null;
-}
-
-// Build the IN-TRADE tranche stack from the open journal trades (each tranche
-// is its own trade on a netting account). Anchor first, then adds by seq. Each
-// row carries its own entry/stop/tp + unrealized R (via liveGridFromTrade).
-export function trancheStackFromState(openTrades, price) {
-  if (!Array.isArray(openTrades)) return [];
-  const rows = openTrades
-    .filter((t) => t && t.state !== "closed")
-    .map((t) => {
-      const grid = liveGridFromTrade(
-        { entry: t.entry, stop: t.stop, tp1: t.tp1, tp2: t.tp2, side: t.side, r_realized: t.r_realized, tp1_hit: t.tp1_hit },
-        price,
-      );
-      return {
-        id: t.id,
-        role: t.tranche_role || "anchor",
-        seq: t.tranche_seq ?? 0,
-        side: t.side,
-        grade: t.grade,
-        entry: t.entry,
-        stop: t.stop,
-        tp: t.tp1,
-        r: grid.pnl.v,
-        tone: grid.pnl.tone,
-      };
-    });
-  rows.sort((a, b) => (a.role === "anchor" ? 0 : 1) - (b.role === "anchor" ? 0 : 1) || (a.seq - b.seq));
-  return rows;
+// design.md 2×2 framing: 2 models (Reversal / Continuation) × 2 mechanisms
+// (FVG-retrace / inversion). The walker emits one combined name — MSS / Trend /
+// Inversion — so annotate the model family for a clearer entry-model label,
+// falling back to the raw string.
+//   MSS       → Reversal · MSS        (liquidity grab + market-structure shift)
+//   Trend     → Continuation · Trend  (continuation in the direction of displacement)
+//   Inversion → Inversion             (failed PD array flips and is traded the other way)
+export function modelLabel(setup) {
+  const m = String(setup?.model || "").trim();
+  if (!m) return "—";
+  if (/^mss$/i.test(m)) return "Reversal · MSS";
+  if (/^trend$/i.test(m)) return "Continuation · Trend";
+  if (/^inversion$/i.test(m)) return "Inversion";
+  return m;
 }

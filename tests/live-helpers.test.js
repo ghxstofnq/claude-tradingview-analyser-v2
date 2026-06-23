@@ -7,8 +7,7 @@ import {
   selectPillar3,
   pillar3ToConfirmationRows,
   liveGridFromTrade,
-  deriveAddCandidate,
-  trancheStackFromState,
+  modelLabel,
   normalizeSide,
 } from "../app/renderer/src/Live.helpers.js";
 
@@ -160,99 +159,21 @@ describe("liveGridFromTrade", () => {
   });
 });
 
-describe("deriveAddCandidate", () => {
-  const longSetup = { side: "long", entry: 105, stop: 100, tp1: 120, model: "Trend" };
-  const shortSetup = { side: "short", entry: 105, stop: 110, tp1: 90, model: "MSS" };
-  const longPos = { side: "buy", qty: 1, avgFill: 100, sl: 95, tp: 110 };
-  const shortPos = { side: "sell", qty: 1, avgFill: 110, sl: 115, tp: 100 };
+// (deriveAddCandidate + trancheStackFromState removed 2026-06-23 — scale-in
+// deleted; the LIVE panel trades one position at a time.)
 
-  it("returns null with no position", () => {
-    assert.equal(deriveAddCandidate({ position: null, activeSetup: longSetup, price: 106 }), null);
+describe("modelLabel (Stage F — 2×2 entry-model framing)", () => {
+  it("MSS → Reversal · MSS", () => {
+    assert.equal(modelLabel({ model: "MSS" }), "Reversal · MSS");
   });
-
-  it("returns null with no activeSetup", () => {
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: null, price: 106 }), null);
+  it("Trend → Continuation · Trend", () => {
+    assert.equal(modelLabel({ model: "Trend" }), "Continuation · Trend");
   });
-
-  it("returns null when sides differ (no reversing via add)", () => {
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: shortSetup, price: 106 }), null);
+  it("Inversion → Inversion", () => {
+    assert.equal(modelLabel({ model: "Inversion" }), "Inversion");
   });
-
-  it("recognizes a DOM-sourced position side ('long'/'short'), not just 'buy'/'sell'", () => {
-    // When the WS feed hasn't connected, exec.position comes from the DOM read,
-    // whose side is "long"/"short". The add must still surface on a same-side,
-    // green-lit long — previously this returned null (only buy/sell handled).
-    const domLongPos = { side: "long", qty: 1, avgFill: 100, sl: 95, tp: 110 };
-    assert.equal(deriveAddCandidate({ position: domLongPos, activeSetup: longSetup, price: 105 }), longSetup);
-    const domShortPos = { side: "short", qty: 1, avgFill: 110, sl: 115, tp: 100 };
-    assert.equal(deriveAddCandidate({ position: domShortPos, activeSetup: shortSetup, price: 105 }), shortSetup);
-  });
-
-  it("returns null when the anchor is not green-lit (<50% to TP1)", () => {
-    // long: entry 100, tp 110, price 104 → progress 0.4
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: 104 }), null);
-  });
-
-  it("returns the candidate when same side and green-lit (>=50% to TP1) — long", () => {
-    // long: entry 100, tp 110, price 105 → progress 0.5
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: 105 }), longSetup);
-  });
-
-  it("returns the candidate when same side and green-lit — short", () => {
-    // short: entry 110, tp 100, price 105 → progress 0.5
-    assert.equal(deriveAddCandidate({ position: shortPos, activeSetup: shortSetup, price: 105 }), shortSetup);
-  });
-
-  it("returns null when TP is missing / equal to entry (can't judge green-lit)", () => {
-    assert.equal(deriveAddCandidate({ position: { ...longPos, tp: null }, activeSetup: longSetup, price: 109 }), null);
-    assert.equal(deriveAddCandidate({ position: { ...longPos, tp: 100 }, activeSetup: longSetup, price: 109 }), null);
-  });
-
-  it("returns null when price is not finite", () => {
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: undefined }), null);
-  });
-
-  it("uses the journal anchor's greenlight_ref — green-lights earlier, same as auto", () => {
-    // Anchor entry 100, tp1 120, greenlight_ref 110. 50% to ref(110)=105;
-    // 50% to tp1(120)=110. At 105 the ref-based rule (matching the auto engine)
-    // surfaces the add, while the tp1-only rule would still wait.
-    const anchor = { side: "long", entry: 100, tp1: 120, greenlight_ref: 110 };
-    assert.equal(deriveAddCandidate({ position: longPos, anchor, activeSetup: longSetup, price: 105 }), longSetup);
-    // Without greenlight_ref the anchor falls back to tp1 → 105 is not yet 50%.
-    const noRef = { side: "long", entry: 100, tp1: 120, greenlight_ref: null };
-    assert.equal(deriveAddCandidate({ position: longPos, anchor: noRef, activeSetup: longSetup, price: 105 }), null);
-  });
-
-  it("short anchor honors greenlight_ref", () => {
-    const anchor = { side: "short", entry: 110, tp1: 90, greenlight_ref: 100 };
-    // 50% to ref(100)=105; reached at 105.
-    assert.equal(deriveAddCandidate({ position: shortPos, anchor, activeSetup: shortSetup, price: 105 }), shortSetup);
-  });
-});
-
-describe("trancheStackFromState", () => {
-  it("maps open journal trades to stack rows, anchor first then adds by seq", () => {
-    const trades = [
-      { id: "T-0002", tranche_role: "add", tranche_seq: 1, side: "long", grade: "B", entry: 105, stop: 102, tp1: 112, state: "filled" },
-      { id: "T-0001", tranche_role: "anchor", tranche_seq: 0, side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, state: "filled" },
-    ];
-    const rows = trancheStackFromState(trades, 108);
-    assert.equal(rows.length, 2);
-    assert.equal(rows[0].role, "anchor");
-    assert.equal(rows[0].id, "T-0001");
-    assert.equal(rows[1].role, "add");
-  });
-  it("excludes closed tranches", () => {
-    const trades = [
-      { id: "T-0001", tranche_role: "anchor", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, state: "closed" },
-      { id: "T-0002", tranche_role: "add", side: "long", grade: "B", entry: 105, stop: 102, tp1: 112, state: "filled" },
-    ];
-    const rows = trancheStackFromState(trades, 108);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].id, "T-0002");
-  });
-  it("returns [] for empty / non-array", () => {
-    assert.deepEqual(trancheStackFromState(null, 100), []);
-    assert.deepEqual(trancheStackFromState([], 100), []);
+  it("unknown model falls back to the raw string; missing → —", () => {
+    assert.equal(modelLabel({ model: "Custom" }), "Custom");
+    assert.equal(modelLabel({}), "—");
   });
 });

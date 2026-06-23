@@ -17,9 +17,6 @@ export const executionAdapter = {
   moveStopToBE: (p) => call("moveStopToBE", p),
   trail: (p) => call("trail", p),
   cancel: (p) => call("cancel", p),
-  // Scale-in add: opens a standalone tranche (its own stop+target). Supersedes
-  // the retired averaging addToPosition.
-  openTranche: (p) => call("openTranche", p),
   // ORDERS manual ticket: fresh structure+price, pure preview, validated place.
   orderContext: (p) => call("orderContext", p),
   orderPreview: (p) => call("orderPreview", p),
