@@ -9,7 +9,7 @@
   --surface-3:  #242424;   /* surface-elevated — nested cards inside cards */
   --border:     #2a2a2a;   /* hairline */
   --border-d:   #3a3a3a;   /* hairline-strong */
-  --label:      #888888;   /* muted */
+  --label:      #9a9a9a;   /* muted — lifted for WCAG contrast on dark cards */
   --label-dim:  #5a5a5a;   /* muted-soft */
   --value:      #cccccc;   /* body */
   --value-strong: #ffffff; /* ink */
@@ -64,8 +64,8 @@ html[data-theme="light"] {
 html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--surface-0); color: var(--value);
-  font-family: var(--sans); font-size: 12px; font-weight: 400;
-  letter-spacing: 0; line-height: 1.45; font-variant-numeric: tabular-nums;
+  font-family: var(--sans); font-size: 13px; font-weight: 400;
+  letter-spacing: 0; line-height: 1.5; font-variant-numeric: tabular-nums;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -85,7 +85,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .topbar {
   border-bottom: 1px solid var(--border);
-  background: var(--surface-1);
+  background: var(--surface-0);
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: stretch;
@@ -116,7 +116,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .statusline {
   border-top: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--surface-0);
   display: flex; align-items: center; justify-content: space-between;
   padding: 4px 14px;
   color: var(--label); font-size: 10.5px;
@@ -530,7 +530,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   top: 100%;
   right: 0;
   width: 460px;
-  background: var(--surface-1);
+  background: var(--surface-0);
   border: 1px solid var(--border);
   border-top: 0;
   box-shadow: 0 6px 20px rgba(0,0,0,0.6);
@@ -852,7 +852,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   right: 0;
   width: 420px;
   max-height: 500px;
-  background: var(--surface-1);
+  background: var(--surface-0);
   border: 1px solid var(--border);
   border-top: 0;
   box-shadow: 0 6px 20px rgba(0,0,0,0.6);
@@ -923,7 +923,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   right: 0;
   width: 420px;
   max-height: 540px;
-  background: var(--surface-1);
+  background: var(--surface-0);
   border: 1px solid var(--border);
   border-top: 0;
   box-shadow: 0 6px 20px rgba(0,0,0,0.6);
@@ -937,7 +937,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   max-width: calc(100vw - 40px);
   max-height: 640px;
 }
-.bt-popover .head { padding: 6px 12px; background: var(--surface-2);
+.bt-popover .head { padding: 8px 14px; background: var(--surface-0);
   border-bottom: 1px solid var(--border);
   display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .bt-popover .head .t { color: var(--amber); font-size: 10px; letter-spacing: 0.08em;
@@ -1437,8 +1437,8 @@ html[data-theme="light"] {
 html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--surface-0); color: var(--value);
-  font-family: var(--sans); font-size: 12px; font-weight: 400;
-  letter-spacing: 0; line-height: 1.45; font-variant-numeric: tabular-nums;
+  font-family: var(--sans); font-size: 13px; font-weight: 400;
+  letter-spacing: 0; line-height: 1.5; font-variant-numeric: tabular-nums;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -1458,7 +1458,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .topbar {
   border-bottom: 1px solid var(--border);
-  background: var(--surface-1);
+  background: var(--surface-0);
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: stretch;
@@ -1903,7 +1903,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   top: 100%;
   right: 0;
   width: 460px;
-  background: var(--surface-1);
+  background: var(--surface-0);
   border: 1px solid var(--border);
   border-top: 0;
   box-shadow: 0 6px 20px rgba(0,0,0,0.6);
@@ -2225,7 +2225,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   right: 0;
   width: 420px;
   max-height: 500px;
-  background: var(--surface-1);
+  background: var(--surface-0);
   border: 1px solid var(--border);
   border-top: 0;
   box-shadow: 0 6px 20px rgba(0,0,0,0.6);
@@ -2296,7 +2296,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   right: 0;
   width: 420px;
   max-height: 540px;
-  background: var(--surface-1);
+  background: var(--surface-0);
   border: 1px solid var(--border);
   border-top: 0;
   box-shadow: 0 6px 20px rgba(0,0,0,0.6);
@@ -2310,7 +2310,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   max-width: calc(100vw - 40px);
   max-height: 640px;
 }
-.bt-popover .head { padding: 6px 12px; background: var(--surface-2);
+.bt-popover .head { padding: 8px 14px; background: var(--surface-0);
   border-bottom: 1px solid var(--border);
   display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .bt-popover .head .t { color: var(--amber); font-size: 10px; letter-spacing: 0.08em;
@@ -3301,8 +3301,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
   grid-template-columns: 128px 1fr;
   gap: 12px;
 }
-.bt-popover .row .k { color: var(--label); font-size: 10px; letter-spacing: 0.06em; }
-.bt-popover .row .v { color: var(--value-strong); font-size: 12px; }
+.bt-popover .row .k { color: var(--label); font-size: 11.5px; letter-spacing: 0.04em; }
+.bt-popover .row .v { color: var(--value-strong); font-size: 13px; }
 .bt-popover .row .v.dim { color: var(--label); }
 .bt-popover .row .v.ok   { color: var(--green); }
 .bt-popover .row .v.warn { color: var(--amber); }
