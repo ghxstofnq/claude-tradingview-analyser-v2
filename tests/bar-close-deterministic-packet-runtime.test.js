@@ -588,6 +588,12 @@ test("bridge: V3 leg_high (running extreme since last structure break) joins the
     ...inputs.bundle.gates.engine.pillar2.current_tf,
     leg_high: 29820, leg_low: 29610.5, leg_high_ms: 1781300000000, leg_low_ms: 1781290000000,
   };
+  // Stage-G inversion gate: this entry sits at ~48% of the leg (continuation
+  // class), so the gate requires an established trend — give it a swing-tier
+  // bear break so a packet fires and the stop logic under test is exercised.
+  inputs.bundle.gates.engine.pillar3.structures_by_tier = {
+    swing: [{ event: 'mss', dir: 'bear', tier: 'swing', level: 29850 }],
+  };
   const truth = __test.buildDeterministicPacketTruthFromInputs({
     inputs, previousWalkers: [walker], event: { ts: '2026-06-09T13:55:00.000Z', tf: '1m' }, session: 'ny-am',
   });

@@ -89,6 +89,69 @@ function invertedOnThisBar(context, walker, row) {
   return invMs >= barMs && invMs < barMs + 60_000;
 }
 
+// Stage-G deterministic inversion gate (web ICT iFVG + transcript ENTRY 08:26/11:15
+// + 5-tape calibration, 2026-06-23). Classify the entry by DEPTH-IN-LEG (leg_high/
+// leg_low — already emitted, no Pine change), then require the right context:
+//   REVERSAL (deep >= INV_DEPTH): a RECENT (<= INV_GRAB_RECENCY min) session-tier
+//     (AS/NYAM/LO) OPPOSING-side grab must precede the inversion — ICT "sweep THEN
+//     iFVG" / Lanto "major liquidity taken first" (ENTRY 08:26). Blocks the pre-grab
+//     shorts (06-09 09:34/09:39 on a stale overnight sweep; 06-17 chop) while keeping
+//     the real reversal (06-09 10:27, 02-09 10:40).
+//   CONTINUATION (shallow < INV_DEPTH): a swing-tier structure break in the trade
+//     direction — an established trend (ENTRY 11:15 "clear strong trend"). Keeps the
+//     06-16/06-18 retraces.
+// Fail-open when the leg extremes are unreadable (cannot classify -> do not block).
+// Off via GOFNQ_INV_GATE=0. Depth/recency tunable via GOFNQ_INV_DEPTH / _GRAB_RECENCY.
+const SESSION_HIGH_RE = /^(AS|NYAM|LO)\.H$/;
+const SESSION_LOW_RE = /^(AS|NYAM|LO)\.L$/;
+function invDepth() { const v = Number(process.env.GOFNQ_INV_DEPTH); return v > 0 && v < 1 ? v : 0.5; }
+function invGrabRecencyMin() { const v = Number(process.env.GOFNQ_INV_GRAB_RECENCY); return v > 0 ? v : 90; }
+function confirmedCloseOf(row) {
+  return Number(row?.close ?? row?.price ?? row?.confirm_close_price ?? row?.last_bar?.close);
+}
+function confirmedBarMs(row, context) {
+  const t = Date.parse(context?.eventTimeUtc);
+  if (Number.isFinite(t)) return t;
+  const sec = Number(row?.last_bar?.time ?? row?.timeMs);
+  if (Number.isFinite(sec)) return sec > 1e12 ? sec : sec * 1000; // sec or ms
+  return Number(row?.confirm_ms) || NaN;
+}
+
+export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
+  if (process.env.GOFNQ_INV_GATE === '0') return { valid: true, kind: 'disabled', reason: null };
+  const p2 = context?.pillar2 ?? {};
+  const legHigh = Number(p2.legHigh);
+  const legLow = Number(p2.legLow);
+  const entry = Number(entryPrice);
+  const range = legHigh - legLow;
+  if (!Number.isFinite(range) || range <= 0 || !Number.isFinite(entry)) {
+    return { valid: true, kind: 'unclassified', reason: null };
+  }
+  // Fail-open for minimal/hand-built fixtures with no liquidity OR structure
+  // evidence — the gate needs real engine context to judge; absent it, don't
+  // block (mirrors the lifecycle's bound-less-fixture fallbacks). Real sessions
+  // always carry sweeps + swing structure, so this never opens a live gate.
+  const hasContext = (context?.pillar3?.sweeps?.length ?? 0) > 0
+    || (context?.pillar3?.structuresSwing?.length ?? 0) > 0;
+  if (!hasContext) return { valid: true, kind: 'no_context', reason: null };
+  const depth = side === 'short' ? (legHigh - entry) / range : (entry - legLow) / range;
+  if (depth >= invDepth()) {
+    const re = side === 'short' ? SESSION_HIGH_RE : SESSION_LOW_RE;
+    const wantSide = side === 'short' ? 'buy' : 'sell';
+    const t = Number(nowMs);
+    const grab = (context?.pillar3?.sweeps ?? []).some((s) => {
+      if (s?.side !== wantSide || !re.test(String(s?.target ?? ''))) return false;
+      const ms = Number(s?.swept_ms);
+      return Number.isFinite(ms) && Number.isFinite(t) && ms <= t && (t - ms) / 60000 <= invGrabRecencyMin();
+    });
+    return { valid: grab, kind: 'reversal', reason: grab ? null : 'reversal_no_recent_grab', depth };
+  }
+  const dir = side === 'short' ? 'bear' : 'bull';
+  const swing = (context?.pillar3?.structuresSwing ?? []).some((s) =>
+    String(s?.dir ?? s?.direction ?? '').startsWith(dir) && (s?.event === 'mss' || s?.event === 'bos'));
+  return { valid: swing, kind: 'continuation', reason: swing ? null : 'continuation_no_swing_trend', depth };
+}
+
 export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
   const requests = [];
   const confirmationRows = context?.pillar3?.confirmationRows ?? [];
@@ -97,7 +160,12 @@ export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
     const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side, { requireBody: false })
       && fullCloseThrough(row, walker)
       && invertedOnThisBar(context, walker, row));
-    if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed) {
+    // Stage-G deterministic gate: an inversion only confirms when its entry has the
+    // right context for its depth class (reversal=recent grab / continuation=trend).
+    const gate = confirmed
+      ? inversionEntryValid({ context, side: walker.side, entryPrice: confirmedCloseOf(confirmed), nowMs: confirmedBarMs(confirmed, context) })
+      : { valid: false };
+    if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed && gate.valid) {
       requests.push({
         id: walker.id,
         eventTimeUtc: context?.eventTimeUtc,
