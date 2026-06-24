@@ -12,18 +12,25 @@ Strict gate first: no live session until Stage G passes. Live = armed auto-fire 
 
 ## Phase 1 — Stage G: record + fold the oracle sessions (GATE)
 - [~] 1.1 06-09 (A+ Inversion short) — RE-RECORDED on schema 4 (stale tape replaced). Chain produces Lanto's exact 10:27 short (entry 29760, TP1 AS.L 29595.25) BUT over-fires ~9 premature shorts first → blocked on Phase 2 fix, then promote+verify
-- [ ] 1.2 02-09 (A+ multi-align long) — record → fold → compare → promote+verify
-- [ ] 1.3 12-12 (2/3-B short, MES) — record → fold → compare → promote+verify
-- [ ] 1.4 10-02 (B long→flip, MNQ) — record → fold → compare → promote+verify
-- [ ] 1.5 06-16 (B short) — record/reuse → fold → compare → promote+verify
-- [ ] 1.6 06-17 (no-trade) — record/reuse → fold → compare → promote+verify
-- [ ] 1.7 06-18 (marginal B long) — record/reuse → fold → compare → promote+verify
+- [~] 1.5 06-16 (B short, MSS) — label authored, RECORDING in progress (task buphh0aa6); then fold → compare → promote
+- [ ] 1.2 02-09 (A+ multi-align long) — author label → record → fold → compare → promote+verify
+- [ ] 1.3 12-12 (2/3-B short, MES) — author label → record → fold → compare → promote+verify
+- [ ] 1.4 10-02 (B long→flip, MNQ) — author label → record → fold → compare → promote+verify
+- [ ] 1.6 06-17 (no-trade) — author label → record → fold → compare → promote+verify
+- [ ] 1.7 06-18 (marginal B long) — author label → record → fold → compare → promote+verify
+- Labels live in tests/fixtures/real-sessions/<date>-mnq-ny-am-*.label.json (06-09 + 06-16 done; 12-12 is MES). Oracle truth: docs/strategy/lanto-oracle.md Part D.
 - [ ] **✅ CHECKPOINT G** — all oracle sessions match Lanto; `npm run tapes` + `npm test` green — user reviews
 
-## Phase 2 — Chain fixes (ACTIVE — grounded in the Entry Models transcript, not derived docs)
-- [ ] 2a Inversion entry gate: only fire on the best-displacement / took-liq gap AFTER a major liquidity grab + reversal displacement, with price trending in the trade direction into the entry (Entry Models 09:21/31:25). Locus: `app/main/strategy/walkers/inversion-lifecycle.js` `findOpposingPdArrays` + spawn gate.
-- [ ] 2b TP1 = nearest untaken major-liquidity draw (session/PD), swings only as fallback (Entry Models 10:18–11:15, 25:13). Locus: `app/main/strategy/walkers/execution-packet.js` `targetPool`.
-- [ ] 2c TDD each + re-fold 06-09 → expect first packet ≈ 10:27 short, TP1 AS.L 29595.25, A+; full suite green; note in decisions ledger
+## Phase 2 — Chain fixes (grounded in the Entry Models transcript)
+GATE INSIGHT (2026-06-23): simple separators DON'T work — zone size_quality is "tiny" for BOTH premature
+and real 06-09 zones; and a significant buy-side grab (PDH @09:05) predates the 09:34 premature short, so
+"a grab happened" doesn't gate it. The real discriminator (Entry Models 31:25): "price [bearish] all the
+way into your entry" — the REVERSAL must be established (recent significant high in, displacement down) AND
+the entry is the retrace into the SIGNIFICANT HTF draw array (C→D handoff). Need the full multi-session
+pattern before encoding — calibrate across the oracle, don't curve-fit to 06-09.
+- [ ] 2a Inversion entry gate: reversal-established + retrace into the primary HTF draw array (not any opposing FVG). Calibrate across sessions. Locus: `inversion-lifecycle.js` + the C→D draw handoff.
+- [ ] 2b TP1 is likely NOT broken — the 06-09 10:27 packet already targets AS.L 29595.25; the internal-swing TP1s were an artifact of the premature entry. Re-check after 2a.
+- [ ] 2c TDD + re-fold 06-09 → expect first packet ≈ 10:27 short, TP1 AS.L 29595.25; full suite green; note in decisions ledger
 
 ## Phase 3 — Stage F: re-point UI to validated outputs
 - [ ] 3.1 PREP/LIVE/REVIEW render 3-vote grade, 2×2 models, overnight vote, SMT, near-price draw, no-trim mgmt; no scale-in
