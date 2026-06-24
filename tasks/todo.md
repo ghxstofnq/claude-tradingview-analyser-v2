@@ -53,7 +53,8 @@ Web (ICT iFVG) + transcript (ENTRY 08:26 break-of-structure, "sweep THEN iFVG") 
 - [x] **FULL GATE VALIDATED (G2+G3) across all 5:** 06-17 no-trade → **0 fires**; 06-09/06-16/02-09/06-18 keep their real entries; 06-09 losers blocked. Full suite 1458/0.
 - [~] **G4 (re-record multi-TF):** 06-09 + 06-17 done. RE-RECORDING 06-16 (bom51onns), then 02-09, 06-18 — so the coherence veto runs on real m15 for all (currently 06-16/02-09/06-18 are 1TF → coherence null → fail-open, gate still passes them).
 - [x] **G4 (re-record multi-TF):** ALL 5 done (06-09/06-16/06-17/02-09/06-18 on m5+m15+h4+h1). Committed.
-- [~] **G5 / CHECKPOINT G (user review):** all 5 folded on real m15; suite 1463/0. Gate SOLVES the over-fire + no-trade day. Residuals for FULL oracle match (surfaced to user):
+- [x] **STAGE G COMPLETE (2026-06-23):** all 5 oracle sessions validated + promoted (verified:true); day-tape gate 10/10; suite 1469/0. The deterministic chain is faithful to Lanto: no over-fire, stands aside on the no-trade day, right model_class/side/grade, valid winning entries. Fixes shipped: inversion gate (G2 depth+grab/swing), coherence chop-veto (G3), model_class Reversal/Continuation, tightened two-and-one multi-alignment, Stage-C 3-vote threaded into the fold (grade follows entry). User-approved pass-bar: model_class+side+grade+no-trade match; exact entry tick = discretionary (valid entry in move). Deferred follow-ups: entry-precision (discretionary, accepted), 06-18 3/3-capped-to-B-by-marginal-entry nuance (declared 2/3-effective).
+- [x] **G5 / CHECKPOINT G — user reviewed (entry pass-bar + principled 3-vote both approved 2026-06-23).** Original residual notes below (all resolved):
   - 06-17 no-trade: **FULL PASS** (0 fires).
   - 06-16: entry EXACT 30864.25, stop/TP1 ≈, side/grade ✓; model NAME differs (chain Trend vs oracle Reversal/MSS).
   - 06-18: TP1 EXACT 30615, entry ≈17pt, side/grade ✓; model NAME differs (chain Inversion vs oracle Trend/Continuation).
