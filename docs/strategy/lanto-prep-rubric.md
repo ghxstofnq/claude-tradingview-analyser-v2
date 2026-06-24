@@ -105,16 +105,30 @@ LIVE (Pillar 3) elevation, not a pre-session grade.
 
 ---
 
-## 6. The significance gate (one definition, both lanes use it)
+## 6. The significance gate (DISPLACEMENT-based, not size)
 
-An array/level may anchor **either** the draw **or** a vote only if **all**:
+An array may anchor a vote only if **all**:
 - **displacive** — clean/strong displacement in the gap body, minimal wickage
   (EM 05:38), **and**
 - **took liquidity** — swept an internal/external high/low while forming
   (EM 06:35), **and**
-- **near price**, **and**
-- **not a `tiny` zone** — unless exceptionally displacive *and* it took **major**
-  liquidity.
+- **near price**.
+
+**Significance is DISPLACEMENT-based, NOT a size veto** (CORRECTED 2026-06-24 —
+the earlier "exclude tiny" draft was wrong). EM 05:38: *"you want to see price
+off the body be extremely large — **it doesn't have to be entirely large**."* A
+tiny-but-cleanly-displaced gap counts. The engine's existing `SIG_DISP_MIN`
+(disp ≥ 0.5) gate is faithful — calibrated so 06-16's **traded** tiny disp-0.74
+array still votes. **Do NOT exclude `tiny`** (it breaks the 06-16 oracle).
+
+**Override of a lone array — only on a CONSECUTIVELY-DIRECTIONAL HTF.** A lone
+small array against the trend is "traded through" ONLY when daily + 4H + 1H are
+consecutively directional the same way: DB 35:38 *"if we see consecutive hourly
+4hour daily candles be directional and you have one small … imbalance … we don't
+override that, price just trades through it."* On a **conflicting / non-trending
+HTF** (e.g. 2026-06-24 MES: daily bull, 4H/1H bear) the override does **not**
+fire — the significant array still votes. (This rule is real but narrow; the
+engine does not implement it yet — a separate, oracle-sensitive refinement.)
 
 ## 7. Cite-or-reject (project constraint #6)
 
@@ -140,17 +154,23 @@ Per symbol, pre-open:
 
 ## 9. Current bot → faithful (the deltas to build)
 
-| Current (`direct-session-brief.js:382`) | Faithful |
+| Item | Status |
 |---|---|
-| default **B**; drop only on data-gap / p2-fail / no-lean | **count(HTF, overnight)**: 1 → no-trade, 2 → B; A+ live only |
-| array existence/state = HTF vote (a `tiny` FVG → "bullish") | momentum-direction **or** observed reaction; conflicting/`tiny` → `none`; price overrides a lone small array |
-| `primary_draw.cite` may be `null` | **cite-or-reject** |
-| no significance gate | **displacive + took-liq + near + not-tiny** |
-| draw and vote conflated | **draw = liquidity target; vote = array + reaction** |
+| **The grade** (`direct-session-brief.js:382`) | **FIXED (#1, `dee89f0`)** — default-B replaced by the engine's `combineBias` count; pre-open = unconfirmed lean. |
+| **The lean display** | **FIXED (#1, `7cf4400`)** — "leaning {dir} · {potential}-capable · pending open". |
+| **Significance** (disp-based gate) | **already faithful** — EM 05:38 "doesn't have to be entirely large"; do NOT add a size veto. |
+| **Draw vs vote** | **already faithful** — `pickPrimaryDraw` = draw, `arrayVote` = vote. |
+| **Single bias engine** | **already faithful** — `combineBias` is the one source the brief + live resolver both call (seam ❸ closed). |
+| **cite-or-reject on the draw** (§7) | **open** — `primary_draw.cite` can be `null` (a plumbing gap); ensure a resolvable cite. |
+| **Field-contract test** (seam ❶) | **open** — guard the open-reaction-style reader/writer mismatch. |
 
-**Worked check — 2026-06-24 NY-PM MES:** daily bull, 4H + 1H bear (conflicting) →
-HTF votes `none`; overnight chop → `none`; draw was a `tiny` inverted FVG, `cite:
-null` → fails §6 + §7. Count = 0 → **no-trade**. (Bot graded B — the violation.)
+**Worked check — 2026-06-24 NY-PM MES (corrected):** HTF momentum conflicts
+(daily bull, 4H/1H bear) so there is no clean *trend*, but the tiny-but-displaced
+(disp 0.67) inverted FVG **legitimately votes** (EM 05:38) → HTF vote bull;
+overnight chop → `none` → a **1-component lean, B-capable, pending open**. The
+bot's B was wrong only because the OLD grade defaulted to a **confirmed** B — the
+faithful read is a *pre-open lean*, not a confirmed B, and **not** "no read" (the
+array does vote). Fixed by the grade change (#1), not by a significance veto.
 
 ---
 
@@ -166,10 +186,16 @@ regressions on the locked oracle.
 
 1. **Pre-session is an unconfirmed lean, not a B** (corrected) — grade resolves
    live at the open; PREP shows the lean + its potential. ☑ (approved 2026-06-24)
-2. **HTF votes `none` on conflicting daily/4H/1H momentum** (makes today's MES
-   PM a no-trade). ☐
-3. **Significance gate excludes `tiny` zones** unless exceptionally displacive +
-   took major liquidity. ☐
-4. **Draw vs vote split** — liquidity = draw, array + reaction = vote. ☐
+2. ~~HTF votes `none` on conflicting daily/4H/1H momentum~~ **REVERSED 2026-06-24.**
+   Conflicting momentum means no clean *trend*, but a **significant near-price
+   array still votes** (EM 05:38). The lone-array override fires only on a
+   **consecutively-directional** HTF (DB 35:38), which MES PM is not — so MES is a
+   1-component **lean**, not a no-trade. ☑ (corrected + agreed)
+3. ~~Significance gate excludes `tiny` zones~~ **REVERSED 2026-06-24.** Significance
+   is **displacement-based, not a size veto** (EM 05:38 "doesn't have to be
+   entirely large"); the existing disp gate is faithful. Do NOT exclude `tiny`
+   (breaks the 06-16 oracle). ☑ (corrected + agreed)
+4. **Draw vs vote split** — liquidity = draw, array + reaction = vote. ☑ (already
+   faithful in the engine)
 5. **Multi-alignment "two-and-one" → A+ at the entry** (live, Pillar 3), separate
-   from the 3-component day grade. ☐
+   from the 3-component day grade. ☑ (approved 2026-06-24)
