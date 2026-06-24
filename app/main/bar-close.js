@@ -1577,6 +1577,22 @@ async function buildDetectorInputs(session) {
       if (derived) ltf_bias_context = derived;
     } catch { /* fallback is best-effort; the chain blocks honestly without it */ }
   }
+
+  // Persist the per-bar EFFECTIVE LTF bias so the LIVE/PREP popovers can show it
+  // resolving in real time (depth-2). The minute-14 ltf-bias.json snapshot stays
+  // PENDING through a stand-aside open while THIS per-bar resolver actively earns
+  // a direction — that work was invisible because it was never written down.
+  // activeSessionDir() isolates this to the backtest folder under replay, so it
+  // never pollutes live state. Best-effort: getOpenReaction falls back to the
+  // snapshot if the file is absent.
+  try {
+    const liveDir = await activeSessionDir();
+    await fs.writeFile(
+      path.join(liveDir, "ltf-bias-live.json"),
+      JSON.stringify({ ...(ltf_bias_context || {}), ts: new Date().toISOString() }, null, 2),
+    );
+  } catch { /* best-effort; popover falls back to the ltf-bias.json snapshot */ }
+
   const session_state = await readSessionStrategyState(brief).catch(() => ({}));
 
   // Synthesize brief_digest fields the detector reads — see

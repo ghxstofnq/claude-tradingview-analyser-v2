@@ -311,6 +311,40 @@ describe("openReactionVerdict (Lanto's 3rd component)", () => {
     assert.equal(openReactionVerdict({ verdict: "flip", bias: "bullish" }, brief).verdict, "FLIPS");
     assert.equal(openReactionVerdict({ confirmation: "stand aside", reaction_dir: "mixed" }, brief).verdict, "NOT YET");
   });
+
+  // The masked latent bug: the real deterministic writer emits `bias_direction`,
+  // not `bias`/`verdict`/`reaction_dir`. The old reader keyed on the latter, so a
+  // directional open showed PENDING. Now bias_direction drives the Open row, and
+  // the verdict derives from the HTF vote when no alignment word is present.
+  it("real record: bias_direction directional → Open row + verdict resolve (regression)", () => {
+    const out = openReactionVerdict({ bias_direction: "bearish", latest_read: "NY swept the high and rolled" }, brief);
+    assert.equal(out.resolved, true);
+    assert.equal(out.rows[2].v, "BEAR");
+    assert.equal(out.verdict, "CONFIRMS"); // HTF vote is bearish → open ran with the lean
+    assert.equal(out.note, "NY swept the high and rolled");
+  });
+
+  // Option B: the live LTF context's own htf_ltf_alignment is the verdict source.
+  it("live ltf: aligned → CONFIRMS, divergent → FLIPS, with direction from ltf.bias", () => {
+    const aligned = openReactionVerdict({ bias_direction: "pending" }, brief, { bias: "bear", htf_ltf_alignment: "aligned", grade_cap: "A" });
+    assert.equal(aligned.rows[2].v, "BEAR");
+    assert.equal(aligned.verdict, "CONFIRMS");
+    assert.equal(aligned.verdictTone, "green");
+
+    const divergent = openReactionVerdict({ bias_direction: "pending" }, brief, { bias: "bull", htf_ltf_alignment: "divergent" });
+    assert.equal(divergent.rows[2].v, "BULL");
+    assert.equal(divergent.verdict, "FLIPS");
+    assert.equal(divergent.verdictTone, "amber");
+  });
+
+  // 2026-06-24: a genuinely-pending open (stand-aside) must STILL read PENDING —
+  // the live ltf has null bias + unclear alignment, the record says "pending".
+  it("genuinely-pending open → PENDING (not a false resolve)", () => {
+    const out = openReactionVerdict({ bias_direction: "pending" }, brief, { bias: null, htf_ltf_alignment: "unclear", grade_cap: "B" });
+    assert.equal(out.resolved, false);
+    assert.equal(out.verdict, "PENDING");
+    assert.equal(out.rows[2].v, "PENDING");
+  });
 });
 
 describe("stripCitations", () => {

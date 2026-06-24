@@ -77,10 +77,44 @@ function latestReadText(messages) {
 // Reuses the same deterministic verdict logic as PREP; pre-open shows PENDING,
 // then flips to CONFIRMS / FLIPS / NOT YET once the resolver writes a read.
 const OR_PILL = { ok: "green", green: "green", warn: "amber", amber: "amber", bad: "red", red: "red", dim: "dim" };
-function LiveOpenReactionPanel({ latest, brief }) {
-  const orv = openReactionVerdict(latest, brief);
+
+// LTF BIAS strip — the live, per-bar resolver output (depth-2). Shows the working
+// bias the chain is acting on RIGHT NOW: side · alignment · grade-cap · entry model.
+// RESOLVING… until the open earns a direction; on a stand-aside open this is the
+// only thing that moves while the minute-14 snapshot sits PENDING. getOpenReaction
+// normalizes the source (ltf-bias-live.json → ltf-bias.json snapshot).
+function LtfBiasStrip({ ltf }) {
+  const bias = String(ltf?.bias ?? "").toLowerCase();
+  const side = bias.startsWith("bull") ? { t: "LONG", c: "green" }
+             : bias.startsWith("bear") ? { t: "SHORT", c: "red" }
+             : { t: "—", c: "dim" };
+  const align = String(ltf?.htf_ltf_alignment ?? "").toLowerCase();
+  const hasSide = side.t !== "—";
+  const hasAlign = align !== "" && align !== "unclear";
+  const resolving = !ltf || (!hasSide && !hasAlign);
+  return (
+    <div className="ltf-strip">
+      <span className="ltf-k">LTF BIAS</span>
+      {resolving ? (
+        <span className="pill dim">RESOLVING…</span>
+      ) : (
+        <>
+          <span className={"pill " + side.c}>{side.t}</span>
+          {align ? <span className="ltf-meta">{align}</span> : null}
+          {ltf.grade_cap ? <span className="ltf-meta">cap {ltf.grade_cap}</span> : null}
+          {ltf.entry_model_priority && ltf.entry_model_priority !== "undecided"
+            ? <span className="ltf-meta">{String(ltf.entry_model_priority).toLowerCase()}</span> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function LiveOpenReactionPanel({ latest, brief, ltf }) {
+  const orv = openReactionVerdict(latest, brief, ltf);
   return (
     <Panel title="OPEN REACTION" right={<span className={"pill " + (OR_PILL[orv.verdictTone] || "dim")}>{orv.verdict}</span>}>
+      <LtfBiasStrip ltf={ltf} />
       {orv.rows.map((r) => <Row key={r.k} k={r.k} v={r.v} tone={r.tone} />)}
       <div className="or-note">{orv.note}</div>
     </Panel>
@@ -322,7 +356,7 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
 // confirmation. Always structured; an in-card AI button runs a deeper read.
 function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject, openReaction, brief, session, symbol }) {
   const read = latestReadText(chat?.messages || []);
-  const orPanel = <LiveOpenReactionPanel latest={openReaction?.latest} brief={brief} />;
+  const orPanel = <LiveOpenReactionPanel latest={openReaction?.latest} brief={brief} ltf={openReaction?.ltf} />;
 
   if (!setup) {
     const prose = { color: "var(--prose)", fontSize: 11, lineHeight: 1.55, overflowWrap: "anywhere", wordBreak: "break-word" };

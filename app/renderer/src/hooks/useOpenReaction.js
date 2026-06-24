@@ -3,11 +3,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 
-// #22 Only poll during the open-reaction window. Was: polled every
-// 15s for the whole entry-hunt + post-session phases, wasted disk I/O.
-// Window is generous (open-reaction is ~15min but stretches if the
-// system started late) — 30min covers it.
-function isWithinOpenReactionWindow() {
+// Poll while a session is live. Originally (#22) this was the 30-min open-reaction
+// window only, to save disk I/O. The live LTF-bias strip now needs the per-bar
+// resolver output through entry-hunt too (it earns/flips direction after the open
+// window), so the gate widens to the full active session. Still session-scoped —
+// no all-day or post-session polling.
+function isWithinLiveSession() {
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     hour: "2-digit", minute: "2-digit", hour12: false, weekday: "short",
@@ -16,22 +17,24 @@ function isWithinOpenReactionWindow() {
   const wd = get("weekday");
   if (wd === "Sat" || wd === "Sun") return false;
   const m = Number(get("hour")) * 60 + Number(get("minute"));
-  // NY AM open-reaction: 09:30-10:00; NY PM: 13:00-13:30; London: 03:00-03:30
-  if (m >= 9 * 60 + 30 && m < 10 * 60) return true;
-  if (m >= 13 * 60 && m < 13 * 60 + 30) return true;
-  if (m >= 3 * 60 && m < 3 * 60 + 30) return true;
+  // London 03:00-06:00; NY AM 09:30-12:00; NY PM 13:00-16:00 ET.
+  if (m >= 3 * 60 && m < 6 * 60) return true;
+  if (m >= 9 * 60 + 30 && m < 12 * 60) return true;
+  if (m >= 13 * 60 && m < 16 * 60) return true;
   return false;
 }
 
 export function useOpenReaction(session) {
   const [reads, setReads] = useState([]);
   const [latest, setLatest] = useState(null);
+  const [ltf, setLtf] = useState(null);
 
   const reload = useCallback(() => {
     window.api?.prep?.openReaction?.(session).then((res) => {
       if (res?.ok) {
         setReads(res.reads || []);
         setLatest(res.latest || null);
+        setLtf(res.ltf || null);
       }
     }).catch(() => {});
   }, [session]);
@@ -46,10 +49,10 @@ export function useOpenReaction(session) {
     // window membership on every interval tick — if the window opened
     // mid-mount, polling kicks in.
     const id = setInterval(() => {
-      if (isWithinOpenReactionWindow()) reload();
+      if (isWithinLiveSession()) reload();
     }, 15_000);
     return () => { offTool?.(); clearInterval(id); };
   }, [reload]);
 
-  return { reads, latest, reload };
+  return { reads, latest, ltf, reload };
 }

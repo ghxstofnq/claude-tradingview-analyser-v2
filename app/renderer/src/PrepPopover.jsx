@@ -184,8 +184,8 @@ function LevelsPanel({ brief, currentPrice, armed, fired, onArm, onDisarm }) {
 // OPEN REACTION — Lanto's third bias component: the reaction (not the grab)
 // after the session open. PENDING pre-open; flips to CONFIRMS / FLIPS / NOT YET live.
 function OpenReactionPanel({ brief, session }) {
-  const { latest } = useOpenReaction(session);
-  const orv = openReactionVerdict(latest, brief);
+  const { latest, ltf } = useOpenReaction(session);
+  const orv = openReactionVerdict(latest, brief, ltf);
   return (
     <Panel title="OPEN REACTION" right={<span className={"pill " + orv.verdictTone}>{orv.verdict}</span>}>
       {orv.rows.map((r) => (

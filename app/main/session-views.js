@@ -7,6 +7,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { currentSession } from "./sessions.js";
+import { normalizeLtfBiasRecord } from "../../cli/lib/ltf-bias-record.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -71,14 +72,28 @@ export async function getSessionRecap() {
   return { session, recap };
 }
 
-// OPEN-REACTION — the running log. Returns { session, reads: [...], latest }.
+// OPEN-REACTION — the running log + the live LTF-bias context.
+// Returns { session, reads: [...], latest, ltf }.
+//   reads/latest — the open-reaction.json snapshot log (Lanto's 3rd component).
+//   ltf — the CURRENT effective LTF bias, normalized to { bias, htf_ltf_alignment,
+//         grade_cap, entry_model_priority, is_retrace_day, live, ts }. Prefers
+//         ltf-bias-live.json (the per-bar resolver output, written every entry-hunt
+//         bar) over ltf-bias.json (the minute-14 snapshot). This is what lets the
+//         popovers show the bias resolve in real time instead of sitting on PENDING.
 // If no session is given, falls back to whatever the current clock-active
 // session is (LIVE consumer).
 export async function getOpenReaction(sessionArg) {
   const session = sessionArg || currentSession().session;
-  if (!session || session === "idle") return { session: null, reads: [], latest: null };
-  const reads = (await readJsonOrNull(path.join(dirFor(session), "open-reaction.json"))) || [];
-  return { session, reads, latest: reads[0] || null };
+  if (!session || session === "idle") return { session: null, reads: [], latest: null, ltf: null };
+  const dir = dirFor(session);
+  const reads = (await readJsonOrNull(path.join(dir, "open-reaction.json"))) || [];
+  const liveLtf = await readJsonOrNull(path.join(dir, "ltf-bias-live.json"));
+  const snapLtf = await readJsonOrNull(path.join(dir, "ltf-bias.json"));
+  const rawLtf = liveLtf || snapLtf;
+  const ltf = rawLtf
+    ? { ...normalizeLtfBiasRecord(rawLtf), live: !!liveLtf, ts: rawLtf.ts ?? null }
+    : null;
+  return { session, reads, latest: reads[0] || null, ltf };
 }
 
 // SETUPS list — last N entries from setups.jsonl for the given session

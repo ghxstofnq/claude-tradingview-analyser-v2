@@ -377,11 +377,20 @@ export function decisionLine(brief) {
 }
 
 // Resolve the OPEN-REACTION verdict block. Pre-open the third component is
-// PENDING; once the live open-reaction read exists (useOpenReaction.latest),
-// derive CONFIRMS / FLIPS / NOT YET from its fields. Defensive about the
-// open-reaction.json shape (verdict/confirmation/bias/reaction_dir/note all
-// optional). Returns { rows:[{k,v,tone}], verdict, verdictTone, note, resolved }.
-export function openReactionVerdict(latest, brief) {
+// PENDING; once a live read exists it shows the direction + CONFIRMS / FLIPS /
+// NOT YET. Three data sources, in precedence:
+//   1. `ltf` — the live LTF-bias context (getOpenReaction merges
+//      ltf-bias-live.json / ltf-bias.json, normalized to { bias,
+//      htf_ltf_alignment, grade_cap, ... }). This is the resolver's OWN verdict
+//      (Option B) and evolves per-bar through entry-hunt.
+//   2. `latest.bias_direction` — the open-reaction record's snapshot field the
+//      deterministic finalizer actually writes (the old reader looked for
+//      `bias`/`verdict`/`reaction_dir`, which the record never contains, so it
+//      showed PENDING on every directional day — fixed here).
+//   3. legacy `verdict`/`confirmation`/`bias`/`reaction_dir` — LLM path + old
+//      fixtures.
+// Returns { rows:[{k,v,tone}], verdict, verdictTone, note, resolved }.
+export function openReactionVerdict(latest, brief, ltf) {
   const votes = brief?.pillar1_votes || {};
   const fmtVote = (x) => {
     const s = String(x || "none").toLowerCase();
@@ -392,24 +401,47 @@ export function openReactionVerdict(latest, brief) {
   const htf = fmtVote(votes.htf);
   const overnight = fmtVote(votes.overnight);
 
-  const resolved = !!latest && !!(latest.verdict || latest.confirmation || latest.bias || latest.reaction_dir);
+  // Direction of the open reaction (precedence above). ltf.bias is the live
+  // resolver value; `?? "pending"` strings never read as bull/bear.
+  const dirRaw = String(
+    ltf?.bias ?? latest?.bias_direction ?? latest?.bias ?? latest?.reaction_dir ?? ""
+  ).toLowerCase();
+  const isBull = dirRaw.startsWith("bull");
+  const isBear = dirRaw.startsWith("bear");
+  const hasDir = isBull || isBear;
+
+  // Verdict word. Option B: the resolver's own htf_ltf_alignment is the source
+  // of truth; fall back to the legacy keyword scan, then derive from the HTF vote.
+  const align = String(ltf?.htf_ltf_alignment ?? "").toLowerCase();
+  const legacyConf = String(latest?.verdict ?? latest?.confirmation ?? "").toLowerCase();
+
+  const resolved = hasDir || (align !== "" && align !== "unclear") || legacyConf !== "";
+
   let ny = { v: "PENDING", tone: "dim" };
   let verdict = "PENDING";
   let verdictTone = "dim";
   let note = "Resolves at the session open — the initial move into opposing / overnight liquidity, then the reaction (not the grab).";
 
   if (resolved) {
-    const conf = String(latest.verdict || latest.confirmation || "").toLowerCase();
-    const rdir = String(latest.bias || latest.reaction_dir || "").toLowerCase();
-    ny = rdir.startsWith("bull") ? { v: "BULL", tone: "ok" }
-       : rdir.startsWith("bear") ? { v: "BEAR", tone: "bad" }
+    ny = isBull ? { v: "BULL", tone: "ok" }
+       : isBear ? { v: "BEAR", tone: "bad" }
        : { v: "MIXED", tone: "warn" };
     // verdictTone is a pill class (green | amber | red | dim).
-    if (conf.includes("confirm") || conf.includes("aligned")) { verdict = "CONFIRMS"; verdictTone = "green"; }
-    else if (conf.includes("flip") || conf.includes("revers") || conf.includes("divergent")) { verdict = "FLIPS"; verdictTone = "amber"; }
-    else if (conf.includes("stand") || conf.includes("hands") || conf.includes("unclear") || conf.includes("no")) { verdict = "NOT YET"; verdictTone = "dim"; }
-    else { verdict = String(latest.verdict || latest.confirmation || "READ").toUpperCase(); verdictTone = "amber"; }
-    note = latest.note || latest.summary || latest.reason || note;
+    if (align === "aligned") { verdict = "CONFIRMS"; verdictTone = "green"; }
+    else if (align === "divergent") { verdict = "FLIPS"; verdictTone = "amber"; }
+    else if (align === "unclear" && !legacyConf) { verdict = "NOT YET"; verdictTone = "dim"; }
+    else if (legacyConf.includes("confirm") || legacyConf.includes("aligned")) { verdict = "CONFIRMS"; verdictTone = "green"; }
+    else if (legacyConf.includes("flip") || legacyConf.includes("revers") || legacyConf.includes("divergent")) { verdict = "FLIPS"; verdictTone = "amber"; }
+    else if (legacyConf.includes("stand") || legacyConf.includes("hands") || legacyConf.includes("unclear") || legacyConf.includes("no")) { verdict = "NOT YET"; verdictTone = "dim"; }
+    else if (hasDir) {
+      // No explicit verdict word — derive from the HTF vote (CONFIRMS if the
+      // open ran with the higher-timeframe lean, FLIPS if against it).
+      const htfDir = String(votes.htf || "").toLowerCase();
+      if ((htfDir.startsWith("bull") && isBull) || (htfDir.startsWith("bear") && isBear)) { verdict = "CONFIRMS"; verdictTone = "green"; }
+      else if ((htfDir.startsWith("bull") && isBear) || (htfDir.startsWith("bear") && isBull)) { verdict = "FLIPS"; verdictTone = "amber"; }
+      else { verdict = ny.v; verdictTone = "amber"; }
+    } else { verdict = "NOT YET"; verdictTone = "dim"; }
+    note = latest?.latest_read || latest?.note || latest?.summary || latest?.reason || ltf?.reasoning || note;
   }
 
   return {

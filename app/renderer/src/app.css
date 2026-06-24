@@ -4221,6 +4221,21 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .or-note { margin-top: 8px; color: var(--label); font-size: 11px; line-height: 1.5; }
 .prep-empty { color: var(--label); font-size: 11px; padding: 6px 0; }
 
+/* LTF BIAS strip (LIVE) — the live per-bar resolver readout above the OR rows. */
+.ltf-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 10px; padding-bottom: 10px;
+  border-bottom: 1px dashed var(--label-dim);
+}
+.ltf-strip .ltf-k {
+  color: var(--label); letter-spacing: 0.08em; font-size: 9.5px;
+  font-family: var(--sans); margin-right: 2px;
+}
+.ltf-strip .ltf-meta {
+  color: var(--value); font-size: 10px; letter-spacing: 0.04em;
+  font-family: var(--mono);
+}
+
 .prep-ai {
   margin: 10px 12px; padding: 14px 16px;
   background: var(--surface-2); border: 1px solid var(--border);
