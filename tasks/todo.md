@@ -14,11 +14,11 @@ Strict gate first: no live session until Stage G passes. Live = armed auto-fire 
 - [~] 1.1 06-09 (A+ Inversion short) — RE-RECORDED on schema 4 (stale tape replaced). Chain produces Lanto's exact 10:27 short (entry 29760, TP1 AS.L 29595.25) BUT over-fires ~9 premature shorts first → blocked on Phase 2 fix, then promote+verify
 - [~] 1.5 06-16 (B short, MSS) — label authored, RECORDING in progress (task buphh0aa6); then fold → compare → promote
 - [ ] 1.2 02-09 (A+ multi-align long) — author label → record → fold → compare → promote+verify
-- [ ] 1.3 12-12 (2/3-B short, MES) — author label → record → fold → compare → promote+verify
-- [ ] 1.4 10-02 (B long→flip, MNQ) — author label → record → fold → compare → promote+verify
-- [ ] 1.6 06-17 (no-trade) — author label → record → fold → compare → promote+verify
-- [ ] 1.7 06-18 (marginal B long) — author label → record → fold → compare → promote+verify
-- Labels live in tests/fixtures/real-sessions/<date>-mnq-ny-am-*.label.json (06-09 + 06-16 done; 12-12 is MES). Oracle truth: docs/strategy/lanto-oracle.md Part D.
+- [x] 1.6 06-17 (no-trade) — recorded + folded (12 A+ inversions = smoking gun)
+- [x] 1.2 02-09 (A+ multi-align long) — recorded + folded (chain nails A+ entry; over-fires)
+- [~] 1.7 06-18 (marginal B long) — label authored, RECORDING (task b42pglv7x)
+- [BLOCKED] 1.3 12-12 (MES) + 1.4 10-02 (MNQ) — 2025 dates are OUT of TV 1m-replay range ("date not available for playback"). Labels authored, NOT recordable via 1m replay. Stage-G corpus = the 5 recordable 2026 sessions. (12-12 = the only MES/SMT-instrument case — flag for a later path; not blocking.)
+- Labels: tests/fixtures/real-sessions/<date>-*.label.json. Oracle truth: docs/strategy/lanto-oracle.md Part D.
 - [ ] **✅ CHECKPOINT G** — all oracle sessions match Lanto; `npm run tapes` + `npm test` green — user reviews
 
 ## Divergence table (chain vs oracle, fresh schema-4 folds)

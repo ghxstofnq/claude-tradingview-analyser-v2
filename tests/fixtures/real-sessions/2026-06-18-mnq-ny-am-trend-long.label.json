@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-06-18-mnq-ny-am-trend-long",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "oracle-E2-2026-06-22",
+  "source_message": "Oracle E2: marginal B long, Continuation (Trend), bias bullish aligned (overnight bull +448 swept AS.H/NYAM.H/PDH; HTF bull via 4H/1H bear FVGs inverted up; NY-open bull BoS 10:25). Entry ~30452.75 (CE of the dip-reclaim bull FVG 30448.25-30457.25, formed 09:45, took-liq ds 0.82; long the 1m reclaim ~09:46). Stop 30400 (below the 30402.5 dip low). TP1 30615 (NYAM.H, ~3.1R, filled, ran to 30646); TP2 = trail. B not A+: marginal entry (-34pt drawdown, entry FVG invalidated mid-trade, choppy window, weak internal-tier breaks).",
+  "trade_date": "2026-06-18",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "trade",
+    "model": "Trend",
+    "side": "long",
+    "grade": "B",
+    "entry": 30452.75,
+    "stop": 30400,
+    "tp1": 30615,
+    "tp2": null
+  }
+}
