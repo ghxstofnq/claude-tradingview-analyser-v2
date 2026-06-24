@@ -69,6 +69,28 @@ function normalizeModelName(model) {
   return value;
 }
 
+// Lanto's MODEL (Reversal vs Continuation) is whether the entry TURNS the
+// current leg or RIDES it — distinct from the walker LIFECYCLE name (MSS/Trend/
+// Inversion), which is the entry MECHANISM. Leg direction = the engine's most
+// recent leg extreme (leg_high_ms vs leg_low_ms); a short on an up-leg / a long
+// on a down-leg is counter-to-leg = Reversal, else Continuation. Validated on
+// the 5 oracle sessions (06-09/06-16/02-09 Reversal, 06-18 Continuation).
+// Null when the leg stamps are unreadable (cannot classify).
+function classifySetupModel(context, side) {
+  const lhMs = Number(context?.pillar2?.legHighMs);
+  const llMs = Number(context?.pillar2?.legLowMs);
+  if (!Number.isFinite(lhMs) || !Number.isFinite(llMs) || lhMs === llMs) return null;
+  const legUp = lhMs > llMs;
+  const counter = (side === 'short' && legUp) || (side === 'long' && !legUp);
+  return counter ? 'Reversal' : 'Continuation';
+}
+
+// Entry MECHANISM from the walker lifecycle: the Inversion lifecycle violates an
+// opposing FVG; MSS/Trend retrace into and respect one.
+function mechanismOf(walkerModel) {
+  return normalizeModelName(walkerModel) === 'inversion' ? 'inversion' : 'fvg_retrace';
+}
+
 function capGrade(grade, cap) {
   const rank = { 'no-trade': 0, B: 1, 'A+': 2 };
   const normalizedCap = cap === 'A+' || cap === 'B' || cap === 'no-trade' ? cap : 'A+';
@@ -589,6 +611,11 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     status,
     finalVerdict: status === 'executable' ? 'manual_candidate' : 'no_trade',
     model: walker?.model ?? 'unknown',
+    // Lanto's model (Reversal/Continuation) + entry mechanism (fvg_retrace/
+    // inversion), distinct from the lifecycle name in `model`. model_class is
+    // what the oracle pass-bar compares; `model` stays the lifecycle (stops).
+    model_class: classifySetupModel(context, side),
+    mechanism: mechanismOf(walker?.model),
     side: side ?? 'unknown',
     grade: packetGrade,
     size,
@@ -638,4 +665,4 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 }
 
 // Test surface for the pure target-selection helpers.
-export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget, deriveGrade };
+export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget, deriveGrade, classifySetupModel, mechanismOf };
