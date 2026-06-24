@@ -49,10 +49,11 @@ Web (ICT iFVG) + transcript (ENTRY 08:26 break-of-structure, "sweep THEN iFVG") 
 ### Build steps
 - [x] **G1 (plumbing):** NOT NEEDED — sweeps already at context.pillar3.sweeps (target/side/swept_ms); structuresSwing + pillar2.legHigh/legLow present (2-S1).
 - [x] **G2 (gate, 2fa4c70):** inversionEntryValid (depth→reversal-grab/continuation-swing) gates the inversion confirmation. Env GOFNQ_INV_GATE/_DEPTH/_GRAB_RECENCY. +8 tests; full suite 1458/0. Validated: 06-09 losers blocked + real 10:27 kept; 06-16/02-09/06-18 real kept; 06-17 12→3. Stage-G labels → tests/fixtures/stage-g-sessions/.
-- [~] **G4 (re-record multi-TF):** 06-09 done. RE-RECORDING 06-17 (critical for G3), then 06-16/02-09/06-18. Labels in tests/fixtures/stage-g-sessions/.
-- [ ] **G3 (coherence veto):** compute m15 coherence (net/gross over the m15 window) from bars_by_tf.m15; veto the CONTINUATION path in two-sided chop → zero 06-17's last 3. (1m quality fields don't separate chop.)
-- [ ] **G5:** fold all 5; promote+verify (set expected from oracle, verified:true); npm test green; note in decisions ledger.
-- OPEN (entry-precision, follow-up): on 06-09 the gate's first packet is 09:52 (shallow, continuation-path, a WINNER) not the oracle's 10:27 (deep reversal). "Which retrace" is discretionary; revisit after G3 — possibly prefer the reversal entry on a reversal-bias day.
+- [x] **G3 (coherence veto, committed):** computeCoherenceFromBars (m15 net/gross) → pillar2.coherence; continuation in chop (coherence < 0.4) stands aside. Guards Number(null)===0. +7 tests.
+- [x] **FULL GATE VALIDATED (G2+G3) across all 5:** 06-17 no-trade → **0 fires**; 06-09/06-16/02-09/06-18 keep their real entries; 06-09 losers blocked. Full suite 1458/0.
+- [~] **G4 (re-record multi-TF):** 06-09 + 06-17 done. RE-RECORDING 06-16 (bom51onns), then 02-09, 06-18 — so the coherence veto runs on real m15 for all (currently 06-16/02-09/06-18 are 1TF → coherence null → fail-open, gate still passes them).
+- [ ] **G5:** fold all 5 multi-TF; promote+verify (expected from oracle, verified:true); npm test green; note in decisions ledger; CHECKPOINT G → user.
+- OPEN (entry-precision, follow-up): 06-09 first packet is 09:52 (continuation, coherence 0.41 ≥ 0.4) not the oracle's deep 10:27. Raising GOFNQ_INV_COHERENCE to ~0.5 would veto 09:52 → push to 10:27, IF 06-16/02-09/06-18 coherence ≥ 0.5 (calibrate after their multi-TF re-records).
 
 ## Phase 2 — IMPLEMENTATION PLAN (concrete; all inputs verified available)
 Corpus to validate against (fold each with `node scripts/fold-tape.mjs` / the inline fold):
