@@ -1,23 +1,47 @@
-# Todo — Backtest baseline + TESTS + history
+# Todo — Validate the faithful-Lanto chain → live on Tradovate demo
 
-Base: `origin/main` (d2441e4). One symbol at a time. See `tasks/plan.md`.
+Branch: `feat/faithful-lanto-rebuild`. See `tasks/plan.md` / `~/.claude/plans/mellow-frolicking-chipmunk.md`.
+Strict gate first: no live session until Stage G passes. Live = armed auto-fire on demo, autonomous, monitored.
 
-- [x] **T1** Worktree off `origin/main` + branch `claude/backtest-baseline-tests` + node_modules symlinks
-- [x] **T2** `foldSymbol` core (`app/main/backtest-baseline.js`) → faithful run_details + per_day + total; unit test `buildAnalytics(run_details).cum_r == total_r`
-- [x] **T3** Baseline persistence: read/write/refold + `shouldSnapshot` history; index refresh; IPC `baseline:get|refold|history`; preload; unit tests
-- [x] **✅ CHECKPOINT A** — headless MNQ +117.05R / MES +67.87R (invariant OK on real corpus); baselines written — REVIEWED
-- [x] **T4** `useBaseline(symbol)` hook
-- [x] **T5** LIBRARY dashboard fed by faithful baseline + RE-FOLD button + staleness
-- [x] **T6** BASELINE HISTORY panel in LIBRARY
-- [x] **✅ CHECKPOINT B** — dashboard faithful + history live; CDP DOM verified (+117.0R, RE-FOLD, history Δ) — REVIEWED
-- [x] **T7** `save-fold-test.mjs`; tests read/write/verdict helpers; IPC `tests:list|get|verdict|delete`; preload; unit tests
-- [x] **T8** TESTS switcher tab + `useTests` + accept/reject/reason + per-day expand
-- [ ] **✅ CHECKPOINT C** — TESTS end-to-end; accept/reject persists — pending final quiet boot
-- [x] **T9** symbolView wiring + CSS + `/fold-test` doc update + full suite (floor 10/10, npm test 1320/1320, smoke 22/22)
+## Phase 0 — Smoke the harness
+- [ ] 0.1 Inventory salvageable recorded inputs for the oracle dates (state/, run dirs)
+- [ ] 0.2 Fold the existing 06-09 tape through the real chain; diff vs oracle D2
+- [ ] 0.3 Fold any salvaged live sessions (fold-live-corpus); no crashes / sane block-reasons
 
-## Verification commands
-- floor: `GOFNQ_STATE_DIR=$(mktemp -d) node --test tests/day-tape.test.js`  → 10/10
-- unit: `node --test tests/backtest-baseline.test.js`  → 8/8
-- suite: `GOFNQ_STATE_DIR=$(mktemp -d) npm test`  → 1320/1320
-- smoke: `npm run smoke:fixtures`  → 22/22
-- in-app DOM check (quiet window, mode=prep): compare rendered CUMULATIVE R to `baseline/<slug>.json`
+## Phase 1 — Stage G: record + fold the oracle sessions (GATE)
+- [ ] 1.1 06-09 (A+ Inversion short) — record/reuse → fold → compare → promote+verify
+- [ ] 1.2 02-09 (A+ multi-align long) — record → fold → compare → promote+verify
+- [ ] 1.3 12-12 (2/3-B short, MES) — record → fold → compare → promote+verify
+- [ ] 1.4 10-02 (B long→flip, MNQ) — record → fold → compare → promote+verify
+- [ ] 1.5 06-16 (B short) — record/reuse → fold → compare → promote+verify
+- [ ] 1.6 06-17 (no-trade) — record/reuse → fold → compare → promote+verify
+- [ ] 1.7 06-18 (marginal B long) — record/reuse → fold → compare → promote+verify
+- [ ] **✅ CHECKPOINT G** — all oracle sessions match Lanto; `npm run tapes` + `npm test` green — user reviews
+
+## Phase 2 — Chain fixes (looped with Phase 1)
+- [ ] Per divergence: failing test → coherent fix → re-fold → full suite green → note in decisions ledger
+
+## Phase 3 — Stage F: re-point UI to validated outputs
+- [ ] 3.1 PREP/LIVE/REVIEW render 3-vote grade, 2×2 models, overnight vote, SMT, near-price draw, no-trim mgmt; no scale-in
+- [ ] 3.2 Fix any stale/old-strategy field; re-probe matches chain output
+
+## Phase 4 — Readiness + Tradovate arming (GATE, no orders placed)
+- [ ] 4.1 TV Desktop CDP 9225 answers
+- [ ] 4.2 Capture health all-fresh for London (Asia + ETH + 30m), MES+MNQ
+- [ ] 4.3 live-check --session london clean / known blockers
+- [ ] 4.4 Supervisor auto-arms london 03:00 ET; detector heartbeat; deterministic resolver active
+- [ ] 4.5 Tradovate demo connected + account confirmed
+- [ ] 4.6 automationMode=auto + resume-auto tapped; guardrails $250/$600
+- [ ] 4.7 Routing dry-verify (adapter own-host route) — NO order placed
+- [ ] **✅ CHECKPOINT R** — readiness green + demo armed — user confirms London target
+
+## Phase 5 — First live demo session (next London)
+- [ ] 5.1 Pre-open green; symbol pinned; mode armed
+- [ ] 5.2 Background Monitor on bar-close + tail setups/no-trades/fills/logs
+- [ ] 5.3 Supervise 03:00–06:00 ET; hot-fix plumbing only (engine owns orders)
+- [ ] 5.4 Recap per-trade + defects + fixes
+- [ ] **✅ CHECKPOINT (session review)** — traded correctly? triage defects
+
+## Phase 6 — Iterate to fully working
+- [ ] Fix Phase-5 defects (TDD + re-fold + re-probe); re-guard the gate; more clean sessions
+- [ ] (later, separate gate) real-money path — out of scope here
