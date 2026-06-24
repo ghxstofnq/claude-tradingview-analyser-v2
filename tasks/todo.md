@@ -26,8 +26,12 @@ Strict gate first: no live session until Stage G passes. Live = armed auto-fire 
 |---|---|---|---|---|
 | 06-09 | A+ Inv short, e29731, TP1 AS.L 29595 | 10:27 Inv short e29760, TP1 AS.L 29595 ✓ | 9 premature Inv (09:34→) | inversion over-fire |
 | 06-16 | B Reversal short, e30864, TP1 LO.L 30783 | 09:57 **Trend** short e30864 ✓, TP1 ~AS.L 30750 | 3 premature Inv (09:30→) | over-fire + model named Trend not Reversal/MSS |
-| 06-17 | NO-TRADE (price quality) | recording (b31e6o28d) — does it over-fire? | TBD | TBD |
+| 06-17 | **NO-TRADE** (price quality) | — | **12 fired, 11 A+, ALL Inversion** | catastrophic false-positive |
 - ALL premature fires are model=Inversion; Trend/MSS entries are CORRECT → the over-fire is localized to the Inversion lifecycle (findOpposingPdArrays spawns on every opposing FVG).
+- 06-17 (no-trade) is the smoking gun: 12 Inversion packets (11 A+) where Lanto stands aside. THREE compounding gaps:
+  - **A. Inversion over-fire** — the Inversion lifecycle fires on every opposing-FVG violation (primary).
+  - **B. Grade rubber-stamps A+** — deriveGrade returns A+ for 11/12 on a no-trade day; no real discrimination.
+  - **C. Pillar-2 entry veto misses two-sided chop** — `pillar2PoorAtEntry` (bar-close.js) checks tight-range/doji/weak-disp, NOT the directional-COHERENCE signal Stage B added in `cli/lib/pillar2-verdict.js`. Wire coherence into the entry veto.
 
 ## Phase 2 — Chain fixes (grounded in the Entry Models transcript)
 GATE INSIGHT (2026-06-23): simple separators DON'T work — zone size_quality is "tiny" for BOTH premature
