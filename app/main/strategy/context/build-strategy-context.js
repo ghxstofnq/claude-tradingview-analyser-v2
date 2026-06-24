@@ -144,6 +144,15 @@ export function buildStrategyContext(bundle = {}) {
   // spot). Read from the per-bar m5 overlay; absent → [] (no elevation, safe).
   pillar3.fvgs5m = bundle.engine_by_tf?.m5?.fvgs ?? [];
 
+  const pillar2 = buildPillar2(engine, hardBlockers, sessionChain);
+  // The deployed engine omits `coherence` (it's in the Pine source, undeployed),
+  // so compute it from the m15 bars the multi-TF recorder captures — the
+  // two-sided-chop signal the 1m quality fields can't see (Stage-G G3 veto).
+  if (pillar2.coherence == null) {
+    pillar2.coherence = computeCoherenceFromBars(
+      bundle.bars_by_tf?.m15?.last_5_bars ?? bundle.bars_by_tf?.m15?.bars,
+    );
+  }
   return {
     market: bundle.market ?? 'unknown',
     session: bundle.session ?? 'unknown',
@@ -152,8 +161,20 @@ export function buildStrategyContext(bundle = {}) {
     sourceHealth: effectiveSourceHealth,
     sessionChain,
     pillar1: buildPillar1(engine, hardBlockers, sessionChain),
-    pillar2: buildPillar2(engine, hardBlockers, sessionChain),
+    pillar2,
     pillar3,
     blockers: [...new Set(blockers)],
   };
+}
+
+// Directional coherence (efficiency ratio = |net move| / gross path) over the
+// supplied closes — Stage B's two-sided-chop signal. Low = chop (price covers
+// ground but goes nowhere); high = a clean trend. Null when too few bars.
+export function computeCoherenceFromBars(bars) {
+  const c = (bars ?? []).map((b) => Number(b?.close)).filter(Number.isFinite);
+  if (c.length < 3) return null;
+  let gross = 0;
+  for (let i = 1; i < c.length; i += 1) gross += Math.abs(c[i] - c[i - 1]);
+  if (!(gross > 0)) return null;
+  return Number((Math.abs(c[c.length - 1] - c[0]) / gross).toFixed(2));
 }

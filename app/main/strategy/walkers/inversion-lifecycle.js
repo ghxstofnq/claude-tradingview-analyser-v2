@@ -106,6 +106,7 @@ const SESSION_HIGH_RE = /^(AS|NYAM|LO)\.H$/;
 const SESSION_LOW_RE = /^(AS|NYAM|LO)\.L$/;
 function invDepth() { const v = Number(process.env.GOFNQ_INV_DEPTH); return v > 0 && v < 1 ? v : 0.5; }
 function invGrabRecencyMin() { const v = Number(process.env.GOFNQ_INV_GRAB_RECENCY); return v > 0 ? v : 90; }
+function invCoherenceMin() { const v = Number(process.env.GOFNQ_INV_COHERENCE); return v >= 0 && v <= 1 ? v : 0.4; }
 function confirmedCloseOf(row) {
   return Number(row?.close ?? row?.price ?? row?.confirm_close_price ?? row?.last_bar?.close);
 }
@@ -149,7 +150,18 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
   const dir = side === 'short' ? 'bear' : 'bull';
   const swing = (context?.pillar3?.structuresSwing ?? []).some((s) =>
     String(s?.dir ?? s?.direction ?? '').startsWith(dir) && (s?.event === 'mss' || s?.event === 'bos'));
-  return { valid: swing, kind: 'continuation', reason: swing ? null : 'continuation_no_swing_trend', depth };
+  if (!swing) return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
+  // Chop veto (Stage-G G3): a continuation needs a CLEAN trend, not two-sided
+  // chop. m15 directional coherence < INV_COHERENCE_MIN = chop -> stand aside
+  // (06-17 no-trade: coherence 0.03-0.3). Null (no m15 bars) -> fail-open.
+  // NB: coherence may be null; Number(null)===0 would falsely read as chop, so
+  // guard the null BEFORE coercing.
+  const cohRaw = context?.pillar2?.coherence;
+  const coh = cohRaw == null ? NaN : Number(cohRaw);
+  if (Number.isFinite(coh) && coh < invCoherenceMin()) {
+    return { valid: false, kind: 'continuation', reason: 'chop_low_coherence', depth, coherence: coh };
+  }
+  return { valid: true, kind: 'continuation', reason: null, depth, coherence: Number.isFinite(coh) ? coh : null };
 }
 
 export function buildInversionWalkerAdvanceRequests(context, walkers = []) {

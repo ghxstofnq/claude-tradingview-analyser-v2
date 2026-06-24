@@ -6,8 +6,8 @@ import { inversionEntryValid } from '../app/main/strategy/walkers/inversion-life
 // session-tier grab / continuation needs a swing-tier trend). Leg 29000–30000.
 const NOW = Date.parse('2026-06-09T14:00:00.000Z');
 const min = (m) => NOW - m * 60000;
-const ctx = ({ sweeps = [], structuresSwing = [], legHigh = 30000, legLow = 29000 }) => ({
-  pillar2: { legHigh, legLow },
+const ctx = ({ sweeps = [], structuresSwing = [], legHigh = 30000, legLow = 29000, coherence }) => ({
+  pillar2: { legHigh, legLow, coherence },
   pillar3: { sweeps, structuresSwing },
 });
 
@@ -75,6 +75,32 @@ test('fail-open: unreadable leg extremes → valid', () => {
     side: 'short', entryPrice: 29400, nowMs: NOW,
   });
   assert.equal(r.valid, true);
+});
+
+test('continuation chop veto: low m15 coherence → invalid (G3)', () => {
+  const r = inversionEntryValid({
+    context: ctx({ structuresSwing: [{ dir: 'bear', event: 'mss' }], coherence: 0.1 }),
+    side: 'short', entryPrice: 29900, nowMs: NOW, // shallow continuation
+  });
+  assert.equal(r.kind, 'continuation');
+  assert.equal(r.valid, false);
+  assert.equal(r.reason, 'chop_low_coherence');
+});
+
+test('continuation: high coherence (clean trend) → valid', () => {
+  const r = inversionEntryValid({
+    context: ctx({ structuresSwing: [{ dir: 'bear', event: 'mss' }], coherence: 0.8 }),
+    side: 'short', entryPrice: 29900, nowMs: NOW,
+  });
+  assert.equal(r.valid, true);
+});
+
+test('continuation: NULL coherence (no m15 bars) → valid, NOT chop (Number(null) guard)', () => {
+  const r = inversionEntryValid({
+    context: ctx({ structuresSwing: [{ dir: 'bear', event: 'mss' }], coherence: null }),
+    side: 'short', entryPrice: 29900, nowMs: NOW,
+  });
+  assert.equal(r.valid, true, 'null coherence must fail-open, not read as 0/chop');
 });
 
 test('GOFNQ_INV_GATE=0 disables the gate', () => {
