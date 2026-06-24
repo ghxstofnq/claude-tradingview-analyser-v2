@@ -1,0 +1,163 @@
+# Lanto PREP grade rubric — faithful (Phase 0)
+
+**Status: DRAFT for sign-off. No code until approved.**
+
+Grounded in Lanto's own words, per the standing rule (transcripts + Discord,
+never the derived specs). Sources, with timestamps used as citations below:
+- **DB** = *How I Develop Daily Bias* (12/12/2025) — `docs/strategy/transcripts/How-I-Develop-Daily-Bias-...md`
+- **EM** = *How I Enter The Market (Entry Models)* (2/9/2026) — `...How-I-Enter-The-Market-Entry-Models-...md`
+- **Discord** = *Lantos Alerted Trades - Organized.pdf* (spot-checked 2025-09-26, 2026-01-06)
+
+This rubric governs the PREP **draw-bias grade** only (Pillar 1). Price action
+(Pillar 2) and entry model (Pillar 3) are separate components.
+
+---
+
+## 1. The bias is a 3-component COUNT
+
+The pre-session draw bias is built from **three components**, each voting
+`bull` / `bear` / `none` toward **one** chosen direction (DB 21:29, 30:30):
+
+1. **HTF analysis** — daily → 4H → 1H (DB 00:56)
+2. **Overnight price** — Asia 18:00–03:00 ET, London 03:00–09:30 ET (DB 12:11)
+3. **NY opening-range reaction** — the move after 09:30 into opposing/overnight
+   liquidity, then **the reaction** (DB 17:46). **Resolves LIVE** — not available
+   pre-open.
+
+**Grade = count of components confirming the same direction** (DB 22:25):
+- **1/3 → no-trade** ("if you only have one out of three… you do not take a trade")
+- **2/3 → B** ("it's not [an A+] but you can trade")
+- **3/3 → A+**
+
+Pick the direction with the most confirming votes. If **no direction** has ≥2
+confirming components → **no-trade** (conflict/unclear).
+
+**Pre-session ceiling = B.** Component 3 (NY open) resolves live, so the PREP
+grade can use at most components 1+2:
+- `count(HTF, overnight) == 2` (agreeing) → **B** (pending the open, which can
+  elevate to A+ live)
+- `count(HTF, overnight) <= 1` → **no-trade** (the open can still make it 2 → B live)
+
+**Second A+ path — multi-alignment "two-and-one"** (EM 25:13–27:05, 31:25): an
+entry that stacks **two imbalances** in one (e.g. a 5m FVG rebalance + a 1m
+opposing FVG inverting) with draw + price + entry-model all aligned is A+ at the
+**entry** level, even on a 2/3 day. A single clean entry caps at **B**. This is a
+LIVE (Pillar 3) elevation, not a pre-session grade.
+
+---
+
+## 2. Component 1 — HTF (how it votes)
+
+- Mark **significant, near-price** arrays only: FVG / iFVG / buyside / sellside
+  liquidity (DB 00:56, 02:48). Those four, nothing else.
+- A gap is valid **only if displacive AND it took liquidity** — both (DB 00:56,
+  01:52; EM 05:38).
+- **Near price** — the array must sit near where price trades now; far zones are
+  not significant (DB 04:42, 08:26: "these are not where price is currently
+  trading").
+- **Significance** = an aggressive high/low, a large wick, clear-cut — **not a
+  tiny zone** (DB 06:33–07:30: "wicks wicks wicks… aggressive high/low").
+- **Marking arrays is NOT a vote.** "We haven't even had a bias yet" (DB 09:21).
+  HTF votes a direction only from **either**:
+  - (a) **clearly directional HTF momentum** — consecutive directional daily/4H/1H
+    candles (DB 35:34), **or**
+  - (b) an **observed reaction** to a near-price array — *reject* → continuation
+    in the HTF direction; *invert* → flip (DB 10:18–11:14).
+- **Conflicting momentum across daily/4H/1H + no clear reaction → vote `none`**
+  (DB 22:25: "we didn't have a clear ultra HTF look… price hasn't been great").
+- **Price overrides a single small array.** A lone small/`tiny` array against a
+  strong HTF direction does **not** set the vote — "price just trades through it"
+  (DB 35:34).
+
+## 3. Component 2 — Overnight (how it votes)
+
+- Clearly bearish (or bullish) overnight → votes that direction (DB 16:50).
+- **Consolidation / chop → vote `none`** (DB 15:54: "I typically won't have a
+  dedicated bias… it's more so just chop").
+- In sync with HTF → strengthens; against → can skew/flip the lean (DB 14:02).
+
+## 4. Component 3 — NY open reaction (LIVE; resolves the grade)
+
+- It is the **reaction**, not the initial grab (DB 20:33: "It's not the initial
+  liquidity… it's the reaction").
+- Confirms with **displacement** → green light, 3rd component (DB 19:37–21:29).
+- Reverses against the bias → "timing not there yet → hands off" (DB 18:42).
+- For a **reversal**: requires **mass displacement** + **multiple arrays
+  invalidated**, not one (DB 30:30–31:26: "one candle disrespect one array" is
+  not enough).
+
+---
+
+## 5. The DRAW (distinct from the votes)
+
+- The **draw** is the **liquidity target** — where price is being pulled to: a
+  significant **untaken** liquidity pool / level (DB 03:45, 17:46).
+- **Liquidity = the draw, not a vote.** An array **+ its reaction** = a vote. Do
+  not conflate (this is the engine over-read we keep hitting).
+- The draw must be **significant + near-price** (same bar as §2).
+
+---
+
+## 6. The significance gate (one definition, both lanes use it)
+
+An array/level may anchor **either** the draw **or** a vote only if **all**:
+- **displacive** — clean/strong displacement in the gap body, minimal wickage
+  (EM 05:38), **and**
+- **took liquidity** — swept an internal/external high/low while forming
+  (EM 06:35), **and**
+- **near price**, **and**
+- **not a `tiny` zone** — unless exceptionally displacive *and* it took **major**
+  liquidity.
+
+## 7. Cite-or-reject (project constraint #6)
+
+Every anchor (draw, vote, grade) must cite a real JSON path that **resolves**.
+No cite → it cannot anchor the grade → **fail down with a reason**. (The MES B
+anchored on `primary_draw.cite: null` is the violation this closes.)
+
+---
+
+## 8. PREP outputs
+
+Per symbol:
+- `pre_session_grade ∈ { no-trade, B }` (A+ resolves live at the open).
+- the **component count** + which of (HTF, overnight) voted, each direction.
+- the cited **significant draw** (or `no_trade_reason` if none qualifies).
+- `no_trade_reason` when `count < 2`, or significance/cite fails.
+
+---
+
+## 9. Current bot → faithful (the deltas to build)
+
+| Current (`direct-session-brief.js:382`) | Faithful |
+|---|---|
+| default **B**; drop only on data-gap / p2-fail / no-lean | **count(HTF, overnight)**: 1 → no-trade, 2 → B; A+ live only |
+| array existence/state = HTF vote (a `tiny` FVG → "bullish") | momentum-direction **or** observed reaction; conflicting/`tiny` → `none`; price overrides a lone small array |
+| `primary_draw.cite` may be `null` | **cite-or-reject** |
+| no significance gate | **displacive + took-liq + near + not-tiny** |
+| draw and vote conflated | **draw = liquidity target; vote = array + reaction** |
+
+**Worked check — 2026-06-24 NY-PM MES:** daily bull, 4H + 1H bear (conflicting) →
+HTF votes `none`; overnight chop → `none`; draw was a `tiny` inverted FVG, `cite:
+null` → fails §6 + §7. Count = 0 → **no-trade**. (Bot graded B — the violation.)
+
+---
+
+## 10. Validation (Phase 4, after the build)
+
+Re-grade the oracle sessions and spot-check against Discord bias labels
+(`Long/Short/Mixed/Unclear`): mixed/unclear = low count → no-trade/cautious. No
+regressions on the locked oracle.
+
+---
+
+## Sign-off decisions (confirm before any code)
+
+1. **Pre-session ceiling = B**; A+ only resolves live at the open. ☐
+2. **HTF votes `none` on conflicting daily/4H/1H momentum** (makes today's MES
+   PM a no-trade). ☐
+3. **Significance gate excludes `tiny` zones** unless exceptionally displacive +
+   took major liquidity. ☐
+4. **Draw vs vote split** — liquidity = draw, array + reaction = vote. ☐
+5. **Multi-alignment "two-and-one" → A+ at the entry** (live, Pillar 3), separate
+   from the 3-component day grade. ☐
