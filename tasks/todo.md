@@ -21,6 +21,14 @@ Strict gate first: no live session until Stage G passes. Live = armed auto-fire 
 - Labels live in tests/fixtures/real-sessions/<date>-mnq-ny-am-*.label.json (06-09 + 06-16 done; 12-12 is MES). Oracle truth: docs/strategy/lanto-oracle.md Part D.
 - [ ] **✅ CHECKPOINT G** — all oracle sessions match Lanto; `npm run tapes` + `npm test` green — user reviews
 
+## Divergence table (chain vs oracle, fresh schema-4 folds)
+| Session | Oracle | Chain's correct packet | Premature fires | Gap |
+|---|---|---|---|---|
+| 06-09 | A+ Inv short, e29731, TP1 AS.L 29595 | 10:27 Inv short e29760, TP1 AS.L 29595 ✓ | 9 premature Inv (09:34→) | inversion over-fire |
+| 06-16 | B Reversal short, e30864, TP1 LO.L 30783 | 09:57 **Trend** short e30864 ✓, TP1 ~AS.L 30750 | 3 premature Inv (09:30→) | over-fire + model named Trend not Reversal/MSS |
+| 06-17 | NO-TRADE (price quality) | recording (b31e6o28d) — does it over-fire? | TBD | TBD |
+- ALL premature fires are model=Inversion; Trend/MSS entries are CORRECT → the over-fire is localized to the Inversion lifecycle (findOpposingPdArrays spawns on every opposing FVG).
+
 ## Phase 2 — Chain fixes (grounded in the Entry Models transcript)
 GATE INSIGHT (2026-06-23): simple separators DON'T work — zone size_quality is "tiny" for BOTH premature
 and real 06-09 zones; and a significant buy-side grab (PDH @09:05) predates the 09:34 premature short, so
