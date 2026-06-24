@@ -15,27 +15,47 @@ export function normalizeSide(side) {
   return null;
 }
 
-// Find Pillar 3 ("Entry Model + Confirmation") in a pillar_breakdown array
-// by name substring (case-insensitive). Robust to ordering changes in the
-// prompt — index-based access is fragile.
+// Find Pillar 3 (the entry-model + confirmation pillar) in a pillar_breakdown
+// array by name substring (case-insensitive). Robust to ordering changes —
+// index-based access is fragile. Matches both shapes the panel can receive:
+// the LLM-surfaced "Entry Model + Confirmation" and the live single-brain
+// deterministic packet's "Pillar 3" (bar-close.js deterministicPacketToSurfacePayload).
 //
 // Returns the pillar object or null if not found.
 export function selectPillar3(pillars) {
   if (!Array.isArray(pillars)) return null;
-  return pillars.find((p) => p && typeof p.name === "string" && /entry|confirmation/i.test(p.name)) || null;
+  return pillars.find((p) => p && typeof p.name === "string" && /entry|confirmation|pillar\s*3/i.test(p.name)) || null;
 }
 
-// Map Pillar 3 elements to the four confirmation rows displayed in the
-// STEP 5+6 panel. Elements are matched by name substring:
-//   - "PD-array tap" → /pd|tap/i
-//   - "1m close past structure" → /1m/i
-//   - "5m close past structure" → /5m/i
-//   - "Clean delivery" → /delivery|clean/i
+// Map Pillar 3 to the three confirmation rows in the ENTRY panel. Lanto's
+// confirmation is the ONE-MINUTE close ONLY — "I don't use five-minute
+// confirmation … one minute confirmation on every single gap" (Entry Models
+// 04:43) — so there is NO 5m confirmation row. The faithful checks are:
+//   - "PD-array tap"            → /pd|tap/i   (price rebalanced the entry array)
+//   - "1m confirmation close"   → /1m/i       (the deliberate 1m close)
+//   - "Clean delivery"          → /delivery|clean/i  (displaced, not a >10-15m fight)
 //
-// Returns [{ label, status, detail }] — one entry per slot, always 4 rows.
-// Missing elements render as { status: "missing", detail: "—" }.
+// Two input shapes:
+//   1. Live single-brain deterministic packet — carries no named elements; its
+//      Pillar-3 VERDICT string is the confirmation truth (the chain only
+//      surfaces a setup AFTER the 1m confirmation close, so a PASS verdict means
+//      all three held). Map the verdict onto the three rows.
+//   2. LLM-surfaced "Entry Model + Confirmation" pillar with named elements —
+//      match each row by name substring.
+//
+// Returns [{ label, status, detail }] — always 3 rows. Missing elements render
+// as { status: "missing", detail: "—" }.
 export function pillar3ToConfirmationRows(pillar3) {
   const elements = pillar3?.elements || [];
+  if (!elements.length && pillar3?.verdict) {
+    const status = /^pass/i.test(String(pillar3.verdict)) ? "pass" : "pending";
+    const detail = String(pillar3.verdict);
+    return [
+      { label: "PD-array tap", status, detail },
+      { label: "1m confirmation close", status, detail },
+      { label: "Clean delivery", status, detail },
+    ];
+  }
   const find = (rx) => elements.find((e) => e && typeof e.name === "string" && rx.test(e.name));
   const rowFor = (label, rx) => {
     const el = find(rx);
@@ -48,8 +68,7 @@ export function pillar3ToConfirmationRows(pillar3) {
   };
   return [
     rowFor("PD-array tap", /pd|tap/i),
-    rowFor("1m close past structure", /1m/i),
-    rowFor("5m close past structure", /5m/i),
+    rowFor("1m confirmation close", /1m/i),
     rowFor("Clean delivery", /delivery|clean/i),
   ];
 }

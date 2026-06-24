@@ -131,7 +131,7 @@ function LedgerTradeExpand({ row }) {
         display: "flex", gap: 8, alignItems: "center",
         fontSize: 10, padding: "8px 0 6px",
       }}>
-        <span className="grade-pill green">{s.grade || "A+"}</span>
+        <span className={"grade-pill " + gradeTone(s.grade || t.grade)}>{s.grade || t.grade || "—"}</span>
         <span className={"side " + sideCls}
               style={{ fontSize: 9, letterSpacing: ".18em",
                        color: sideCls === "l" ? "var(--green)" : "var(--red)" }}>

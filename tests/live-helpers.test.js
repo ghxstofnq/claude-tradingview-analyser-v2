@@ -80,6 +80,16 @@ describe("selectPillar3", () => {
     assert.equal(p.status, "pending");
   });
 
+  it("finds the live deterministic packet's 'Pillar 3' entry", () => {
+    const det = [
+      { name: "Pillar 1", verdict: "PASS · deterministic context gate", elements: [] },
+      { name: "Pillar 2", verdict: "PASS · deterministic quality gate", elements: [] },
+      { name: "Pillar 3", verdict: "PASS · Inversion exact confirmation close", elements: [] },
+    ];
+    const p = selectPillar3(det);
+    assert.equal(p.name, "Pillar 3");
+  });
+
   it("returns null when no pillar matches", () => {
     assert.equal(selectPillar3([pillars[0]]), null);
   });
@@ -91,7 +101,7 @@ describe("selectPillar3", () => {
 });
 
 describe("pillar3ToConfirmationRows", () => {
-  it("maps four rows in fixed order, matched by name substring", () => {
+  it("maps three 1m-only rows in fixed order, matched by name substring (no 5m row — EM 04:43)", () => {
     const pillar3 = {
       elements: [
         { name: "1m close past structure", status: "pass", detail: "21 322.50 close > 21 320" },
@@ -101,16 +111,24 @@ describe("pillar3ToConfirmationRows", () => {
       ],
     };
     const rows = pillar3ToConfirmationRows(pillar3);
-    assert.equal(rows.length, 4);
+    assert.equal(rows.length, 3);
     assert.equal(rows[0].label, "PD-array tap");
     assert.equal(rows[0].status, "pass");
     assert.match(rows[0].detail, /wick tapped/);
-    assert.equal(rows[1].label, "1m close past structure");
+    assert.equal(rows[1].label, "1m confirmation close");
     assert.equal(rows[1].status, "pass");
-    assert.equal(rows[2].label, "5m close past structure");
-    assert.equal(rows[2].status, "weak");
-    assert.equal(rows[3].label, "Clean delivery");
-    assert.equal(rows[3].status, "pending");
+    assert.equal(rows[2].label, "Clean delivery");
+    assert.equal(rows[2].status, "pending");
+    // Lanto confirms on the 1m ONLY — the 5m element must NOT render a row.
+    assert.equal(rows.some((r) => /5m/i.test(r.label)), false);
+  });
+
+  it("maps the live deterministic packet's Pillar-3 verdict onto three pass rows", () => {
+    const rows = pillar3ToConfirmationRows({ name: "Pillar 3", verdict: "PASS · Inversion exact confirmation close", elements: [] });
+    assert.equal(rows.length, 3);
+    assert.equal(rows.every((r) => r.status === "pass"), true);
+    assert.equal(rows[1].label, "1m confirmation close");
+    assert.match(rows[0].detail, /exact confirmation close/);
   });
 
   it("renders missing elements as 'missing' status with em-dash detail", () => {
@@ -121,7 +139,7 @@ describe("pillar3ToConfirmationRows", () => {
 
   it("tolerates null pillar3 input", () => {
     const rows = pillar3ToConfirmationRows(null);
-    assert.equal(rows.length, 4);
+    assert.equal(rows.length, 3);
     assert.equal(rows[0].status, "missing");
   });
 });
