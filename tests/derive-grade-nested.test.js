@@ -64,12 +64,28 @@ const elevCtx = (fvgs5m) => ({
 });
 const elevWalker = { model: 'Inversion', side: 'short', evidence: { pdArray: { rawPayload: { top: 29795, bottom: 29790 } } } };
 
-test('D5: 2/3 + a distinct overlapping same-direction 5m FVG → elevated to A+', () => {
+test('D5: 2/3 + a distinct took-liq same-direction 5m FVG (real two-and-one) → A+', () => {
   const g = deriveGrade({
-    context: elevCtx([{ dir: 'bear', top: 29796, bottom: 29788 }]), // overlaps the 1m entry zone, distinct, bearish
+    context: elevCtx([{ dir: 'bear', top: 29796, bottom: 29788, took_liq: true }]), // overlapping, distinct, bearish, took liquidity
     walker: elevWalker,
   });
   assert.equal(g, 'A+');
+});
+
+test('D5: overlapping 5m FVG that did NOT take liquidity → stays B (not a two-and-one)', () => {
+  const g = deriveGrade({
+    context: elevCtx([{ dir: 'bear', top: 29796, bottom: 29788, took_liq: false }]),
+    walker: elevWalker,
+  });
+  assert.equal(g, 'B');
+});
+
+test('D5: a took-liq 5m FVG but an FVG-retrace (non-inversion) entry → stays B', () => {
+  const g = deriveGrade({
+    context: elevCtx([{ dir: 'bear', top: 29796, bottom: 29788, took_liq: true }]),
+    walker: { ...elevWalker, model: 'Trend' }, // fvg_retrace mechanism, not an inversion
+  });
+  assert.equal(g, 'B');
 });
 
 test('D5: 2/3 with NO 5m FVG partner → stays B', () => {

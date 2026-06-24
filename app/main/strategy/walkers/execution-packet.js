@@ -453,6 +453,14 @@ function nearestIntradayTarget(context, side, entry, stop) {
 // (b_elevatable) day to A+; never creates a trade on its own. Absent 5m data →
 // false (no elevation, the day stays B).
 function hasMultiAlignment(context, walker) {
+  // The real "two-and-one" (ENTRY 27:05) is a 5m FVG REBALANCE that took
+  // liquidity, paired with a 1m iFVG go-invert IN ONE spot. So it requires
+  // (a) the entry be an INVERSION (a plain FVG-retrace is a single mechanism,
+  // never a two-and-one — excludes 06-16), and (b) a DISTINCT same-dir 5m FVG
+  // that TOOK LIQUIDITY overlapping the entry (incidental non-liquidity 5m
+  // overlap is not the pairing — excludes 06-18). Calibrated on the 5 oracle
+  // sessions: 02-09 multi (A+); 06-16/06-18 NOT (B).
+  if (normalizeModelName(walker?.model) !== 'inversion') return false;
   const pd = walker?.evidence?.pdArray?.rawPayload
     ?? walker?.evidence?.confirmation?.rawPayload ?? {};
   const top = Number(pd.top ?? pd.zone_top);
@@ -467,7 +475,8 @@ function hasMultiAlignment(context, walker) {
     // a DISTINCT 5m zone (not the entry zone itself) that overlaps it, same dir.
     if (near(zt, top) && near(zb, bottom)) return false;
     const overlaps = bottom <= zt && zb <= top;
-    return overlaps && wantDir.includes(String(z?.dir ?? z?.direction ?? '').toLowerCase());
+    return overlaps && z?.took_liq === true
+      && wantDir.includes(String(z?.dir ?? z?.direction ?? '').toLowerCase());
   });
 }
 
