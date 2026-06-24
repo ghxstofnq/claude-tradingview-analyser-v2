@@ -5,8 +5,36 @@ import { register } from '../router.js';
 import * as data from '@tvmcp/core/data';
 import * as replay from '@tvmcp/core/replay';
 import { parseIctEngineTable, findIctEngineRows } from '../lib/ict-engine-parser.js';
-import { recordEntries, mergeFiveMinuteTrack, tapeFromRecording, contextFromLabel } from '../lib/tape-recorder.js';
+import { recordEntries, mergeTfTrack, attachHtfSnapshot, tapeFromRecording, contextFromLabel } from '../lib/tape-recorder.js';
+import { tfMatchesMeta } from '../lib/tf-capture.js';
 import { freshChartForReplay } from '../lib/replay-recovery.js';
+
+// HTF anchor snapshots (h4/h1/daily) — captured ONCE at the recording start
+// (pre-entry → no look-ahead). HTF PD arrays are intra-session-stable, so one
+// snapshot supplies the draw context the faithful inversion gate reads. Each TF
+// is its own fresh replay session (freshChartForReplay reloads first), so there
+// is no mid-replay TF switching (the wedge the two-pass design avoids).
+async function captureHtfAnchors({ deps, symbol, date, fromEt }) {
+  const out = {};
+  for (const [res, key] of [['240', 'h4'], ['60', 'h1'], ['D', 'daily']]) {
+    try {
+      await freshChartForReplay({ leader: symbol, timeframe: res });
+      await deps.startReplay({ date, time: fromEt });
+      let eng = null;
+      for (let i = 0; i < 12; i += 1) {
+        const c = await deps.readEngine();
+        if (c?.schema_supported && tfMatchesMeta(res, c?.meta?.tf)) { eng = c; break; }
+        await deps.sleep(400);
+      }
+      out[key] = eng;
+    } catch {
+      out[key] = null;
+    } finally {
+      try { await deps.stopReplay(); } catch { /* best-effort */ }
+    }
+  }
+  return out;
+}
 
 register('record-tape', {
   description: 'Step TradingView bar replay across a historical session and record a per-bar walker day-tape (ICT Engine recomputed at every bar). Output feeds the day-tape gate after hand-grading.',
@@ -47,13 +75,27 @@ register('record-tape', {
     await freshChartForReplay({ leader: symbol, timeframe: '5' });
     const rec5 = await recordEntries({ context, date, fromEt, toEt, deps, tf: '5' });
 
+    // 15m pass — stepped (like 5m) so the engine's directional coherence evolves
+    // through the session (the two-sided-chop no-trade veto reads it).
+    await freshChartForReplay({ leader: symbol, timeframe: '15' });
+    const rec15 = await recordEntries({ context, date, fromEt, toEt, deps, tf: '15' });
+
+    // HTF draw context (h4/h1/daily) — one anchor snapshot at fromEt.
+    const htf = await captureHtfAnchors({ deps, symbol, date, fromEt });
+
     // Leave the chart reloaded + pinned back at 1m.
     await freshChartForReplay({ leader: symbol, timeframe: '1' });
 
-    const entries = mergeFiveMinuteTrack(rec1.entries, rec5.entries);
+    let entries = mergeTfTrack(rec1.entries, rec5.entries, 'm5');
+    entries = mergeTfTrack(entries, rec15.entries, 'm15');
+    entries = attachHtfSnapshot(entries, htf);
     const recording = {
       entries,
-      warnings: [...rec1.warnings, ...rec5.warnings.map((w) => `5m: ${w}`)],
+      warnings: [
+        ...rec1.warnings,
+        ...rec5.warnings.map((w) => `5m: ${w}`),
+        ...rec15.warnings.map((w) => `15m: ${w}`),
+      ],
     };
 
     const tape = tapeFromRecording({ label, entries: recording.entries });

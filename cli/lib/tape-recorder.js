@@ -170,7 +170,7 @@ export async function recordEntries({
   // via mergeFiveMinuteTrack — no mid-replay switching.
   tf = '1',
 }) {
-  const barSeconds = tf === '5' ? 300 : 60;
+  const barSeconds = tf === '15' ? 900 : tf === '5' ? 300 : 60;
   const nowMs = deps.nowMs ?? Date.now;
   const toEpoch = etToEpochSeconds(date, toEt);
   const entries = [];
@@ -249,8 +249,14 @@ export async function recordTape({
  * close carry no 5m track (engine_by_tf stays null). Pure; both passes cover
  * the same window so timestamps align. CHECKPOINT 0: both engines kept in full.
  */
-export function mergeFiveMinuteTrack(entries1m, entries5m) {
-  const fiveM = (entries5m ?? [])
+// Merge a higher-TF capture pass into the 1m entries under `key` (m5 / m15 / …).
+// Each 1m entry gets the engine + bars of the LAST higher-TF bar that closed at
+// or before its own close — the HTF structure only updates when its bar closes,
+// exactly like live (the walker reads engine_by_tf.<key> refreshed each bar).
+// ADDITIVE: spreads any existing engine_by_tf/bars_by_tf so m5, m15 and the HTF
+// snapshot coexist. Pure; both passes cover the same window so timestamps align.
+export function mergeTfTrack(entries1m, entriesTf, key) {
+  const track = (entriesTf ?? [])
     .map((e) => ({
       closeMs: Date.parse(e?.event?.ts),
       engine: e?.inputs?.bundle?.engine ?? null,
@@ -262,23 +268,45 @@ export function mergeFiveMinuteTrack(entries1m, entries5m) {
   return (entries1m ?? []).map((entry) => {
     const tMs = Date.parse(entry?.event?.ts);
     let match = null;
-    for (const f of fiveM) {
+    for (const f of track) {
       if (Number.isFinite(tMs) && f.closeMs <= tMs) match = f;
       else break;
     }
-    if (!match) return entry; // before the first 5m close — no 5m structure yet
+    if (!match) return entry; // before the first HTF close — no track yet for this key
     return {
       ...entry,
       inputs: {
         ...entry.inputs,
         bundle: {
           ...entry.inputs.bundle,
-          engine_by_tf: { m5: match.engine },
-          bars_by_tf: { ...(entry.inputs.bundle.bars_by_tf ?? {}), m5: match.bars },
+          engine_by_tf: { ...(entry.inputs.bundle.engine_by_tf ?? {}), [key]: match.engine },
+          bars_by_tf: { ...(entry.inputs.bundle.bars_by_tf ?? {}), [key]: match.bars },
         },
       },
     };
   });
+}
+
+export function mergeFiveMinuteTrack(entries1m, entries5m) {
+  return mergeTfTrack(entries1m, entries5m, 'm5');
+}
+
+// Attach static HTF engine snapshots (h4 / h1 / daily — captured once at the
+// session anchor; intra-session-stable PD arrays = the draw context) to every
+// entry's engine_by_tf. ADDITIVE; drops null TFs. `htf` = { h4, h1, daily }.
+export function attachHtfSnapshot(entries, htf = {}) {
+  const present = Object.fromEntries(Object.entries(htf).filter(([, v]) => v));
+  if (!Object.keys(present).length) return entries ?? [];
+  return (entries ?? []).map((entry) => ({
+    ...entry,
+    inputs: {
+      ...entry.inputs,
+      bundle: {
+        ...entry.inputs.bundle,
+        engine_by_tf: { ...(entry.inputs.bundle.engine_by_tf ?? {}), ...present },
+      },
+    },
+  }));
 }
 
 /** Assemble the tape file. Lands unverified — hand-grading freezes it. */
