@@ -20,6 +20,9 @@ import { gradeOpenTrade } from "../app/main/backtest-grader.js";
 import { __test } from "../app/main/bar-close.js";
 
 const JUNE9 = JSON.parse(fs.readFileSync(path.resolve("tests/tapes/2026-06-09-ny-am-replay.tape.json"), "utf8"));
+// 02-09 is the A+ session (multi-alignment two-and-one) — used for the runner
+// → TP2 mechanic since 06-09 now grades B (its early entry isn't a two-and-one).
+const FEB9 = JSON.parse(fs.readFileSync(path.resolve("tests/tapes/2026-02-09-ny-am-replay.tape.json"), "utf8"));
 
 function makeDeps({ entries, context = null }) {
   const calls = { recorded: 0, briefRuns: 0 };
@@ -57,13 +60,12 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   });
 
   assert.equal(summary.cost_usd, 0);
-  // A+→TP2 (2026-06-13): the June 9 Inversion shorts grade A+, so each ARMS a
-  // runner on TP1 (no partial bank) and rides for TP2. Within this 22-bar
-  // slice none reach TP2, so they stay open — nothing books. No stops either,
-  // so losses=0 and wins=0; the runners are unresolved, which is the correct
-  // new behavior (was: TP1 scalps that closed in-window).
+  // Stage-G (2026-06-23): June 9 now grades B (the principled 3-vote — the
+  // chain's early entry isn't a two-and-one; the A+ was Lanto's deeper 10:27
+  // spot). A B trade banks at TP1 rather than arming an A+ runner, so the
+  // Inversion short books a TP1 win and no stop hits.
   assert.equal(summary.losses, 0);
-  assert.equal(summary.wins, 0);
+  assert.ok(summary.wins >= 1, `expected a TP1 win on the B Inversion short, got ${summary.wins}`);
   assert.equal(summary.chain_status, "clean");
 
   // As the move unfolds, neighboring zones confirm the same trade idea under
@@ -106,20 +108,23 @@ test("outcome grading: a later bar through TP1 then TP2 resolves the A+ runner a
   const bus = new EventEmitter();
   const events = collectEvents(bus);
 
-  const last = JUNE9.entries[JUNE9.entries.length - 1];
+  // 02-09 is the A+ session (multi-alignment), an Inversion LONG — so its A+
+  // runner rides UP through TP1 to TP2. (06-09 grades B now and would only bank
+  // at TP1, so it can't exercise the runner mechanic.)
+  const last = FEB9.entries[FEB9.entries.length - 1];
   const winBar = structuredClone(last);
-  // Next 1m bar trades down through TP1 AND TP2 (the A+ runner's second
-  // target) — low 29300 clears every Inversion-short TP2 on the tape.
+  // Next 1m bar trades UP through TP1 AND TP2 (the long A+ runner's second
+  // target) — high 25900 clears every Inversion-long TP2 on the tape.
   const bars = winBar.inputs.bundle.bars.last_5_bars;
   const prev = bars[bars.length - 1];
   const t = Number(prev.time) + 60;
-  bars.push({ time: t, open: prev.close, high: prev.close, low: 29300, close: 29301 });
+  bars.push({ time: t, open: prev.close, high: 25900, low: prev.close, close: 25899 });
   winBar.event = { ...winBar.event, ts: new Date((t + 60) * 1000).toISOString() };
-  winBar.inputs.bundle.quote = { ...winBar.inputs.bundle.quote, last: 29301, time: t + 60 };
+  winBar.inputs.bundle.quote = { ...winBar.inputs.bundle.quote, last: 25899, time: t + 60 };
 
-  const { deps } = makeDeps({ entries: [...JUNE9.entries, winBar] });
+  const { deps } = makeDeps({ entries: [...FEB9.entries, winBar] });
   const { summary } = await runBacktest({
-    date: "2026-06-09", session: "ny-am", mode: "auto",
+    date: "2026-02-09", session: "ny-am", mode: "auto",
     bus, stateDir, deps,
   });
 

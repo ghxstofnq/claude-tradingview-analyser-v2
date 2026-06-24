@@ -57,6 +57,14 @@ export function contextFromLabel(label) {
       is_retrace_day: false,
       entry_model_priority: label?.expected?.model ?? 'undecided',
       grade_cap: label?.expected?.grade ?? 'A+',
+      // Stage-C 3-vote pillar for the faithful nested grade (deriveGrade). A
+      // tradeable hand-grade carries the draw-bias pillar; default 2/3
+      // (b_elevatable) so the grade = A+ ONLY on a real two-and-one at the
+      // chain's entry, else B (grade follows the entry). A label may declare
+      // expected.bias_pillar:'3of3' for a pure-3/3 A+ day (a_plus_eligible).
+      draw_bias_pillar: label?.expected?.bias_pillar === '3of3' ? 'confirmed-3of3' : 'clear-2of3',
+      a_plus_eligible: label?.expected?.bias_pillar === '3of3',
+      b_elevatable: label?.expected?.bias_pillar !== '3of3',
     },
     session_state: {
       pillar1: { status: 'pass', htfBias: bias, htfDraw: `${dir} ${targets[0]?.name ?? 'label target'}`, primaryDraw: targets[0]?.name ?? 'label target' },
