@@ -31,7 +31,9 @@ Strict gate first: no live session until Stage G passes. Live = armed auto-fire 
 - 06-17 (no-trade) is the smoking gun: 12 Inversion packets (11 A+) where Lanto stands aside. THREE compounding gaps:
   - **A. Inversion over-fire** — the Inversion lifecycle fires on every opposing-FVG violation (primary).
   - **B. Grade rubber-stamps A+** — deriveGrade returns A+ for 11/12 on a no-trade day; no real discrimination.
-  - **C. Pillar-2 entry veto misses two-sided chop** — `pillar2PoorAtEntry` (bar-close.js) checks tight-range/doji/weak-disp, NOT the directional-COHERENCE signal Stage B added in `cli/lib/pillar2-verdict.js`. Wire coherence into the entry veto.
+  - **C. Pillar-2 entry veto misses two-sided chop** — `pillar2PoorAtEntry` (bar-close.js) checks tight-range/doji/weak-disp, NOT the directional-COHERENCE signal Stage B added in `cli/lib/pillar2-verdict.js`. `pillar2EntryGate()` IS on by default (config.js:48) — but the dims don't trip on normal-range chop. Wire coherence (compute from tape's 5m bars; bundle's 1m current_tf has coherence=undefined) into the entry veto.
+| 02-09 | A+ multi-align long, e25632, TP1 LO.H 25723 (oracle ~3.4R on a 27pt stop) | 10:40 Inv long A+ e25633 ✓ | 2 premature B Inv (10:36,10:38) | over-fire + STOP too wide (chain 25538 leg-extreme vs oracle 25605 reclaim-low) → cascades TP1 to AS.H |
+- LEG SIGNAL (promising gate): at real 06-09 10:27 entry, leg_high=30139.75 (the grab) & price fell ~380pt from it; at premature 09:34, leg_high=30040.75 & only ~93pt below. "Reversal depth from leg_high" separates real vs premature (zone significance does NOT — it's backwards).
 
 ## Phase 2 — Chain fixes (grounded in the Entry Models transcript)
 GATE INSIGHT (2026-06-23): simple separators DON'T work — zone size_quality is "tiny" for BOTH premature
