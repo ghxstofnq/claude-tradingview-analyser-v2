@@ -106,7 +106,9 @@ test("pillar2 grades on 5m/15m only — a current_tf doji must NOT tip a clean s
   };
   const [mnq] = buildDirectSessionBriefPayloads({ session: "london", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(mnq.pillar2_verdict, "marginal");
-  assert.notEqual(mnq.pillar_grade, "no-trade");
+  // Pre-open it's an unconfirmed lean (no-trade), but pillar2 marginal must NOT be
+  // the reason — that's reserved for pillar2 'poor' (faithful rubric §1).
+  assert.notEqual(mnq.no_trade_reason, "pillar2_poor");
 });
 
 test("pillar2 still fails when BOTH authoritative TFs (5m + 15m) are doji-dominated", () => {
@@ -127,7 +129,13 @@ test("buildDirectSessionBriefPayloads emits two valid surface_session_brief payl
   for (const payload of payloads) {
     assert.equal(payload.session, "ny-am");
     assert.match(payload.symbol, /^(MNQ1!|MES1!)$/);
-    assert.equal(payload.pillar_grade, "B");
+    // Faithful: pre-open a 1-component lean (h4 bull FVG, no overnight) is an
+    // unconfirmed lean (no-trade), B-capable — not a confirmed B.
+    assert.equal(payload.pillar_grade, "no-trade");
+    assert.equal(payload.no_trade_reason, "open_unconfirmed");
+    assert.equal(payload.lean.direction, "bullish");
+    assert.equal(payload.lean.potential, "B");
+    assert.equal(payload.lean.status, "pending_open");
     assert.equal(payload.primary_draw.cite, "engine_by_tf.h4.fvgs[0]");
     assert.equal(payload.pillar2_verdict, "good");
     assert.ok(payload.sizing_note.includes("0.75 R"));
@@ -250,7 +258,7 @@ test("runDirectSessionBrief lets Codex analyze pulled digest as commentary but J
   assert.equal(surfaced.length, 2);
   assert.match(surfaced[0].prose_summary, /Codex check:/);
   assert.equal(surfaced[0].codex_analysis.risk_challenges[0], "Pillar 3 confirmation is still pending");
-  assert.equal(surfaced[0].pillar_grade, "B");
+  assert.equal(surfaced[0].pillar_grade, "no-trade"); // pre-open unconfirmed lean
   assert.equal(events.some((e) => e.type === "codex_analysis" && e.status === "applied"), true);
 });
 
@@ -303,10 +311,11 @@ function buildOne(ds) {
   })[0];
 }
 
-test("one weak element (p2 marginal, draw pass) grades B per constraint #9, not no-trade", () => {
+test("p2 marginal + 1-component lean → pre-open unconfirmed lean (B-capable), not a confirmed B (faithful §1)", () => {
   const payload = buildOne(digestSymbolWith({ p2: "marginal" }));
-  assert.equal(payload.pillar_grade, "B");
-  assert.equal(payload.no_trade_reason, undefined);
+  assert.equal(payload.pillar_grade, "no-trade");
+  assert.equal(payload.no_trade_reason, "open_unconfirmed");
+  assert.equal(payload.lean.potential, "B");
 });
 
 test("no draw because HTF capture is missing grades no-trade with reason data_gap, not htf_unclear", () => {
@@ -316,10 +325,11 @@ test("no draw because HTF capture is missing grades no-trade with reason data_ga
   assert.equal(payload.chain_status, "degraded:data_gap");
 });
 
-test("no draw on a healthy capture stays no-trade htf_unclear (real market verdict)", () => {
+test("no draw on a healthy capture → no-trade, no_bias (no directional component)", () => {
   const payload = buildOne(digestSymbolWith({ draw: false }));
   assert.equal(payload.pillar_grade, "no-trade");
-  assert.equal(payload.no_trade_reason, "htf_unclear");
+  assert.equal(payload.no_trade_reason, "no_bias");
+  assert.equal(payload.lean.status, "no_read");
 });
 
 test("pillar2 poor still grades no-trade pillar2_poor when a draw exists", () => {
@@ -328,16 +338,17 @@ test("pillar2 poor still grades no-trade pillar2_poor when a draw exists", () =>
   assert.equal(payload.no_trade_reason, "pillar2_poor");
 });
 
-test("2026-06-10 regression: daily draw + missing h4/h1 + marginal p2 grades B with degraded:htf_partial", () => {
+test("2026-06-10: daily draw + missing h4/h1 + marginal p2 → pre-open lean (B-capable), degraded:htf_partial", () => {
   const payload = buildOne(digestSymbolWith({ drawTf: "daily", p2: "marginal", dataStatus: { h4: "missing", h1: "missing" } }));
-  assert.equal(payload.pillar_grade, "B");
-  assert.equal(payload.no_trade_reason, undefined);
+  assert.equal(payload.pillar_grade, "no-trade");
+  assert.equal(payload.no_trade_reason, "open_unconfirmed");
+  assert.equal(payload.lean.potential, "B");
   assert.equal(payload.chain_status, "degraded:htf_partial");
 });
 
-test("fallback-sourced HTF marks the chain degraded:htf_fallback instead of clean", () => {
+test("fallback-sourced HTF → pre-open lean (no-trade) + chain degraded:htf_fallback", () => {
   const payload = buildOne(digestSymbolWith({ dataStatus: { h4: "fallback" } }));
-  assert.equal(payload.pillar_grade, "B");
+  assert.equal(payload.pillar_grade, "no-trade");
   assert.equal(payload.chain_status, "degraded:htf_fallback");
 });
 
@@ -396,7 +407,7 @@ test("single-symbol leader capture rebuilds the brief end-to-end (short-circuit 
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: bundleSingle, sizingByGrade: { B: { r_size: 0.75 } } });
   assert.equal(payloads.length, 1);
   assert.equal(payloads[0].symbol, "MNQ1!");
-  assert.equal(payloads[0].pillar_grade, "B");
+  assert.equal(payloads[0].pillar_grade, "no-trade"); // pre-open unconfirmed lean
   assert.equal(payloads[0].primary_draw.dir, "bull");
   assert.ok(payloads[0].chain_status.includes("direct-codex-compatible"));
 });

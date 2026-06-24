@@ -377,13 +377,27 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     const HTF_TF_KEYS = ["daily", "h4", "h1"];
     const missingTfs = HTF_TF_KEYS.filter((tf) => ds?.htf?.[tf]?.data_status === "missing");
     const fallbackTfs = HTF_TF_KEYS.filter((tf) => ds?.htf?.[tf]?.data_status === "fallback");
-    // Grade per CLAUDE.md constraint #9: one weaker element → B; no-trade only
-    // when the draw is absent or price quality fails outright.
-    let pillar_grade = "B";
-    let no_trade_reason;
+    // Faithful grade (rubric §1; Daily Bias 22:25 "one of three → don't trade…
+    // three → A+"): combineBias already counts the components per Lanto's rule and
+    // returns the grade. PRE-OPEN this is an UNCONFIRMED LEAN (grade_cap 'no-trade',
+    // reason 'open_unconfirmed'/'no_bias'), NOT a B — the grade is earned LIVE when
+    // the open confirms (23:21 "the only time I take earlier is if we've already had
+    // the open move"). Stop defaulting to B. data_gap (capture failure) and
+    // pillar2_poor are upstream gates that precede the count.
+    let pillar_grade = lean.grade_cap;
+    let no_trade_reason = lean.no_trade_reason ?? null;
     if (!draw && missingTfs.length) { pillar_grade = "no-trade"; no_trade_reason = "data_gap"; }
     else if (p2.status === "fail") { pillar_grade = "no-trade"; no_trade_reason = "pillar2_poor"; }
-    else if (!lean.lean) { pillar_grade = "no-trade"; no_trade_reason = "htf_unclear"; }
+    // The pre-open LEAN + its A+/B ceiling (1 component + a confirming open → 2/3 B;
+    // 2 → 3/3 A+). Surfaced so PREP shows "leaning {dir} · {potential}-capable ·
+    // pending open" instead of a flat no-trade.
+    const ndir = (x) => /^bull/i.test(String(x || "")) ? "bull" : /^bear/i.test(String(x || "")) ? "bear" : "none";
+    const leanDir = lean.lean ?? null;
+    const leanCount = leanDir ? ["htf", "overnight"].filter((k) => ndir(lean.votes?.[k]) === ndir(leanDir)).length : 0;
+    const leanPotential = leanCount >= 2 ? "A+" : leanCount === 1 ? "B" : null;
+    const leanBlock = leanDir
+      ? { direction: leanDir, count: leanCount, potential: leanPotential, status: "pending_open" }
+      : { direction: null, count: 0, potential: null, status: "no_read" };
     const targetLevel = levels.find((l) => l.state === "untaken") ?? levels[0] ?? { name: "reference", price: 0 };
     const stopLevel = [...levels].reverse().find((l) => l.price !== targetLevel.price) ?? targetLevel;
     const sizing = sizingByGrade[pillar_grade] ?? sizingByGrade.B ?? { r_size: pillar_grade === "no-trade" ? 0 : 1, override_reason: null };
@@ -423,6 +437,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       ],
       key_levels: levels,
       pillar_grade,
+      lean: leanBlock,
       ...(no_trade_reason ? { no_trade_reason } : {}),
       pillars: [
         { name: "Draw & Bias", status: drawStatus, elements: [{ name: "primary HTF draw", status: drawStatus }] },
@@ -432,7 +447,9 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       plan: `Use ${symbol} only if live Pillar 3 confirms. Primary target reference: ${targetLevel.name} ${formatPrice(targetLevel.price)}. Stand aside if source health or P1/P2 chain degrades.`,
       scenarios: [{
         id: "scn-1",
-        grade: pillar_grade,
+        // A scenario is "IF the open confirms" → its grade is the lean's ceiling
+        // (the A+/B it earns once confirmed), not the pre-open no-trade.
+        grade: leanPotential ?? pillar_grade,
         condition: `Live confirms toward ${targetLevel.name} ${formatPrice(targetLevel.price)}`,
         action: `Wait for deterministic MSS/Trend/Inversion confirmation packet; no discretionary entry.`,
         target: `${formatPrice(targetLevel.price)} (${targetLevel.cite || "brief_digest"})`,
@@ -465,7 +482,10 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
         h1: htfQualityRow(symbol, ds, "h1"),
       },
       pillar2_verdict: p2.verdict,
-      chain_status: no_trade_reason ? `degraded:${no_trade_reason}`
+      // chain_status = PIPELINE health only. A pre-open lean (open_unconfirmed /
+      // no_bias / conflict) is a normal market verdict, not a degradation — the
+      // chain is clean. Only a capture failure degrades it.
+      chain_status: no_trade_reason === "data_gap" ? "degraded:data_gap"
         : missingTfs.length ? "degraded:htf_partial"
         : fallbackTfs.length ? "degraded:htf_fallback"
         : "clean:direct-codex-compatible",
