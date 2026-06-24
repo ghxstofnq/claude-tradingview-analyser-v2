@@ -43,6 +43,7 @@ register('record-tape', {
     from: { type: 'string', description: 'Recording start ET HH:MM (default 09:30)' },
     to: { type: 'string', description: 'Recording end ET HH:MM (default 12:00 — prefer a tight window; ~3-5s per bar)' },
     out: { type: 'string', short: 'o', description: 'Output tape path (default tests/tapes/<date>-<session>-replay.tape.json)' },
+    fixture: { type: 'string', description: 'Override the tape fixture id (default <date>-<session>-replay). Use for MES pairs so the id does not collide with the MNQ tape.' },
   },
   handler: async (opts) => {
     if (!opts?.label) throw new Error('--label <path> is required');
@@ -98,7 +99,7 @@ register('record-tape', {
       ],
     };
 
-    const tape = tapeFromRecording({ label, entries: recording.entries });
+    const tape = tapeFromRecording({ label, entries: recording.entries, fixture: opts.fixture || null });
     const out = opts.out || path.resolve('tests', 'tapes', `${tape.fixture}.tape.json`);
     mkdirSync(path.dirname(out), { recursive: true });
     writeFileSync(out, `${JSON.stringify(tape, null, 2)}\n`, 'utf8');

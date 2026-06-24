@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-02-09-mes-ny-am",
+  "fixtureSource": "real",
+  "label_status": "unlabeled",
+  "reviewer": "smt-pair-2026-06-25",
+  "source_message": "MES counterpart of the 2026-02-09 NY-AM Stage-G session, recorded to PAIR with the MNQ tape for the pair-leader fold. expected is a PLACEHOLDER (leader ground truth = Lanto Discord pick, graded separately). verified stays false.",
+  "trade_date": "2026-02-09",
+  "symbol": "MES",
+  "contract_hint": "CME_MINI:MES1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "unknown",
+    "model": null,
+    "side": null,
+    "grade": null,
+    "entry": null,
+    "stop": null,
+    "tp1": null,
+    "tp2": null
+  }
+}

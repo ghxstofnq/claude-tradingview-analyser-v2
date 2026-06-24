@@ -211,10 +211,14 @@ Minimal, flag-gated:
 - **Correlation regime** — ES/NQ leadership rotates; a leader edge in one regime may not
   hold. The fold spans both directions of the available corpus.
 
-## 9. Open questions for sign-off
-1. SMT divergence: **demote to optional confirmation (A)** or **delete (B)**?
-2. Leader metric default: **fresh-FVG disp_score** vs **open-range disp ÷ ATR** — settle by
-   fold, but is there a prior preference?
-3. Record cadence: capture the paired MNQ+MES sweep on every upcoming session until ≥3-4
-   paired weeks exist before the verdict — acceptable, or validate on the one week now as a
-   directional first read?
+## 9. Sign-off decisions (2026-06-25, user)
+1. **SMT divergence → DEMOTE to an optional confirmation overlay** (Option A). Keep
+   `computeSmtLeader` off the leader path; expose it as optional confirmation of the
+   open-reaction *direction*. Do not delete.
+2. **Leader metric → settled by the fold.** A/B fresh-FVG disp_score vs open-range disp ÷
+   ATR on the corpus; pick whichever separates.
+3. **Corpus → replay-record May + June 2026 paired weeks** (2-3 more weeks beyond June 8-12)
+   via `tv record-tape` (single-TF, the reliable replay recorder — full-session anchor
+   capture wedges), pair offline, fold all arms, get it right. **Then live-test** while the
+   full system + bot are trading live. Recording must NOT run while a live session is active
+   (replay poisons live capture — drive TV only when off-session).
