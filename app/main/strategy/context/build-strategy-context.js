@@ -71,6 +71,19 @@ function buildPillar2(engine, blocked, sessionChain = {}) {
     // current candle/gap ("4H candle trades 20 points → stop 20 points"), which
     // is what scales the inversion wide-leg stop cap dynamically.
     atr14: Number.isFinite(Number(current.atr_14)) ? Number(current.atr_14) : null,
+    // Leg extremes + coherence (engine V3/V4 quality row, parsed in
+    // ict-engine-parser.js). leg_high/leg_low = running extremes of the CURRENT
+    // leg (reset per external structure break) — the "reversal established"
+    // signal: an inversion entry needs price displaced from the leg extreme in
+    // the trade direction ("price [trade-dir] all the way into your entry",
+    // ENTRY 31:25). coherence = directional efficiency (net/gross) for the
+    // two-sided-chop stand-aside (Stage B). Null when the row omits them.
+    legHigh: Number.isFinite(Number(current.leg_high)) ? Number(current.leg_high) : null,
+    legLow: Number.isFinite(Number(current.leg_low)) ? Number(current.leg_low) : null,
+    legHighMs: Number.isFinite(Number(current.leg_high_ms)) ? Number(current.leg_high_ms) : null,
+    legLowMs: Number.isFinite(Number(current.leg_low_ms)) ? Number(current.leg_low_ms) : null,
+    coherence: Number.isFinite(Number(current.coherence)) ? Number(current.coherence) : null,
+    rangeVsNormal: Number.isFinite(Number(current.range_vs_normal)) ? Number(current.range_vs_normal) : null,
     // §7 Step 3: displacement is a 4H/1H judgment. Carried from the session brief
     // (sessionChain.pillar2.htf_displacement) — the per-bar engine is on the LTF
     // chart, so the HTF displacement can only come from the brief snapshot.
