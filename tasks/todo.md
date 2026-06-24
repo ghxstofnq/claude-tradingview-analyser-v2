@@ -47,10 +47,12 @@ Web (ICT iFVG) + transcript (ENTRY 08:26 break-of-structure, "sweep THEN iFVG") 
 - ANSWER to "add shallow/early to engine": NOT needed (leg_high/leg_low suffice). Only missing = coherence → compute from m15 bars.
 
 ### Build steps
-- [ ] **G1 (plumbing):** thread sweep fields (target/side/swept_ms/significance) into context.pillar1.sweeps (normalizeEvidenceList strips them; mirror 2-S1). Unit test.
-- [ ] **G2 (gate):** pure `inversionEntryValid({context,side,entryPrice,nowMs})` (depth→reversal-grab/continuation-swing) in inversion-lifecycle.js; gate the confirmation. Env knobs GOFNQ_INV_DEPTH(0.5)/GOFNQ_INV_GRAB_RECENCY(90). TDD.
-- [ ] **G3 (coherence veto):** compute m15 coherence (net/gross over the m15 window) from bars_by_tf.m15; veto continuation in chop. Needs the 4 multi-TF re-records.
-- [ ] **G4:** re-record 06-16/06-17/02-09/06-18 multi-TF; fold all 5; promote+verify; npm test green.
+- [x] **G1 (plumbing):** NOT NEEDED — sweeps already at context.pillar3.sweeps (target/side/swept_ms); structuresSwing + pillar2.legHigh/legLow present (2-S1).
+- [x] **G2 (gate, 2fa4c70):** inversionEntryValid (depth→reversal-grab/continuation-swing) gates the inversion confirmation. Env GOFNQ_INV_GATE/_DEPTH/_GRAB_RECENCY. +8 tests; full suite 1458/0. Validated: 06-09 losers blocked + real 10:27 kept; 06-16/02-09/06-18 real kept; 06-17 12→3. Stage-G labels → tests/fixtures/stage-g-sessions/.
+- [~] **G4 (re-record multi-TF):** 06-09 done. RE-RECORDING 06-17 (critical for G3), then 06-16/02-09/06-18. Labels in tests/fixtures/stage-g-sessions/.
+- [ ] **G3 (coherence veto):** compute m15 coherence (net/gross over the m15 window) from bars_by_tf.m15; veto the CONTINUATION path in two-sided chop → zero 06-17's last 3. (1m quality fields don't separate chop.)
+- [ ] **G5:** fold all 5; promote+verify (set expected from oracle, verified:true); npm test green; note in decisions ledger.
+- OPEN (entry-precision, follow-up): on 06-09 the gate's first packet is 09:52 (shallow, continuation-path, a WINNER) not the oracle's 10:27 (deep reversal). "Which retrace" is discretionary; revisit after G3 — possibly prefer the reversal entry on a reversal-bias day.
 
 ## Phase 2 — IMPLEMENTATION PLAN (concrete; all inputs verified available)
 Corpus to validate against (fold each with `node scripts/fold-tape.mjs` / the inline fold):
