@@ -161,8 +161,8 @@ Per symbol, pre-open:
 | **Significance** (disp-based gate) | **already faithful** — EM 05:38 "doesn't have to be entirely large"; do NOT add a size veto. |
 | **Draw vs vote** | **already faithful** — `pickPrimaryDraw` = draw, `arrayVote` = vote. |
 | **Single bias engine** | **already faithful** — `combineBias` is the one source the brief + live resolver both call (seam ❸ closed). |
-| **cite-or-reject on the draw** (§7) | **open** — `primary_draw.cite` can be `null` (a plumbing gap); ensure a resolvable cite. |
-| **Field-contract test** (seam ❶) | **open** — guard the open-reaction-style reader/writer mismatch. |
+| **cite-or-reject on the draw** (§7) | **FIXED (`cc67016`)** — `annotateEngineByTfCites` stamps every engine zone at the gate chokepoint; the MES draw now cites `engine_by_tf.h1.fvgs[23]`. |
+| **Field-contract test** (seam ❶) | **FIXED (`760ef87`)** — drives each reader with its writer's exact field set. |
 
 **Worked check — 2026-06-24 NY-PM MES (corrected):** HTF momentum conflicts
 (daily bull, 4H/1H bear) so there is no clean *trend*, but the tiny-but-displaced
