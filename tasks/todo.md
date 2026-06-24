@@ -52,7 +52,14 @@ Web (ICT iFVG) + transcript (ENTRY 08:26 break-of-structure, "sweep THEN iFVG") 
 - [x] **G3 (coherence veto, committed):** computeCoherenceFromBars (m15 net/gross) → pillar2.coherence; continuation in chop (coherence < 0.4) stands aside. Guards Number(null)===0. +7 tests.
 - [x] **FULL GATE VALIDATED (G2+G3) across all 5:** 06-17 no-trade → **0 fires**; 06-09/06-16/02-09/06-18 keep their real entries; 06-09 losers blocked. Full suite 1458/0.
 - [~] **G4 (re-record multi-TF):** 06-09 + 06-17 done. RE-RECORDING 06-16 (bom51onns), then 02-09, 06-18 — so the coherence veto runs on real m15 for all (currently 06-16/02-09/06-18 are 1TF → coherence null → fail-open, gate still passes them).
-- [ ] **G5:** fold all 5 multi-TF; promote+verify (expected from oracle, verified:true); npm test green; note in decisions ledger; CHECKPOINT G → user.
+- [x] **G4 (re-record multi-TF):** ALL 5 done (06-09/06-16/06-17/02-09/06-18 on m5+m15+h4+h1). Committed.
+- [~] **G5 / CHECKPOINT G (user review):** all 5 folded on real m15; suite 1463/0. Gate SOLVES the over-fire + no-trade day. Residuals for FULL oracle match (surfaced to user):
+  - 06-17 no-trade: **FULL PASS** (0 fires).
+  - 06-16: entry EXACT 30864.25, stop/TP1 ≈, side/grade ✓; model NAME differs (chain Trend vs oracle Reversal/MSS).
+  - 06-18: TP1 EXACT 30615, entry ≈17pt, side/grade ✓; model NAME differs (chain Inversion vs oracle Trend/Continuation).
+  - 02-09: side/model/TP1(25723) ✓; GRADE B vs oracle A+ (multi-alignment elevation not firing); entry ~70pt early.
+  - 06-09: A+/Inversion/short ✓; entry 09:52/30084.75 vs oracle deep 10:27/29731.25 (~353pt early — "which retrace" discretionary); TP1 differs.
+  - 3 residual themes: (1) entry-precision (chain takes first valid; oracle takes a deeper retrace), (2) 02-09 grade (multi-alignment), (3) model-naming (Reversal/Continuation vs the mechanism — D1). Promotion (verified:true) waits on the user's pass-bar call.
 - OPEN (entry-precision, follow-up): 06-09 first packet is 09:52 (continuation, coherence 0.41 ≥ 0.4) not the oracle's deep 10:27. Raising GOFNQ_INV_COHERENCE to ~0.5 would veto 09:52 → push to 10:27, IF 06-16/02-09/06-18 coherence ≥ 0.5 (calibrate after their multi-TF re-records).
 
 ## Phase 2 — IMPLEMENTATION PLAN (concrete; all inputs verified available)
