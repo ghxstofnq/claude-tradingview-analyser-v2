@@ -101,6 +101,11 @@ pattern before encoding — calibrate across the oracle, don't curve-fit to 06-0
 - [ ] 4.7 Routing dry-verify (adapter own-host route) — NO order placed
 - [ ] **✅ CHECKPOINT R** — readiness green + demo armed — user confirms London target
 
+## ▶ ACTIVE: Phase 5 live monitoring — NY-AM 2026-06-24 (user chose NY-AM today, not London)
+- Stage G COMPLETE + pushed. Phase 4 readiness: backend ✓, capture all-fresh both symbols ✓, live-check cdp/chart/engine ✓, app running ✓, detector running ✓. Supervisor auto-arms NY-AM at 09:30 ET.
+- BLOCKER (user): log the app webview into Tradovate demo (was still on the chart at 09:23). Until then, NY-AM runs OBSERVE-ONLY (chain surfaces setups, no orders). Arm once connected: confirm account → automationMode=auto → resume-auto → guardrails $250/$600.
+- Each loop tick: check mode (live?), state/session/2026-06-24/ny-am/{setups,no-trades}.jsonl, the trades feed, detector heartbeat; hot-fix plumbing defects (slim-file starvation / unknown-session / missing-ltf-bias / symbol-mismatch / capture-wedge / exec-route); recap per-trade + defects.
+
 ## Phase 5 — First live demo session (next London)
 - [ ] 5.1 Pre-open green; symbol pinned; mode armed
 - [ ] 5.2 Background Monitor on bar-close + tail setups/no-trades/fills/logs
