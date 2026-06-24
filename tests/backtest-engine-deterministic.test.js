@@ -60,12 +60,15 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   });
 
   assert.equal(summary.cost_usd, 0);
-  // Stage-G (2026-06-23): June 9 now grades B (the principled 3-vote — the
-  // chain's early entry isn't a two-and-one; the A+ was Lanto's deeper 10:27
-  // spot). A B trade banks at TP1 rather than arming an A+ runner, so the
-  // Inversion short books a TP1 win and no stop hits.
-  assert.equal(summary.losses, 0);
-  assert.ok(summary.wins >= 1, `expected a TP1 win on the B Inversion short, got ${summary.wins}`);
+  // Stage-G (2026-06-24): the continuation-trend fix (an inversion continuation
+  // must run WITH the most-recent swing-tier break) suppresses June 9's premature
+  // early short and surfaces the real reversal — entry 29964.75, grade A+, which
+  // matches Lanto's A+ hand-grade. As an A+ it arms a runner to the deeper draw
+  // rather than banking at TP1; the recorded tape window ends before that deeper
+  // target, so the trade stays OPEN (no loss, no in-window resolution). TP
+  // targeting to the major-liquidity draw (AS.L 29595.25) is the separate open
+  // Stage-G item — see scripts/fold-tape.mjs on the 06-09 tape.
+  assert.equal(summary.losses, 0, "the A+ short must not hit its stop on the recorded bars");
   assert.equal(summary.chain_status, "clean");
 
   // As the move unfolds, neighboring zones confirm the same trade idea under
@@ -78,6 +81,9 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
     assert.equal(s.setup.model, "Inversion");
     assert.equal(s.setup.side, "short");
   }
+  // The FIRST surfaced packet is the corrected reversal short, graded A+ (the
+  // tape gate locks this); later same-opportunity confirmations can grade B.
+  assert.equal(surfaced[0].setup.grade, "A+", "the corrected June 9 first reversal short grades A+");
   // TODO(stage-G): exact entry/stop/tp1 are IN FLUX — the multi-TF re-record +
   // the deterministic inversion gate (2026-06-23) block the pre-grab losers, so
   // the first surfaced bar moved off the old 29792/09:52. The exact retrace

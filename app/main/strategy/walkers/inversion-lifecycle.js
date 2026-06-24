@@ -148,9 +148,24 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
     return { valid: grab, kind: 'reversal', reason: grab ? null : 'reversal_no_recent_grab', depth };
   }
   const dir = side === 'short' ? 'bear' : 'bull';
-  const swing = (context?.pillar3?.structuresSwing ?? []).some((s) =>
-    String(s?.dir ?? s?.direction ?? '').startsWith(dir) && (s?.event === 'mss' || s?.event === 'bos'));
-  if (!swing) return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
+  const dirOf = (s) => String(s?.dir ?? s?.direction ?? '');
+  const swings = (context?.pillar3?.structuresSwing ?? [])
+    .filter((s) => s?.event === 'mss' || s?.event === 'bos');
+  if (!swings.length) return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
+  // "Clear strong trend in price" (Entry-Models 11:15): a continuation runs WITH
+  // the CURRENT trend, set by the MOST-RECENT swing-tier break (by confirmed_ms) —
+  // not a stale break still lingering in the history list. 2026-06-24 ny-am fired
+  // a bull continuation ONE bar after a bear MSS because an old bull BOS was still
+  // present. Timestampless hand-built fixtures keep the legacy any-in-direction check.
+  const dated = swings.filter((s) => Number.isFinite(Number(s?.confirmed_ms)));
+  if (dated.length) {
+    const recent = dated.reduce((a, b) => (Number(b.confirmed_ms) > Number(a.confirmed_ms) ? b : a));
+    if (!dirOf(recent).startsWith(dir)) {
+      return { valid: false, kind: 'continuation', reason: 'continuation_trend_against', depth };
+    }
+  } else if (!swings.some((s) => dirOf(s).startsWith(dir))) {
+    return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
+  }
   // Chop veto (Stage-G G3): a continuation needs a CLEAN trend, not two-sided
   // chop. m15 directional coherence < INV_COHERENCE_MIN = chop -> stand aside
   // (06-17 no-trade: coherence 0.03-0.3). Null (no m15 bars) -> fail-open.

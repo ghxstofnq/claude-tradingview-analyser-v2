@@ -103,6 +103,42 @@ test('continuation: NULL coherence (no m15 bars) → valid, NOT chop (Number(nul
   assert.equal(r.valid, true, 'null coherence must fail-open, not read as 0/chop');
 });
 
+// Continuation = run WITH the CURRENT trend ("clear strong trend in price",
+// Entry-Models 11:15). The current trend is set by the MOST-RECENT swing-tier
+// break (by confirmed_ms), not any stale break still in the history list.
+// 2026-06-24 ny-am: a bull continuation long fired one bar after a bear MSS
+// because an old bull BOS still sat in structuresSwing.
+test('continuation: most-recent swing-tier break AGAINST the trade direction → invalid (2026-06-24 ny-am bug)', () => {
+  const r = inversionEntryValid({
+    context: ctx({
+      structuresSwing: [
+        { dir: 'bull', event: 'bos', confirmed_ms: min(600) }, // stale bull
+        { dir: 'bear', event: 'bos', confirmed_ms: min(30) },  // recent bear = current trend
+      ],
+      coherence: 0.8,
+    }),
+    side: 'long', entryPrice: 29100, nowMs: NOW, // shallow → continuation
+  });
+  assert.equal(r.kind, 'continuation');
+  assert.equal(r.valid, false);
+  assert.equal(r.reason, 'continuation_trend_against');
+});
+
+test('continuation: most-recent swing-tier break WITH the trade direction → valid', () => {
+  const r = inversionEntryValid({
+    context: ctx({
+      structuresSwing: [
+        { dir: 'bear', event: 'bos', confirmed_ms: min(600) }, // stale bear
+        { dir: 'bull', event: 'mss', confirmed_ms: min(30) },  // recent bull = current trend
+      ],
+      coherence: 0.8,
+    }),
+    side: 'long', entryPrice: 29100, nowMs: NOW,
+  });
+  assert.equal(r.kind, 'continuation');
+  assert.equal(r.valid, true);
+});
+
 test('GOFNQ_INV_GATE=0 disables the gate', () => {
   const prev = process.env.GOFNQ_INV_GATE;
   process.env.GOFNQ_INV_GATE = '0';
