@@ -282,3 +282,18 @@ test('computeEngineGates Pillar 1 bias abstains cleanly when no HTF arrays / no 
   assert.equal(g.pillar1.bias.overnight.vote, 'none');
   assert.equal(g.pillar1.bias.draw, null);
 });
+
+test('the forwarded primary_draw carries a resolvable cite (cite-or-reject — 2026-06-24 MES fix)', () => {
+  // An UNCITED qualifying h4 array (the raw engine list never had a cite — only
+  // digest-ranked zones did). The gate must stamp it so the forwarded draw is
+  // never cite:null.
+  const byTf = {
+    ...sampleByTf,
+    h4: { fvgs: [{ kind: 'fvg', dir: 'bull', top: 29330, bottom: 29320, ce: 29325, took_liq: true, disp_score: 0.8, state: 'fresh', size_quality: 'normal' }], bprs: [] },
+  };
+  const g = computeEngineGates({ engine: sampleEngine(), engineByTf: byTf, last: 29320 });
+  assert.ok(g.pillar1.bias.draw, 'expected a forwarded primary draw');
+  assert.equal(g.pillar1.bias.draw.cite, 'engine_by_tf.h4.fvgs[0]');
+  // the shared engine zone is stamped too → the bundle's engine_by_tf is citeable.
+  assert.equal(byTf.h4.fvgs[0].cite, 'engine_by_tf.h4.fvgs[0]');
+});

@@ -12,6 +12,7 @@
 
 import { pillar2Verdict } from './pillar2-verdict.js';
 import { htfVote, overnightVote } from './pillar1-bias.js';
+import { annotateEngineByTfCites } from './engine-cites.js';
 
 /** "AS.H" -> "AS_H": dots are illegal in citation paths. */
 function levelKey(name) {
@@ -104,6 +105,12 @@ export function computeEngineGates({
 }) {
   if (!engine) return null;
   const px = typeof last === 'number' ? last : null;
+
+  // Cite-or-reject (constraint #6): stamp a resolvable path on every engine zone
+  // BEFORE pickPrimaryDraw reads them, so the forwarded primary_draw is never
+  // cite:null (2026-06-24 MES). This mutates the shared engine_by_tf reference,
+  // so the bundle's zones become citeable too. Idempotent.
+  annotateEngineByTfCites(engineByTf);
 
   // -- Pillar 1: session levels, untaken draws, sweeps, liquidity pools --
   const session_levels = {};
