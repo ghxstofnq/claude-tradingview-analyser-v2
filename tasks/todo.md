@@ -35,6 +35,23 @@ Strict gate first: no live session until Stage G passes. Live = armed auto-fire 
 | 02-09 | A+ multi-align long, e25632, TP1 LO.H 25723 (oracle ~3.4R on a 27pt stop) | 10:40 Inv long A+ e25633 ✓ | 2 premature B Inv (10:36,10:38) | over-fire + STOP too wide (chain 25538 leg-extreme vs oracle 25605 reclaim-low) → cascades TP1 to AS.H |
 - LEG SIGNAL (promising gate): at real 06-09 10:27 entry, leg_high=30139.75 (the grab) & price fell ~380pt from it; at premature 09:34, leg_high=30040.75 & only ~93pt below. "Reversal depth from leg_high" separates real vs premature (zone significance does NOT — it's backwards).
 
+## ✅ DETERMINISTIC SOLUTION FOUND (2026-06-23, web+transcript+data) — the inversion gate
+Web (ICT iFVG) + transcript (ENTRY 08:26 break-of-structure, "sweep THEN iFVG") + the 5-tape data converge:
+- **depth-in-leg classifies the entry** (computed from leg_high/leg_low — ALREADY in the engine, NO Pine change):
+  depth = short:(legHigh-entry)/(legHigh-legLow) / long:(entry-legLow)/range.
+  REVERSAL (deep ≥50%): 06-09 78%, 02-09 84%. CONTINUATION (shallow <50%): 06-16 18%, 06-18 1%. Clean split.
+- **REVERSAL → require a RECENT (≤~90m) session-tier (AS/NYAM/LO) opposing-side grab** (sweep→iFVG, ICT). Blocks 06-09's 09:34/09:39 losers (only stale overnight AS.H@391m); keeps 09:52+ (LO.H@9-74m).
+- **CONTINUATION → require a swing-tier structure break in the trade dir** (established trend; ENTRY 11:15).
+- Combined gate validated: 06-09 ✓ (losers blocked, real fires), 06-16 ✓ (2 fire), 02-09 ✓, 06-18 ✓; **06-17 no-trade 12→3**.
+- **Final chop filter (zero 06-17's last 3):** directional COHERENCE — 1m quality fields (range_q/disp/candle/regime/rvn) do NOT separate chop from real continuation (06-17 even reads disp=clean). Coherence is in Pine SOURCE (line 1050) but NOT deployed → COMPUTE it from the m15 bars the multi-TF recorder now captures (no deploy needed).
+- ANSWER to "add shallow/early to engine": NOT needed (leg_high/leg_low suffice). Only missing = coherence → compute from m15 bars.
+
+### Build steps
+- [ ] **G1 (plumbing):** thread sweep fields (target/side/swept_ms/significance) into context.pillar1.sweeps (normalizeEvidenceList strips them; mirror 2-S1). Unit test.
+- [ ] **G2 (gate):** pure `inversionEntryValid({context,side,entryPrice,nowMs})` (depth→reversal-grab/continuation-swing) in inversion-lifecycle.js; gate the confirmation. Env knobs GOFNQ_INV_DEPTH(0.5)/GOFNQ_INV_GRAB_RECENCY(90). TDD.
+- [ ] **G3 (coherence veto):** compute m15 coherence (net/gross over the m15 window) from bars_by_tf.m15; veto continuation in chop. Needs the 4 multi-TF re-records.
+- [ ] **G4:** re-record 06-16/06-17/02-09/06-18 multi-TF; fold all 5; promote+verify; npm test green.
+
 ## Phase 2 — IMPLEMENTATION PLAN (concrete; all inputs verified available)
 Corpus to validate against (fold each with `node scripts/fold-tape.mjs` / the inline fold):
   06-09 (A+ Inv short, real entry 10:27 e29760 TP1 AS.L 29595) · 06-16 (B Trend short, 09:57 e30864) ·
