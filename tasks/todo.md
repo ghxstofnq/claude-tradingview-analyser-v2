@@ -35,6 +35,16 @@ Strict gate first: no live session until Stage G passes. Live = armed auto-fire 
 | 02-09 | A+ multi-align long, e25632, TP1 LO.H 25723 (oracle ~3.4R on a 27pt stop) | 10:40 Inv long A+ e25633 ✓ | 2 premature B Inv (10:36,10:38) | over-fire + STOP too wide (chain 25538 leg-extreme vs oracle 25605 reclaim-low) → cascades TP1 to AS.H |
 - LEG SIGNAL (promising gate): at real 06-09 10:27 entry, leg_high=30139.75 (the grab) & price fell ~380pt from it; at premature 09:34, leg_high=30040.75 & only ~93pt below. "Reversal depth from leg_high" separates real vs premature (zone significance does NOT — it's backwards).
 
+## Phase 2 — IMPLEMENTATION PLAN (concrete; all inputs verified available)
+Corpus to validate against (fold each with `node scripts/fold-tape.mjs` / the inline fold):
+  06-09 (A+ Inv short, real entry 10:27 e29760 TP1 AS.L 29595) · 06-16 (B Trend short, 09:57 e30864) ·
+  06-17 (NO-TRADE — must drop to ~0 fires) · 02-09 (A+ long, 10:40 e25633) · 06-18 (B long, ~09:43 e30470 TP1 30615).
+- [ ] **2-S1 (plumbing, additive):** thread `legHigh/legLow/legHighMs/legLowMs/coherence/rangeVsNormal` from the engine quality row into context.pillar2 (`app/main/strategy/context/build-strategy-context.js` buildPillar2 — parser already extracts them, ict-engine-parser.js:62). No behavior change. Unit test the mapping.
+- [ ] **2-S2 (inversion gate):** in `inversion-lifecycle.js` buildInversionWalkerSpawnRequests, require REVERSAL-ESTABLISHED: short → price displaced DOWN from legHigh by ≥ threshold (reversal depth); long → displaced UP from legLow. Transcript: "price [trade-dir] all the way into your entry" (ENTRY 31:25). Calibrate threshold (ATR-mult or % of leg range) on the corpus: 06-17→~0; the 4 trade days keep their real entry as first/dominant packet. TDD.
+- [ ] **2-S3 (no-trade veto, gap C):** wire `coherence` into pillar2PoorAtEntry (bar-close.js) — poor 15m/recent coherence counts as a failing dim (compute from tape 5m bars if engine_by_tf absent). Re-fold 06-17 → no-trade.
+- [ ] **2-S4:** re-fold ALL 5; promote+verify each tape (set expected from oracle, verified:true); npm test green; note in decisions ledger.
+- (model-naming Inversion-vs-Trend/MSS is a separate D1 item — defer unless it blocks a pass-bar match.)
+
 ## Phase 2 — Chain fixes (grounded in the Entry Models transcript)
 GATE INSIGHT (2026-06-23): simple separators DON'T work — zone size_quality is "tiny" for BOTH premature
 and real 06-09 zones; and a significant buy-side grab (PDH @09:05) predates the 09:34 premature short, so
