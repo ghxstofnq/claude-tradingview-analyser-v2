@@ -291,6 +291,55 @@ describe("decisionLine (verdict-first hero)", () => {
   it("falls back to htf_destination when no primary_draw", () => {
     assert.equal(decisionLine({ htf_destination: "below nearest untaken liquidity" }).draw, "below nearest untaken liquidity");
   });
+
+  // Faithful pre-open (rubric §1): a lean shows its potential ceiling + pending,
+  // not a dead no-trade.
+  it("pending 1-component lean → 'B?' amber · LEANING BULL · pending-open reason", () => {
+    const out = decisionLine({
+      pillar_grade: "no-trade",
+      no_trade_reason: "open_unconfirmed",
+      lean: { direction: "bullish", count: 1, potential: "B", status: "pending_open" },
+      pillar1_votes: { htf: "bullish", overnight: "none" },
+    });
+    assert.equal(out.grade, "B?");
+    assert.equal(out.gradeTone, "amber");
+    assert.equal(out.bias, "LEANING BULL");
+    assert.equal(out.biasTone, "ok");
+    assert.equal(out.cast, 1);
+    assert.equal(out.pending, true);
+    assert.match(out.reason, /pending open reaction · B-capable/);
+  });
+
+  it("pending 2-component lean → 'A+?' · LEANING BEAR", () => {
+    const out = decisionLine({
+      pillar_grade: "no-trade",
+      no_trade_reason: "open_unconfirmed",
+      lean: { direction: "bearish", count: 2, potential: "A+", status: "pending_open" },
+      pillar1_votes: { htf: "bearish", overnight: "bearish" },
+    });
+    assert.equal(out.grade, "A+?");
+    assert.equal(out.bias, "LEANING BEAR");
+    assert.equal(out.cast, 2);
+  });
+
+  it("no read (0 components) → 'NO READ' dim, neutral bias", () => {
+    const out = decisionLine({
+      pillar_grade: "no-trade",
+      no_trade_reason: "no_bias",
+      lean: { direction: null, count: 0, potential: null, status: "no_read" },
+    });
+    assert.equal(out.grade, "NO READ");
+    assert.equal(out.gradeTone, "dim");
+    assert.equal(out.bias, "NEUTRAL");
+    assert.match(out.reason, /no clean read/);
+  });
+
+  it("data_gap stays a hard red no-trade (pipeline failure, not a lean)", () => {
+    const out = decisionLine({ pillar_grade: "no-trade", no_trade_reason: "data_gap" });
+    assert.equal(out.grade, "no-trade");
+    assert.equal(out.gradeTone, "red");
+    assert.match(out.reason, /HTF capture incomplete/);
+  });
 });
 
 describe("openReactionVerdict (Lanto's 3rd component)", () => {

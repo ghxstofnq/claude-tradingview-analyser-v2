@@ -336,20 +336,36 @@ export function scenariosMeta(brief) {
 
 // Build the verdict-first DECISION strip line from a deterministic brief.
 // Pure — used by PrepPopover's hero. Returns:
-//   { grade, gradeTone, bias, biasTone, cast, draw, reason }
-// `cast` is the count of pre-open components that voted (HTF + overnight) of 3;
-// the third (NY-open reaction) resolves live. `draw` is the primary HTF draw
-// rendered as "<tf> <dir> <KIND> · <price>". `reason` is a one-line
-// deterministic justification (no LLM).
+//   { grade, gradeTone, bias, biasTone, cast, draw, reason, pending, potential }
+// Faithful pre-open (rubric §1): pre-session is an UNCONFIRMED LEAN, not a B —
+// the grade is earned live at the open. So a lean (lean.status==='pending_open')
+// shows its POTENTIAL ceiling + a "?" marker and "LEANING {dir}", not a dead
+// red no-trade; a no-read shows "NO READ" (dim). `cast` is the pre-open vote
+// count (HTF + overnight) of 3; the third (NY-open) resolves live.
 export function decisionLine(brief) {
-  const grade = brief?.pillar_grade || "—";
-  const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : grade === "no-trade" ? "red" : "dim";
+  const rawGrade = brief?.pillar_grade || "—";
+  const lean = brief?.lean || null;
+  const ntr = brief?.no_trade_reason || null;
+  const pending = rawGrade === "no-trade" && lean?.status === "pending_open";
 
-  const dirRaw = String(brief?.htf_bias_dir || brief?.primary_draw?.dir || "").toLowerCase();
-  const bias = dirRaw.startsWith("bull") ? "BULLISH"
-             : dirRaw.startsWith("bear") ? "BEARISH"
-             : dirRaw ? dirRaw.toUpperCase() : "NEUTRAL";
-  const biasTone = bias === "BULLISH" ? "ok" : bias === "BEARISH" ? "bad" : "warn";
+  let grade;
+  let gradeTone;
+  if (pending) {
+    grade = lean.potential ? `${lean.potential}?` : "LEAN"; // "B?" / "A+?" — earned live
+    gradeTone = "amber";
+  } else if (rawGrade === "no-trade" && ntr === "no_bias") {
+    grade = "NO READ";
+    gradeTone = "dim";
+  } else {
+    grade = rawGrade;
+    gradeTone = rawGrade === "A+" ? "green" : rawGrade === "B" ? "amber" : rawGrade === "no-trade" ? "red" : "dim";
+  }
+
+  const dirRaw = String(lean?.direction || brief?.htf_bias_dir || brief?.primary_draw?.dir || "").toLowerCase();
+  const dirWord = dirRaw.startsWith("bull") ? "BULLISH" : dirRaw.startsWith("bear") ? "BEARISH" : null;
+  const bias = pending && dirWord ? `LEANING ${dirWord === "BULLISH" ? "BULL" : "BEAR"}`
+             : (dirWord || (dirRaw ? dirRaw.toUpperCase() : "NEUTRAL"));
+  const biasTone = dirWord === "BULLISH" ? "ok" : dirWord === "BEARISH" ? "bad" : "warn";
 
   const votes = brief?.pillar1_votes || {};
   const isCast = (x) => x != null && String(x).toLowerCase() !== "none";
@@ -369,11 +385,16 @@ export function decisionLine(brief) {
   }
 
   const reasonParts = [];
+  if (pending) reasonParts.push(`pending open reaction · ${lean.potential || "?"}-capable`);
+  else if (ntr === "no_bias") reasonParts.push("no clean read (0 components)");
+  else if (ntr === "components_conflict") reasonParts.push("HTF / overnight conflict");
+  else if (ntr === "data_gap") reasonParts.push("HTF capture incomplete");
+  else if (ntr === "pillar2_poor") reasonParts.push("price quality poor");
   if (pd?.vote_reason) reasonParts.push(pd.vote_reason);
   if (brief?.pillar2_verdict) reasonParts.push(`price quality ${brief.pillar2_verdict}`);
   const reason = reasonParts.join(" · ");
 
-  return { grade, gradeTone, bias, biasTone, cast, draw, reason };
+  return { grade, gradeTone, bias, biasTone, cast, draw, reason, pending, potential: lean?.potential ?? null };
 }
 
 // Resolve the OPEN-REACTION verdict block. Pre-open the third component is
