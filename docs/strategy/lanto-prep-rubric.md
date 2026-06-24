@@ -32,11 +32,18 @@ The pre-session draw bias is built from **three components**, each voting
 Pick the direction with the most confirming votes. If **no direction** has ≥2
 confirming components → **no-trade** (conflict/unclear).
 
-**Pre-session ceiling = B.** Component 3 (NY open) resolves live, so the PREP
-grade can use at most components 1+2:
-- `count(HTF, overnight) == 2` (agreeing) → **B** (pending the open, which can
-  elevate to A+ live)
-- `count(HTF, overnight) <= 1` → **no-trade** (the open can still make it 2 → B live)
+**Pre-session is an UNCONFIRMED LEAN, not a grade** (corrected 2026-06-24 — the
+shared engine `cli/lib/pillar1-bias.js` `combineBias` already encodes this, and
+it is more faithful than the earlier "2/2 → B" draft). Component 3 (the NY-open
+reaction) is what *confirms or doesn't confirm* the bias (Daily Bias 17:46), so a
+trade grade is not earned until the open. Pre-open, using HTF + overnight only:
+- **0 components / conflict → no-trade** (no read).
+- **1–2 agreeing components → an unconfirmed LEAN**, shown with its *potential*
+  (1 component → B-capable, 2 components → A+-capable). NOT a tradeable B/A+. The
+  grade resolves live when the open confirms (then 2/3 → B, 3/3 → A+) or reverses
+  ("timing not there yet → hands off", 18:42).
+
+This is why Lanto starts live ~09:45 — pre-open he has a lean, not a trade.
 
 **Second A+ path — multi-alignment "two-and-one"** (EM 25:13–27:05, 31:25): an
 entry that stacks **two imbalances** in one (e.g. a 5m FVG rebalance + a 1m
@@ -119,11 +126,15 @@ anchored on `primary_draw.cite: null` is the violation this closes.)
 
 ## 8. PREP outputs
 
-Per symbol:
-- `pre_session_grade ∈ { no-trade, B }` (A+ resolves live at the open).
-- the **component count** + which of (HTF, overnight) voted, each direction.
+Per symbol, pre-open:
+- `pre_session_grade` = the engine's `grade_cap` (no-trade pre-open — the grade
+  resolves live at the open).
+- the **lean** (direction) + its **potential** (B-capable / A+-capable) when a
+  lean exists, or "no read" (0 components / conflict).
+- the **component votes** (HTF, overnight, each direction) + count.
 - the cited **significant draw** (or `no_trade_reason` if none qualifies).
-- `no_trade_reason` when `count < 2`, or significance/cite fails.
+- `no_trade_reason`: `no_bias` (0) / `components_conflict` / `open_unconfirmed`
+  (a lean pending the open) / significance / cite failures.
 
 ---
 
@@ -153,7 +164,8 @@ regressions on the locked oracle.
 
 ## Sign-off decisions (confirm before any code)
 
-1. **Pre-session ceiling = B**; A+ only resolves live at the open. ☐
+1. **Pre-session is an unconfirmed lean, not a B** (corrected) — grade resolves
+   live at the open; PREP shows the lean + its potential. ☑ (approved 2026-06-24)
 2. **HTF votes `none` on conflicting daily/4H/1H momentum** (makes today's MES
    PM a no-trade). ☐
 3. **Significance gate excludes `tiny` zones** unless exceptionally displacive +
