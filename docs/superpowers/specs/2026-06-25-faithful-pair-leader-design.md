@@ -221,6 +221,30 @@ through the same chain, packet forward-simmed to R. Harness: `scripts/fold-pair-
 Pillar-3 entry-models audit (the dominant edge limiter); (c) consider per-entry (not session-
 pinned) leader re-evaluation for late leads like 04-06.
 
+## 6c. Metric tuning result (2026-06-25) — alt metrics REJECTED
+
+A/B'd the alternatives against the 9-session corpus (`scripts/tune-leader-metric.mjs`,
+relative-margin sweep). **The current metric (max fresh-FVG disp_score, ~0.10–0.15 margin)
+is already the best available — 5/8 match, 0 MNQ-day flips. Every alternative is worse**
+because they flip MNQ-led days to MES:
+- **range/ATR:** 4/8, flips 02-09 (Lanto MNQ — MES had a 2.3× bigger open range that day).
+- **net/ATR** (open-range displacement ÷ ATR): 4/8, flips 02-09 + 06-09 (both MNQ days).
+- **leg/ATR:** ≤2/8, flips 2–3 MNQ days. Worst.
+
+**Root cause — Lanto's "leading" is a confirmation-TIMING read, not open-window magnitude.**
+06-22: he wrote "ES confirmed 4 min before NQ — leading," yet in the window MNQ's range was
+12.93 ATR vs MES's 5.61 — *every* magnitude metric says MNQ. 02-09 (he traded MNQ): MES 16.75
+ATR vs MNQ 7.34 — magnitude says MES, loudly. Bigger open move ≠ his pick, so **no open-window
+magnitude metric separates his MES-long days** — the signal he uses (which instrument confirms
+the entry first) isn't in a window snapshot.
+
+**Implication:** keep the current metric (it IS the best; ~5/8 ceiling, MNQ-safe + clear
+switches). Lowering the margin only flips MNQ days; raising it loses 01-29. The MES-long days
+are reachable only via **per-entry confirmation-timing** (the deferred §5.2 re-eval), not a
+session-pinned magnitude — or pair selection isn't fully mechanizable, and "MNQ-safe + catches
+clear leads" is the honest ceiling (still better than divergence). This mirrors the
+project's recurring [[filters-dont-separate]] pattern: the candidate lever doesn't separate.
+
 ## 7. Component changes (only if §6 passes)
 
 Minimal, flag-gated:
