@@ -242,6 +242,73 @@
       </div>
     </div>
 
+    <!-- REVIEW popover — CANDIDATE LEDGER with per-trade faithfulness verdict -->
+    <div class="bt-popover w-660" style="max-height:none;">
+      <div class="head">
+        <span class="t">REVIEW</span>
+        <span class="live-tabs" style="margin-left:10px">
+          <span class="tab on">SESSION</span><span class="tab">TRACK</span><span class="tab">LIBRARY</span>
+        </span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="float-btn">⛶</span>
+        <span class="x">×</span>
+      </div>
+      <div class="body">
+        <div class="work-scroll">
+          <section class="panel">
+            <header class="panel-head"><span class="title">CANDIDATE LEDGER</span><span class="meta">5 candidates · faithful 1 · deviated 1</span></header>
+            <div class="panel-body">
+
+              <div class="cand-row clickable">
+                <span class="cyc">09:32</span>
+                <span class="grade-pill dim">NO</span>
+                <span class="side s">—</span>
+                <span class="mod">Inversion</span>
+                <span class="fmark"><span class="fseg soft"></span><span class="fseg na"></span><span class="fseg deviation"></span></span>
+                <span class="reason amber">no-trade · premature, no grab ▾</span>
+              </div>
+
+              <div class="cand-row clickable">
+                <span class="cyc">09:47</span>
+                <span class="grade-pill amber">B</span>
+                <span class="side l">LONG</span>
+                <span class="mod">Inversion</span>
+                <span class="fmark"><span class="fseg pass"></span><span class="fseg pass"></span><span class="fseg soft"></span></span>
+                <span class="reason green">CONFIRMED · TP1 ▴</span>
+              </div>
+              <div class="fbreak">
+                <div class="frow pass"><span class="fg">✓</span><span class="fk">Bias</span><span class="fv">context gate pass · draw bear</span></div>
+                <div class="frow pass"><span class="fg">✓</span><span class="fk">Price action</span><span class="fv">displacement clean, 15m not chop</span></div>
+                <div class="frow soft"><span class="fg">◐</span><span class="fk">Entry model</span><span class="fv">Inversion confirm via bridge (aggressive, not engine-stamped)</span></div>
+                <div class="frow deviation"><span class="fg">✗</span><span class="fk">Stop anchor</span><span class="fv">bars.last_5_bars[extreme] (136pt) — Lanto anchors just beyond the inverted array</span></div>
+                <div class="frow soft"><span class="fg">◐</span><span class="fk">Liquidity draw</span><span class="fv">TP1 cites session_history — verify it's a named draw, not an internal swing</span></div>
+                <div class="ffig"><span>entry <b>29862.75</b></span><span>stop <b>29726.75</b></span><span>tp1 <b>30699.75</b></span><span>R:R <b class="g">6.15</b></span><span>1c · 0.5 R (B)</span></div>
+              </div>
+
+              <div class="cand-row clickable">
+                <span class="cyc">10:05</span>
+                <span class="grade-pill amber">B</span>
+                <span class="side s">SHORT</span>
+                <span class="mod">MSS</span>
+                <span class="fmark"><span class="fseg pass"></span><span class="fseg pass"></span><span class="fseg pass"></span></span>
+                <span class="reason red">stopped · faithful loss ▾</span>
+              </div>
+
+              <div class="cand-row clickable">
+                <span class="cyc">10:41</span>
+                <span class="grade-pill dim">NO</span>
+                <span class="side s">—</span>
+                <span class="mod">Trend</span>
+                <span class="fmark"><span class="fseg deviation"></span><span class="fseg na"></span><span class="fseg na"></span></span>
+                <span class="reason amber">no-trade · counter to draw ▾</span>
+              </div>
+
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- token rail (keep for palette regression) -->

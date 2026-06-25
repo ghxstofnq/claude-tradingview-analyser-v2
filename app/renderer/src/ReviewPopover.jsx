@@ -9,6 +9,7 @@ import { useFloat } from "./hooks/useFloat.js";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
+  computeFaithfulness,
   buildTrackRecord,
   buildTrackRecordByAccount,
   degradedChainStages,
@@ -59,120 +60,105 @@ function SessionJournalPanel({ journal, onExport }) {
 }
 
 // ── CANDIDATE LEDGER ─────────────────────────────────────────────────
-// Mockup 05-essentialist.html .cand-row uses 5 separate columns:
-//   cyc | grade-pill | side | mod | reason
-// Confirmed/accepted rows get a green left border + tinted bg; clicking
-// opens a compact 3-row trade summary inline (not the full TradeCard).
-function LedgerRow({ row, expanded, onToggle }) {
+// Each candidate carries a per-trade Lanto faithfulness verdict (computed
+// by Review.helpers.computeFaithfulness from the setup + executionPacket).
+// Row columns: time · grade · side · model · 3-segment faithfulness mark ·
+// outcome. Click any gradable row to expand the full breakdown.
+const F_GLYPH = { pass: "✓", soft: "◐", deviation: "✗", na: "—" };
+
+function FaithfulnessMark({ marks = [] }) {
+  return (
+    <span className="fmark" aria-label="faithfulness: bias, price action, entry model">
+      {marks.map((m, i) => <span key={i} className={"fseg " + (m || "na")} />)}
+    </span>
+  );
+}
+
+function FRow({ label, dim }) {
+  const s = dim?.status || "na";
+  return (
+    <div className={"frow " + s}>
+      <span className="fg" aria-hidden="true">{F_GLYPH[s]}</span>
+      <span className="fk">{label}</span>
+      <span className="fv">{dim?.detail || "—"}</span>
+    </div>
+  );
+}
+
+function FaithfulnessBreakdown({ f, setup }) {
+  return (
+    <div className="fbreak">
+      <FRow label="Bias" dim={f.bias} />
+      <FRow label="Price action" dim={f.priceAction} />
+      <FRow label="Entry model" dim={f.entryModel} />
+      <FRow label="Stop anchor" dim={f.stop} />
+      <FRow label="Liquidity draw" dim={f.draw} />
+      <div className="ffig">
+        <span>entry <b>{setup.entry ?? "—"}</b></span>
+        <span>stop <b>{setup.stop ?? "—"}</b></span>
+        <span>tp1 <b>{setup.tp1 ?? "—"}</b></span>
+        {setup.rr != null && <span>R:R <b className="g">{setup.rr}</b></span>}
+        {setup.size?.label && <span>{setup.size.label}</span>}
+      </div>
+    </div>
+  );
+}
+
+function LedgerRow({ row, f, expanded, onToggle }) {
   const setup = row.setup;
   const stateLabel = row.state?.label || "—";
-  const tone = row.state?.tone || "dim";
   const cycle = setup.ts
     ? new Date(setup.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })
     : "—";
   const sideUp = (setup.direction || setup.side || "").toUpperCase();
   const sideCls = (setup.direction === "long" || setup.side === "long") ? "l" : "s";
   const grade = formatGradeShort(setup.grade);
-  const clickable = row.expandable;
-  // Confirmed/expandable rows get a green left border tint matching the mockup.
-  const rowHighlight = clickable
-    ? { background: "rgba(110,199,136,0.05)", borderLeft: "2px solid var(--green)", paddingLeft: 6 }
-    : {};
+  const clickable = f.summary.gradable;
   const caret = clickable ? (expanded ? " ▴" : " ▾") : "";
-  // For confirmed rows the reason column carries the state label + caret;
-  // for non-confirmed rows it carries the no-trade/rejection reason.
-  const reasonText = clickable
-    ? `${stateLabel}${caret}`
-    : (row.reason || stateLabel || "");
+  // Gradable rows show the outcome/state + caret; others the no-trade /
+  // rejection reason.
+  const reasonText = clickable ? `${stateLabel}${caret}` : (row.reason || stateLabel || "");
+  const reasonTone = ["green", "red", "amber"].includes(row.state?.tone) ? row.state.tone : "";
   return (
     <>
-      <div className="cand-row"
-           style={{ cursor: clickable ? "pointer" : "default", ...rowHighlight }}
+      <div className={"cand-row" + (clickable ? " clickable" : "")}
            onClick={clickable ? onToggle : undefined}>
         <span className="cyc">{cycle}</span>
         <span className={"grade-pill " + (grade === "A+" ? "green" : grade === "B" ? "amber" : "dim")}>{grade}</span>
-        <span className={"side " + sideCls}>{sideUp}</span>
+        <span className={"side " + sideCls}>{sideUp || "—"}</span>
         <span className="mod">{setup.model || "—"}</span>
-        <span className={"reason " + (clickable ? "green" : "")}>{reasonText}</span>
+        <FaithfulnessMark marks={f.marks} />
+        <span className={"reason " + reasonTone}>{reasonText}</span>
       </div>
-      {expanded && row.trade && (
-        <LedgerTradeExpand row={row} />
-      )}
+      {expanded && clickable && <FaithfulnessBreakdown f={f} setup={setup} />}
     </>
   );
 }
 
-// Compact inline expansion for a confirmed/accepted trade. Matches the
-// mockup's 3-row summary (Entry · Stop · BE / TP1 · P&L / Size) with a
-// header line showing grade / side / model · trade-id / outcome.
-function LedgerTradeExpand({ row }) {
-  const t = row.trade || {};
-  const s = row.setup || {};
-  const entry = s.entry ?? t.entry;
-  const stop = s.stop ?? t.stop;
-  const tp1 = s.tp1 ?? t.tp1;
-  const pnl = t.r_realized != null
-    ? `${t.r_realized > 0 ? "+" : ""}${t.r_realized} R`
-    : "—";
-  const sizeLbl = t.size?.label
-    || (t.size?.contracts ? `${t.size.contracts}c` : "—");
-  const sideUp = (t.side || s.direction || s.side || "").toUpperCase();
-  const sideCls = (t.side === "long" || s.direction === "long" || s.side === "long") ? "l" : "s";
-  const outcome = t.outcome || (t.state === "closed" ? "CLOSED" : "OPEN");
-  const outcomeTone = (outcome === "TP1_HIT" || outcome === "TP2_HIT") ? "var(--green)"
-                    : (outcome === "STOPPED" || outcome === "INVALIDATED") ? "var(--red)"
-                    : "var(--label)";
-  return (
-    <div style={{
-      background: "rgba(89,212,153,0.06)",
-      paddingLeft: 6,
-    }}>
-      <div style={{
-        display: "flex", gap: 8, alignItems: "center",
-        fontSize: 10, padding: "8px 0 6px",
-      }}>
-        <span className={"grade-pill " + gradeTone(s.grade || t.grade)}>{s.grade || t.grade || "—"}</span>
-        <span className={"side " + sideCls}
-              style={{ fontSize: 9, letterSpacing: ".18em",
-                       color: sideCls === "l" ? "var(--green)" : "var(--red)" }}>
-          {sideUp}
-        </span>
-        <span style={{ color: "var(--value)" }}>
-          {s.model || t.model || "—"}{t.id ? ` · #${t.id}` : ""}
-        </span>
-        <span style={{
-          marginLeft: "auto",
-          color: outcomeTone,
-          fontSize: 9.5, letterSpacing: ".12em",
-        }}>
-          ● {outcome.replace(/_/g, " ")}
-        </span>
-      </div>
-      <Row k="Entry · Stop" v={`${entry ?? "—"} · ${stop ?? "—"}${t.tp1_hit ? " · BE" : ""}`} />
-      <Row k="TP1 · P&L" v={`${tp1 ?? "—"} · ${pnl}`} tone={t.r_realized > 0 ? "ok" : t.r_realized < 0 ? "bad" : ""} />
-      <Row k="Size" v={sizeLbl} />
-    </div>
-  );
-}
-
-function CandidateLedgerPanel({ ledger }) {
+function CandidateLedgerPanel({ ledger, brief }) {
   const [expanded, setExpanded] = useState(new Set());
   const toggle = (id) => setExpanded((s) => {
     const next = new Set(s);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+  const rows = ledger.map((row) => ({ row, f: computeFaithfulness(row.setup, row.trade, brief) }));
+  const faithful = rows.filter((x) => x.f.summary.faithful).length;
+  const deviated = rows.filter((x) => x.f.summary.deviations > 0).length;
+  const meta = ledger.length === 0
+    ? "—"
+    : `${ledger.length} candidate${ledger.length === 1 ? "" : "s"} · faithful ${faithful} · deviated ${deviated}`;
   return (
-    <Panel title="CANDIDATE LEDGER"
-           meta={`${ledger.length} candidate${ledger.length === 1 ? "" : "s"} · click confirmed rows to expand`}>
+    <Panel title="CANDIDATE LEDGER" meta={meta}>
       {ledger.length === 0 && (
         <Row k="—" v="no candidates this session" tone="dim" />
       )}
-      {ledger.map((row) => {
+      {rows.map(({ row, f }) => {
         const id = row.setup?.id || row.setup?.ts || Math.random();
         return (
           <LedgerRow key={id}
                      row={row}
+                     f={f}
                      expanded={expanded.has(id)}
                      onToggle={() => toggle(id)} />
         );
@@ -369,7 +355,7 @@ function ReviewBody({ view = "SESSION", picked, setPicked }) {
     <div className="work-scroll">
       <SessionJournalPanel journal={journal} onExport={onExport} />
       <SessionFillsPanel date={journal?.date} />
-      <CandidateLedgerPanel ledger={ledger} />
+      <CandidateLedgerPanel ledger={ledger} brief={journal?.brief} />
     </div>
   );
 }

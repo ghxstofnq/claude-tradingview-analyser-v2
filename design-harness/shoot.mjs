@@ -32,6 +32,11 @@ const SAMPLES = [
   ["live tab.on",      ".bt-popover .live-tabs .tab.on"],
   ["det stop",         ".bt-popover .live-head .det .stop"],
   ["th-btn",           ".th-btn"],
+  ["cand-row",         ".cand-row"],
+  ["fseg.pass",        ".fseg.pass"],
+  ["fseg.deviation",   ".fseg.deviation"],
+  ["frow.deviation fk", ".frow.deviation .fk"],
+  ["ffig b",           ".ffig b"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report
@@ -65,6 +70,7 @@ for (const [name, sel] of SAMPLES) {
       font: (s.fontFamily.split(",")[0] || "").replace(/['"]/g, ""),
       size: s.fontSize,
       radius: s.borderTopLeftRadius,
+      bl: s.borderLeftWidth,
     };
   }, sel);
   report.push({ name, ...(data || { bg: "— MISSING —" }) });

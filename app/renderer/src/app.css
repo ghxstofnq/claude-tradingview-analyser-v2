@@ -378,19 +378,22 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .cand-row {
   display: grid;
-  grid-template-columns: 50px 60px 50px 90px 1fr;
-  gap: 10px; padding: 5px 0; font-size: 11.5px;
+  grid-template-columns: 50px 44px 46px 84px 60px 1fr;
+  gap: 10px; padding: 6px 0; font-size: 12px;
   border-bottom: 1px dashed var(--label-dim); align-items: center;
 }
-.cand-row .mod { color: var(--value); }
-.cand-row .reason.green { color: var(--green); }
+.cand-row.clickable { cursor: pointer; }
+.cand-row.clickable:hover { background: var(--surface-1); }
 .cand-row:last-child { border-bottom: 0; }
 .cand-row .cyc { color: var(--label); font-variant-numeric: tabular-nums; }
 .cand-row .mod { color: var(--value); letter-spacing: 0.04em; }
-.cand-row .side { font-size: 10px; letter-spacing: 0.07em; }
+.cand-row .side { font-size: 11px; letter-spacing: 0.07em; }
 .cand-row .side.l { color: var(--green); }
 .cand-row .side.s { color: var(--red); }
-.cand-row .reason { color: var(--label); font-size: 11px; }
+.cand-row .reason { color: var(--label); font-size: 12px; }
+.cand-row .reason.green { color: var(--green); }
+.cand-row .reason.red   { color: var(--red); }
+.cand-row .reason.amber { color: var(--amber); }
 .blk-row {
   display: grid; grid-template-columns: 70px 1fr;
   gap: 10px; padding: 5px 0; font-size: 11.5px;
@@ -1759,19 +1762,22 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .cand-row {
   display: grid;
-  grid-template-columns: 50px 60px 50px 90px 1fr;
-  gap: 10px; padding: 5px 0; font-size: 11.5px;
+  grid-template-columns: 50px 44px 46px 84px 60px 1fr;
+  gap: 10px; padding: 6px 0; font-size: 12px;
   border-bottom: 1px dashed var(--label-dim); align-items: center;
 }
-.cand-row .mod { color: var(--value); }
-.cand-row .reason.green { color: var(--green); }
+.cand-row.clickable { cursor: pointer; }
+.cand-row.clickable:hover { background: var(--surface-1); }
 .cand-row:last-child { border-bottom: 0; }
 .cand-row .cyc { color: var(--label); font-variant-numeric: tabular-nums; }
 .cand-row .mod { color: var(--value); letter-spacing: 0.04em; }
-.cand-row .side { font-size: 10px; letter-spacing: 0.07em; }
+.cand-row .side { font-size: 11px; letter-spacing: 0.07em; }
 .cand-row .side.l { color: var(--green); }
 .cand-row .side.s { color: var(--red); }
-.cand-row .reason { color: var(--label); font-size: 11px; }
+.cand-row .reason { color: var(--label); font-size: 12px; }
+.cand-row .reason.green { color: var(--green); }
+.cand-row .reason.red   { color: var(--red); }
+.cand-row .reason.amber { color: var(--amber); }
 .blk-row {
   display: grid; grid-template-columns: 70px 1fr;
   gap: 10px; padding: 5px 0; font-size: 11.5px;
@@ -4308,3 +4314,31 @@ button { border-radius: var(--r-sm); }
 .cell { border-left: 0; border-radius: var(--r-sm); }
 .topbar .status { gap: 4px; }
 .topbar .status .th-btn { border: 1px solid var(--border-d); border-radius: var(--r-sm); }
+
+/* 3-segment faithfulness mark + breakdown (REVIEW candidate ledger) */
+.fmark { display: inline-flex; gap: 3px; align-items: center; }
+.fseg { width: 16px; height: 5px; border-radius: 2px; background: var(--label-dim); }
+.fseg.pass { background: var(--green); }
+.fseg.soft { background: var(--amber); }
+.fseg.deviation { background: var(--red); }
+.fbreak { background: var(--surface-1); padding: 8px 12px 10px; }
+.frow {
+  display: grid; grid-template-columns: 16px 96px 1fr; gap: 8px;
+  align-items: baseline; padding: 5px 0; font-size: 12.5px;
+  border-top: 1px solid var(--surface-3);
+}
+.frow:first-child { border-top: 0; }
+.frow .fg { text-align: center; color: var(--label-dim); }
+.frow.pass .fg { color: var(--green); }
+.frow.soft .fg { color: var(--amber); }
+.frow.deviation .fg { color: var(--red); }
+.frow .fk { color: var(--value-strong); }
+.frow.deviation .fk { color: var(--red); }
+.frow .fv { color: var(--label); line-height: 1.45; }
+.ffig {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px;
+  padding-top: 8px; border-top: 1px solid var(--border-d);
+  font-size: 12px; color: var(--label); font-variant-numeric: tabular-nums;
+}
+.ffig b { color: var(--value-strong); font-weight: 500; }
+.ffig b.g { color: var(--green); }
