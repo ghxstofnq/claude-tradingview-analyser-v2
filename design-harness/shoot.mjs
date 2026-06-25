@@ -39,6 +39,8 @@ const SAMPLES = [
   ["ffig b",           ".ffig b"],
   ["an-hero htile v",  ".an-hero .htile .v"],
   ["an-strip c v",     ".an-strip .c .v"],
+  ["lib-table td",     ".lib-table td"],
+  ["lib-table th",     ".lib-table th"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report

@@ -175,15 +175,18 @@ function SessionLibraryPanel({ library, currentDate, currentSession, onPick }) {
         <thead>
           <tr>
             <th>DATE</th><th>SESSION</th><th>GRADE</th>
-            <th className="r">CANDS</th><th className="r">CONFIRMED</th>
+            <th className="r">CANDS</th><th className="r">TAKEN</th><th className="r">FAITHFUL</th>
           </tr>
         </thead>
         <tbody>
           {library.length === 0 && (
-            <tr><td colSpan={5} style={{ color: "var(--label)", padding: 14 }}>no sessions yet</td></tr>
+            <tr><td colSpan={6} style={{ color: "var(--label)", padding: 14 }}>no sessions yet</td></tr>
           )}
           {library.map((r, i) => {
             const isCur = r.date === currentDate && r.session === currentSession;
+            const fr = r.stats?.faithful_rate;
+            const frColor = fr == null ? "var(--label-dim)"
+              : fr >= 0.6 ? "var(--green)" : fr >= 0.3 ? "var(--amber)" : "var(--red)";
             return (
               <tr key={i} className={isCur ? "cur" : ""}
                   style={{ cursor: "pointer" }}
@@ -193,6 +196,7 @@ function SessionLibraryPanel({ library, currentDate, currentSession, onPick }) {
                 <td>{r.grade || "—"}</td>
                 <td className="r">{r.stats?.setups ?? "—"}</td>
                 <td className="r">{r.stats?.accepted ?? "—"}</td>
+                <td className="r" style={{ color: frColor }}>{fr == null ? "—" : Math.round(fr * 100) + "%"}</td>
               </tr>
             );
           })}

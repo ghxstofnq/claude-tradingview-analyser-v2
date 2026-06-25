@@ -1205,9 +1205,9 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .btn-add:hover { background: rgba(255,255,255,0.08); }
 .bt-popover .filters .search-wrap { flex: 1; min-width: 80px; max-width: 200px; }
 
-.bt-popover .lib-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.bt-popover .lib-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .bt-popover .lib-table th { text-align: left; color: var(--label);
-  letter-spacing: 0.07em; font-size: 9.5px; padding: 7px 8px;
+  letter-spacing: 0.07em; font-size: 10.5px; padding: 7px 8px;
   border-bottom: 1px solid var(--border); font-weight: 400;
   background: var(--surface-1); position: sticky; top: 0; cursor: pointer; user-select: none; }
 .bt-popover .lib-table th:hover { color: var(--value); }
@@ -2589,9 +2589,9 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .btn-add:hover { background: rgba(255,255,255,0.08); }
 .bt-popover .filters .search-wrap { flex: 1; min-width: 80px; max-width: 200px; }
 
-.bt-popover .lib-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.bt-popover .lib-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .bt-popover .lib-table th { text-align: left; color: var(--label);
-  letter-spacing: 0.07em; font-size: 9.5px; padding: 7px 8px;
+  letter-spacing: 0.07em; font-size: 10.5px; padding: 7px 8px;
   border-bottom: 1px solid var(--border); font-weight: 400;
   background: var(--surface-1); position: sticky; top: 0; cursor: pointer; user-select: none; }
 .bt-popover .lib-table th:hover { color: var(--value); }
@@ -3418,7 +3418,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .lib-table th,
 .bt-popover .ledger th {
   letter-spacing: 0.06em;
-  font-size: 9px;
+  font-size: 10.5px;
   padding: 9px 8px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border-d);
