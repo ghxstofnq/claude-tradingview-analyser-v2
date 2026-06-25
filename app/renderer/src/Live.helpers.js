@@ -160,3 +160,49 @@ export function entryConfirmationVerdict(confRows) {
   if (rows.every((r) => r.status === "pass")) return { label: "CONFIRMED", tone: "green" };
   return { label: "AWAITING 1m CLOSE", tone: "amber" };
 }
+
+// Turn a raw strategy-chain blocker into plain English for the LIVE panel. The
+// chain's reason strings ("cannot evaluate: strategy chain incomplete:
+// missing_ltf_bias", "deterministic packet blocked: no_confirmed_packet") read
+// like errors but are normal no-trade states — this names what the bot is
+// actually doing so the trader isn't staring at a bare blocker token.
+//
+//   - missing_ltf_bias   → open-reaction resolved to stand-aside (no directional
+//        bias). Prefer the resolver's own read — `interaction` (+ `level`) once
+//        the normalizer passes them through — else the minute-14 open-reaction
+//        `latest_read`, else a static stand-aside line.
+//   - no_confirmed_packet → a bias + setup exist but no clean 1m close yet.
+//   - anything else       → strip the noisy "cannot evaluate: ..." prefix.
+//
+// Returns { text, sub } — `text` is the explanation, `sub` keeps the raw token
+// as a small debug line (null when it would just repeat `text`). Returns null
+// when there is no reason. Pure — ctx is { ltf, latest } from useOpenReaction.
+export function explainNoTradeReason(reason, ctx = {}) {
+  const raw = String(reason || "").trim();
+  if (!raw) return null;
+  const { ltf, latest } = ctx;
+
+  if (/missing_ltf_bias/.test(raw)) {
+    const interaction = ltf?.interaction ? String(ltf.interaction).replace(/_/g, " ") : null;
+    const level = ltf?.level ? String(ltf.level) : null;
+    let text;
+    if (interaction) {
+      text = `Standing aside${level ? ` at ${level}` : ""} — ${interaction}. No directional bias resolved, so there's nothing to hunt yet.`;
+    } else if (latest?.latest_read) {
+      text = `Standing aside — ${String(latest.latest_read)}`;
+    } else {
+      text = "Standing aside — the open-reaction hasn't resolved a directional bias yet (no clean draw / structure). Not an error: it's waiting for a clean structure to earn direction.";
+    }
+    return { text, sub: raw };
+  }
+
+  if (/no_confirmed_packet/.test(raw)) {
+    return {
+      text: "A bias and setup are in play, but there's no clean 1m confirmation close yet — holding (no entry without a deliberate candle close).",
+      sub: raw,
+    };
+  }
+
+  const cleaned = raw.replace(/^cannot evaluate:\s*strategy chain incomplete:\s*/i, "Chain incomplete — ");
+  return { text: cleaned, sub: cleaned === raw ? null : raw };
+}

@@ -10,6 +10,7 @@ import {
   modelLabel,
   normalizeSide,
   entryConfirmationVerdict,
+  explainNoTradeReason,
 } from "../app/renderer/src/Live.helpers.js";
 
 describe("entryConfirmationVerdict", () => {
@@ -213,5 +214,47 @@ describe("modelLabel (Stage F — 2×2 entry-model framing)", () => {
   it("unknown model falls back to the raw string; missing → —", () => {
     assert.equal(modelLabel({ model: "Custom" }), "Custom");
     assert.equal(modelLabel({}), "—");
+  });
+});
+
+describe("explainNoTradeReason", () => {
+  const reason = "cannot evaluate: strategy chain incomplete: missing_ltf_bias";
+
+  it("returns null for an empty reason", () => {
+    assert.equal(explainNoTradeReason(null), null);
+    assert.equal(explainNoTradeReason("  "), null);
+  });
+
+  it("missing_ltf_bias prefers the resolver's interaction + level when present", () => {
+    const ex = explainNoTradeReason(reason, {
+      ltf: { interaction: "divergent_weak_rejection", level: "AS.L" },
+    });
+    assert.match(ex.text, /Standing aside at AS\.L/);
+    assert.match(ex.text, /divergent weak rejection/);
+    assert.equal(ex.sub, reason); // raw token kept as debug line
+  });
+
+  it("missing_ltf_bias falls back to the minute-14 open-reaction read", () => {
+    const ex = explainNoTradeReason(reason, {
+      latest: { latest_read: "Open-reaction resolving — bias pending until a post-window structure earns direction (+15m)." },
+    });
+    assert.match(ex.text, /^Standing aside — Open-reaction resolving/);
+  });
+
+  it("missing_ltf_bias with no context still gives a non-error stand-aside line", () => {
+    const ex = explainNoTradeReason(reason, {});
+    assert.match(ex.text, /Standing aside/);
+    assert.match(ex.text, /Not an error/);
+  });
+
+  it("no_confirmed_packet explains the missing 1m confirmation", () => {
+    const ex = explainNoTradeReason("deterministic packet blocked: no_confirmed_packet", {});
+    assert.match(ex.text, /1m confirmation/);
+    assert.equal(ex.sub, "deterministic packet blocked: no_confirmed_packet");
+  });
+
+  it("unknown chain-incomplete blocker strips the noisy prefix", () => {
+    const ex = explainNoTradeReason("cannot evaluate: strategy chain incomplete: missing_grade_cap", {});
+    assert.equal(ex.text, "Chain incomplete — missing_grade_cap");
   });
 });

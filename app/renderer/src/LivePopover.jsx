@@ -17,6 +17,7 @@ import {
   modelLabel,
   normalizeSide,
   entryConfirmationVerdict,
+  explainNoTradeReason,
 } from "./Live.helpers.js";
 import { stripCitations, openReactionVerdict } from "./Prep.helpers.js";
 import { realAccountView } from "./Account.helpers.js";
@@ -366,10 +367,18 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
       <div className="work-scroll">
         {orPanel}
         <Panel title="ENTRY CANDIDATE" right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
-            <div className="lv-box" style={{ marginTop: 0 }}>
-              <div className="lv-box-hd">{noTradeReason ? "NO-TRADE REASON" : "STATUS"}</div>
-              <div style={prose}>{noTradeReason || "awaiting next walker fire."}</div>
-            </div>
+            {(() => {
+              const ex = explainNoTradeReason(noTradeReason, { ltf: openReaction?.ltf, latest: openReaction?.latest });
+              return (
+                <div className="lv-box" style={{ marginTop: 0 }}>
+                  <div className="lv-box-hd">{noTradeReason ? "WHY NO TRADE" : "STATUS"}</div>
+                  <div style={prose}>{ex ? ex.text : "awaiting next walker fire."}</div>
+                  {ex?.sub ? (
+                    <div style={{ ...prose, color: "var(--label)", fontSize: 10, marginTop: 4 }}>{ex.sub}</div>
+                  ) : null}
+                </div>
+              );
+            })()}
             {noTrade?.blockers?.length ? (
               <div className="lv-box" style={{ marginTop: 10 }}>
                 <div className="lv-box-hd">NO-TRADE BLOCKERS</div>
