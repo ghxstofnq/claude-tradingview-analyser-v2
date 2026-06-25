@@ -37,6 +37,8 @@ const SAMPLES = [
   ["fseg.deviation",   ".fseg.deviation"],
   ["frow.deviation fk", ".frow.deviation .fk"],
   ["ffig b",           ".ffig b"],
+  ["an-hero htile v",  ".an-hero .htile .v"],
+  ["an-strip c v",     ".an-strip .c .v"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report
@@ -71,6 +73,7 @@ for (const [name, sel] of SAMPLES) {
       size: s.fontSize,
       radius: s.borderTopLeftRadius,
       bl: s.borderLeftWidth,
+      weight: s.fontWeight,
     };
   }, sel);
   report.push({ name, ...(data || { bg: "— MISSING —" }) });
