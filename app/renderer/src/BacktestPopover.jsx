@@ -16,14 +16,17 @@ import {
   weekdaysBetween, expandStudy, todayET,
 } from "./Backtest.helpers.js";
 
-// Header state-switcher (designer's NEW/RUN/PAUSE/DONE/ANALYTICS). Internal
-// reducer states map: IDLE→NEW, AUTO_RUNNING→RUN, PAUSE_AWAITING→PAUSE,
-// DONE→DONE, LIBRARY→ANALYTICS. NEW + ANALYTICS are always navigable; the
-// engine-driven states only light up when the run is in them.
-const BT_SWITCHER = [
-  ["IDLE", "NEW"], ["AUTO_RUNNING", "RUN"], ["PAUSE_AWAITING", "PAUSE"],
-  ["DONE", "DONE"], ["LIBRARY", "ANALYTICS"], ["TESTS", "TESTS"],
-];
+// Three workflow modes the panel walks: RECORD a corpus → measure it
+// (BASELINE) → COMPARE a fix. The transient engine states (running / pause /
+// done) live INSIDE record; DETAIL is a drill-in, not a mode.
+const BT_MODES = [["RECORD", "RECORD"], ["BASELINE", "BASELINE"], ["COMPARE", "COMPARE"]];
+const RECORD_UIS = new Set(["IDLE", "AUTO_RUNNING", "PAUSE_AWAITING", "DONE"]);
+function modeForUi(ui) {
+  if (RECORD_UIS.has(ui)) return "RECORD";
+  if (ui === "LIBRARY") return "BASELINE";
+  if (ui === "TESTS") return "COMPARE";
+  return null; // DETAIL — a drill-in, no mode highlighted
+}
 
 export function BacktestCell() {
   const [open, setOpen] = useState(false);
@@ -56,6 +59,9 @@ export function BacktestCell() {
           onClick={(e) => e.stopPropagation()}
         >
           <Header state={state} actions={actions} onClose={close} float={float} />
+          {state.ui !== "DETAIL" && (
+            <CorpusStatus runs={state.library.runs} symbolView={symbolView} />
+          )}
           {(state.ui === "IDLE" || state.ui === "LIBRARY") && (
             <div className="bt-sym-bar">
               <span className="bt-sym-label">INSTRUMENT</span>
@@ -90,7 +96,7 @@ function Header({ state, actions, onClose, float }) {
     const run = state.detail?.entry;
     return (
       <div className="head" onMouseDown={float?.onDragStart}>
-        <span className="back" onClick={(e) => { e.stopPropagation(); actions.back(); }}>← LIBRARY</span>
+        <span className="back" onClick={(e) => { e.stopPropagation(); actions.back(); }}>← BASELINE</span>
         <span className="t">{run?.date ?? state.selectedRunId} · {sessionLabel(run?.session)}</span>
         {run && (
           <span className={"meta-pill " + (run.total_r >= 0 ? "" : "red")}>
@@ -114,14 +120,17 @@ function Header({ state, actions, onClose, float }) {
     TESTS:          { cls: "",      x: "×",  dismissable: true },
   }[state.ui] ?? { cls: "", x: "×", dismissable: true };
 
-  // Navigate via the switcher: NEW resets to IDLE, ANALYTICS opens the
-  // library, TESTS opens the fold-tests; engine-driven states (RUN/PAUSE/DONE)
-  // aren't manually entered.
-  const goState = (s) => {
-    if (s === state.ui) return;
-    if (s === "IDLE") actions.runAnother();
-    else if (s === "LIBRARY") actions.viewAll();
-    else if (s === "TESTS") actions.viewTests();
+  // Navigate by workflow mode: RECORD resets to the configure form, BASELINE
+  // opens the corpus analytics, COMPARE opens the fold-tests. The engine-driven
+  // record sub-states (running / pause / done) aren't manually entered.
+  const activeMode = modeForUi(state.ui);
+  const recording = state.ui === "AUTO_RUNNING" || state.ui === "PAUSE_AWAITING";
+  const goMode = (m) => {
+    if (m === activeMode) return;
+    if (recording) return;                 // don't navigate away mid-record
+    if (m === "RECORD") actions.runAnother();
+    else if (m === "BASELINE") actions.viewAll();
+    else if (m === "COMPARE") actions.viewTests();
   };
 
   return (
@@ -130,11 +139,11 @@ function Header({ state, actions, onClose, float }) {
         {cfg.pulse && <span className="pulse" />}
         BACKTEST
       </span>
-      <span className="live-tabs" style={{ marginLeft: 10 }} onClick={(e) => e.stopPropagation()}>
-        {BT_SWITCHER.map(([s, l]) => (
-          <span key={s}
-                className={"tab" + (state.ui === s ? " on" : "") + (s === "IDLE" || s === "LIBRARY" || s === "TESTS" ? "" : " dim")}
-                onClick={() => goState(s)}>{l}</span>
+      <span className="bt-modes" onClick={(e) => e.stopPropagation()}>
+        {BT_MODES.map(([m, l]) => (
+          <button key={m} type="button"
+                  className={"bt-mode" + (activeMode === m ? " on" : "") + (recording && m !== activeMode ? " locked" : "")}
+                  onClick={() => goMode(m)}>{l}</button>
         ))}
       </span>
       <span className="spacer" />
@@ -181,6 +190,28 @@ function BadgeForState({ state }) {
     );
   }
   return <span className="count">{state.library.runs.length}</span>;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Corpus status — the recorded sample the whole workflow folds over. Sits
+// under the header in every mode; the loop is meaningless without it, and
+// right now (post-wipe) it's empty, so the empty read points at RECORD.
+// ─────────────────────────────────────────────────────────────────────
+function CorpusStatus({ runs = [], symbolView }) {
+  const sym = symbolView === "MES1!" ? "MES" : "MNQ";
+  const mine = filterRuns(runs, { symbol: symbolView });
+  const n = mine.length;
+  const dates = mine.map((r) => r.date).filter(Boolean).sort();
+  const span = n > 0 ? `${dates[0]} → ${dates[dates.length - 1]}` : null;
+  return (
+    <div className={"bt-corpus" + (n === 0 ? " empty" : "")}>
+      <span className="cs-k">CORPUS</span>
+      <span className="cs-sym">{sym}</span>
+      {n === 0
+        ? <span className="cs-empty">empty — record a sample to begin</span>
+        : <span className="cs-v">{n} session{n === 1 ? "" : "s"} · {span}</span>}
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -282,7 +313,7 @@ function IdleBody({ state, actions, symbolView }) {
           <RunRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
         ))}
         <div className="view-all" onClick={actions.viewAll}>
-          VIEW ANALYTICS · {symRuns.length} RUNS  →
+          VIEW BASELINE · {symRuns.length} RUNS  →
         </div>
       </div>
     </>
@@ -452,7 +483,7 @@ function DoneBody({ state, actions }) {
           </div>
         </div>
         <div className="actions">
-          <button className="btn primary full" onClick={actions.viewAll}>▤  VIEW IN ANALYTICS</button>
+          <button className="btn primary full" onClick={actions.viewAll}>▤  VIEW BASELINE</button>
           <button className="btn secondary" onClick={reRun}>↻ RE-RUN</button>
           {runId && <button className="btn secondary" onClick={() => actions.openDetail(runId)}>▸ OPEN DETAIL</button>}
           <button className="btn danger" onClick={discard}>DISCARD</button>
@@ -783,7 +814,7 @@ function DetailBody({ state, actions }) {
           this run is no longer in the index
         </div>
         <div className="actions">
-          <button className="btn secondary full" onClick={actions.back}>← LIBRARY</button>
+          <button className="btn secondary full" onClick={actions.back}>← BASELINE</button>
         </div>
       </div>
     );

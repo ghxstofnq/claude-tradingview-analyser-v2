@@ -1004,7 +1004,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .form-row .k { color: var(--label); letter-spacing: 0.02em; }
 .bt-popover .form-row .v { color: var(--value); font-variant-numeric: tabular-nums; }
 
-.bt-popover .seg { display: flex; border: 1px solid var(--border-d); }
+.bt-popover .seg { display: flex; border: 1px solid var(--border-d); border-radius: var(--r-sm); overflow: hidden; }
 .bt-popover .seg .s { flex: 1; padding: 5px 4px; text-align: center; cursor: pointer;
   color: var(--label); font-size: 10px; letter-spacing: 0.06em;
   border-right: 1px solid var(--border-d); user-select: none; white-space: nowrap; }
@@ -2388,7 +2388,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .form-row .k { color: var(--label); letter-spacing: 0.02em; }
 .bt-popover .form-row .v { color: var(--value); font-variant-numeric: tabular-nums; }
 
-.bt-popover .seg { display: flex; border: 1px solid var(--border-d); }
+.bt-popover .seg { display: flex; border: 1px solid var(--border-d); border-radius: var(--r-sm); overflow: hidden; }
 .bt-popover .seg .s { flex: 1; padding: 5px 4px; text-align: center; cursor: pointer;
   color: var(--label); font-size: 10px; letter-spacing: 0.06em;
   border-right: 1px solid var(--border-d); user-select: none; white-space: nowrap; }
@@ -3984,6 +3984,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .bt-popover .cfg-presets { display: flex; gap: 6px; margin-bottom: 11px; }
 .bt-popover .cfg-preset { flex: 1; text-align: center; padding: 8px 6px; border: 1px solid var(--border-d);
+  border-radius: var(--r-sm);
   color: var(--label); font-size: 9.5px; letter-spacing: 0.05em; cursor: pointer; white-space: nowrap; user-select: none; }
 .bt-popover .cfg-preset:hover { color: var(--value); border-color: var(--label); }
 .bt-popover .cfg-preset.on { color: var(--value-strong); border-color: var(--border-d); background: rgba(255,255,255,0.06); }
@@ -3998,13 +3999,40 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 
 .bt-popover .cfg-multi { display: flex; gap: 6px; }
 .bt-popover .cfg-chip { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 10px 8px; border: 1px solid var(--border-d); color: var(--label); font-size: 10px;
+  padding: 10px 8px; border: 1px solid var(--border-d); border-radius: var(--r-sm); color: var(--label); font-size: 10px;
   letter-spacing: 0.06em; cursor: pointer; white-space: nowrap; user-select: none; }
 .bt-popover .cfg-chip:hover { color: var(--value); }
 .bt-popover .cfg-chip .ck { width: 13px; height: 13px; border: 1px solid var(--border-d);
   display: inline-flex; align-items: center; justify-content: center; font-size: 9px; flex: none; }
 .bt-popover .cfg-chip.on { color: var(--value-strong); border-color: var(--border-d); background: rgba(255,255,255,0.06); }
+.bt-popover .cfg-chip .ck { border-radius: var(--r-xs); }
 .bt-popover .cfg-chip.on .ck { border-color: var(--value-strong); color: var(--value-strong); }
+
+/* Three-mode workflow nav (RECORD · BASELINE · COMPARE) — replaces the old
+   6-tab switcher. Buttons inherit the global var(--r-sm) round, kept
+   consistent with every other control. */
+.bt-popover .bt-modes { display: inline-flex; gap: 6px; margin-left: 12px; }
+.bt-popover .bt-mode {
+  padding: 4px 11px; background: transparent; border: 1px solid var(--border-d);
+  color: var(--label); font-size: 9.5px; letter-spacing: 0.08em; cursor: pointer;
+  font-family: var(--sans); transition: color 140ms ease, border-color 140ms ease;
+}
+.bt-popover .bt-mode:hover:not(.on):not(.locked) { color: var(--value); border-color: var(--label); }
+.bt-popover .bt-mode.on { color: var(--primary); border-color: var(--primary); background: rgba(255, 255, 255, 0.06); }
+.bt-popover .bt-mode.locked { opacity: 0.4; cursor: default; }
+.bt-popover .bt-mode:focus-visible { outline: 1px solid var(--value); outline-offset: 1px; }
+
+/* Corpus status — the recorded sample the loop folds over. Empty reads amber
+   (needs attention) and points at RECORD. */
+.bt-popover .bt-corpus {
+  display: flex; align-items: center; gap: 9px; padding: 8px 14px;
+  border-bottom: 1px solid var(--border-d); font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.bt-popover .bt-corpus .cs-k { color: var(--label-dim); letter-spacing: 0.1em; font-size: 9px; }
+.bt-popover .bt-corpus .cs-sym { color: var(--value); font-weight: 500; letter-spacing: 0.04em; }
+.bt-popover .bt-corpus .cs-v { color: var(--label); }
+.bt-popover .bt-corpus.empty .cs-empty { color: var(--amber); }
 
 .bt-popover .cfg-summary { background: var(--surface-0); border: 1px solid var(--border-d);
   padding: 11px 13px; margin-top: 15px;
