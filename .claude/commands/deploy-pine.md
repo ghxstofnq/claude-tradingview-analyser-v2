@@ -35,10 +35,10 @@ is needed anymore.
   id 8006b4 + "ICT Engine V3" id 688ea9) link the on-chart study to the wrong copy; `tv layout save`
   then persists a layout pointing at the OLD script and it still reverts. So **before saving, ensure
   exactly ONE clean study** that emits the new keys (Recovery removes stale/duplicate instances).
-- **`pine open` matches by indicator TITLE.** `tv pine open "ICT Engine V4"` opens the script whose
-  `indicator("ICT Engine V4", ...)` title matches — use the on-chart study's title, not a stale name.
+- **`pine open` matches by indicator TITLE.** `tv pine open "ICT Engine V5"` opens the script whose
+  `indicator("ICT Engine V5", ...)` title matches — use the on-chart study's title, not a stale name.
 - **Before deploying, `pine list` → check for duplicate-titled scripts FIRST.** Details:
-  [[deploy-pine-persistence-gotcha]]. The live engine is **"ICT Engine V4" (schema 4)**, parser matches `/^ICT Engine\b/i`.
+  [[deploy-pine-persistence-gotcha]]. The live engine is **"ICT Engine V5" (schema 4)**, parser matches `/^ICT Engine\b/i`.
 
 ## Recovery (Update-on-chart didn't apply, or you duplicated the study)
 1. Get study ids — evaluate `window.TradingViewApi._activeChartWidgetWV.value().getAllStudies()` (a small node script importing `packages/core/connection.js`'s `evaluate`) → `[{id,name},...]`.

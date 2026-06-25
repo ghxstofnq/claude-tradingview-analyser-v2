@@ -3,7 +3,7 @@
 Step TV Desktop's bar replay across a past session (CDP 9225) and read the schema-4 ICT
 Engine evidence at each bar — for hand-grading / oracle work. The replay path is wedge-prone
 and the engine can read stale; this skill encodes the recovery + freshness discipline so the
-reads are trustworthy. Run **/tv-health first** (a reload must restore "ICT Engine V4" schema-4,
+reads are trustworthy. Run **/tv-health first** (a reload must restore "ICT Engine V5" schema-4,
 or you'll grade on schema-2). All `./bin/tv`; the reliable bits are lib functions driven from a
 small node probe importing the worktree's `packages/core/*` + `cli/lib/*`.
 

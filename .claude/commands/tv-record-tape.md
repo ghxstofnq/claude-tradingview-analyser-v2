@@ -12,7 +12,7 @@ emit-verified + wedge recovery).
   - writes `tests/tapes/<date>-<session>.tape.json` with `verified:false`.
 
 ## Procedure
-1. **/tv-health first** — the engine must be "ICT Engine V4" schema-4, or the tape records the
+1. **/tv-health first** — the engine must be "ICT Engine V5" schema-4, or the tape records the
    stale schema-2 (a reload during recording would otherwise revert it).
 2. Write a minimal label (date / contract_hint / session) — `expected` can start as a placeholder.
 3. Record. Then **hand-grade** the tape: read the evidence, apply the rubric (grade the FULL move —

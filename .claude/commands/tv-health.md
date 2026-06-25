@@ -11,7 +11,7 @@ re-run this after any reload. All commands `./bin/tv` (CLI only). TV Desktop on 
    `osascript -e 'quit app "TradingView"'` then `open -a TradingView --args --remote-debugging-port=9225`.
 2. **CLI connected:** `./bin/tv status` → success.
 3. **Correct engine on chart (the one that bites):** read `getAllStudies()` filtered to
-   `/ICT Engine/i` — expect **exactly one** study named **"ICT Engine V4"**. Parse its table
+   `/ICT Engine/i` — expect **exactly one** study named **"ICT Engine V5"**. Parse its table
    (`parseIctEngineTable(findIctEngineRows(data.getPineTables()))`) and confirm
    **`meta.schema === 4`** AND a `structures[]` row carries **`disp_pts`** (proves the live
    schema-4 code, not a stale schema-2 instance). Two studies, wrong name, or schema≠4 → the
