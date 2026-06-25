@@ -3976,11 +3976,6 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 /* ═══════════════════════════════════════════════════════════════════════
    BACKTEST · CONFIGURE STUDY form (the NEW panel) — roomy, grouped fields
    ═══════════════════════════════════════════════════════════════════════ */
-.bt-popover .cfg-field { padding: 15px 0; border-bottom: 1px solid var(--border); }
-.bt-popover .cfg-field:first-of-type { padding-top: 4px; }
-.bt-popover .cfg-label { display: flex; justify-content: space-between; align-items: baseline;
-  color: var(--label); font-size: 9.5px; letter-spacing: 0.08em; margin-bottom: 11px; white-space: nowrap; }
-.bt-popover .cfg-label .cfg-hint { color: var(--label-dim); font-size: 9px; letter-spacing: 0.06em; white-space: nowrap; }
 
 .bt-popover .cfg-presets { display: flex; gap: 6px; margin-bottom: 11px; }
 .bt-popover .cfg-preset { flex: 1; height: 30px; display: inline-flex; align-items: center; justify-content: center;
@@ -4068,11 +4063,6 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .ft-in.ft-gate { flex: 1.2; font-variant-numeric: tabular-nums; }
 .bt-popover .ft-form .btn.primary { height: 30px; white-space: nowrap; }
 .bt-popover .ft-err { color: var(--red); font-size: 10.5px; padding: 4px 2px 8px; }
-
-.bt-popover .cfg-summary { background: var(--surface-0); border: 1px solid var(--border-d);
-  padding: 11px 13px; margin-top: 15px;
-  color: var(--prose); font-size: 10.5px; line-height: 1.55; letter-spacing: 0.02em; }
-.bt-popover .cfg-summary b { color: var(--value); font-weight: 600; }
 
 /* ═══════════════════════════════════════════════════════════════════════
    REVIEW — SESSION / TRACK RECORD / LIBRARY
