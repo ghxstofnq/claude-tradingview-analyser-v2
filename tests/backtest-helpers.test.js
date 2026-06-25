@@ -17,7 +17,17 @@ import {
   weekdaysBetween,
   expandStudy,
   todayET,
+  parseGateInput,
 } from "../app/renderer/src/Backtest.helpers.js";
+
+test("parseGateInput: KEY=VAL, bare KEY, blank, and multi-= values", () => {
+  assert.deepEqual(parseGateInput("GOFNQ_X=1"), { GOFNQ_X: "1" });
+  assert.deepEqual(parseGateInput("GOFNQ_X"), { GOFNQ_X: "1" });   // bare key → "1"
+  assert.deepEqual(parseGateInput("  "), {});                       // blank = working tree
+  assert.deepEqual(parseGateInput(""), {});
+  assert.deepEqual(parseGateInput("K=a=b"), { K: "a=b" });          // value keeps later "="
+  assert.deepEqual(parseGateInput("=1"), {});                       // no key → ignored
+});
 
 test("nextState — IDLE + START → AUTO_RUNNING", () => {
   assert.equal(nextState("IDLE", { type: "START", mode: "auto" }), "AUTO_RUNNING");

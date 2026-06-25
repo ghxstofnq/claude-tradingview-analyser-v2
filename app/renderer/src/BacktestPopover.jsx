@@ -13,7 +13,7 @@ import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
-  weekdaysBetween, expandStudy, todayET,
+  weekdaysBetween, expandStudy, todayET, parseGateInput,
 } from "./Backtest.helpers.js";
 
 // Three workflow modes the panel walks: RECORD a corpus → measure it
@@ -593,8 +593,33 @@ const testStatusCls = (s) => (s === "accepted" ? "ok" : s === "rejected" ? "bad"
 // ─────────────────────────────────────────────────────────────────────
 // TESTS body — fold-tests vs the accepted baseline, accept/reject + reason
 // ─────────────────────────────────────────────────────────────────────
+// COMPARE — fold a treatment over the corpus and diff it against the accepted
+// baseline, right in the panel. Replaces the old CLI-only save-fold-test.mjs.
+function FoldTestForm({ running, onRun }) {
+  const [label, setLabel] = useState("");
+  const [gate, setGate] = useState("");
+  const submit = () => {
+    if (running) return;
+    onRun({ label: label.trim() || "untitled", env: parseGateInput(gate) });
+  };
+  return (
+    <div className="ft-form">
+      <input className="ft-in" placeholder="what change are you testing?"
+             value={label} onChange={(e) => setLabel(e.target.value)}
+             autoComplete="off" spellCheck="false" />
+      <input className="ft-in ft-gate" placeholder="gate · GOFNQ_X=1 (blank = working tree)"
+             value={gate} onChange={(e) => setGate(e.target.value)}
+             autoComplete="off" spellCheck="false"
+             onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
+      <button className="btn primary" disabled={running} onClick={submit}>
+        {running ? "FOLDING…" : "RUN FOLD TEST"}
+      </button>
+    </div>
+  );
+}
+
 function TestsBody({ symbolView }) {
-  const { tests, loading, setVerdict, getTest, removeTest } = useTests(symbolView);
+  const { tests, loading, running, lastError, setVerdict, getTest, removeTest, runFoldTest } = useTests(symbolView);
   const sym = symbolView === "MES1!" ? "MES" : "MNQ";
   const [expandedId, setExpandedId] = useState(null);
   const [full, setFull] = useState(null);
@@ -614,10 +639,14 @@ function TestsBody({ symbolView }) {
         <span className="meta">{loading ? "loading…" : `${tests.length} · vs accepted baseline`}</span>
       </div>
 
-      {!loading && tests.length === 0 && (
+      <FoldTestForm running={running} onRun={runFoldTest} />
+      {lastError && <div className="ft-err">fold failed — {lastError}</div>}
+
+      {!loading && tests.length === 0 && !running && (
         <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 2px", lineHeight: 1.5 }}>
-          no tests yet — run <code>scripts/save-fold-test.mjs {symbolView} "label"</code> (set an env gate
-          first to test a change) to fold it against the accepted baseline.
+          no tests yet — name a change, set its gate (e.g. <code>GOFNQ_X=1</code>), and RUN FOLD TEST to
+          fold it over the corpus and diff it against the accepted baseline. A blank gate folds the current
+          working tree.
         </div>
       )}
 

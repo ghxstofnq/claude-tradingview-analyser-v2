@@ -231,3 +231,18 @@ export function runGrade(run) {
 export function displayGrade(grade) {
   return grade ?? "—";
 }
+
+// Parse the COMPARE treatment-gate input into a child-process env patch.
+//   "GOFNQ_X=1" → { GOFNQ_X: "1" }
+//   "GOFNQ_X"   → { GOFNQ_X: "1" }   (bare key defaults to "1")
+//   ""          → {}                  (blank = fold the current working tree)
+// Value keeps everything after the first "=" so "K=a=b" → { K: "a=b" }.
+export function parseGateInput(input) {
+  const t = (input || "").trim();
+  if (!t) return {};
+  const i = t.indexOf("=");
+  if (i === -1) return { [t]: "1" };
+  const key = t.slice(0, i).trim();
+  if (!key) return {};
+  return { [key]: t.slice(i + 1).trim() || "1" };
+}

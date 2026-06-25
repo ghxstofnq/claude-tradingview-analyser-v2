@@ -312,6 +312,9 @@ contextBridge.exposeInMainWorld("api", {
       list(symbol) {
         return ipcRenderer.invoke("backtest:tests:list", { symbol });
       },
+      run({ symbol, label, env }) {
+        return ipcRenderer.invoke("backtest:tests:run", { symbol, label, env });
+      },
       get(id) {
         return ipcRenderer.invoke("backtest:tests:get", { id });
       },

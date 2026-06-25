@@ -4055,6 +4055,20 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .cfg-plan .warn,
 .bt-popover .cfg-cost .warn { color: var(--amber); }
 
+/* COMPARE — fold-test form (run a treatment over the corpus from the panel,
+   replacing the CLI). Inputs + the run button share the 30px control height. */
+.bt-popover .ft-form { display: flex; gap: 8px; align-items: stretch; margin: 6px 0 12px; }
+.bt-popover .ft-in {
+  flex: 1; height: 30px; padding: 0 10px; background: var(--surface-0);
+  border: 1px solid var(--border-d); border-radius: var(--r-sm); color: var(--value);
+  font-family: var(--sans); font-size: 11px; outline: 0;
+}
+.bt-popover .ft-in::placeholder { color: var(--label-dim); }
+.bt-popover .ft-in:focus { border-color: var(--label); }
+.bt-popover .ft-in.ft-gate { flex: 1.2; font-variant-numeric: tabular-nums; }
+.bt-popover .ft-form .btn.primary { height: 30px; white-space: nowrap; }
+.bt-popover .ft-err { color: var(--red); font-size: 10.5px; padding: 4px 2px 8px; }
+
 .bt-popover .cfg-summary { background: var(--surface-0); border: 1px solid var(--border-d);
   padding: 11px 13px; margin-top: 15px;
   color: var(--prose); font-size: 10.5px; line-height: 1.55; letter-spacing: 0.02em; }

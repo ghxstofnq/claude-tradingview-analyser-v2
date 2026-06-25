@@ -14,6 +14,7 @@
 
 import { ipcMain } from "electron";
 import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -164,6 +165,32 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
   }));
 
   ipcMain.handle("backtest:tests:delete", async (_evt, { id }) => deleteTest({ stateDir: STATE_DIR, id }));
+
+  // Fold a treatment over the corpus from the UI (replaces the CLI
+  // save-fold-test.mjs step). Runs in a CHILD process so the treatment env gate
+  // is isolated from the live chain — never sets a gate on the main process.
+  // Pure compute (no chart), so it's safe even during a live session.
+  ipcMain.handle("backtest:tests:run", async (_evt, { symbol, label, env } = {}) => {
+    if (!symbol || !label) return { ok: false, error: "symbol and label required" };
+    const repo = path.dirname(STATE_DIR);
+    const script = path.join(repo, "scripts", "save-fold-test.mjs");
+    const childEnv = { ...process.env, ...(env && typeof env === "object" ? env : {}) };
+    return await new Promise((resolve) => {
+      const child = spawn("node", [script, symbol, label], { cwd: repo, env: childEnv });
+      let out = "", err = "";
+      child.stdout.on("data", (b) => { out += b.toString(); });
+      child.stderr.on("data", (b) => { err += b.toString(); });
+      child.on("error", (e) => resolve({ ok: false, error: String(e?.message || e) }));
+      child.on("close", (code) => {
+        if (code === 0) {
+          const m = out.match(/saved test (\S+):/);
+          resolve({ ok: true, id: m?.[1] ?? null, stdout: out.trim() });
+        } else {
+          resolve({ ok: false, error: (err || out).slice(-300).replace(/\s+/g, " ").trim() || `exit ${code}` });
+        }
+      });
+    });
+  });
 }
 
 function readJsonl(filePath) {
