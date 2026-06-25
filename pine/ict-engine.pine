@@ -3,7 +3,7 @@
 // Emits one machine-readable table for the backend.
 // Phases 1-5: levels, FVG/iFVG, BPR, swings, structure, quality.
 // Spec: docs/specs/2026-05-21-unified-custom-indicator-design.md
-indicator("ICT Engine V4", "ICT-V4", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+indicator("ICT Engine V5", "ICT-V5", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // ── Evidence table contract ──────────────────────────────────────────
 // Schema 4 (2026-06-22, faithful-Lanto rebuild) is a BREAKING shape change:
