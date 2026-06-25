@@ -279,3 +279,55 @@ test('open-gate fail-open: unknown event time → does not suppress', () => {
     assert.equal(r.kind, 'continuation_deep');
   });
 });
+
+// Internal-sweep grab (GOFNQ_INV_PATIENCE): a deep inversion with NO session-tier
+// grab but a recent OPPOSING-side internal swing sweep is a valid reversal — the
+// stop-anchoring internal-liquidity grab (06-15: Lanto's long after the 10:14 dip
+// swept an internal low). Naturally blocks premature entries (no recent sweep yet).
+test('GOFNQ_INV_PATIENCE: deep + recent opposing internal sweep → valid reversal', () => {
+  const prev = process.env.GOFNQ_INV_PATIENCE;
+  process.env.GOFNQ_INV_PATIENCE = '1';
+  try {
+    const r = inversionEntryValid({
+      context: ctx({
+        sweeps: [{ side: 'sell', target: 'LO.L', swept_ms: min(20) }], // no session-tier BUY grab for the short
+        // recent swept internal HIGH = the opposing (buyside) grab for a short
+        legHigh: 30000, legLow: 29000,
+      }),
+      side: 'short', entryPrice: 29400, nowMs: NOW, // depth 0.6 → reversal branch
+    });
+    // ctx() has no internalSwings → no internal grab → still blocked (proves the guard)
+    assert.equal(r.valid, false);
+    assert.equal(r.reason, 'reversal_no_recent_grab');
+
+    const withSweep = inversionEntryValid({
+      context: {
+        pillar2: { legHigh: 30000, legLow: 29000 },
+        pillar3: {
+          sweeps: [{ side: 'sell', target: 'LO.L', swept_ms: min(20) }],
+          internalSwings: [{ kind: 'LH', is_high: true, swept: true, swept_ms: min(10) }],
+        },
+      },
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(withSweep.valid, true);
+    assert.equal(withSweep.reason, 'internal_sweep_grab');
+  } finally {
+    if (prev === undefined) delete process.env.GOFNQ_INV_PATIENCE; else process.env.GOFNQ_INV_PATIENCE = prev;
+  }
+});
+
+test('GOFNQ_INV_PATIENCE OFF (default): internal sweep grants NO grab', () => {
+  const r = inversionEntryValid({
+    context: {
+      pillar2: { legHigh: 30000, legLow: 29000 },
+      pillar3: {
+        sweeps: [{ side: 'sell', target: 'LO.L', swept_ms: min(20) }],
+        internalSwings: [{ kind: 'LH', is_high: true, swept: true, swept_ms: min(10) }],
+      },
+    },
+    side: 'short', entryPrice: 29400, nowMs: NOW,
+  });
+  assert.equal(r.valid, false);
+  assert.equal(r.reason, 'reversal_no_recent_grab');
+});

@@ -195,6 +195,17 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
       return Number.isFinite(ms) && Number.isFinite(t) && ms <= t && (t - ms) / 60000 <= invGrabRecencyMin();
     });
     if (grab) return { valid: true, kind: 'reversal', reason: null, depth };
+    // The stop-anchoring grab can be an INTERNAL swing sweep, not just a session-tier
+    // level. 06-15 (verified on a V5-recorded tape): Lanto's 10:30 long followed the
+    // 10:14 sweep of an internal low (7606.5) — his "stop relative low"; named sweeps
+    // are session-only and miss it, so the chain wrongly blocked the trade as
+    // reversal_no_recent_grab. Behind GOFNQ_INV_PATIENCE; yields NO grab on pre-swept_ms
+    // tapes (no_timing_data) so the oracle is unaffected. Naturally blocks premature
+    // entries — at 09:46 the 10:14 dip hasn't happened yet, so no recent internal sweep.
+    const patience = inversionPatienceOk({ context, side, nowMs });
+    if (process.env.GOFNQ_INV_PATIENCE === '1' && patience.ok && patience.reason !== 'no_timing_data') {
+      return { valid: true, kind: 'reversal', reason: 'internal_sweep_grab', depth };
+    }
     // Trend-aware override (2026-06-25), DEFAULT-OFF behind GOFNQ_INV_TREND_OVERRIDE.
     // "Deep = reversal" is backwards in a TRENDING leg — a deep short in a confirmed
     // downtrend is a CONTINUATION, not a reversal needing a fresh grab (01-29 10:28
@@ -258,12 +269,7 @@ export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
     const gate = confirmed
       ? inversionEntryValid({ context, side: walker.side, entryPrice: confirmedCloseOf(confirmed), nowMs: confirmedBarMs(confirmed, context) })
       : { valid: false };
-    // Patience gate (default-off): require the stop-anchoring opposing-side internal
-    // sweep to have already happened (blocks premature inversions like 06-15 09:46).
-    const patience = confirmed
-      ? inversionPatienceOk({ context, side: walker.side, nowMs: confirmedBarMs(confirmed, context) })
-      : { ok: false };
-    if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed && gate.valid && patience.ok) {
+    if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed && gate.valid) {
       requests.push({
         id: walker.id,
         eventTimeUtc: context?.eventTimeUtc,
