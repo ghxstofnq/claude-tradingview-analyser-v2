@@ -24,13 +24,20 @@ const truthFn = barCloseTruth.buildDeterministicPacketTruthFromInputs;
 const PRIMARY = "MNQ1!";
 const SECONDARY = "MES1!";
 
-// Paired sessions — extend as MES tapes are recorded (the MNQ tapes already exist).
+// Paired sessions. The Stage-G dates are MNQ-led (Lanto traded NQ) — they test
+// "displacement doesn't break MNQ days". The lanto_pick dates are days Lanto
+// explicitly traded ES (from his Discord) — they test "displacement correctly
+// SWITCHES to MES". lanto_pick = his actual instrument+direction that session.
 const SESSIONS = [
-  { date: "2026-06-16", mnq: "tests/tapes/2026-06-16-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-16-mes-ny-am-replay.tape.json" },
-  { date: "2026-06-09", mnq: "tests/tapes/2026-06-09-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-09-mes-ny-am-replay.tape.json" },
-  { date: "2026-06-17", mnq: "tests/tapes/2026-06-17-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-17-mes-ny-am-replay.tape.json" },
-  { date: "2026-06-18", mnq: "tests/tapes/2026-06-18-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-18-mes-ny-am-replay.tape.json" },
-  { date: "2026-02-09", mnq: "tests/tapes/2026-02-09-ny-am-replay.tape.json", mes: "tests/tapes/2026-02-09-mes-ny-am-replay.tape.json" },
+  // Stage-G (MNQ-led)
+  { date: "2026-06-16", mnq: "tests/tapes/2026-06-16-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-16-mes-ny-am-replay.tape.json", lanto_pick: "MNQ short" },
+  { date: "2026-06-09", mnq: "tests/tapes/2026-06-09-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-09-mes-ny-am-replay.tape.json", lanto_pick: "MNQ short" },
+  { date: "2026-06-17", mnq: "tests/tapes/2026-06-17-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-17-mes-ny-am-replay.tape.json", lanto_pick: "no-trade" },
+  { date: "2026-06-18", mnq: "tests/tapes/2026-06-18-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-18-mes-ny-am-replay.tape.json", lanto_pick: "MNQ long" },
+  { date: "2026-02-09", mnq: "tests/tapes/2026-02-09-ny-am-replay.tape.json", mes: "tests/tapes/2026-02-09-mes-ny-am-replay.tape.json", lanto_pick: "MNQ long" },
+  // ES-led (Lanto traded ES — the SWITCH test)
+  { date: "2026-01-29", mnq: "tests/tapes/2026-01-29-ny-am-replay.tape.json", mes: "tests/tapes/2026-01-29-mes-ny-am-replay.tape.json", lanto_pick: "MES short (won, TP2 6879)" },
+  { date: "2026-06-15", mnq: "tests/tapes/2026-06-15-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-15-mes-ny-am-replay.tape.json", lanto_pick: "MES long (won +2R, tgt 7641)" },
 ];
 
 const load = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
@@ -110,6 +117,7 @@ async function run() {
 
     rows.push({
       date: s.date,
+      lanto: s.lanto_pick || "?",
       mnq: pMnq ? `${pMnq.model} ${pMnq.side} ${pMnq.grade} → ${rMnq.r}R (${rMnq.result})` : "no_trade",
       mes: pMes ? `${pMes.model} ${pMes.side} ${pMes.grade} → ${rMes.r}R (${rMes.result})` : "no_trade",
       disp_leader: `${dispLeader.replace("1!", "")} (${disp.reason})`,
@@ -120,10 +128,13 @@ async function run() {
   console.log("=== PAIR-LEADER FOLD ===\n");
   for (const row of rows) {
     if (row.status) { console.log(`${row.date}: ${row.status}`); continue; }
-    console.log(`${row.date}`);
+    const want = row.lanto.startsWith("MES") ? "MES" : row.lanto.startsWith("MNQ") ? "MNQ" : null;
+    const got = row.disp_leader.slice(0, 3);
+    const match = want == null ? "(no-trade day)" : want === got ? "✓ matches Lanto" : `✗ MISS — Lanto picked ${want}`;
+    console.log(`${row.date}  ·  Lanto: ${row.lanto}`);
     console.log(`  MNQ: ${row.mnq}`);
     console.log(`  MES: ${row.mes}`);
-    console.log(`  disp-leader → ${row.disp_leader}`);
+    console.log(`  disp-leader → ${row.disp_leader}  ${match}`);
     console.log(`  smt-leader  → ${row.smt_leader}\n`);
   }
   const n = rows.filter((r) => !r.status).length;

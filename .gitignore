@@ -28,3 +28,5 @@ tests/.tmp-brief-flow/
 # SMT pair-leader validation tapes (verified:false, local-only — too large for git;
 # regenerate via tv record-tape. The verified MNQ gate tapes stay tracked.)
 tests/tapes/*-mes-ny-am-replay.tape.json
+tests/tapes/2026-01-29-ny-am-replay.tape.json
+tests/tapes/2026-06-15-ny-am-replay.tape.json
