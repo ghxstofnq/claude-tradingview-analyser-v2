@@ -26,14 +26,28 @@ const FALLBACK_SESSIONS = new Set(["ny-am"]);
  * @param {string} p.session    session label.
  * @param {number} p.ms         the bar's timestamp (ms).
  * @param {number} p.windowEndMs open-reaction window end (minute 30).
+ * @param {string} [p.h4StructDir] 4H true-structure dir (bullish/bearish), if any.
+ * @param {string} [p.h1StructDir] 1H true-structure dir (bullish/bearish), if any.
  */
-export function htfFallbackVerdict({ htfBias, session, ms, windowEndMs } = {}) {
+export function htfFallbackVerdict({ htfBias, session, ms, windowEndMs, h4StructDir, h1StructDir } = {}) {
   if (process.env.GOFNQ_P1_HTF_FALLBACK === "0") return null; // opt-out (default on)
   if (!FALLBACK_SESSIONS.has(session)) return null;
   if (!Number.isFinite(ms) || !Number.isFinite(windowEndMs) || ms <= windowEndMs) return null;
   const norm = /bull|above/i.test(String(htfBias)) ? "bullish"
     : /bear|below/i.test(String(htfBias)) ? "bearish" : null;
   if (!norm) return null;
+  // GOFNQ_HTF_FALLBACK_STANDASIDE (default OFF, under test): the HTF lean is only
+  // tradeable when the near-term structure (4H/1H true structure) doesn't oppose
+  // it. A daily-weighted lean against a bearish near-term delivery is a conflicted
+  // HTF — Lanto stands aside (1/3 no-trade), he doesn't trade the daily lean into
+  // the opposing delivery (How I Develop Daily Bias, 12/12). When no near-term
+  // structure printed, there's nothing to conflict with — the lean stands.
+  if (process.env.GOFNQ_HTF_FALLBACK_STANDASIDE === "1") {
+    const near = [h4StructDir, h1StructDir]
+      .map((d) => (/bull|above/i.test(String(d)) ? "bullish" : /bear|below/i.test(String(d)) ? "bearish" : null))
+      .filter(Boolean);
+    if (near.length && near.some((d) => d !== norm)) return null; // conflicted HTF → stand aside
+  }
   return {
     interaction: "htf_fallback",
     ltf_bias: norm,

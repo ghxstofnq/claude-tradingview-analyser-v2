@@ -140,7 +140,10 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
   // later bar replaces the fallback, exactly mirroring the backtest loop.
   let htfFallback = false;
   if (!verdict.ltf_bias) {
-    const patch = htfFallbackVerdict({ htfBias, session, ms, windowEndMs: window.endMs });
+    const patch = htfFallbackVerdict({
+      htfBias, session, ms, windowEndMs: window.endMs,
+      h4StructDir: brief?.h4_struct_dir, h1StructDir: brief?.h1_struct_dir,
+    });
     if (patch) {
       verdict = { ...verdict, ...patch };
       htfFallback = true;
