@@ -234,3 +234,114 @@ export function todayBadge(library) {
   const r = today?.stats?.net_r;
   return { totalR: r == null ? null : Number(r), setups: today?.stats?.setups ?? 0 };
 }
+
+// ── Faithfulness verdict ──────────────────────────────────────────────
+// computeFaithfulness(setup, trade?, brief?) → per-trade Lanto adherence,
+// derived ONLY from fields already on the setup record + executionPacket
+// (no fabrication — PRODUCT.md #3). Each dimension is one of:
+//   "pass" | "soft" | "deviation" | "na".
+// marks = [bias, priceAction, entryModel] drives the 3-segment ledger mark.
+// stop + draw are the two places the chain most often drifts from Lanto.
+const NAMED_DRAW = /PWH|PWL|PDH|PDL|NYAM|NYPM|AS[._]|LO[._]|primary_draw|pillar1/i;
+
+function pillarVerdict(setup, name) {
+  const p = (setup?.pillar_breakdown || []).find((x) => x?.name === name);
+  if (!p || typeof p.verdict !== "string") return null;
+  return /pass/i.test(p.verdict) ? "pass" : "fail";
+}
+
+export function computeFaithfulness(setup, trade = null, brief = null) {
+  const pkt = setup?.executionPacket || null;
+  const raw = pkt?.entry?.rawPayload || {};
+  const side = setup?.side || setup?.direction || pkt?.side || null;
+  const model = setup?.model || pkt?.model || null;
+  const na = (detail) => ({ status: "na", detail });
+
+  // Not a setup record (tranche_skip, missing packet) → nothing to grade.
+  if (!setup || (!pkt && !setup.pillar_breakdown)) {
+    const dim = na("no setup evidence");
+    return {
+      bias: dim, priceAction: dim, entryModel: dim, stop: dim, draw: dim,
+      marks: ["na", "na", "na"],
+      summary: { faithful: false, deviations: 0, softs: 0, gradable: false },
+    };
+  }
+
+  // 1. Bias (Component 1 — draw & bias). The deterministic Pillar 1 context
+  //    gate IS the bias check. The draw is surfaced as context, NOT as a
+  //    pass/fail driver — a PD array's own `dir` is its polarity, not the
+  //    draw's destination, so comparing side to primary_draw.dir is unsound.
+  const p1 = pillarVerdict(setup, "Pillar 1");
+  const drawDir = brief?.primary_draw?.dir ?? brief?.primaryDraw?.dir ?? null;
+  const bias = p1 === "pass"
+    ? { status: "pass", detail: `context gate pass${drawDir ? ` · draw ${drawDir}` : ""}` }
+    : p1 === "fail"
+      ? { status: "deviation", detail: "Pillar 1 context gate failed" }
+      : na("no Pillar 1 verdict");
+
+  // 2. Price action (Component 2). Pillar 2 quality + 15m chop.
+  const p2 = pillarVerdict(setup, "Pillar 2");
+  const chop = raw.chop_15m === true;
+  const priceAction = p2 === "fail"
+    ? { status: "deviation", detail: "Pillar 2 quality gate failed" }
+    : p2 === "pass"
+      ? (chop ? { status: "soft", detail: "quality pass but 15m chop" }
+              : { status: "pass", detail: "displacement clean, 15m not chop" })
+      : na("no Pillar 2 verdict");
+
+  // 3. Entry model (Component 3). Confirmation discipline; the aggressive
+  //    bridge-synthesized variant is real but lower-evidence → soft.
+  const p3 = pillarVerdict(setup, "Pillar 3");
+  const wantDir = side === "long" ? "bull" : side === "short" ? "bear" : null;
+  const confirmed = raw.confirm_close === true
+    && (!wantDir || raw.confirm_dir === wantDir) && raw.ce_held !== false;
+  const bridge = raw.source === "violation_close_bridge";
+  let entryModel;
+  if (p3 === "fail") {
+    entryModel = { status: "deviation", detail: "Pillar 3 confirmation failed" };
+  } else if (p3 === "pass" || confirmed) {
+    entryModel = bridge
+      ? { status: "soft", detail: `${model || "entry"} confirm via bridge (aggressive, not engine-stamped)` }
+      : { status: "pass", detail: `${model || "entry"} 1m confirm close${raw.ce_held ? ", CE held" : ""}` };
+  } else {
+    entryModel = na("no Pillar 3 verdict");
+  }
+
+  // 4. Stop anchor. Inversion is faithful only beyond the inverted array
+  //    (a zone-anchored cite); a generic swing-extreme cite is a deviation.
+  const stopCite = setup?.stop_cite || "";
+  const ptDist = (setup?.entry != null && setup?.stop != null)
+    ? Math.round(Math.abs(Number(setup.entry) - Number(setup.stop)) * 100) / 100 : null;
+  let stop;
+  if (!stopCite) {
+    stop = na("no stop cite");
+  } else if (model === "Inversion") {
+    stop = /zone/i.test(stopCite)
+      ? { status: "pass", detail: `anchored to the array${ptDist != null ? ` (${ptDist}pt)` : ""}` }
+      : { status: "deviation", detail: `${stopCite}${ptDist != null ? ` (${ptDist}pt)` : ""} — Lanto anchors just beyond the inverted array` };
+  } else {
+    stop = { status: "pass", detail: `structural stop${ptDist != null ? ` (${ptDist}pt)` : ""}` };
+  }
+
+  // 5. Liquidity draw. TP1 should target a named session/PD draw, not an
+  //    internal swing or an unnamed session_history level.
+  const tpCite = setup?.tp1_cite || "";
+  let draw;
+  if (!tpCite) {
+    draw = na("no TP1 cite");
+  } else if (NAMED_DRAW.test(tpCite)) {
+    draw = { status: "pass", detail: `TP1 → ${tpCite}` };
+  } else {
+    draw = { status: "soft", detail: `TP1 cites ${tpCite} — verify it's a named draw, not an internal swing` };
+  }
+
+  const dims = [bias, priceAction, entryModel, stop, draw];
+  const deviations = dims.filter((d) => d.status === "deviation").length;
+  const softs = dims.filter((d) => d.status === "soft").length;
+  const gradable = dims.some((d) => d.status !== "na");
+  return {
+    bias, priceAction, entryModel, stop, draw,
+    marks: [bias.status, priceAction.status, entryModel.status],
+    summary: { faithful: gradable && deviations === 0, deviations, softs, gradable },
+  };
+}
