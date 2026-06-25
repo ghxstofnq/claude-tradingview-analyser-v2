@@ -232,3 +232,50 @@ test('override ON: deep + grab present is unchanged: valid reversal (never demot
     assert.equal(r.kind, 'reversal');
   });
 });
+
+// Open-reaction gate (GOFNQ_INV_OPEN_GATE): suppress the override inside the first
+// ~15 min of the ny-am session (§7 Step 4). This is the separator that recovers the
+// 06-16 oracle (premature 09:32/09:40 fires) while keeping 01-29 (minute 58).
+function withOpenGate(fn) {
+  const a = process.env.GOFNQ_INV_TREND_OVERRIDE, b = process.env.GOFNQ_INV_OPEN_GATE;
+  process.env.GOFNQ_INV_TREND_OVERRIDE = '1';
+  process.env.GOFNQ_INV_OPEN_GATE = '1';
+  try { fn(); } finally {
+    if (a === undefined) delete process.env.GOFNQ_INV_TREND_OVERRIDE; else process.env.GOFNQ_INV_TREND_OVERRIDE = a;
+    if (b === undefined) delete process.env.GOFNQ_INV_OPEN_GATE; else process.env.GOFNQ_INV_OPEN_GATE = b;
+  }
+}
+const cohCtx = () => ctx({ structuresSwing: [{ dir: 'bear', event: 'mss', confirmed_ms: min(30) }], coherence: 1 });
+
+test('open-gate ON: deep continuation INSIDE the open window (min 5) → suppressed', () => {
+  withOpenGate(() => {
+    const r = inversionEntryValid({
+      context: { ...cohCtx(), eventTimeUtc: '2026-06-16T13:35:00.000Z' }, // 09:35 ET = min 5
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, false);
+    assert.equal(r.reason, 'reversal_no_recent_grab');
+  });
+});
+
+test('open-gate ON: deep continuation PAST the open window (min 58) → fires (01-29 10:28)', () => {
+  withOpenGate(() => {
+    const r = inversionEntryValid({
+      context: { ...cohCtx(), eventTimeUtc: '2026-06-16T14:28:00.000Z' }, // 10:28 ET = min 58
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, true);
+    assert.equal(r.kind, 'continuation_deep');
+  });
+});
+
+test('open-gate fail-open: unknown event time → does not suppress', () => {
+  withOpenGate(() => {
+    const r = inversionEntryValid({
+      context: cohCtx(), // no eventTimeUtc
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, true);
+    assert.equal(r.kind, 'continuation_deep');
+  });
+});

@@ -111,6 +111,18 @@ function invCoherenceMin() { const v = Number(process.env.GOFNQ_INV_COHERENCE); 
 // price deep into a leg is a stronger claim. Wide margin (01-29 coherence 1.0 fires;
 // 06-17 deep-short chop <=0.4 stays blocked). Tunable via GOFNQ_INV_DEEP_COHERENCE.
 function invDeepCoherenceMin() { const v = Number(process.env.GOFNQ_INV_DEEP_COHERENCE); return v >= 0 && v <= 1 ? v : 0.6; }
+// Open-reaction gate (test, GOFNQ_INV_OPEN_GATE): §7 Step 4 — entries come AFTER the
+// open reaction (~first 15 min). The deep-continuation override fires premature 06-16
+// inversions at minute 2/10; 01-29's real entry is minute 58. DST-correct ET via Intl.
+function nyAmMinutesSinceOpen(eventTimeUtc) {
+  const t = Date.parse(eventTimeUtc);
+  if (!Number.isFinite(t)) return NaN;
+  const et = new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+  const [h, m] = et.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+  return (h * 60 + m) - (9 * 60 + 30);
+}
+function invOpenReactionMin() { const v = Number(process.env.GOFNQ_INV_OPEN_REACTION); return v >= 0 ? v : 15; }
 function confirmedCloseOf(row) {
   return Number(row?.close ?? row?.price ?? row?.confirm_close_price ?? row?.last_bar?.close);
 }
@@ -193,8 +205,14 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
     // entry-time metric (depth/coherence/recency) separates that bad deep continuation
     // from 01-29's good one. Gated until a discriminator folds clean across the oracle.
     if (process.env.GOFNQ_INV_TREND_OVERRIDE === '1') {
-      const trend = continuationVerdict(context, side, depth, invDeepCoherenceMin());
-      if (trend.valid) return { ...trend, kind: 'continuation_deep' };
+      // Optional open-reaction gate (test): suppress the override inside the first
+      // ~15 min of the ny-am session (§7 Step 4). Fail-open when the time is unknown.
+      const sessMin = process.env.GOFNQ_INV_OPEN_GATE === '1' ? nyAmMinutesSinceOpen(context?.eventTimeUtc) : NaN;
+      const pastOpen = !Number.isFinite(sessMin) || sessMin >= invOpenReactionMin();
+      if (pastOpen) {
+        const trend = continuationVerdict(context, side, depth, invDeepCoherenceMin());
+        if (trend.valid) return { ...trend, kind: 'continuation_deep' };
+      }
     }
     return { valid: false, kind: 'reversal', reason: 'reversal_no_recent_grab', depth };
   }

@@ -86,6 +86,16 @@ for (const entry of tape.entries) {
     console.log(`   GATE valid=${g.valid} kind=${g.kind} reason=${g.reason} depth=${g.depth?.toFixed?.(2)}`);
     console.log(`   leg[${p2.legLow}-${p2.legHigh}] coherence=${p2.coherence} | swings:${swings.length} sameDir(${dir}):${sameDir} recent=${recent ? `${recent.dir}/${recent.event}` : "—"} recentSameDirAge=${recentSameDirAgeMin}min`);
     console.log(`   sweeps: ${sweeps.join(" ") || "—"}`);
+    // Discriminator A: minutes since the ny-am open (09:30 ET). openUtc = 9:30 - tz.
+    const evMin = new Date(utc).getUTCHours() * 60 + new Date(utc).getUTCMinutes();
+    const openUtcMin = (9 * 60 + 30) - tz * 60;
+    console.log(`   [A timing] sessionMin=${evMin - openUtcMin}`);
+    // Discriminator B: zone maturity — did the FVG HOLD before inverting (Lanto's
+    // prior-leg retrace) or form+invert in the impulse?
+    // Read the CURRENT zone from context (not the spawn-time walker payload) for live maturity.
+    const cur = allPdArrays(ctx).map((r) => r?.rawPayload ?? r).find((r) => near(Number(r?.top), Number(pd.top)) && near(Number(r?.bottom), Number(pd.bottom))) ?? {};
+    const heldCur = (Number(cur.inverted_ms) > 0 && Number(cur.entered_ms) > 0) ? ((Number(cur.inverted_ms) - Number(cur.entered_ms)) / 60000).toFixed(0) : "—";
+    console.log(`   [B maturity-CUR] bars_in_zone=${cur.bars_in_zone ?? "—"} minutes_in_zone=${cur.minutes_in_zone ?? "—"} held_before_invert=${heldCur}min size_quality=${cur.size_quality ?? "—"} state=${cur.state ?? "—"}`);
   }
   walkers = nextWalkers;
 }
