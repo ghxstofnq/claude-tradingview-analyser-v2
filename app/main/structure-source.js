@@ -48,3 +48,21 @@ export function swingStructuresForBias(bundle) {
 export function swingStructuresForRealign(bundle) {
   return swingStructuresAtTf(bundle, realignTf());
 }
+
+// ALL in-window structures (swing + internal) from STRUCTURE_TF. The open
+// read's displaced-continuation check (open-reaction-resolver) reads displacement
+// regardless of the engine's swing/internal tier — Lanto keys on displacement,
+// not the tier split — so a displaced internal-tier MSS counts as a continuation
+// signal. Same source as swing_structure, both tiers.
+function allStructuresAtTf(bundle, tf) {
+  const fromTier = (t) => [...(t?.swing ?? []), ...(t?.internal ?? [])];
+  if (tf === "5") {
+    const g5 = fiveMGates(bundle);
+    if (g5) return fromTier(g5.pillar3?.structures_by_tier);
+  }
+  return fromTier(bundle?.gates?.engine?.pillar3?.structures_by_tier);
+}
+
+export function inWindowStructuresForBias(bundle) {
+  return allStructuresAtTf(bundle, structureTf());
+}

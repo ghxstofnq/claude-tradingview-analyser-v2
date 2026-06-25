@@ -16,7 +16,7 @@ import { combineBias } from "../../cli/lib/pillar1-bias.js";
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { openReactionWindowMs } from "./backtest-engine.js";
 import { biasFromDraw } from "./backtest-context.js";
-import { swingStructuresForBias, swingStructuresForRealign } from "./structure-source.js";
+import { swingStructuresForBias, swingStructuresForRealign, inWindowStructuresForBias } from "./structure-source.js";
 import { htfFallbackVerdict } from "./htf-fallback.js";
 
 function etDateOf(ts) {
@@ -70,6 +70,10 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
     window,
     overnight_targets: overnightTargetsForSession(session),
     window_closes: windowCloses,
+    // All in-window structures (both tiers) from STRUCTURE_TF — the divergent
+    // gate's displaced-continuation exception reads displacement regardless of
+    // swing/internal tier (GOFNQ_DIVERGENT_DISPLACED_CONTINUATION, default off).
+    in_window_structures: inWindowStructuresForBias(bundle),
     // Post-window, freeze the open read like the backtest: ignore a `rejected`
     // flag that matured after minute 30 and rely on the window-confined closes.
     // ONLY when we actually have window-close coverage (windowClosesOverride);

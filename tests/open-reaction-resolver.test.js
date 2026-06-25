@@ -343,3 +343,98 @@ test('aligned days are never gated, even with high accept-bars (June 9)', () => 
   assert.equal(r.htf_ltf_alignment, 'aligned');
   assert.equal(r.grade_cap, 'A+');
 });
+
+// ── Displaced counter-HTF continuation (GOFNQ_DIVERGENT_DISPLACED_CONTINUATION)
+// Lanto (Daily Bias ~26:46–31:26): a sustained counter-HTF move that DELIVERED
+// with displacement is a continuation to trade (2/3 = B), not a weak fade — the
+// accept-bars gate alone can't tell them apart (both hold the break for many
+// bars). Regression: 2026-06-25 NY-AM — HTF bull, AS.L swept, price displaced
+// ~750pt lower (mss bear disp=true), held the break all window. The gate stood
+// aside and the bias fell back bullish (wrong side); the bot then blocked the
+// shorts the displacement supported.
+function struct({ event = 'mss', dir, displacement = true, ms = inWindow() }) {
+  return { event, dir, displacement, confirmed_ms: ms, tier: 'internal' };
+}
+// HTF bull, AS.L swept and HELD below all window (a trend, never reclaims).
+function sustainedBearContinuation() {
+  const sw = inWindow();
+  return {
+    htf_bias: 'bullish',
+    sweeps: [sweep({ target: 'AS.L', rejected: false, ms: sw })],
+    window: W,
+    window_closes: [
+      { time_ms: sw + 1000, close: 95 },
+      { time_ms: sw + 2000, close: 92 },
+      { time_ms: sw + 3000, close: 90 },
+      { time_ms: sw + 4000, close: 88 },
+      { time_ms: sw + 5000, close: 85 },
+      { time_ms: sw + 6000, close: 80 },
+    ],
+  };
+}
+
+test('default (flag off): sustained divergent continuation still stands aside', () => {
+  delete process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION;
+  const r = resolveOpenReaction({
+    ...sustainedBearContinuation(),
+    in_window_structures: [struct({ dir: 'bear' })],
+  });
+  assert.equal(r.interaction, 'divergent_weak_rejection');
+  assert.equal(r.ltf_bias, null);
+});
+
+test('flag on + displaced bear MSS in break dir → trade the continuation, B', () => {
+  process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION = '1';
+  try {
+    const r = resolveOpenReaction({
+      ...sustainedBearContinuation(),
+      in_window_structures: [struct({ dir: 'bear' })],
+    });
+    assert.equal(r.interaction, 'displaced_continuation');
+    assert.equal(r.ltf_bias, 'bearish');
+    assert.equal(r.htf_ltf_alignment, 'divergent');
+    assert.equal(r.is_retrace_day, true);
+    assert.equal(r.grade_cap, 'B');
+  } finally {
+    delete process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION;
+  }
+});
+
+test('flag on but NO structural displacement → weak retrace protection holds', () => {
+  process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION = '1';
+  try {
+    const r = resolveOpenReaction({
+      ...sustainedBearContinuation(),
+      in_window_structures: [],
+    });
+    assert.equal(r.ltf_bias, null);
+  } finally {
+    delete process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION;
+  }
+});
+
+test('flag on but displaced structure is the WRONG direction → stands aside', () => {
+  process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION = '1';
+  try {
+    const r = resolveOpenReaction({
+      ...sustainedBearContinuation(),
+      in_window_structures: [struct({ dir: 'bull' })],
+    });
+    assert.equal(r.ltf_bias, null);
+  } finally {
+    delete process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION;
+  }
+});
+
+test('flag on but the structure carries no displacement → stands aside', () => {
+  process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION = '1';
+  try {
+    const r = resolveOpenReaction({
+      ...sustainedBearContinuation(),
+      in_window_structures: [struct({ dir: 'bear', displacement: false })],
+    });
+    assert.equal(r.ltf_bias, null);
+  } finally {
+    delete process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION;
+  }
+});

@@ -65,6 +65,30 @@ function sweepRejected(sweep, closes, endMs, ignoreEngineFlag = false) {
     && (high ? c.close < level : c.close > level));
 }
 
+// Lanto (How-I-Develop-Daily-Bias class, ~26:46–31:26): a sustained counter-HTF
+// move is a DISPLACED CONTINUATION — not a weak accept-then-fade — when the break
+// direction carries displacement. "Displacement is key… recognize what a
+// retracement is versus a reversal… you have to see mass displacement." The
+// accept-bars heuristic alone can't separate a strong trend (holds the break for
+// many bars because it's genuinely delivering) from a weak fade. A displaced
+// MSS/BoS in the BREAK direction, confirmed inside the open window, IS that
+// signal — and Lanto reads displacement, not the engine's swing/internal tier,
+// so any tier counts. Behind GOFNQ_DIVERGENT_DISPLACED_CONTINUATION (default off)
+// pending a corpus fold: the accept-bars gate earns real R killing weak retrace
+// shorts, so this must keep that while letting a displaced trend break through.
+function hasDisplacedContinuation(structures, dir, startMs, endMs) {
+  if (process.env.GOFNQ_DIVERGENT_DISPLACED_CONTINUATION !== '1') return false;
+  if (!Array.isArray(structures)) return false;
+  return structures.some((s) => {
+    if (!s || s.displacement !== true) return false;
+    if (s.event !== 'mss' && s.event !== 'bos') return false;
+    const sDir = s.dir === 'bear' ? 'bearish' : s.dir === 'bull' ? 'bullish' : null;
+    if (sDir !== dir) return false;
+    const ms = Number(s.confirmed_ms);
+    return Number.isFinite(ms) && ms >= startMs && ms <= endMs;
+  });
+}
+
 export function resolveOpenReaction({
   htf_bias,
   sweeps = [],
@@ -72,6 +96,7 @@ export function resolveOpenReaction({
   window = {},
   overnight_targets = OVERNIGHT_TARGETS,
   window_closes = [],
+  in_window_structures = [],
   ignore_engine_rejected_flag = false,
 } = {}) {
   const targets = overnight_targets instanceof Set ? overnight_targets : new Set(overnight_targets);
@@ -145,15 +170,22 @@ export function resolveOpenReaction({
       if (high ? c.close > lvl : c.close < lvl) acceptBars++; else break;
     }
     if (acceptBars >= ACCEPT_BARS_MAX) {
-      return {
-        interaction: 'divergent_weak_rejection',
-        level: last.target,
-        ltf_bias: null,
-        htf_ltf_alignment: 'unclear',
-        is_retrace_day: false,
-        grade_cap: 'B',
-        cite: `${cite} (divergent + accept_bars=${acceptBars} → weak retrace, stand aside)`,
-      };
+      if (!hasDisplacedContinuation(in_window_structures, dir, startMs, endMs)) {
+        return {
+          interaction: 'divergent_weak_rejection',
+          level: last.target,
+          ltf_bias: null,
+          htf_ltf_alignment: 'unclear',
+          is_retrace_day: false,
+          grade_cap: 'B',
+          cite: `${cite} (divergent + accept_bars=${acceptBars} → weak retrace, stand aside)`,
+        };
+      }
+      // Displaced counter-HTF continuation — Lanto trades the direction price
+      // delivered (a 2/3 = B day), not the HTF lean. Fall through to the
+      // directional return at the break direction, capped B (§2.3 retrace day).
+      interaction = 'displaced_continuation';
+      cite = `${cite} (divergent + accept_bars=${acceptBars} but displaced ${dir} continuation → trade B)`;
     }
   }
 
