@@ -52,7 +52,9 @@ const ROW_FIELD_TYPES = {
     entered_ms: 'num', bars_in_zone: 'num', minutes_in_zone: 'num',
     ce_held: 'bool', confirm_close: 'bool', confirm_ms: 'num', chop_15m: 'bool', wick_tapped: 'bool',
   },
-  swing: { price: 'num', bar_ms: 'num', swept: 'bool', significant: 'bool' },
+  // schema 4: swept_ms = WHEN the swing was swept (the internal-swing sweep is
+  // the stop-anchoring liquidity grab that precedes a valid inversion).
+  swing: { price: 'num', bar_ms: 'num', swept: 'bool', swept_ms: 'num', significant: 'bool' },
   structure: {
     level: 'num', broken_swing_ms: 'num', confirmed_ms: 'num', displacement: 'bool', disp_pts: 'num',
   },

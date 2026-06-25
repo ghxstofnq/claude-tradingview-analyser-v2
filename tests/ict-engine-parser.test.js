@@ -87,6 +87,27 @@ test('parseIctEngineTable buckets rows and derives swing.is_high', () => {
   assert.equal(t.pools[1].swept, true);
 });
 
+test('schema 4: swing swept_ms coerces to number (internal-sweep patience signal)', () => {
+  const rows = [
+    'meta | schema=4|count=2|emit_ny=09:20:20|emit_ms=1779369620478|tf=1|symbol=MES1!|bar_ms=1779369600000|bar_closed=1',
+    // a swept internal low carries WHEN it was swept; an unswept swing emits 0
+    'swing | kind=HL|price=7607.00|bar_ms=1779368700000|tier=internal|swept=1|swept_ms=1779369000000|significant=0',
+    'swing | kind=LH|price=7622.50|bar_ms=1779368100000|tier=internal|swept=0|swept_ms=0|significant=1',
+  ];
+  const t = parseIctEngineTable(rows);
+  assert.equal(t.schema, 4);
+  assert.equal(t.schema_supported, true);
+  assert.equal(t.swings.length, 2);
+  // swept low: numeric swept_ms, is_high derived false (HL = low pivot)
+  assert.equal(t.swings[0].swept, true);
+  assert.equal(t.swings[0].swept_ms, 1779369000000);
+  assert.equal(t.swings[0].is_high, false);
+  // unswept high: swept_ms 0, is_high true (LH = high pivot)
+  assert.equal(t.swings[1].swept, false);
+  assert.equal(t.swings[1].swept_ms, 0);
+  assert.equal(t.swings[1].is_high, true);
+});
+
 test('parseIctEngineTable accepts schema=1 and schema=2 (current supported set)', () => {
   const t1 = parseIctEngineTable(['meta | schema=1|count=0|emit_ny=00:00:00|emit_ms=0|tf=15|symbol=MNQ1!']);
   assert.equal(t1.schema, 1);

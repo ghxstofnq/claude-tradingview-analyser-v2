@@ -156,7 +156,9 @@ type Bpr
     bool wickTapped = false
 
 // A confirmed swing point — a two-tier pivot classified vs the prior pivot of
-// its type. `swept` latches once a later bar trades through `price`.
+// its type. `swept` latches once a later bar trades through `price`; `sweptMs`
+// records WHEN (the internal-swing sweep is the stop-anchoring liquidity grab
+// Lanto waits for before an inversion — entry-models "stop relative low").
 type Swing
     string kind
     float price
@@ -165,6 +167,7 @@ type Swing
     bool isHigh
     bool swept
     bool significant = false
+    int sweptMs = na
 
 // A market-structure break — a close beyond a swing level. `event` is bos
 // (continuation) or mss (reversal); `validation` is break or sweep per the
@@ -687,13 +690,17 @@ if barstate.isconfirmed
         priorSwingHigh := intTop
     if not na(intBtm)
         priorSwingLow := intBtm
-    // A swing is swept once a later bar trades through its price.
+    // A swing is swept once a later bar trades through its price. Stamp the time
+    // so consumers can find the MOST-RECENT opposing-side internal sweep (the
+    // stop-anchoring grab that precedes a valid inversion).
     for sw in swingsExt
         if not sw.swept and (sw.isHigh ? high > sw.price : low < sw.price)
             sw.swept := true
+            sw.sweptMs := time
     for sw in swingsInt
         if not sw.swept and (sw.isHigh ? high > sw.price : low < sw.price)
             sw.swept := true
+            sw.sweptMs := time
 
 // ── Liquidity-pool detection ─────────────────────────────────────────
 // Two consecutive external swings within tolerance form an equal-high/low
@@ -999,6 +1006,7 @@ emitSwing(int row, Swing sw) =>
               "|bar_ms=" + str.tostring(sw.barMs) +
               "|tier=" + sw.tier +
               "|swept=" + (sw.swept ? "1" : "0") +
+              "|swept_ms=" + str.tostring(na(sw.sweptMs) ? 0 : sw.sweptMs) +
               "|significant=" + (sw.significant ? "1" : "0")
     table.cell(evidence, 0, row, "swing")
     table.cell(evidence, 1, row, payload)
