@@ -107,6 +107,10 @@ const SESSION_LOW_RE = /^(AS|NYAM|LO)\.L$/;
 function invDepth() { const v = Number(process.env.GOFNQ_INV_DEPTH); return v > 0 && v < 1 ? v : 0.5; }
 function invGrabRecencyMin() { const v = Number(process.env.GOFNQ_INV_GRAB_RECENCY); return v > 0 ? v : 90; }
 function invCoherenceMin() { const v = Number(process.env.GOFNQ_INV_COHERENCE); return v >= 0 && v <= 1 ? v : 0.4; }
+// Deep-continuation override needs a CLEANER trend than the shallow path: chasing
+// price deep into a leg is a stronger claim. Wide margin (01-29 coherence 1.0 fires;
+// 06-17 deep-short chop <=0.4 stays blocked). Tunable via GOFNQ_INV_DEEP_COHERENCE.
+function invDeepCoherenceMin() { const v = Number(process.env.GOFNQ_INV_DEEP_COHERENCE); return v >= 0 && v <= 1 ? v : 0.6; }
 function confirmedCloseOf(row) {
   return Number(row?.close ?? row?.price ?? row?.confirm_close_price ?? row?.last_bar?.close);
 }
@@ -116,6 +120,37 @@ function confirmedBarMs(row, context) {
   const sec = Number(row?.last_bar?.time ?? row?.timeMs);
   if (Number.isFinite(sec)) return sec > 1e12 ? sec : sec * 1000; // sec or ms
   return Number(row?.confirm_ms) || NaN;
+}
+
+// Continuation verdict — a continuation runs WITH the established trend. Shared by
+// the shallow branch (the textbook continuation) and the deep trend-override below.
+// "Clear strong trend in price" (Entry-Models 11:15): the trend is the MOST-RECENT
+// swing-tier break (by confirmed_ms), not a stale break still in the history list
+// (2026-06-24 ny-am fired a bull continuation one bar after a bear MSS because an
+// old bull BOS lingered). A continuation needs a CLEAN trend, not chop — m15
+// coherence < coherenceMin = stand aside (06-17 no-trade: coherence 0.03-0.3).
+// Null coherence (no m15 bars) -> fail-open (Number(null)===0 would falsely read chop).
+function continuationVerdict(context, side, depth, coherenceMin) {
+  const dir = side === 'short' ? 'bear' : 'bull';
+  const dirOf = (s) => String(s?.dir ?? s?.direction ?? '');
+  const swings = (context?.pillar3?.structuresSwing ?? [])
+    .filter((s) => s?.event === 'mss' || s?.event === 'bos');
+  if (!swings.length) return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
+  const dated = swings.filter((s) => Number.isFinite(Number(s?.confirmed_ms)));
+  if (dated.length) {
+    const recent = dated.reduce((a, b) => (Number(b.confirmed_ms) > Number(a.confirmed_ms) ? b : a));
+    if (!dirOf(recent).startsWith(dir)) {
+      return { valid: false, kind: 'continuation', reason: 'continuation_trend_against', depth };
+    }
+  } else if (!swings.some((s) => dirOf(s).startsWith(dir))) {
+    return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
+  }
+  const cohRaw = context?.pillar2?.coherence;
+  const coh = cohRaw == null ? NaN : Number(cohRaw);
+  if (Number.isFinite(coh) && coh < coherenceMin) {
+    return { valid: false, kind: 'continuation', reason: 'chop_low_coherence', depth, coherence: coh };
+  }
+  return { valid: true, kind: 'continuation', reason: null, depth, coherence: Number.isFinite(coh) ? coh : null };
 }
 
 export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
@@ -145,38 +180,25 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
       const ms = Number(s?.swept_ms);
       return Number.isFinite(ms) && Number.isFinite(t) && ms <= t && (t - ms) / 60000 <= invGrabRecencyMin();
     });
-    return { valid: grab, kind: 'reversal', reason: grab ? null : 'reversal_no_recent_grab', depth };
-  }
-  const dir = side === 'short' ? 'bear' : 'bull';
-  const dirOf = (s) => String(s?.dir ?? s?.direction ?? '');
-  const swings = (context?.pillar3?.structuresSwing ?? [])
-    .filter((s) => s?.event === 'mss' || s?.event === 'bos');
-  if (!swings.length) return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
-  // "Clear strong trend in price" (Entry-Models 11:15): a continuation runs WITH
-  // the CURRENT trend, set by the MOST-RECENT swing-tier break (by confirmed_ms) —
-  // not a stale break still lingering in the history list. 2026-06-24 ny-am fired
-  // a bull continuation ONE bar after a bear MSS because an old bull BOS was still
-  // present. Timestampless hand-built fixtures keep the legacy any-in-direction check.
-  const dated = swings.filter((s) => Number.isFinite(Number(s?.confirmed_ms)));
-  if (dated.length) {
-    const recent = dated.reduce((a, b) => (Number(b.confirmed_ms) > Number(a.confirmed_ms) ? b : a));
-    if (!dirOf(recent).startsWith(dir)) {
-      return { valid: false, kind: 'continuation', reason: 'continuation_trend_against', depth };
+    if (grab) return { valid: true, kind: 'reversal', reason: null, depth };
+    // Trend-aware override (2026-06-25), DEFAULT-OFF behind GOFNQ_INV_TREND_OVERRIDE.
+    // "Deep = reversal" is backwards in a TRENDING leg — a deep short in a confirmed
+    // downtrend is a CONTINUATION, not a reversal needing a fresh grab (01-29 10:28
+    // MES: deep short 0.93, coherence 1.0, 5 bear breaks, no session-tier buy grab —
+    // Lanto's actual winning trade). Strictly additive: only reached with NO grab, so
+    // it never demotes a valid reversal; chop (low coherence) still blocks (separates
+    // 01-29 coherence 1.0 from 06-17 no-trade chop <=0.4). NOT default-on: the re-fold
+    // (2026-06-25) shows it regresses the verified 06-16 oracle day — it rescues a
+    // premature 09:32 open inversion that pre-empts Lanto's real 09:57 Trend, and no
+    // entry-time metric (depth/coherence/recency) separates that bad deep continuation
+    // from 01-29's good one. Gated until a discriminator folds clean across the oracle.
+    if (process.env.GOFNQ_INV_TREND_OVERRIDE === '1') {
+      const trend = continuationVerdict(context, side, depth, invDeepCoherenceMin());
+      if (trend.valid) return { ...trend, kind: 'continuation_deep' };
     }
-  } else if (!swings.some((s) => dirOf(s).startsWith(dir))) {
-    return { valid: false, kind: 'continuation', reason: 'continuation_no_swing_trend', depth };
+    return { valid: false, kind: 'reversal', reason: 'reversal_no_recent_grab', depth };
   }
-  // Chop veto (Stage-G G3): a continuation needs a CLEAN trend, not two-sided
-  // chop. m15 directional coherence < INV_COHERENCE_MIN = chop -> stand aside
-  // (06-17 no-trade: coherence 0.03-0.3). Null (no m15 bars) -> fail-open.
-  // NB: coherence may be null; Number(null)===0 would falsely read as chop, so
-  // guard the null BEFORE coercing.
-  const cohRaw = context?.pillar2?.coherence;
-  const coh = cohRaw == null ? NaN : Number(cohRaw);
-  if (Number.isFinite(coh) && coh < invCoherenceMin()) {
-    return { valid: false, kind: 'continuation', reason: 'chop_low_coherence', depth, coherence: coh };
-  }
-  return { valid: true, kind: 'continuation', reason: null, depth, coherence: Number.isFinite(coh) ? coh : null };
+  return continuationVerdict(context, side, depth, invCoherenceMin());
 }
 
 export function buildInversionWalkerAdvanceRequests(context, walkers = []) {

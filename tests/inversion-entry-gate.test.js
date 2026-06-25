@@ -150,3 +150,85 @@ test('GOFNQ_INV_GATE=0 disables the gate', () => {
     if (prev === undefined) delete process.env.GOFNQ_INV_GATE; else process.env.GOFNQ_INV_GATE = prev;
   }
 });
+
+// Trend-aware override (2026-06-25), DEFAULT-OFF behind GOFNQ_INV_TREND_OVERRIDE.
+// "Deep = reversal" is backwards in a trending leg: a DEEP entry with no reversal
+// grab but an established CLEAN same-direction swing trend is a CONTINUATION (01-29
+// 10:28 MES: deep short 0.93, coherence 1.0, 5 bear breaks, no session-tier buy grab
+// — Lanto's actual winning trade). Strictly additive on `valid` — it only rescues
+// deep-no-grab entries the reversal branch would block, never removes a valid
+// reversal. Gated off because it regresses the 06-16 oracle day (see lifecycle note).
+function withOverride(fn) {
+  const prev = process.env.GOFNQ_INV_TREND_OVERRIDE;
+  process.env.GOFNQ_INV_TREND_OVERRIDE = '1';
+  try { fn(); } finally {
+    if (prev === undefined) delete process.env.GOFNQ_INV_TREND_OVERRIDE; else process.env.GOFNQ_INV_TREND_OVERRIDE = prev;
+  }
+}
+
+test('override OFF (default): deep + clean trend + no grab stays blocked', () => {
+  const r = inversionEntryValid({
+    context: ctx({ structuresSwing: [{ dir: 'bear', event: 'mss', confirmed_ms: min(30) }], coherence: 1 }),
+    side: 'short', entryPrice: 29400, nowMs: NOW,
+  });
+  assert.equal(r.valid, false);
+  assert.equal(r.reason, 'reversal_no_recent_grab');
+});
+
+test('override ON: deep + clean same-dir trend + NO grab → valid continuation_deep (01-29 10:28)', () => {
+  withOverride(() => {
+    const r = inversionEntryValid({
+      context: ctx({ structuresSwing: [{ dir: 'bear', event: 'mss', confirmed_ms: min(30) }], coherence: 1 }),
+      side: 'short', entryPrice: 29400, nowMs: NOW, // depth 0.6, sweeps empty → no grab
+    });
+    assert.equal(r.valid, true);
+    assert.equal(r.kind, 'continuation_deep');
+  });
+});
+
+test('override ON: deep + same-dir trend but CHOP (low coherence) + no grab → invalid (06-17)', () => {
+  withOverride(() => {
+    const r = inversionEntryValid({
+      context: ctx({ structuresSwing: [{ dir: 'bear', event: 'mss', confirmed_ms: min(30) }], coherence: 0.1 }),
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, false);
+  });
+});
+
+test('override ON: deep + NO swing trend + no grab → stays reversal_no_recent_grab', () => {
+  withOverride(() => {
+    const r = inversionEntryValid({
+      context: ctx({ sweeps: [{ side: 'sell', target: 'LO.L', swept_ms: min(20) }] }),
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, false);
+    assert.equal(r.kind, 'reversal');
+    assert.equal(r.reason, 'reversal_no_recent_grab');
+  });
+});
+
+test('override ON: deep + trend AGAINST (recent bull) + no grab → invalid', () => {
+  withOverride(() => {
+    const r = inversionEntryValid({
+      context: ctx({ structuresSwing: [{ dir: 'bull', event: 'mss', confirmed_ms: min(20) }], coherence: 1 }),
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, false);
+  });
+});
+
+test('override ON: deep + grab present is unchanged: valid reversal (never demotes)', () => {
+  withOverride(() => {
+    const r = inversionEntryValid({
+      context: ctx({
+        sweeps: [{ side: 'buy', target: 'NYAM.H', swept_ms: min(30) }],
+        structuresSwing: [{ dir: 'bull', event: 'mss', confirmed_ms: min(10) }], // trend against, but grab wins
+        coherence: 0.1,
+      }),
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, true);
+    assert.equal(r.kind, 'reversal');
+  });
+});
