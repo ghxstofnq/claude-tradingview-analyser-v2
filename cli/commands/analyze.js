@@ -6,7 +6,8 @@ import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser
 import { computeEngineGates } from '../lib/compute-engine-gates.js';
 import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
 import { computeSmtLeader } from '../lib/smt-leader.js';
-import { smtLeaderEvidence } from '../lib/smt-leader-evidence.js';
+import { computeLeader } from '../lib/compute-leader.js';
+import { buildLeaderEvidence } from '../lib/smt-leader-evidence.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
 import { captureMultiTfWithHealth, applyBaselineFallback, tfMatchesMeta } from '../lib/tf-capture.js';
@@ -890,6 +891,24 @@ register('analyze', {
         windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
       });
 
+      // Faithful leader (GOFNQ_FAITHFUL_LEADER, default OFF — validated 2026-06-25,
+      // 9-session pair-leader fold: displacement 5/8 vs Lanto + MNQ-safe; divergence
+      // 4/8 + R-negative). ON: the displacement / relative-strength pick (compute-
+      // leader.js — Lanto trades the leading instrument, DB 36:32/37:28) drives the
+      // leader, and the divergence-SMT above rides along only as a demoted direction
+      // confirmation. OFF: legacy SMT-divergence leader, unchanged.
+      const faithfulLeader = process.env.GOFNQ_FAITHFUL_LEADER === '1';
+      const disp = faithfulLeader
+        ? computeLeader({
+          primary: pairConfig.primary,
+          secondary: pairConfig.secondary,
+          primaryEngine: engine,
+          secondaryEngine: secondaryBundle.engine,
+          windowStartMs: windowStartMs ?? Number.POSITIVE_INFINITY,
+          windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
+        })
+        : null;
+
       pair = {
         primary: pairConfig.primary,
         secondary: pairConfig.secondary,
@@ -910,7 +929,13 @@ register('analyze', {
           },
           [pairConfig.secondary]: secondaryBundle,
         },
-        leader_evidence: smtLeaderEvidence(smt, pairConfig),
+        leader_evidence: buildLeaderEvidence({
+          faithful: faithfulLeader,
+          disp,
+          smt,
+          primary: pairConfig.primary,
+          secondary: pairConfig.secondary,
+        }),
         leader_decided: false,
         leader: null,    // set by surface_leader_decision, not by tv analyze
       };

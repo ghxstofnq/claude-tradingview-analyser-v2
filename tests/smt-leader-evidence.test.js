@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { smtLeaderEvidence } from "../cli/lib/smt-leader-evidence.js";
+import { smtLeaderEvidence, displacementLeaderEvidence, buildLeaderEvidence } from "../cli/lib/smt-leader-evidence.js";
 
 const pair = { primary: "MNQ1!", secondary: "MES1!" };
 
@@ -40,4 +40,50 @@ test("smtLeaderEvidence: null input → smt_no_result, leader null (never throws
   const e = smtLeaderEvidence(null, pair);
   assert.equal(e.leader, null);
   assert.equal(e.reason, "smt_no_result");
+});
+
+// --- Faithful displacement leader (GOFNQ_FAITHFUL_LEADER) ---
+
+const disp = {
+  leader: "MES1!", primary_disp_score: 0.79, secondary_disp_score: 0.97,
+  margin: 0.18, threshold: 0.1, reason: "secondary_higher_disp_score",
+};
+const smtConf = { divergence: false, bias_dir: "short", leader: null, reason: "no_divergence_measured", evidence: {} };
+
+test("displacementLeaderEvidence: carries leader + disp scores; SMT demoted to confirmation", () => {
+  const e = displacementLeaderEvidence(disp, smtConf, pair);
+  assert.equal(e.method, "displacement");
+  assert.equal(e.leader, "MES1!");
+  assert.equal(e.reason, "secondary_higher_disp_score");
+  assert.equal(e.primary_disp_score, 0.79);
+  assert.equal(e.secondary_disp_score, 0.97);
+  assert.equal(e.margin, 0.18);
+  // SMT is demoted: only its DIRECTION confirmation rides along, never its leader.
+  assert.equal(e.smt_confirmation.bias_dir, "short");
+  assert.equal(e.smt_confirmation.divergence, false);
+  assert.equal(e.smt_confirmation.leader, undefined);
+});
+
+test("displacementLeaderEvidence: inconclusive → leader null (caller defaults primary)", () => {
+  const inconclusive = { leader: null, primary_disp_score: 0.91, secondary_disp_score: 0.92, margin: 0.01, threshold: 0.1, reason: "inconclusive_margin_below_threshold" };
+  const e = displacementLeaderEvidence(inconclusive, smtConf, pair);
+  assert.equal(e.leader, null);
+  assert.equal(e.reason, "inconclusive_margin_below_threshold");
+});
+
+test("displacementLeaderEvidence: null disp / null smt never throws", () => {
+  const e = displacementLeaderEvidence(null, null, pair);
+  assert.equal(e.method, "displacement");
+  assert.equal(e.leader, null);
+  assert.equal(e.reason, "no_result");
+  assert.equal(e.smt_confirmation, null);
+});
+
+test("buildLeaderEvidence: faithful=true uses displacement; false uses smt", () => {
+  const f = buildLeaderEvidence({ faithful: true, disp, smt: smtConf, primary: pair.primary, secondary: pair.secondary });
+  assert.equal(f.method, "displacement");
+  assert.equal(f.leader, "MES1!");
+  const s = buildLeaderEvidence({ faithful: false, disp, smt: { divergence: true, leader: "MNQ1!", reason: "smt_divergence", evidence: {} }, primary: pair.primary, secondary: pair.secondary });
+  assert.equal(s.method, "smt");
+  assert.equal(s.leader, "MNQ1!");
 });
