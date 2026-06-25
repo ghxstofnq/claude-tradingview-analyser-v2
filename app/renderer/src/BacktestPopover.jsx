@@ -62,7 +62,7 @@ export function BacktestCell() {
           {state.ui !== "DETAIL" && (
             <CorpusStatus runs={state.library.runs} symbolView={symbolView} />
           )}
-          {(state.ui === "IDLE" || state.ui === "LIBRARY") && (
+          {state.ui === "LIBRARY" && (
             <div className="bt-sym-bar">
               <span className="bt-sym-label">INSTRUMENT</span>
               <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
@@ -247,56 +247,71 @@ function IdleBody({ state, actions, symbolView }) {
   // and the run reflect what's actually replayable — not future dates.
   const jobs = expandStudy({ symbol, start, end, sessions, mode });
   const recordings = jobs.length;
-  const canRun = jobs.length > 0;
+  const market = marketBlocked();
+  const noPick = jobs.length === 0;
+  const canRun = !noPick && !market.blocked;
   const run = () => { if (canRun) actions.startStudy(jobs); };
 
   return (
     <>
       <div className="section">
-        <div className="sect-hd"><span>CONFIGURE STUDY</span><span className="meta">RUNS ARE FREE</span></div>
+        <div className="sect-hd"><span>CONFIGURE RECORD</span><span className="meta">records from the chart</span></div>
 
-        <div className="cfg-field">
-          <div className="cfg-label">SYMBOL</div>
-          <Seg value={symbol} onChange={setSymbol} options={[["mnq", "MNQ"], ["mes", "MES"], ["both", "BOTH"]]} />
-        </div>
-
-        <div className="cfg-field">
-          <div className="cfg-label">DATE RANGE<span className="cfg-hint">{days} session day{days !== 1 ? "s" : ""}</span></div>
-          <div className="cfg-presets">
-            {STUDY_PRESETS.map((p) => (
-              <div key={p.id} className={"cfg-preset" + (preset === p.id ? " on" : "")} onClick={() => applyPreset(p)}>{p.label}</div>
-            ))}
+        <div className="cfg-form">
+          <div className="cfg-row">
+            <span className="cfg-rk">SYMBOL</span>
+            <Seg value={symbol} onChange={setSymbol} options={[["mnq", "MNQ"], ["mes", "MES"], ["both", "BOTH"]]} />
           </div>
-          <div className="cfg-dates">
-            <label className="cfg-date"><span className="dk">START</span><input type="date" value={start} max={end} onChange={(e) => editDate("start", e.target.value)} /></label>
-            <span className="arrow">→</span>
-            <label className="cfg-date"><span className="dk">END</span><input type="date" value={end} min={start} max={todayET()} onChange={(e) => editDate("end", e.target.value)} /></label>
-          </div>
-        </div>
 
-        <div className="cfg-field">
-          <div className="cfg-label">SESSIONS<span className="cfg-hint">recorded from each day</span></div>
-          <div className="cfg-multi">
-            {SESS.map(([k, l]) => (
-              <div key={k} className={"cfg-chip" + (sessions[k] ? " on" : "")} onClick={() => toggleSession(k)}>
-                <span className="ck">{sessions[k] ? "✓" : ""}</span>{l}
+          <div className="cfg-row">
+            <span className="cfg-rk">RANGE<span className="cfg-rk-hint">{days}d</span></span>
+            <div className="cfg-presets">
+              {STUDY_PRESETS.map((p) => (
+                <button key={p.id} type="button" className={"cfg-preset" + (preset === p.id ? " on" : "")} onClick={() => applyPreset(p)}>{p.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {preset === "custom" && (
+            <div className="cfg-row">
+              <span className="cfg-rk" />
+              <div className="cfg-dates">
+                <label className="cfg-date"><span className="dk">START</span><input type="date" value={start} max={end} onChange={(e) => editDate("start", e.target.value)} /></label>
+                <span className="arrow">→</span>
+                <label className="cfg-date"><span className="dk">END</span><input type="date" value={end} min={start} max={todayET()} onChange={(e) => editDate("end", e.target.value)} /></label>
               </div>
-            ))}
+            </div>
+          )}
+
+          <div className="cfg-row">
+            <span className="cfg-rk">SESSIONS</span>
+            <div className="cfg-multi">
+              {SESS.map(([k, l]) => (
+                <button key={k} type="button" className={"cfg-chip" + (sessions[k] ? " on" : "")} onClick={() => toggleSession(k)}>
+                  <span className="ck">{sessions[k] ? "✓" : ""}</span>{l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="cfg-row">
+            <span className="cfg-rk">MODE</span>
+            <Seg value={mode} onChange={setMode} options={[["auto", "AUTO"], ["pause", "PAUSE ON SETUP"]]} />
           </div>
         </div>
 
-        <div className="cfg-field">
-          <div className="cfg-label">MODE</div>
-          <Seg value={mode} onChange={setMode} options={[["auto", "AUTO"], ["pause", "PAUSE ON SETUP"]]} />
+        <div className="cfg-plan">
+          {noPick
+            ? <span className="warn">Pick at least one session and a valid date range.</span>
+            : <>▸ <b>{symLabel}</b> · <b>{selected.map((s) => s[1]).join(" + ")}</b> · {start} → {end} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} to record</>}
+        </div>
+        <div className="cfg-cost">
+          {market.blocked
+            ? <span className="warn">⏸ {market.reason}</span>
+            : "drives the chart session-by-session · markets must be closed"}
         </div>
 
-        <div className="cfg-summary">
-          {canRun
-            ? <>▸ Records <b>{symLabel}</b> across <b>{selected.map((s) => s[1]).join(" + ")}</b> · <b>{start} → {end}</b> · {days} day{days !== 1 ? "s" : ""} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} aggregated into ANALYTICS</>
-            : <span style={{ color: "var(--red)" }}>▸ Pick at least one session and a valid date range to run.</span>}
-        </div>
-
-        <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RUN</button>
+        <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RECORD</button>
       </div>
 
       <div className="section">
@@ -335,6 +350,22 @@ function presetRanges() {
     week: [iso(monday), iso(weekEnd)],
     lastweek: [iso(lastMon), iso(lastFri)],
   };
+}
+
+// Mirror the recorder's market-hours guard (record-corpus.mjs): recording
+// drives the live chart, so it's blocked weekdays 09:25–16:05 ET. Surfacing it
+// here means START explains *why* it's disabled instead of silently failing.
+function marketBlocked() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const g = (t) => parts.find((p) => p.type === t)?.value;
+  const wd = g("weekday");
+  const mins = Number(g("hour")) * 60 + Number(g("minute"));
+  if (!["Sat", "Sun"].includes(wd) && mins >= 9 * 60 + 25 && mins <= 16 * 60 + 5) {
+    return { blocked: true, reason: "markets open — recording resumes after the 4:00pm ET close" };
+  }
+  return { blocked: false, reason: null };
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -1005,7 +1005,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .form-row .v { color: var(--value); font-variant-numeric: tabular-nums; }
 
 .bt-popover .seg { display: flex; border: 1px solid var(--border-d); border-radius: var(--r-sm); overflow: hidden; }
-.bt-popover .seg .s { flex: 1; padding: 5px 4px; text-align: center; cursor: pointer;
+.bt-popover .seg .s { flex: 1; height: 30px; display: flex; align-items: center; justify-content: center; padding: 0 8px; cursor: pointer;
   color: var(--label); font-size: 10px; letter-spacing: 0.06em;
   border-right: 1px solid var(--border-d); user-select: none; white-space: nowrap; }
 .bt-popover .seg .s:last-child { border-right: 0; }
@@ -2389,7 +2389,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .form-row .v { color: var(--value); font-variant-numeric: tabular-nums; }
 
 .bt-popover .seg { display: flex; border: 1px solid var(--border-d); border-radius: var(--r-sm); overflow: hidden; }
-.bt-popover .seg .s { flex: 1; padding: 5px 4px; text-align: center; cursor: pointer;
+.bt-popover .seg .s { flex: 1; height: 30px; display: flex; align-items: center; justify-content: center; padding: 0 8px; cursor: pointer;
   color: var(--label); font-size: 10px; letter-spacing: 0.06em;
   border-right: 1px solid var(--border-d); user-select: none; white-space: nowrap; }
 .bt-popover .seg .s:last-child { border-right: 0; }
@@ -3983,8 +3983,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .cfg-label .cfg-hint { color: var(--label-dim); font-size: 9px; letter-spacing: 0.06em; white-space: nowrap; }
 
 .bt-popover .cfg-presets { display: flex; gap: 6px; margin-bottom: 11px; }
-.bt-popover .cfg-preset { flex: 1; text-align: center; padding: 8px 6px; border: 1px solid var(--border-d);
-  border-radius: var(--r-sm);
+.bt-popover .cfg-preset { flex: 1; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 6px; background: transparent; border: 1px solid var(--border-d); border-radius: var(--r-sm);
   color: var(--label); font-size: 9.5px; letter-spacing: 0.05em; cursor: pointer; white-space: nowrap; user-select: none; }
 .bt-popover .cfg-preset:hover { color: var(--value); border-color: var(--label); }
 .bt-popover .cfg-preset.on { color: var(--value-strong); border-color: var(--border-d); background: rgba(255,255,255,0.06); }
@@ -3998,8 +3998,8 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .cfg-dates .arrow { color: var(--label-dim); padding-bottom: 9px; }
 
 .bt-popover .cfg-multi { display: flex; gap: 6px; }
-.bt-popover .cfg-chip { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 10px 8px; border: 1px solid var(--border-d); border-radius: var(--r-sm); color: var(--label); font-size: 10px;
+.bt-popover .cfg-chip { flex: 1; height: 30px; display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 0 10px; background: transparent; border: 1px solid var(--border-d); border-radius: var(--r-sm); color: var(--label); font-size: 10px;
   letter-spacing: 0.06em; cursor: pointer; white-space: nowrap; user-select: none; }
 .bt-popover .cfg-chip:hover { color: var(--value); }
 .bt-popover .cfg-chip .ck { width: 13px; height: 13px; border: 1px solid var(--border-d);
@@ -4033,6 +4033,27 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .bt-corpus .cs-sym { color: var(--value); font-weight: 500; letter-spacing: 0.04em; }
 .bt-popover .bt-corpus .cs-v { color: var(--label); }
 .bt-popover .bt-corpus.empty .cs-empty { color: var(--amber); }
+
+/* RECORD configure — compact label-left form (replaces the stacked full-width
+   fields). Every control shares one 30px height so the button row reads as one
+   consistent system. */
+.bt-popover .cfg-form { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 12px; }
+.bt-popover .cfg-row { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 12px; }
+.bt-popover .cfg-row .cfg-rk {
+  color: var(--label); font-size: 9.5px; letter-spacing: 0.08em;
+  display: inline-flex; align-items: baseline; gap: 6px;
+}
+.bt-popover .cfg-row .cfg-rk .cfg-rk-hint { color: var(--label-dim); font-size: 8.5px; letter-spacing: 0.04em; }
+.bt-popover .cfg-form .cfg-presets,
+.bt-popover .cfg-form .cfg-multi { display: flex; gap: 6px; margin: 0; }
+
+/* Plan line + honest record cost. Cost is dim by default; the market-hours /
+   no-pick states turn amber via .warn (status, not decoration). */
+.bt-popover .cfg-plan { font-size: 11px; color: var(--value); letter-spacing: 0.02em; line-height: 1.5; }
+.bt-popover .cfg-plan b { color: var(--value-strong); font-weight: 500; }
+.bt-popover .cfg-cost { margin-top: 5px; font-size: 10px; color: var(--label-dim); letter-spacing: 0.04em; }
+.bt-popover .cfg-plan .warn,
+.bt-popover .cfg-cost .warn { color: var(--amber); }
 
 .bt-popover .cfg-summary { background: var(--surface-0); border: 1px solid var(--border-d);
   padding: 11px 13px; margin-top: 15px;

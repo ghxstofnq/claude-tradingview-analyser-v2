@@ -393,35 +393,39 @@
         <span class="cs-sym">MNQ</span>
         <span class="cs-empty">empty — record a sample to begin</span>
       </div>
-      <div class="bt-sym-bar">
-        <span class="bt-sym-label">INSTRUMENT</span>
-        <div class="seg"><div class="s on">MNQ</div><div class="s">MES</div></div>
-      </div>
       <div class="body">
         <div class="section">
-          <div class="sect-hd"><span>CONFIGURE STUDY</span><span class="meta">RECORDS FROM THE CHART</span></div>
-          <div class="cfg-field">
-            <div class="cfg-label">SYMBOL</div>
-            <div class="seg"><div class="s">MNQ</div><div class="s">MES</div><div class="s on">BOTH</div></div>
-          </div>
-          <div class="cfg-field">
-            <div class="cfg-label">DATE RANGE<span class="cfg-hint">10 session days</span></div>
-            <div class="cfg-presets">
-              <div class="cfg-preset">TODAY</div>
-              <div class="cfg-preset">THIS WEEK</div>
-              <div class="cfg-preset on">LAST WEEK</div>
-              <div class="cfg-preset">CUSTOM</div>
+          <div class="sect-hd"><span>CONFIGURE RECORD</span><span class="meta">records from the chart</span></div>
+          <div class="cfg-form">
+            <div class="cfg-row">
+              <span class="cfg-rk">SYMBOL</span>
+              <div class="seg"><div class="s">MNQ</div><div class="s">MES</div><div class="s on">BOTH</div></div>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-rk">RANGE<span class="cfg-rk-hint">9d</span></span>
+              <div class="cfg-presets">
+                <button class="cfg-preset">TODAY</button>
+                <button class="cfg-preset">THIS WEEK</button>
+                <button class="cfg-preset on">LAST WEEK</button>
+                <button class="cfg-preset">CUSTOM</button>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-rk">SESSIONS</span>
+              <div class="cfg-multi">
+                <button class="cfg-chip on"><span class="ck">✓</span>NY-AM</button>
+                <button class="cfg-chip"><span class="ck"></span>NY-PM</button>
+                <button class="cfg-chip on"><span class="ck">✓</span>LONDON</button>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-rk">MODE</span>
+              <div class="seg"><div class="s on">AUTO</div><div class="s">PAUSE ON SETUP</div></div>
             </div>
           </div>
-          <div class="cfg-field">
-            <div class="cfg-label">SESSIONS</div>
-            <div class="cfg-multi">
-              <div class="cfg-chip on"><span class="ck">✓</span>NY-AM</div>
-              <div class="cfg-chip"><span class="ck"></span>NY-PM</div>
-              <div class="cfg-chip on"><span class="ck">✓</span>LONDON</div>
-            </div>
-          </div>
-          <button class="start-btn">▶  START RECORD</button>
+          <div class="cfg-plan">▸ <b>MNQ1! + MES1!</b> · <b>NY-AM + LONDON</b> · 2026-06-15 → 2026-06-24 → <b>18</b> sessions to record</div>
+          <div class="cfg-cost"><span class="warn">⏸ markets open — recording resumes after the 4:00pm ET close</span></div>
+          <button class="start-btn" disabled>▶  START RECORD</button>
         </div>
       </div>
     </div>
