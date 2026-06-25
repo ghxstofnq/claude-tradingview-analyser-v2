@@ -20,6 +20,7 @@ import {
 } from "./Review.helpers.js";
 import { useReview } from "./hooks/useReview.js";
 import { useFills } from "./hooks/useFills.js";
+import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
 
 const gradeTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "dim");
 
@@ -237,42 +238,109 @@ function SessionFillsPanel({ date }) {
   );
 }
 
-// ── TRACK RECORD ─────────────────────────────────────────────────────
-// Per-FILL performance from real execution fills (state/trades) up top —
-// cumulative R, expectancy, payoff, avg win/loss, max DD — then the
-// session-level summary (concentration, by-grade) below. Every number is
-// from real fills or real per-session totals (no fabrication).
-function TrackRecordView({ library }) {
+// ── ACCOUNT LEDGER (per-account, collapsible) ────────────────────────
+// Trades grouped by the specific broker account, headed by the account name,
+// click to expand into that account's trades. The armed account (where orders
+// route) is tagged and open by default. Fixes the old collapse-by-broker bug
+// where every Tradovate account merged into one "tradovate" row.
+function AccountTradeRow({ t }) {
+  const a = t.actual || {};
+  const sideCls = (t.side === "long" || t.side === "buy") ? "l" : "s";
+  const sym = (t.symbol || "").replace(/^[A-Z_]+:/, "");
+  const time = t.ts
+    ? new Date(t.ts).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })
+    : "—";
+  const rTone = a.r > 0 ? "var(--green)" : a.r < 0 ? "var(--red)" : "var(--label)";
+  const usdTone = a.usd > 0 ? "var(--green)" : a.usd < 0 ? "var(--red)" : "var(--label)";
+  return (
+    <div className="acct-trade">
+      <span className="att-t">{time}</span>
+      <span className={"att-side " + sideCls}>{(t.side || "").toUpperCase()}</span>
+      <span className="att-sym">{sym}<span className="att-qty">{t.qty}c</span></span>
+      <span className="att-px">{a.entry ?? "—"} <span className="arr">→</span> {a.exit ?? "—"}</span>
+      <span className="att-pl">
+        {a.r != null && <span style={{ color: rTone }}>{a.r > 0 ? "+" : ""}{a.r}R</span>}
+        <span style={{ color: usdTone }}>{a.usd >= 0 ? "+" : ""}${a.usd ?? "—"}</span>
+      </span>
+    </div>
+  );
+}
+
+function AccountGroup({ acct, expanded, onToggle }) {
+  const empty = acct.n_trades === 0;
+  const rTone = acct.net_r == null ? "var(--label)" : acct.net_r > 0 ? "var(--green)" : acct.net_r < 0 ? "var(--red)" : "var(--label)";
+  const usdTone = acct.net_usd > 0 ? "var(--green)" : acct.net_usd < 0 ? "var(--red)" : "var(--label)";
+  return (
+    <div className={"acct-group" + (expanded ? " open" : "") + (empty ? " empty" : "")}>
+      <button type="button" className="acct-head"
+              onClick={empty ? undefined : onToggle} disabled={empty}
+              aria-expanded={empty ? undefined : expanded}>
+        <span className="ah-caret" aria-hidden="true">{empty ? "·" : expanded ? "▾" : "▸"}</span>
+        <span className="ah-name">{acct.name}</span>
+        <span className={"ah-tag" + (acct.armed ? " armed" : "")}>{acct.armed ? "ARMED" : String(acct.broker || "").toUpperCase()}</span>
+        <span className="ah-sum">
+          <span className="ah-n">{empty ? "no fills here" : `${acct.n_trades} trade${acct.n_trades === 1 ? "" : "s"}`}</span>
+          {acct.net_r != null && <span style={{ color: rTone }}>{acct.net_r > 0 ? "+" : ""}{acct.net_r}R</span>}
+          {!empty && <span style={{ color: usdTone }}>{acct.net_usd >= 0 ? "+" : ""}${acct.net_usd}</span>}
+        </span>
+      </button>
+      {expanded && !empty && (
+        <div className="acct-body">
+          <div className="acct-stat">
+            <span>{acct.win_pct}% win</span>
+            <span>payoff {acct.payoff.toFixed(2)}×</span>
+            <span style={{ color: "var(--green)" }}>+{acct.avg_win.toFixed(2)}R</span>
+            <span style={{ color: "var(--red)" }}>{acct.avg_loss.toFixed(2)}R</span>
+            <span style={{ color: "var(--red)" }}>DD {acct.max_drawdown_r.toFixed(1)}R</span>
+          </div>
+          {acct.trades.map((t, i) => <AccountTradeRow key={i} t={t} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccountLedger() {
   const { fills } = useFills("all");
-  const byAccount = buildTrackRecordByAccount(fills);
+  const { acct } = useBrokerAccount();
+  const confirmed = acct?.confirmed || null;
+  const groups = buildTrackRecordByAccount(fills, confirmed);
+  // Default-open the armed account; respect the user's toggles after that.
+  const armedId = groups.find((g) => g.armed)?.accountId;
+  const [open, setOpen] = useState(null);
+  const openSet = open ?? new Set(armedId ? [armedId] : []);
+  const toggle = (id) => setOpen((prev) => {
+    const next = new Set(prev ?? (armedId ? [armedId] : []));
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  return (
+    <div className="section">
+      <div className="sect-hd">
+        <span>ACCOUNTS</span>
+        <span className="meta">{groups.length} account{groups.length === 1 ? "" : "s"} · click to expand</span>
+      </div>
+      {groups.length === 0 && <Row k="—" v="no executed trades yet" tone="dim" />}
+      {groups.map((g) => (
+        <AccountGroup key={g.accountId} acct={g}
+                      expanded={openSet.has(g.accountId)}
+                      onToggle={() => toggle(g.accountId)} />
+      ))}
+    </div>
+  );
+}
+
+// ── TRACK RECORD ─────────────────────────────────────────────────────
+// Trades grouped by account (collapsible) up top — clear separation of which
+// account each trade belongs to — then the session-level summary
+// (concentration, by-grade) below. Every number is from real fills or real
+// per-session totals (no fabrication).
+function TrackRecordView({ library }) {
   const A = buildTrackRecord(library);
   const maxSession = Math.max(1, ...A.by_session.map((s) => Math.abs(s.r)));
   return (
     <div className="work-scroll">
-      {byAccount.map((F) => (
-        <div className="section" key={F.account}>
-          <div className="sect-hd"><span>PERFORMANCE · {String(F.account).toUpperCase()}</span><span className="meta">{F.n_trades} TRADE{F.n_trades === 1 ? "" : "S"}</span></div>
-          <div className="an-hero">
-            <div className="htile">
-              <span className="k">CUMULATIVE R</span>
-              <span className={"v " + (F.cum_r >= 0 ? "green" : "red")}>{F.cum_r > 0 ? "+" : ""}{F.cum_r.toFixed(1)}R</span>
-              <span className="sub">{F.n_trades} fills · {F.cum_usd >= 0 ? "+" : ""}${F.cum_usd}</span>
-            </div>
-            <div className="htile">
-              <span className="k">EXPECTANCY</span>
-              <span className={"v " + (F.expectancy >= 0 ? "green" : "red")}>{F.expectancy > 0 ? "+" : ""}{F.expectancy.toFixed(2)}R</span>
-              <span className="sub">per trade · payoff {F.payoff.toFixed(2)}× · {F.win_pct}% win</span>
-            </div>
-          </div>
-          <div className="an-strip">
-            <div className="c"><span className="k">WIN RATE</span><span className="v">{F.win_pct}%</span></div>
-            <div className="c"><span className="k">PAYOFF</span><span className="v">{F.payoff.toFixed(2)}×</span></div>
-            <div className="c"><span className="k">AVG WIN</span><span className="v green">+{F.avg_win.toFixed(2)}R</span></div>
-            <div className="c"><span className="k">AVG LOSS</span><span className="v red">{F.avg_loss.toFixed(2)}R</span></div>
-            <div className="c"><span className="k">MAX DD</span><span className="v red">{F.max_drawdown_r.toFixed(1)}R</span></div>
-          </div>
-        </div>
-      ))}
+      <AccountLedger />
       <div className="section">
         <div className="sect-hd"><span>PERFORMANCE</span><span className="meta">{A.n_sessions} SESSION{A.n_sessions === 1 ? "" : "S"} · REAL FILLS</span></div>
         <div className="an-hero">

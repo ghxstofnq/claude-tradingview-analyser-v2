@@ -3758,6 +3758,58 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .an-strip .c.muted .v { color: var(--label); font-weight: 400; }
 .bt-popover .an-strip .c .tag { display: inline-block; margin-top: 3px; color: var(--label-dim); font-size: 10px; letter-spacing: 0.04em; }
 
+/* Account ledger — trades grouped by the specific account, name-headed,
+   click to expand. Hairline separators only; no side-stripe accents. */
+.bt-popover .acct-group { border-bottom: 1px solid var(--border-d); }
+.bt-popover .acct-group:last-child { border-bottom: 0; }
+.bt-popover .acct-head {
+  width: 100%; display: flex; align-items: center; gap: 9px;
+  background: transparent; border: 0; padding: 11px 4px; margin: 0;
+  text-align: left; cursor: pointer; color: var(--value); font: inherit;
+  transition: background 140ms ease;
+}
+.bt-popover .acct-head:hover:not(:disabled) { background: rgba(255, 255, 255, 0.035); }
+.bt-popover .acct-head:disabled { cursor: default; }
+.bt-popover .acct-head:focus-visible { outline: 1px solid var(--value); outline-offset: -1px; }
+.bt-popover .acct-group.empty .acct-head { opacity: 0.6; }
+.bt-popover .ah-caret { width: 10px; flex: none; color: var(--label-dim); font-size: 9px; }
+.bt-popover .ah-name { color: var(--value); font-weight: 500; font-size: 13px; letter-spacing: 0.01em; }
+.bt-popover .ah-tag {
+  display: inline-flex; align-items: center; height: 16px; padding: 0 6px;
+  font-size: 8.5px; letter-spacing: 0.1em; color: var(--label);
+}
+.bt-popover .ah-tag.armed { color: var(--value); border: 1px solid var(--border); }
+.bt-popover .ah-sum {
+  margin-left: auto; display: inline-flex; align-items: baseline; gap: 12px;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.bt-popover .ah-sum .ah-n { color: var(--label); font-size: 10.5px; letter-spacing: 0.04em; }
+
+.bt-popover .acct-body { padding: 0 4px 12px 23px; animation: acct-in 160ms ease-out; }
+.bt-popover .acct-stat {
+  display: flex; flex-wrap: wrap; gap: 14px; padding: 4px 0 9px;
+  color: var(--label); font-size: 10.5px; letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.bt-popover .acct-trade {
+  display: grid; grid-template-columns: 96px 40px 1fr auto auto; gap: 10px;
+  align-items: center; padding: 7px 0; font-size: 10.5px;
+  border-top: 1px solid var(--border); font-variant-numeric: tabular-nums;
+}
+.bt-popover .acct-trade:first-child { border-top: 0; }
+.bt-popover .att-t { color: var(--label); }
+.bt-popover .att-side { letter-spacing: 0.12em; font-weight: 500; }
+.bt-popover .att-side.l { color: var(--green); }
+.bt-popover .att-side.s { color: var(--red); }
+.bt-popover .att-sym { color: var(--value); }
+.bt-popover .att-sym .att-qty { color: var(--label); margin-left: 6px; }
+.bt-popover .att-px { color: var(--label); }
+.bt-popover .att-px .arr { color: var(--label-dim); }
+.bt-popover .att-pl { display: inline-flex; gap: 10px; justify-self: end; }
+
+@keyframes acct-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .bt-popover .acct-body { animation: none; } }
+
 /* Equity / cumulative-R curve */
 .bt-popover .an-equity { border: 1px solid var(--border-d); background: var(--surface-0); padding: 12px 14px; }
 .bt-popover .an-equity .eq-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }

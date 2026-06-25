@@ -42,6 +42,11 @@ const SAMPLES = [
   ["lib-table td",     ".lib-table td"],
   ["lib-table th",     ".lib-table th"],
   ["chain-degraded",   ".chain-degraded"],
+  ["acct-head",        ".acct-head"],
+  ["ah-name",          ".ah-name"],
+  ["ah-tag.armed",     ".ah-tag.armed"],
+  ["acct-trade",       ".acct-trade"],
+  ["att-side.l",       ".att-side.l"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report

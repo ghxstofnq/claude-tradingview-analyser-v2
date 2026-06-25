@@ -189,20 +189,55 @@ export function buildTrackRecordFromFills(fills = []) {
   };
 }
 
-// Per-ACCOUNT track records (paper / tradovate / live separated), so one
-// account's performance never bleeds into another's in REVIEW. Each entry is a
-// full buildTrackRecordFromFills over that account's fills. Accounts with no
-// graded fills are dropped; ordered by trade count (busiest first).
-export function buildTrackRecordByAccount(fills = []) {
-  const groups = {};
+// Resolve a human display name for an account. Honest — never invents a name
+// (PRODUCT.md #3). The armed/confirmed account carries a real name from
+// execution-config; every other account is shown by the only identifier we
+// recorded (its broker account id), so two accounts are always distinguishable.
+export function resolveAccountName(accountId, broker, confirmed) {
+  if (confirmed?.id && accountId === confirmed.id && confirmed.name) return confirmed.name;
+  if (accountId && accountId !== "unknown") return String(accountId);
+  return "Unattributed";
+}
+
+// Per-ACCOUNT trade ledger keyed by the SPECIFIC account id — not the broker
+// label, which collapses two distinct Tradovate accounts into one "tradovate"
+// group. Each entry carries the resolved name, an `armed` flag (the
+// confirmed/active account orders route to), the per-account summary, and the
+// account's own trades newest-first for the expandable view. The confirmed
+// account is always present — even with zero fills here — so the separation is
+// explicit and the armed account never silently disappears.
+//   fills:     readAllFills records { accountId, account, side, symbol, qty, actual:{r,usd} }
+//   confirmed: execution-config confirmedAccount { id, name, type } | null
+export function buildTrackRecordByAccount(fills = [], confirmed = null) {
+  const groups = new Map();
   for (const f of (fills || [])) {
-    const key = f?.account || "unknown";
-    (groups[key] ||= []).push(f);
+    const key = f?.accountId ?? f?.account ?? "unknown";
+    if (!groups.has(key)) groups.set(key, { broker: f?.account ?? null, list: [] });
+    groups.get(key).list.push(f);
   }
-  return Object.entries(groups)
-    .map(([account, list]) => ({ account, ...buildTrackRecordFromFills(list) }))
-    .filter((a) => a.n_trades > 0)
-    .sort((a, b) => b.n_trades - a.n_trades);
+  // The armed account is always its own visible group, even with no fills here.
+  if (confirmed?.id && !groups.has(confirmed.id)) {
+    groups.set(confirmed.id, { broker: confirmed.broker ?? null, list: [] });
+  }
+  const sumUsd = (l) => Math.round(l.reduce((s, f) => s + (Number(f?.actual?.usd) || 0), 0));
+  const sumR = (l) => {
+    const rs = l.map((f) => f?.actual?.r).filter((r) => typeof r === "number");
+    return rs.length ? Math.round(rs.reduce((s, v) => s + v, 0) * 100) / 100 : null;
+  };
+  const out = [...groups.entries()].map(([accountId, { broker, list }]) => ({
+    accountId,
+    account: broker ?? "unknown",
+    broker,
+    name: resolveAccountName(accountId, broker, confirmed),
+    armed: confirmed?.id != null && accountId === confirmed.id,
+    ...buildTrackRecordFromFills(list),
+    n_trades: list.length,                  // all fills, incl. un-bracketed (r:null)
+    net_usd: sumUsd(list),                   // real $ over every fill
+    net_r: sumR(list),                       // R only where a bracket recorded it
+    trades: [...list].sort((a, b) => String(b.ts).localeCompare(String(a.ts))),
+  }));
+  // Armed account first, then busiest.
+  return out.sort((a, b) => Number(b.armed) - Number(a.armed) || b.n_trades - a.n_trades);
 }
 
 export function degradedChainStages(chainAudit) {
