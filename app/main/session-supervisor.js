@@ -65,7 +65,12 @@ export function planSupervisorAction({
   manualStopSession = null,
   restartsThisSession = 0,
   secondsSinceIntervention = Infinity,
+  backtestActive = false,
 }) {
+  // A backtest holds the chart (TV 9225 is shared). Stand down completely —
+  // never arm, restart, or disarm — until it releases. The detector was already
+  // paused imperatively at backtest start; live re-arms on the first tick after.
+  if (backtestActive) return { action: "none", reason: "backtest_active" };
   if (session === "idle") {
     if (mode === "live" && !hasOpenTrades) return { action: "disarm", reason: "session_over" };
     return { action: "none", reason: mode === "live" ? "open_trades" : "idle" };
@@ -165,6 +170,7 @@ export function createSessionSupervisor(deps) {
       manualStopSession: state.manualStopKey === state.sessionKey && session !== "idle" ? session : null,
       restartsThisSession: state.restartsThisSession,
       secondsSinceIntervention: state.lastInterventionMs == null ? Infinity : (now - state.lastInterventionMs) / 1000,
+      backtestActive: deps.isBacktestActive?.() ?? false,
     });
 
     if (plan.action === "arm") {
@@ -270,7 +276,8 @@ export function startSessionSupervisor({ send }) {
     import("./bar-close.js"),
     import("./metrics.js"),
     import("./notify.js"),
-  ]).then(([sessions, mode, barClose, metrics, notifyMod]) => {
+    import("./backtest-lock.js"),
+  ]).then(([sessions, mode, barClose, metrics, notifyMod, backtestLock]) => {
     _supervisor = createSessionSupervisor({
       getSession: () => {
         const s = sessions.currentSession();
@@ -284,6 +291,7 @@ export function startSessionSupervisor({ send }) {
       resetDetectorRestarts: barClose.resetDetectorRestarts,
       hasOpenTrades: barClose.hasOpenTrades,
       runReadinessCheck: runLiveCheckCli,
+      isBacktestActive: backtestLock.isBacktestActive,
       notify: ({ level, title, body }) => {
         notifyMod.notifySystem({ title, body });
         send?.("app:error", { source: "supervisor", level, message: `${title}: ${body}` });
@@ -310,3 +318,7 @@ export function stopSessionSupervisor() {
 
 export function noteManualStop() { _supervisor?.noteManualStop(); }
 export function noteManualStart() { _supervisor?.noteManualStart(); }
+
+// Run one supervisor tick now (out of band). Used to re-arm live promptly when
+// a backtest releases the chart instead of waiting for the next interval tick.
+export function nudgeSupervisor() { return _supervisor?.tick?.().catch(() => {}); }

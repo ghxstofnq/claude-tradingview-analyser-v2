@@ -14,6 +14,14 @@ test("plan: arms the live loop when a session window opens and mode is not live"
   assert.equal(plan.action, "arm");
 });
 
+test("plan: stands down while a backtest holds the chart, even in a session window", () => {
+  const plan = planSupervisorAction({
+    session: "ny-am", mode: "prep", heartbeatAgeS: null, backtestActive: true,
+  });
+  assert.equal(plan.action, "none");
+  assert.equal(plan.reason, "backtest_active");
+});
+
 test("plan: a manual stop during the session suppresses re-arming for that session", () => {
   const plan = planSupervisorAction({
     session: "ny-am", mode: "prep", heartbeatAgeS: null, manualStopSession: "ny-am",

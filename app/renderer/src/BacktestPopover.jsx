@@ -247,9 +247,8 @@ function IdleBody({ state, actions, symbolView }) {
   // and the run reflect what's actually replayable — not future dates.
   const jobs = expandStudy({ symbol, start, end, sessions, mode });
   const recordings = jobs.length;
-  const market = marketBlocked();
   const noPick = jobs.length === 0;
-  const canRun = !noPick && !market.blocked;
+  const canRun = !noPick;
   const run = () => { if (canRun) actions.startStudy(jobs); };
 
   return (
@@ -306,9 +305,7 @@ function IdleBody({ state, actions, symbolView }) {
             : <>▸ <b>{symLabel}</b> · <b>{selected.map((s) => s[1]).join(" + ")}</b> · {start} → {end} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} to record</>}
         </div>
         <div className="cfg-cost">
-          {market.blocked
-            ? <span className="warn">⏸ {market.reason}</span>
-            : "drives the chart session-by-session · markets must be closed"}
+          drives the chart session-by-session · pauses the live loop while it records, then live re-arms
         </div>
 
         <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RECORD</button>
@@ -350,22 +347,6 @@ function presetRanges() {
     week: [iso(monday), iso(weekEnd)],
     lastweek: [iso(lastMon), iso(lastFri)],
   };
-}
-
-// Mirror the recorder's market-hours guard (record-corpus.mjs): recording
-// drives the live chart, so it's blocked weekdays 09:25–16:05 ET. Surfacing it
-// here means START explains *why* it's disabled instead of silently failing.
-function marketBlocked() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
-  }).formatToParts(new Date());
-  const g = (t) => parts.find((p) => p.type === t)?.value;
-  const wd = g("weekday");
-  const mins = Number(g("hour")) * 60 + Number(g("minute"));
-  if (!["Sat", "Sun"].includes(wd) && mins >= 9 * 60 + 25 && mins <= 16 * 60 + 5) {
-    return { blocked: true, reason: "markets open — recording resumes after the 4:00pm ET close" };
-  }
-  return { blocked: false, reason: null };
 }
 
 // ─────────────────────────────────────────────────────────────────────

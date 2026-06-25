@@ -24,6 +24,20 @@ import {
   readBaseline, readHistory, refoldBaseline,
   listTests, readTest, writeTestVerdict, deleteTest,
 } from "./backtest-baseline.js";
+import { acquireChartForBacktest, releaseChartAfterBacktest } from "./backtest-lock.js";
+import { stopDetector } from "./bar-close.js";
+import { setMode } from "./mode.js";
+import { nudgeSupervisor } from "./session-supervisor.js";
+
+// Pause the live loop and hand TV to the backtest — both drive the one chart
+// (CDP 9225). Idempotent (safe to call per study job): stop the detector, drop
+// out of live mode, and hold the coordination lock so the supervisor stands
+// down. Live re-arms automatically once the lock releases.
+function pauseLiveForBacktest() {
+  acquireChartForBacktest();
+  try { stopDetector(); } catch { /* not running */ }
+  try { setMode("prep"); } catch { /* best-effort */ }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Singleton run state — enforces exclusive mode.
@@ -47,12 +61,19 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
     currentBus = new EventEmitter();
     currentBus.on("backtest:event", (e) => send("backtest:event", e));
 
+    // Take the chart from the live loop for the duration of this run/study.
+    pauseLiveForBacktest();
+
     currentRunPromise = (async () => {
       try {
         return await runBacktest({ date, session, mode, symbol, bus: currentBus, stateDir: STATE_DIR, deps });
       } finally {
         currentBus = null;
         currentRunPromise = null;
+        // Debounced — a multi-job study's next job re-acquires before this
+        // fires, so the lock holds across the whole study; when it finally
+        // clears, nudge the supervisor to re-arm live now.
+        releaseChartAfterBacktest({ onRelease: nudgeSupervisor });
       }
     })().catch((err) => {
       // Surface but don't crash the main process. The engine already
