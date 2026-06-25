@@ -46,8 +46,7 @@ function SessionJournalPanel({ journal, onExport }) {
   return (
     <Panel title={`SESSION JOURNAL · ${(journal.session || "").toUpperCase()} · ${journal.date}`} right={meta}>
       {degraded.length > 0 && (
-        <div style={{ color: "var(--red)", fontSize: 11, lineHeight: 1.5,
-                       borderLeft: "2px solid var(--red)", paddingLeft: 6, margin: "6px 0" }}>
+        <div className="chain-degraded">
           {`CHAIN DEGRADED — ${degraded.map((d) => `${d.stage}: ${d.status}`).join(" · ")}`}
         </div>
       )}
@@ -151,7 +150,7 @@ function CandidateLedgerPanel({ ledger, brief }) {
   return (
     <Panel title="CANDIDATE LEDGER" meta={meta}>
       {ledger.length === 0 && (
-        <Row k="—" v="no candidates this session" tone="dim" />
+        <Row k="—" v="no candidates yet — the chain surfaces setups as price confirms" tone="dim" />
       )}
       {rows.map(({ row, f }) => {
         const id = row.setup?.id || row.setup?.ts || Math.random();

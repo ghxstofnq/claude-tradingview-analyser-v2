@@ -41,6 +41,7 @@ const SAMPLES = [
   ["an-strip c v",     ".an-strip .c .v"],
   ["lib-table td",     ".lib-table td"],
   ["lib-table th",     ".lib-table th"],
+  ["chain-degraded",   ".chain-degraded"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report

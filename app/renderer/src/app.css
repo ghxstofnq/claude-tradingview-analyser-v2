@@ -4345,3 +4345,16 @@ button { border-radius: var(--r-sm); }
 }
 .ffig b { color: var(--value-strong); font-weight: 500; }
 .ffig b.g { color: var(--green); }
+
+/* Degraded-chain note — full-width tint, no side-stripe (banned pattern) */
+.chain-degraded {
+  margin: 8px 0; padding: 7px 10px; font-size: 12px; line-height: 1.5;
+  color: var(--red); border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 32%, transparent);
+}
+
+/* Ledger breakdown entrance — subtle, 160ms ease-out, reduced-motion safe */
+@keyframes fbreak-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
+.fbreak { animation: fbreak-in 160ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .fbreak { animation: none; } }
