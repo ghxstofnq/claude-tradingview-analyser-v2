@@ -185,37 +185,41 @@ more weeks ([[fold-before-trusting-a-separator]], [[filters-dont-separate]]).
 
 ---
 
-## 6b. Validation results — first pass (2026-06-25, 7 paired NY-AM sessions)
+## 6b. Validation results (2026-06-25, 9 paired NY-AM sessions)
 
-Corpus: 5 Stage-G MNQ-led days (06-16/09/17/18, 02-09) + 2 ES-led days from Lanto's
-Discord (01-29 ES short won; 06-15 ES "slightly leading" long won +2R). Each symbol
-recorded via `tv record-tape`, folded through the same chain, packet forward-simmed to R.
-Harness: `scripts/fold-pair-leader.mjs` (tapes local — gitignored).
+Corpus: 5 Stage-G MNQ-led days (06-16/09/17/18, 02-09) + 4 ES-led days from Lanto's Discord
+(01-29 ES short won; 06-15 ES "slightly leading" long won; 04-06 ES long b/e; 06-22 "ES
+confirmed 4 min before NQ — leading"). Each symbol recorded via `tv record-tape`, folded
+through the same chain, packet forward-simmed to R. Harness: `scripts/fold-pair-leader.mjs`
+(tapes local — gitignored).
 
-**Leader-pick faithfulness (vs Lanto's actual instrument, 6 decision days):**
-- **Displacement-leader: 5/6** — MNQ on the 4 Nasdaq days, MES on 01-29 (correct switch);
-  missed 06-15 (Lanto's own words: ES "*slightly* leading" — the lead fell under the 0.10
-  margin → defaulted MNQ).
-- **Divergence-SMT: 3/6** — wrong on 06-16 (picked MES, the loser) and 01-29 (stayed MNQ,
-  missed the switch).
+**Leader-pick faithfulness (vs Lanto's actual instrument, 8 decision days):**
+- **Displacement-leader: 5/8** — perfect on the 4 MNQ days + caught 01-29 (MES, clear lead).
+  Missed all 3 MES-*long* days: 06-15 ("slight" lead), 04-06 (lead emerged 10:12, after the
+  window), 06-22 (a *clear* in-window lead — "ES confirmed 4 min before NQ" — yet the metric
+  read inconclusive). Never wrongly leaves MNQ.
+- **Divergence-SMT: 4/8** — wrong on 06-16 (picked MES, the loser, −R); caught 04-06; missed
+  01-29/06-15/06-22.
 
-**R-totals:** always-MNQ **+9.72R** · displacement **+9.72R** · divergence-SMT **+4.13R**.
+**R-totals:** always-MNQ **+7.72R** · displacement **+7.72R** · divergence-SMT **+2.13R**.
 
 **Conclusions (report — user concludes):**
-1. **Demote divergence-SMT — well-supported.** Unfaithful (3/6) and R-negative (−5.59R drag,
-   all from the 06-16 wrong pick). This reproduces the live 2026-06-24 "completely wrong" call.
-2. **Displacement-leader is faithful and harmless** — 5/6 instrument match, R exactly equal to
-   always-MNQ (never picked a worse symbol). Safe to adopt as the leader.
-3. **No R-edge demonstrated — and the limiter is Pillar 3, not the leader.** On both ES-led
-   days the chain failed to reproduce Lanto's MES win: it **no-traded** 01-29 and **stopped**
-   on 06-15 (the chain's MES setup ≠ Lanto's). A correct leader pick captures nothing until the
-   entry models cover the MES setups Lanto takes. The edge lives in the Pillar-3 audit.
-4. **06-15 calibration knob:** a "slight" lead under the 0.10 margin defaulted MNQ. A/B the alt
-   metric (open-range disp ÷ ATR) and/or a lower threshold — but only if it does not break the
-   MNQ-led days (no curve-fitting one session).
+1. **Demote divergence-SMT — clear.** 4/8, R-negative (−5.59R drag, the 06-16 wrong pick).
+   Reproduces the live 2026-06-24 "completely wrong" call.
+2. **Displacement is the better, MNQ-safe default** (5/8, never picks a worse symbol than MNQ,
+   R = baseline) — adopt it over divergence. BUT its current metric (max FVG disp_score, 0.10
+   margin) is **not sensitive enough to reliably detect Lanto's leads** — it catches obvious
+   ones (01-29) and misses subtle/late ones. 06-22 is the proof: a clear in-window ES lead read
+   "inconclusive" while MES (chain) won +0.21R vs MNQ −1R. **Metric/threshold tuning is required,
+   not optional**, before the switch is useful. A/B open-range disp ÷ ATR and a lower margin —
+   only if it does not break the 4 MNQ days.
+3. **Edge is double-gated.** Even when the leader is right, Pillar-3 mostly didn't convert the
+   MES trade (no-trade 01-29; stops 06-15/04-06; only 06-22 MES eked +0.21R). The chain's MES
+   setups ≠ Lanto's. The real edge work is **Pillar-3 MES coverage**, on top of the metric fix.
 
-**Open (next):** extend the ES-led corpus (04-06 ES long b/e; 06-22 "ES confirmed 4 min before
-NQ — leading") for a firmer accuracy stat; the Pillar-3 MES coverage gap is the real edge work.
+**Open (next):** (a) A/B the leader metric/threshold against this 9-session corpus; (b) the
+Pillar-3 entry-models audit (the dominant edge limiter); (c) consider per-entry (not session-
+pinned) leader re-evaluation for late leads like 04-06.
 
 ## 7. Component changes (only if §6 passes)
 

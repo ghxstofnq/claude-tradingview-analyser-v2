@@ -38,6 +38,8 @@ const SESSIONS = [
   // ES-led (Lanto traded ES — the SWITCH test)
   { date: "2026-01-29", mnq: "tests/tapes/2026-01-29-ny-am-replay.tape.json", mes: "tests/tapes/2026-01-29-mes-ny-am-replay.tape.json", lanto_pick: "MES short (won, TP2 6879)" },
   { date: "2026-06-15", mnq: "tests/tapes/2026-06-15-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-15-mes-ny-am-replay.tape.json", lanto_pick: "MES long (won +2R, tgt 7641)" },
+  { date: "2026-04-06", mnq: "tests/tapes/2026-04-06-ny-am-replay.tape.json", mes: "tests/tapes/2026-04-06-mes-ny-am-replay.tape.json", lanto_pick: "MES long (b/e; ES led @10:12)" },
+  { date: "2026-06-22", mnq: "tests/tapes/2026-06-22-ny-am-replay.tape.json", mes: "tests/tapes/2026-06-22-mes-ny-am-replay.tape.json", lanto_pick: "MES long (ES confirmed 4min before NQ)" },
 ];
 
 const load = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
