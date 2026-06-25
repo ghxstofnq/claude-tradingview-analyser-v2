@@ -185,6 +185,38 @@ more weeks ([[fold-before-trusting-a-separator]], [[filters-dont-separate]]).
 
 ---
 
+## 6b. Validation results — first pass (2026-06-25, 7 paired NY-AM sessions)
+
+Corpus: 5 Stage-G MNQ-led days (06-16/09/17/18, 02-09) + 2 ES-led days from Lanto's
+Discord (01-29 ES short won; 06-15 ES "slightly leading" long won +2R). Each symbol
+recorded via `tv record-tape`, folded through the same chain, packet forward-simmed to R.
+Harness: `scripts/fold-pair-leader.mjs` (tapes local — gitignored).
+
+**Leader-pick faithfulness (vs Lanto's actual instrument, 6 decision days):**
+- **Displacement-leader: 5/6** — MNQ on the 4 Nasdaq days, MES on 01-29 (correct switch);
+  missed 06-15 (Lanto's own words: ES "*slightly* leading" — the lead fell under the 0.10
+  margin → defaulted MNQ).
+- **Divergence-SMT: 3/6** — wrong on 06-16 (picked MES, the loser) and 01-29 (stayed MNQ,
+  missed the switch).
+
+**R-totals:** always-MNQ **+9.72R** · displacement **+9.72R** · divergence-SMT **+4.13R**.
+
+**Conclusions (report — user concludes):**
+1. **Demote divergence-SMT — well-supported.** Unfaithful (3/6) and R-negative (−5.59R drag,
+   all from the 06-16 wrong pick). This reproduces the live 2026-06-24 "completely wrong" call.
+2. **Displacement-leader is faithful and harmless** — 5/6 instrument match, R exactly equal to
+   always-MNQ (never picked a worse symbol). Safe to adopt as the leader.
+3. **No R-edge demonstrated — and the limiter is Pillar 3, not the leader.** On both ES-led
+   days the chain failed to reproduce Lanto's MES win: it **no-traded** 01-29 and **stopped**
+   on 06-15 (the chain's MES setup ≠ Lanto's). A correct leader pick captures nothing until the
+   entry models cover the MES setups Lanto takes. The edge lives in the Pillar-3 audit.
+4. **06-15 calibration knob:** a "slight" lead under the 0.10 margin defaulted MNQ. A/B the alt
+   metric (open-range disp ÷ ATR) and/or a lower threshold — but only if it does not break the
+   MNQ-led days (no curve-fitting one session).
+
+**Open (next):** extend the ES-led corpus (04-06 ES long b/e; 06-22 "ES confirmed 4 min before
+NQ — leading") for a firmer accuracy stat; the Pillar-3 MES coverage gap is the real edge work.
+
 ## 7. Component changes (only if §6 passes)
 
 Minimal, flag-gated:
