@@ -102,6 +102,11 @@ function buildPillar3(engine) {
   // evidence the Trend model gates on (EM Trend §1 "a clear MSS ... you are now
   // in the continuation phase"; §3/§4 structure-break invalidation).
   const structuresSwing = normalizeEvidenceList(engine?.pillar3?.structures_by_tier?.swing ?? engine?.pillar3?.structuresSwing ?? [], 'gates.engine.pillar3.structures_by_tier.swing');
+  // Internal swing PIVOTS (HH/HL/LH/LL) with swept + swept_ms — the stop-anchoring
+  // internal-liquidity sweep the inversion patience gate keys on (a long needs a
+  // recently-swept internal LOW, a short a swept internal HIGH). swept_ms is schema-4;
+  // pre-swept_ms tapes carry the pivots without timing → the gate fails open.
+  const internalSwings = normalizeEvidenceList(engine?.pillar3?.swings?.internal ?? [], 'gates.engine.pillar3.swings.internal');
   const structuralStops = normalizeEvidenceList(engine?.pillar3?.structural_stops ?? engine?.pillar3?.structuralStops ?? engine?.risk?.structural_stops ?? [], 'gates.engine.pillar3.structural_stops');
   const insideFvgs = normalizeEvidenceList(engine?.price_context?.inside_fvgs ?? [], 'gates.engine.price_context.inside_fvgs');
   const insideBprs = normalizeEvidenceList(engine?.price_context?.inside_bprs ?? [], 'gates.engine.price_context.inside_bprs');
@@ -114,6 +119,7 @@ function buildPillar3(engine) {
     sweeps,
     failureSwings,
     structuresSwing,
+    internalSwings,
     structuralStops,
     insidePdArrays: [...insideFvgs, ...insideBprs],
     confirmationRows,

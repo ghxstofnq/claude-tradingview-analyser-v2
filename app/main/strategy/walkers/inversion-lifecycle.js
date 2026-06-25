@@ -123,6 +123,8 @@ function nyAmMinutesSinceOpen(eventTimeUtc) {
   return (h * 60 + m) - (9 * 60 + 30);
 }
 function invOpenReactionMin() { const v = Number(process.env.GOFNQ_INV_OPEN_REACTION); return v >= 0 ? v : 15; }
+// Patience gate recency: how recent the stop-anchoring internal sweep must be.
+function invPatienceRecencyMin() { const v = Number(process.env.GOFNQ_INV_PATIENCE_RECENCY); return v > 0 ? v : 45; }
 function confirmedCloseOf(row) {
   return Number(row?.close ?? row?.price ?? row?.confirm_close_price ?? row?.last_bar?.close);
 }
@@ -219,6 +221,30 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
   return continuationVerdict(context, side, depth, invCoherenceMin());
 }
 
+// Patience gate (GOFNQ_INV_PATIENCE, default-off): an inversion confirms only AFTER
+// the opposing-side INTERNAL liquidity sweep that anchors the stop ("stop relative
+// low" / "major liquidity taken first", Entry-Models). A short needs a recently-swept
+// internal HIGH (buyside taken); a long a swept internal LOW (sellside taken).
+// Verified gap (06-15): the 09:46 long fired BEFORE the 10:15 dip swept the lows →
+// it would stop out; Lanto's 10:30 entry waited for that sweep, anchoring the stop
+// below it. Named sweeps (session-only) + leg extremes (anchored at the leg open)
+// both miss this internal dip — `swing.swept_ms` (schema 4) is the signal. Fails
+// OPEN when the engine carries no sweep TIMING (pre-swept_ms tapes/fixtures).
+export function inversionPatienceOk({ context, side, nowMs } = {}) {
+  if (process.env.GOFNQ_INV_PATIENCE !== '1') return { ok: true, reason: 'disabled' };
+  const swings = context?.pillar3?.internalSwings ?? [];
+  const hasTiming = swings.some((s) => Number(s?.swept_ms) > 0);
+  if (!hasTiming) return { ok: true, reason: 'no_timing_data' };
+  const wantHigh = side === 'short'; // short ← swept HIGH; long ← swept LOW
+  const t = Number(nowMs);
+  const recent = swings.some((s) => {
+    if (Boolean(s?.is_high) !== wantHigh || !s?.swept) return false;
+    const ms = Number(s?.swept_ms);
+    return Number.isFinite(ms) && ms > 0 && Number.isFinite(t) && ms <= t && (t - ms) / 60000 <= invPatienceRecencyMin();
+  });
+  return { ok: recent, reason: recent ? null : 'no_recent_opposing_internal_sweep' };
+}
+
 export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
   const requests = [];
   const confirmationRows = context?.pillar3?.confirmationRows ?? [];
@@ -232,7 +258,12 @@ export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
     const gate = confirmed
       ? inversionEntryValid({ context, side: walker.side, entryPrice: confirmedCloseOf(confirmed), nowMs: confirmedBarMs(confirmed, context) })
       : { valid: false };
-    if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed && gate.valid) {
+    // Patience gate (default-off): require the stop-anchoring opposing-side internal
+    // sweep to have already happened (blocks premature inversions like 06-15 09:46).
+    const patience = confirmed
+      ? inversionPatienceOk({ context, side: walker.side, nowMs: confirmedBarMs(confirmed, context) })
+      : { ok: false };
+    if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && confirmed && gate.valid && patience.ok) {
       requests.push({
         id: walker.id,
         eventTimeUtc: context?.eventTimeUtc,
