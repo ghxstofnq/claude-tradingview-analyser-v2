@@ -109,6 +109,23 @@ describe("contextFromBriefPayloads", () => {
     const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [mes, BRIEF] });
     assert.equal(ctx.leader, "MNQ1!");
   });
+
+  // Parity regression (2026-06-26, commit 1459970): the pre-open anchor brief
+  // grades `no-trade: open_unconfirmed` (the NY open hasn't resolved a bias yet),
+  // but with a draw present Pillar 1 is satisfied. Mapping the soft pre-open grade
+  // to pillar1.status='fail' froze every replay bar into a Pillar-1 block so the
+  // walker never spawned, while live (pillar1='pass') fired. Pillar-1 status must
+  // track the DRAW, not the lean grade.
+  test("pre-open no-trade brief WITH a draw → pillar1.status is pass, not fail", () => {
+    for (const reason of ["open_unconfirmed", "no_bias", "pillar2_poor"]) {
+      const ctx = contextFromBriefPayloads({
+        session: "ny-am",
+        payloads: [{ ...BRIEF, pillar_grade: "no-trade", no_trade_reason: reason }],
+      });
+      assert.ok(ctx, `context should build for a drawful ${reason} day`);
+      assert.equal(ctx.session_state.pillar1.status, "pass", `pillar1 must pass on ${reason} with a draw`);
+    }
+  });
 });
 
 describe("bias + pillar2 derivation from brief payloads", () => {

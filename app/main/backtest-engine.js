@@ -254,10 +254,25 @@ export async function runBacktest({
       }
     }
     if (!context) {
-      // Honest data gap — no recorded chain state and no brief could be
-      // built. Mirrors constraint #9's data_gap separation: this is a
-      // capture problem, not a market verdict.
-      chainStatus = "no_context:data_gap";
+      // Why was no context built? "data_gap" used to be hard-coded here, but
+      // most null contexts are NOT a capture problem — the HTF capture is fresh
+      // and the brief simply selected no primary_draw (no significant near-price
+      // array; reason `open_unconfirmed`/`no_bias`). Read the brief's own reason
+      // (production path always writes brief-payloads.json before returning) and
+      // label honestly: a genuine capture failure stays data_gap, a fresh-data
+      // no-draw day becomes no_draw. Fold/test deps don't persist payloads → the
+      // file is absent → fall back to data_gap (unchanged for those callers).
+      const HARD_GAP = new Set(["data_gap", "engine_stale", "session_closed"]);
+      let nullReason = "data_gap";
+      try {
+        const pj = JSON.parse(fs.readFileSync(path.join(sessionDir, "brief-payloads.json"), "utf8"));
+        const reason = (Array.isArray(pj) ? pj[0] : pj)?.no_trade_reason ?? null;
+        // Surface the brief's real reason (open_unconfirmed / no_bias /
+        // pillar2_poor / htf_unclear) — only genuine capture failures stay
+        // data_gap. Falls back to data_gap when the brief named no reason.
+        if (reason) nullReason = HARD_GAP.has(reason) ? "data_gap" : reason;
+      } catch { /* no payloads on disk (fold/test) → keep data_gap */ }
+      chainStatus = `no_context:${nullReason}`;
       const summary = buildSummary({
         runId, date, session, mode, symbol: runSymbol, startedAt,
         surfaced: [], closedTrades: [], openTrades: [], chainStatus, contextSource,
