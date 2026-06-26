@@ -403,6 +403,19 @@ export async function runBacktest({
       if (synthesizedContext && openReaction) {
         entry.inputs.ltf_bias_context = openReaction.ltf_bias_context;
       }
+      // Pillar-1 state comes from the BRIEF context, not the tape's baked copy.
+      // The recorder froze the 09:30 pre-open grade as pillar1.status='fail'
+      // (open_unconfirmed), which permanently blocked the walker even after the
+      // open resolved — live recomputes Pillar 1 = pass once the draw exists, so
+      // the same walker spawned (2026-06-26 parity diag, scripts/diag-parity-0624).
+      // Symmetric with the ltf_bias_context override above; re-injecting the fresh
+      // (status='pass') pillar1 is what lets already-recorded tapes re-fold to live.
+      if (context?.session_state?.pillar1) {
+        entry.inputs.session_state = {
+          ...(entry.inputs.session_state ?? {}),
+          pillar1: context.session_state.pillar1,
+        };
+      }
       // Targets come from the BRIEF, not the tape's baked-in copy. Old tapes
       // froze the malformed-overnight_block targets (wrong-side levels in the
       // below/above lists); replaying them folded on stale targets while live

@@ -97,7 +97,15 @@ function buildContext({ session, leader, brief, ltf }) {
     },
     session_state: {
       pillar1: {
-        status: brief?.pillar_grade === "no-trade" ? "fail" : "pass",
+        // Pillar 1 = "an HTF draw exists". It must NOT inherit the pre-open lean
+        // grade: the anchor brief grades `no-trade: open_unconfirmed`/`no_bias`
+        // (the NY open hasn't resolved a bias yet — earned LIVE per
+        // direct-session-brief.js), and mapping that to pillar1='fail' froze every
+        // replay bar into a Pillar-1 block so the walker never spawned while live
+        // (which resolves Pillar 1 = pass once the draw exists) fired. Genuine
+        // Pillar-1 failures (no draw / data_gap) already return null upstream via
+        // HARD_NO_TRADE, so a built context always has a usable draw → pass.
+        status: draw ? "pass" : "fail",
         htfBias: ltf.bias ?? brief?.htf_bias_dir ?? biasFromDraw(draw),
         h4StructDir: brief?.h4_struct_dir ?? null,
         h1StructDir: brief?.h1_struct_dir ?? null,
