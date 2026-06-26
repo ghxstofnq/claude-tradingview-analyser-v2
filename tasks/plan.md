@@ -1,38 +1,65 @@
-# Plan — Validate the faithful-Lanto chain, then live-trade it on Tradovate demo
+# Plan — From validated chain to the next-London live demo, with backtest≡live parity as the keystone
 
-> Canonical copy: `~/.claude/plans/mellow-frolicking-chipmunk.md` (approved 2026-06-23).
-> Checklist: [tasks/todo.md](todo.md). Supersedes the prior backtest-baseline plan
-> (PR #147, merged+deployed — recoverable in git history).
+> Goal: [docs/intent/2026-06-27-end-goal.md](../docs/intent/2026-06-27-end-goal.md) — the north star.
+> Checklist: [tasks/todo.md](todo.md).
+> **Supersedes** the 2026-06-23 "validate the faithful chain" plan (Stage G is DONE — see git history
+> + `docs/strategy/lanto-oracle.md`). This replan re-anchors the remaining work on the end goal's keystone:
+> **backtest ≡ live parity**, and the sharpened real-money gate (trusted-window backtest results, not live hand-grading).
 
-## Context
+## Where we are (grounded 2026-06-27)
 
-Brain (Stages A–E) and the Tradovate execution layer are merged on
-`feat/faithful-lanto-rebuild`. What's missing is the **gate**: Stage G (fold the Lanto
-oracle sessions through the rebuilt chain, confirm it picks Lanto's
-bias/grade/model/side/entry/stop/TP) has never run — only 1 of ~7 oracle tapes exists.
+- ✅ **Brain** — the deterministic walker chain is faithful to Lanto on the 5 recordable 2026 oracle sessions
+  (Stage G complete: right bias/grade/model/side, stands aside on the no-trade day, valid winning entries).
+- ✅ **Live chain** runs the full chain **zero-LLM** end-to-end (proven London + NY in June).
+- ✅ **Tradovate execution engine** exists — entry + OSO brackets + guardrails (valid stop · size · daily-loss halt)
+  + tranches; demo-scoped, code + unit-tested, **not yet fully live-verified**.
+- 🔧 **Parity** — fixes shipping (pre-open anchor `1459970`, honest labels `fae8449`, no-draw days `c906e6b`),
+  but the proof is **fragmented** (`verify-live-parity.mjs`, `backtest-parity.test.js`, day-tape gate at 6/~20
+  `verified:true`). No single standing gate asserts backtest ≡ live on real sessions.
+- 🔧 **UI fidelity** — review-faithfulness redesign in flight; PREP/LIVE/REVIEW not fully re-pointed to the
+  validated bot outputs; some panels may still carry UI-only/derived numbers.
+- 🔧 **Live demo** — 06-24 NY-AM ran **observe-only** (Tradovate demo not logged in); never armed.
+- ⛔ **Real-money gate** — the trusted-window backtest (faithful + net-positive) is not yet established
+  (full-year fold showed the edge is regime-dependent; early-year OOS ran negative).
 
-Decision (user, 2026-06-23): **strict gate first** — Stage G must pass before any live
-session (first live session, London, slips if needed). When live it runs **armed
-auto-fire on Tradovate demo** (no real money), **autonomous**, Claude-monitored, user
-reviews the recap. Real money is a separate later gate.
+## Phases (each a complete vertical path; ordered by dependency)
 
-## Phases (each a complete vertical path; 1↔2 loop until the gate passes)
+**A. Parity gate — the keystone (foundational; everything trusts it).**
+Consolidate the fragmented parity tooling into ONE standing, runnable gate that proves backtest ≡ live produce
+**identical decisions** (setups/entries/stops/targets/trades; fills may differ) on real sessions, and expand the
+`verified:true` tape corpus. Wire it into `npm test` so any change that breaks parity fails CI.
 
-0. **Smoke the harness** — fold the existing 06-09 tape + any salvaged live sessions; prove the chain folds clean.
-1. **Stage G (gate)** — record + fold all ~7 oracle sessions; compare each to oracle Part D; promote+verify on match.
-2. **Chain fixes** — TDD-fix each oracle divergence, coherently; re-fold.
-3. **Stage F finish** — UI surfaces the validated outputs (design-harness + state files; no computer-use).
-4. **Readiness + Tradovate arming (gate)** — backend/capture/live-check/supervisor green; demo confirmed+armed; routing verified by tests, no orders placed.
-5. **First live demo session** — next London after gates; armed, autonomous, monitored; recap.
-6. **Iterate to fully working** — fix Phase-5 defects, re-guard the gate, more clean sessions.
+**B. UI fidelity — the transparency mandate (parallel to A, lands after the bot outputs are stable).**
+Every PREP/LIVE/REVIEW panel (+ topbar chrome) reads the **same analysis the bot reads** — one source of truth,
+no UI-only or fabricated numbers — and shows what the system is thinking and why. Verified panel-value == bot-input.
 
-## Checkpoints
-- **G** (after Phase 1): all oracle sessions match Lanto — hard gate, user reviews.
-- **R** (after Phase 4): readiness green + demo armed — user confirms the London target.
-- **Session** (after Phase 5): traded correctly? triage defects.
+**C. Live bring-up + Tradovate demo arming (independent of B; needed for the demo).**
+Readiness green for London (capture, live-check, supervisor, detector), Tradovate **demo** connected + account
+confirmed + armed (automationMode=auto, guardrails), routing **dry-verified** by tests/inspection — **no orders placed**.
 
-## Oracle sessions (Stage G)
-02-09 (A+ multi-align long) · 06-09 (A+ Inversion short) · 12-12 (2/3-B short, **MES**) ·
-10-02 (B long→flip, MNQ) · 06-16 (B short) · 06-17 (no-trade) · 06-18 (marginal B long).
+**D. First live demo session — the next London (depends on A + C; B strongly preferred).**
+Armed auto-fire on Tradovate **demo**, autonomous, Claude-monitored; per-trade + defect recap.
 
-See the canonical plan for per-step acceptance, the verification cheatsheet, and risks.
+**E. Iterate to clean (after D).**
+Fix Phase-D plumbing defects (TDD + re-fold + re-probe), re-guard the parity gate, a few clean sessions.
+
+**F. Real-money gate — separate, later (depends on A proven + a trusted-window backtest).**
+Define the representative window, run the faithful backtest, confirm net-positive; parity guarantees live reproduces it.
+**User makes the explicit flip-to-real call.** Out of scope for the London demo.
+
+## Checkpoints (hard gates — user reviews)
+
+- **P** (after A): the parity gate is green and standing — backtest ≡ live on the corpus. *This is the keystone sign-off.*
+- **U** (after B): UI fidelity probed — panels mirror the bot's analysis.
+- **R** (after C): readiness green + demo armed — user confirms the London target.
+- **S** (after D): session review — did it trade correctly? triage defects.
+- **M** (before F): money gate — user's explicit call to arm real capital.
+
+## Standing rules (from CLAUDE.md + memory)
+
+- Zero LLM in the trade path; the deterministic chain is the only setup producer.
+- Faithful-to-Lanto first; never "fix" a faithful behavior to protect P&L.
+- CLI only (`./bin/tv`), TV Desktop CDP 9225; no MCP TV tools; no computer-use.
+- **Never place test orders** — the user places them; verify by unit test / read-only inspection; clean up any test fills.
+- Run git/tests **in the worktree**; guard tests with `GOFNQ_STATE_DIR`.
+- Feature branches + PR; never push to main; co-author tag on commits.

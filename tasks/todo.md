@@ -1,118 +1,81 @@
-# Todo — Validate the faithful-Lanto chain → live on Tradovate demo
+# Todo — Validated chain → next-London live demo, parity as the keystone
 
-Branch: `feat/faithful-lanto-rebuild`. See `tasks/plan.md` / `~/.claude/plans/mellow-frolicking-chipmunk.md`.
-Strict gate first: no live session until Stage G passes. Live = armed auto-fire on demo, autonomous, monitored.
+Branch: `feat/faithful-lanto-rebuild`. Plan: [tasks/plan.md](plan.md). Goal: [docs/intent/2026-06-27-end-goal.md](../docs/intent/2026-06-27-end-goal.md).
+Each task carries **acceptance** (done = true when…) and **verify** (how to prove it). Checkpoints are hard, user-reviewed gates.
 
-## Phase 0 — Smoke the harness  ✅ DONE
-- [x] 0.1 Inventory: NO salvageable inputs — only 06-09 had a tape; all oracle sessions need fresh schema-4 recordings
-- [x] 0.2 Folded chain on real data (06-09); helper `scripts/fold-tape.mjs` added
-- [x] 0.3 Folded 140-bar live 06-23 session clean (no crashes, sane block-reasons)
+> **Already done (do not redo):** Stage A–E brain + Tradovate exec engine merged; **Stage G complete 2026-06-23**
+> — the deterministic chain is faithful to Lanto on the 5 recordable 2026 oracle sessions (right bias/grade/model/side,
+> stands aside on the no-trade day, valid winning entries). Detail in git + `docs/strategy/lanto-oracle.md` + the
+> superseded checklist in git history. Parity fixes shipped: pre-open anchor `1459970`, honest labels `fae8449`,
+> no-draw 2/3 days `c906e6b`.
 
-## ⚠️ Key finding (2026-06-23): old tapes are STALE (pre-Stage-A levels/prices). Re-record EVERY session on schema 4. The live chart confirms the oracle's levels (AS.L 29595.25, PDL 29113.75) — see [[stale-tape-verify-live-chart]].
+---
 
-## Phase 1 — Stage G: record + fold the oracle sessions (GATE)
-- [~] 1.1 06-09 (A+ Inversion short) — RE-RECORDED on schema 4 (stale tape replaced). Chain produces Lanto's exact 10:27 short (entry 29760, TP1 AS.L 29595.25) BUT over-fires ~9 premature shorts first → blocked on Phase 2 fix, then promote+verify
-- [~] 1.5 06-16 (B short, MSS) — label authored, RECORDING in progress (task buphh0aa6); then fold → compare → promote
-- [ ] 1.2 02-09 (A+ multi-align long) — author label → record → fold → compare → promote+verify
-- [x] 1.6 06-17 (no-trade) — recorded + folded (12 A+ inversions = smoking gun)
-- [x] 1.2 02-09 (A+ multi-align long) — recorded + folded (chain nails A+ entry; over-fires)
-- [~] 1.7 06-18 (marginal B long) — label authored, RECORDING (task b42pglv7x)
-- [BLOCKED] 1.3 12-12 (MES) + 1.4 10-02 (MNQ) — 2025 dates are OUT of TV 1m-replay range ("date not available for playback"). Labels authored, NOT recordable via 1m replay. Stage-G corpus = the 5 recordable 2026 sessions. (12-12 = the only MES/SMT-instrument case — flag for a later path; not blocking.)
-- Labels: tests/fixtures/real-sessions/<date>-*.label.json. Oracle truth: docs/strategy/lanto-oracle.md Part D.
-- [ ] **✅ CHECKPOINT G** — all oracle sessions match Lanto; `npm run tapes` + `npm test` green — user reviews
+## Phase A — Parity gate (THE keystone)  ◂ build first; everything trusts it
 
-## Divergence table (chain vs oracle, fresh schema-4 folds)
-| Session | Oracle | Chain's correct packet | Premature fires | Gap |
-|---|---|---|---|---|
-| 06-09 | A+ Inv short, e29731, TP1 AS.L 29595 | 10:27 Inv short e29760, TP1 AS.L 29595 ✓ | 9 premature Inv (09:34→) | inversion over-fire |
-| 06-16 | B Reversal short, e30864, TP1 LO.L 30783 | 09:57 **Trend** short e30864 ✓, TP1 ~AS.L 30750 | 3 premature Inv (09:30→) | over-fire + model named Trend not Reversal/MSS |
-| 06-17 | **NO-TRADE** (price quality) | — | **12 fired, 11 A+, ALL Inversion** | catastrophic false-positive |
-- ALL premature fires are model=Inversion; Trend/MSS entries are CORRECT → the over-fire is localized to the Inversion lifecycle (findOpposingPdArrays spawns on every opposing FVG).
-- 06-17 (no-trade) is the smoking gun: 12 Inversion packets (11 A+) where Lanto stands aside. THREE compounding gaps:
-  - **A. Inversion over-fire** — the Inversion lifecycle fires on every opposing-FVG violation (primary).
-  - **B. Grade rubber-stamps A+** — deriveGrade returns A+ for 11/12 on a no-trade day; no real discrimination.
-  - **C. Pillar-2 entry veto misses two-sided chop** — `pillar2PoorAtEntry` (bar-close.js) checks tight-range/doji/weak-disp, NOT the directional-COHERENCE signal Stage B added in `cli/lib/pillar2-verdict.js`. `pillar2EntryGate()` IS on by default (config.js:48) — but the dims don't trip on normal-range chop. Wire coherence (compute from tape's 5m bars; bundle's 1m current_tf has coherence=undefined) into the entry veto.
-| 02-09 | A+ multi-align long, e25632, TP1 LO.H 25723 (oracle ~3.4R on a 27pt stop) | 10:40 Inv long A+ e25633 ✓ | 2 premature B Inv (10:36,10:38) | over-fire + STOP too wide (chain 25538 leg-extreme vs oracle 25605 reclaim-low) → cascades TP1 to AS.H |
-- LEG SIGNAL (promising gate): at real 06-09 10:27 entry, leg_high=30139.75 (the grab) & price fell ~380pt from it; at premature 09:34, leg_high=30040.75 & only ~93pt below. "Reversal depth from leg_high" separates real vs premature (zone significance does NOT — it's backwards).
+- [ ] **A1 — Audit + design the one gate.** Inventory what each existing piece proves: `scripts/verify-live-parity.mjs`,
+      `tests/backtest-parity.test.js`, `tests/day-tape.test.js` (the day-tape gate), `scripts/fold-tape.mjs`,
+      `scripts/refold-gate.mjs`. Decide the single canonical gate shape (what it folds, what it asserts, how it handles
+      the ~20–28MB transient `walker-inputs.jsonl` / `tape.json` files that made a full corpus gate "impractical").
+      **Acceptance:** a short design note at the top of the parity gate file naming inputs, assertions, and the
+      committed-fixture strategy. **Verify:** the note lists, per existing piece, what it covers and the gap it leaves.
+- [ ] **A2 — Standing `npm run parity`.** Fold the SAME truth fn (`__test.buildDeterministicPacketTruthFromInputs`)
+      over a recorded session's live `walker-inputs.jsonl` AND its backtest `tape.json`, asserting **identical packets**
+      per bar (model · side · entry · stop · tp1 · tp2 · grade · first-packet ts); fills excluded. Commit a small parity
+      fixture per covered session so the gate runs offline.
+      **Acceptance:** `npm run parity` is green on the real corpus AND exits non-zero when one expected field is flipped.
+      **Verify:** tamper test (flip one `expected.side`) trips the gate; clean run passes.
+- [ ] **A3 — Expand `verified:true` tapes 6 → corpus.** Promote the recordable MNQ+MES sessions (2026 oracle + recent
+      live) to `verified:true` with `expected` set from the oracle/hand grade.
+      **Acceptance:** `npm run tapes` green across the expanded set; count of `verified:true` tapes ≥ the agreed corpus.
+      **Verify:** `grep -l '"verified": true' tests/tapes/*.tape.json | wc -l` matches; `npm run tapes` report clean.
+- [ ] **A4 — Wire parity into CI.** Add the parity assertion to `npm test` (or a required pre-merge gate) so a parity
+      break fails the suite. **Acceptance:** `npm test` runs the parity check; full suite green. **Verify:** suite count
+      ↑ by the new tests; tamper test fails `npm test`.
+- [ ] **✅ CHECKPOINT P** — parity gate standing + green; backtest ≡ live on the corpus. **User reviews.** (keystone)
 
-## ✅ DETERMINISTIC SOLUTION FOUND (2026-06-23, web+transcript+data) — the inversion gate
-Web (ICT iFVG) + transcript (ENTRY 08:26 break-of-structure, "sweep THEN iFVG") + the 5-tape data converge:
-- **depth-in-leg classifies the entry** (computed from leg_high/leg_low — ALREADY in the engine, NO Pine change):
-  depth = short:(legHigh-entry)/(legHigh-legLow) / long:(entry-legLow)/range.
-  REVERSAL (deep ≥50%): 06-09 78%, 02-09 84%. CONTINUATION (shallow <50%): 06-16 18%, 06-18 1%. Clean split.
-- **REVERSAL → require a RECENT (≤~90m) session-tier (AS/NYAM/LO) opposing-side grab** (sweep→iFVG, ICT). Blocks 06-09's 09:34/09:39 losers (only stale overnight AS.H@391m); keeps 09:52+ (LO.H@9-74m).
-- **CONTINUATION → require a swing-tier structure break in the trade dir** (established trend; ENTRY 11:15).
-- Combined gate validated: 06-09 ✓ (losers blocked, real fires), 06-16 ✓ (2 fire), 02-09 ✓, 06-18 ✓; **06-17 no-trade 12→3**.
-- **Final chop filter (zero 06-17's last 3):** directional COHERENCE — 1m quality fields (range_q/disp/candle/regime/rvn) do NOT separate chop from real continuation (06-17 even reads disp=clean). Coherence is in Pine SOURCE (line 1050) but NOT deployed → COMPUTE it from the m15 bars the multi-TF recorder now captures (no deploy needed).
-- ANSWER to "add shallow/early to engine": NOT needed (leg_high/leg_low suffice). Only missing = coherence → compute from m15 bars.
+## Phase B — UI fidelity (transparency mandate)  ◂ parallel to A
 
-### Build steps
-- [x] **G1 (plumbing):** NOT NEEDED — sweeps already at context.pillar3.sweeps (target/side/swept_ms); structuresSwing + pillar2.legHigh/legLow present (2-S1).
-- [x] **G2 (gate, 2fa4c70):** inversionEntryValid (depth→reversal-grab/continuation-swing) gates the inversion confirmation. Env GOFNQ_INV_GATE/_DEPTH/_GRAB_RECENCY. +8 tests; full suite 1458/0. Validated: 06-09 losers blocked + real 10:27 kept; 06-16/02-09/06-18 real kept; 06-17 12→3. Stage-G labels → tests/fixtures/stage-g-sessions/.
-- [x] **G3 (coherence veto, committed):** computeCoherenceFromBars (m15 net/gross) → pillar2.coherence; continuation in chop (coherence < 0.4) stands aside. Guards Number(null)===0. +7 tests.
-- [x] **FULL GATE VALIDATED (G2+G3) across all 5:** 06-17 no-trade → **0 fires**; 06-09/06-16/02-09/06-18 keep their real entries; 06-09 losers blocked. Full suite 1458/0.
-- [~] **G4 (re-record multi-TF):** 06-09 + 06-17 done. RE-RECORDING 06-16 (bom51onns), then 02-09, 06-18 — so the coherence veto runs on real m15 for all (currently 06-16/02-09/06-18 are 1TF → coherence null → fail-open, gate still passes them).
-- [x] **G4 (re-record multi-TF):** ALL 5 done (06-09/06-16/06-17/02-09/06-18 on m5+m15+h4+h1). Committed.
-- [x] **STAGE G COMPLETE (2026-06-23):** all 5 oracle sessions validated + promoted (verified:true); day-tape gate 10/10; suite 1469/0. The deterministic chain is faithful to Lanto: no over-fire, stands aside on the no-trade day, right model_class/side/grade, valid winning entries. Fixes shipped: inversion gate (G2 depth+grab/swing), coherence chop-veto (G3), model_class Reversal/Continuation, tightened two-and-one multi-alignment, Stage-C 3-vote threaded into the fold (grade follows entry). User-approved pass-bar: model_class+side+grade+no-trade match; exact entry tick = discretionary (valid entry in move). Deferred follow-ups: entry-precision (discretionary, accepted), 06-18 3/3-capped-to-B-by-marginal-entry nuance (declared 2/3-effective).
-- [x] **G5 / CHECKPOINT G — user reviewed (entry pass-bar + principled 3-vote both approved 2026-06-23).** Original residual notes below (all resolved):
-  - 06-17 no-trade: **FULL PASS** (0 fires).
-  - 06-16: entry EXACT 30864.25, stop/TP1 ≈, side/grade ✓; model NAME differs (chain Trend vs oracle Reversal/MSS).
-  - 06-18: TP1 EXACT 30615, entry ≈17pt, side/grade ✓; model NAME differs (chain Inversion vs oracle Trend/Continuation).
-  - 02-09: side/model/TP1(25723) ✓; GRADE B vs oracle A+ (multi-alignment elevation not firing); entry ~70pt early.
-  - 06-09: A+/Inversion/short ✓; entry 09:52/30084.75 vs oracle deep 10:27/29731.25 (~353pt early — "which retrace" discretionary); TP1 differs.
-  - 3 residual themes: (1) entry-precision (chain takes first valid; oracle takes a deeper retrace), (2) 02-09 grade (multi-alignment), (3) model-naming (Reversal/Continuation vs the mechanism — D1). Promotion (verified:true) waits on the user's pass-bar call.
-- OPEN (entry-precision, follow-up): 06-09 first packet is 09:52 (continuation, coherence 0.41 ≥ 0.4) not the oracle's deep 10:27. Raising GOFNQ_INV_COHERENCE to ~0.5 would veto 09:52 → push to 10:27, IF 06-16/02-09/06-18 coherence ≥ 0.5 (calibrate after their multi-TF re-records).
+- [ ] **B1 — Field→source map.** For every PREP/LIVE/REVIEW panel field (+ topbar chrome), record which bot data
+      source feeds it (the analysis bundle / `state/session/<date>/<session>/*` files the chain reads). Flag any
+      UI-only, derived, or fabricated number. **Acceptance:** a field→source table committed under `docs/`. **Verify:**
+      every flagged field cites the exact bot source path or is marked "UI-only — violates mandate."
+- [ ] **B2 — Re-point violators.** Make each flagged field read the bot's source of truth; delete UI-only computation.
+      **Acceptance:** no panel field computes a number the bot doesn't also read. **Verify:** code review of the diff
+      against the B1 table; each former violation now reads the cited source.
+- [ ] **B3 — Probe panel == bot (no computer-use).** Via the design-harness (Playwright headless) / state-file reads,
+      assert the rendered panel value equals the bot's input value for the key fields (grade, bias, primary draw,
+      surfaced setup, stop/TP). **Acceptance:** an automated probe passes for those fields on a recorded session.
+      **Verify:** the probe script prints panel-value == bot-value per field; any mismatch fails.
+- [ ] **✅ CHECKPOINT U** — panels mirror the bot's analysis. **User reviews.**
 
-## Phase 2 — IMPLEMENTATION PLAN (concrete; all inputs verified available)
-Corpus to validate against (fold each with `node scripts/fold-tape.mjs` / the inline fold):
-  06-09 (A+ Inv short, real entry 10:27 e29760 TP1 AS.L 29595) · 06-16 (B Trend short, 09:57 e30864) ·
-  06-17 (NO-TRADE — must drop to ~0 fires) · 02-09 (A+ long, 10:40 e25633) · 06-18 (B long, ~09:43 e30470 TP1 30615).
-- [ ] **2-S1 (plumbing, additive):** thread `legHigh/legLow/legHighMs/legLowMs/coherence/rangeVsNormal` from the engine quality row into context.pillar2 (`app/main/strategy/context/build-strategy-context.js` buildPillar2 — parser already extracts them, ict-engine-parser.js:62). No behavior change. Unit test the mapping.
-- [BLOCKED — user decision] **2-S2 (inversion gate):** leg-depth gate DISPROVEN. Measured reversal-depth-in-ATR for every packet across 5 tapes: real entries span 0.1×ATR (06-18) → 9.1×ATR (06-09) — model-dependent (continuation entries shallow, reversal-inversions deep), NO threshold separates real from premature. All three 1m/5m signals now ruled out (zone significance is backwards; grab predates premature fires; leg-depth model-dependent). The faithful gate (enter at the significant HTF DRAW ARRAY, ENTRY/[[engine-htf-overread]]) needs HTF FVGs, and the no-trade veto needs 15m coherence — but the day-tapes only capture m5+1m (`engine_by_tf:['m5']`), so neither faithful gate can be built/validated offline against them. → SURFACED to user (re-record multi-TF? / their signal? / demote inversions?).
-- [x] **2-Sx (recorder multi-TF, bf84d56):** USER PICKED re-record multi-TF. record-tape now captures m5+m15 (additive merge) + h4/h1/daily anchor snapshot. +4 unit tests.
-- [~] **2-Sy (re-record + validate):** re-recording 06-09 with multi-TF (task bzg4477p3) → verify bundle has engine_by_tf.{m5,m15,h4,h1,daily}; then re-record the other 4 (06-16/06-17/02-09/06-18).
-- [BLOCKED again] **2-S2 (inversion gate):** the HTF-draw-containment gate is ALSO backwards (06-09: premature 09:34 is INSIDE active h4/m15 bear FVGs; real 10:27 is OUTSIDE, nearby HTF FVGs 'invalidated'). FOUR mechanical gates now disproven (zone-sig, grab, leg-depth, HTF-draw). The split = reversal-inversions fire DEEP near the draw / continuation fires SHALLOW early — not a single engine field. Multi-TF capture works (h4/h1/m15 distinct, daily failed=minor, coherence not deployed→use regime) but didn't unblock the gate. → SURFACED: architectural decision (demote inversion → FVG-retrace primary? / LLM judges inversions? / user's tell).
-- [ ] **2-S3 (no-trade veto, gap C):** wire 15m `coherence` (now in tape engine_by_tf.m15) into pillar2PoorAtEntry. Re-fold 06-17 → no-trade.
-- [ ] **2-S4:** re-fold ALL 5; promote+verify each tape (set expected from oracle, verified:true); npm test green; note in decisions ledger.
-- (model-naming Inversion-vs-Trend/MSS is a separate D1 item — defer unless it blocks a pass-bar match.)
+## Phase C — Live bring-up + Tradovate demo arming (GATE, no orders placed)
 
-## Phase 2 — Chain fixes (grounded in the Entry Models transcript)
-GATE INSIGHT (2026-06-23): simple separators DON'T work — zone size_quality is "tiny" for BOTH premature
-and real 06-09 zones; and a significant buy-side grab (PDH @09:05) predates the 09:34 premature short, so
-"a grab happened" doesn't gate it. The real discriminator (Entry Models 31:25): "price [bearish] all the
-way into your entry" — the REVERSAL must be established (recent significant high in, displacement down) AND
-the entry is the retrace into the SIGNIFICANT HTF draw array (C→D handoff). Need the full multi-session
-pattern before encoding — calibrate across the oracle, don't curve-fit to 06-09.
-- [ ] 2a Inversion entry gate: reversal-established + retrace into the primary HTF draw array (not any opposing FVG). Calibrate across sessions. Locus: `inversion-lifecycle.js` + the C→D draw handoff.
-- [ ] 2b TP1 is likely NOT broken — the 06-09 10:27 packet already targets AS.L 29595.25; the internal-swing TP1s were an artifact of the premature entry. Re-check after 2a.
-- [ ] 2c TDD + re-fold 06-09 → expect first packet ≈ 10:27 short, TP1 AS.L 29595.25; full suite green; note in decisions ledger
+- [ ] **C1** TV Desktop CDP 9225 answers (`curl -s --max-time 4 http://127.0.0.1:9225/json/version`). *(green 06-24)*
+- [ ] **C2** Capture health all-fresh for London (Asia + ETH + 30m), MES + MNQ. **Verify:** `capture_health.ok` both symbols.
+- [ ] **C3** `node cli/index.js live-check --session london` clean / only known blockers. **Verify:** parseable, no hard blocks.
+- [ ] **C4** Supervisor auto-arms london; detector heartbeat < 120s; deterministic open-reaction resolver active. *(green 06-24)*
+- [ ] **C5** Tradovate **demo** connected + account confirmed (the 06-24 blocker — webview logged into Paper/Tradovate).
+- [ ] **C6** `automationMode=auto` + resume-auto; guardrails set (per-trade / daily-loss). **Verify:** state shows armed + limits.
+- [ ] **C7** Routing **dry-verify** (adapter own-host route resolves) — **NO order placed**. **Verify:** unit/inspection only.
+- [ ] **✅ CHECKPOINT R** — readiness green + demo armed. **User confirms the London target.**
 
-## Phase 3 — Stage F: re-point UI to validated outputs
-- [ ] 3.1 PREP/LIVE/REVIEW render 3-vote grade, 2×2 models, overnight vote, SMT, near-price draw, no-trim mgmt; no scale-in
-- [ ] 3.2 Fix any stale/old-strategy field; re-probe matches chain output
+## Phase D — First live demo session (next London)
 
-## Phase 4 — Readiness + Tradovate arming (GATE, no orders placed)
-- [ ] 4.1 TV Desktop CDP 9225 answers
-- [ ] 4.2 Capture health all-fresh for London (Asia + ETH + 30m), MES+MNQ
-- [ ] 4.3 live-check --session london clean / known blockers
-- [ ] 4.4 Supervisor auto-arms london 03:00 ET; detector heartbeat; deterministic resolver active
-- [ ] 4.5 Tradovate demo connected + account confirmed
-- [ ] 4.6 automationMode=auto + resume-auto tapped; guardrails $250/$600
-- [ ] 4.7 Routing dry-verify (adapter own-host route) — NO order placed
-- [ ] **✅ CHECKPOINT R** — readiness green + demo armed — user confirms London target
+- [ ] **D1** Pre-open green; symbol pinned (PAIR_PRIMARY); mode armed.
+- [ ] **D2** Background Monitor on bar-close + tail `setups`/`no-trades`/`fills`/logs.
+- [ ] **D3** Supervise the session; hot-fix **plumbing only** (the engine owns orders) — slim-file starvation /
+      unknown-session / missing-ltf-bias / symbol-mismatch / capture-wedge / exec-route.
+- [ ] **D4** Recap: per-trade (vs what the chain expected) + defects + fixes.
+- [ ] **✅ CHECKPOINT S** — traded correctly? triage defects. **User reviews.**
 
-## ▶ ACTIVE: Phase 5 live monitoring — NY-AM 2026-06-24 (user chose NY-AM today, not London)
-- Stage G COMPLETE + pushed. Phase 4 readiness: backend ✓, capture all-fresh both symbols ✓, live-check cdp/chart/engine ✓, app running ✓, detector running ✓. Supervisor auto-arms NY-AM at 09:30 ET.
-- BLOCKER (user): log the app webview into Tradovate demo (was still on the chart at 09:23). Until then, NY-AM runs OBSERVE-ONLY (chain surfaces setups, no orders). Arm once connected: confirm account → automationMode=auto → resume-auto → guardrails $250/$600.
-- Each loop tick: check mode (live?), state/session/2026-06-24/ny-am/{setups,no-trades}.jsonl, the trades feed, detector heartbeat; hot-fix plumbing defects (slim-file starvation / unknown-session / missing-ltf-bias / symbol-mismatch / capture-wedge / exec-route); recap per-trade + defects.
+## Phase E — Iterate to clean
 
-## Phase 5 — First live demo session (next London)
-- [ ] 5.1 Pre-open green; symbol pinned; mode armed
-- [ ] 5.2 Background Monitor on bar-close + tail setups/no-trades/fills/logs
-- [ ] 5.3 Supervise 03:00–06:00 ET; hot-fix plumbing only (engine owns orders)
-- [ ] 5.4 Recap per-trade + defects + fixes
-- [ ] **✅ CHECKPOINT (session review)** — traded correctly? triage defects
+- [ ] **E1** Fix Phase-D defects (TDD + re-fold + re-probe); re-guard the parity gate; accumulate a few clean sessions.
 
-## Phase 6 — Iterate to fully working
-- [ ] Fix Phase-5 defects (TDD + re-fold + re-probe); re-guard the gate; more clean sessions
-- [ ] (later, separate gate) real-money path — out of scope here
+## Phase F — Real-money gate (separate, later; out of scope for the demo)
+
+- [ ] **F1** Define the trusted backtest window (representative; not the cherry-picked +138R weeks; regime-aware).
+- [ ] **F2** Run the faithful backtest over it; record faithful-rate + net R.
+- [ ] **F3** Present results; parity (Phase A) guarantees live reproduces them.
+- [ ] **✅ CHECKPOINT M** — money gate: **user's explicit call** to arm real capital.
