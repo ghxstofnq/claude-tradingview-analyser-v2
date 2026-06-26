@@ -48,7 +48,9 @@ export const SIG_DISP_MIN = 0.5;
 // express scale-free where possible). 0.3% ≈ 90pt at 30000. Calibrated: 06-16's
 // only fresh bull array was 141pt ≈ 0.47% away = too far (correctly excluded);
 // D4's voting array was 21.75pt ≈ 0.08% = near. Tune at Stage G.
-export const NEAR_PRICE_PCT = 0.003;
+// GOFNQ_NEAR_PRICE_PCT overrides for calibration folds (0.3 vs 0.5 vs 0.7 %).
+const NEAR_PRICE_PCT_OVERRIDE = Number(process.env.GOFNQ_NEAR_PRICE_PCT);
+export const NEAR_PRICE_PCT = Number.isFinite(NEAR_PRICE_PCT_OVERRIDE) ? NEAR_PRICE_PCT_OVERRIDE : 0.003;
 
 // §2.1: "Primary charts: Daily and 4H (sometimes 1H)" + "prefers 4H PD arrays" —
 // 4H first, then Daily, then 1H.
