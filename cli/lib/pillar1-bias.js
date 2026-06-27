@@ -156,7 +156,7 @@ function qualifyingZones(block, price) {
  * liquidity in creation, (c) sit near price; picks the nearest. Returns null when
  * no significant near-price array exists (→ no HTF vote, e.g. 12-12 "no HTF").
  *
- * FRESH-OPPOSING INTRADAY OVERRIDE (GOFNQ_HTF_INTRADAY_DRAW=1, default-off): when
+ * FRESH-OPPOSING INTRADAY OVERRIDE (default-ON 2026-06-27, opt out GOFNQ_HTF_INTRADAY_DRAW=0): when
  * the HTF winner is an INVERTED array, a FRESH/ce_tapped near-price displacive
  * took-liq array pointing the OPPOSITE way — even on m15/m5 — takes over as the
  * draw. Lanto reads the fresh near-price gap as the bias array (ENTRY 05:38/06:35;
@@ -176,7 +176,7 @@ export function pickPrimaryDraw(htfByTf, { price = null, intradayByTf = null } =
     if (qualifying.length) { winner = { tf, c: qualifying[0] }; break; }
   }
 
-  if (process.env.GOFNQ_HTF_INTRADAY_DRAW === '1' && winner && winner.c.z?.state === 'inverted') {
+  if (process.env.GOFNQ_HTF_INTRADAY_DRAW !== '0' && winner && winner.c.z?.state === 'inverted') {
     // Scan ALL TFs (HTF priority first, then intraday) for a FRESH/ce_tapped
     // near-price opposing array — a respected fresh gap outranks a failed inverted
     // one wherever it sits (06-16: m5/m15; 06-09: a fresh h1 bear shadowed by an

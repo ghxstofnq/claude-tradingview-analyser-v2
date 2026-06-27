@@ -22,7 +22,7 @@ import { buildBriefDigest } from "../cli/lib/brief-digest.js";
 import { buildDirectSessionBriefPayloads } from "../app/main/direct-session-brief.js";
 import { computeEngineGates } from "../cli/lib/compute-engine-gates.js";
 
-const SYM = "MNQ1!";
+const SYM = process.env.FOLD_SYM || "MNQ1!";
 // Corpus path: env override, else the worktree's own state/backtest.
 const BT = process.env.FOLD_CORPUS || path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "state", "backtest");
 const r2 = (n) => Math.round(n * 100) / 100;

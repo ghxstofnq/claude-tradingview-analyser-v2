@@ -71,7 +71,7 @@ function sweepRejected(sweep, closes, endMs, ignoreEngineFlag = false) {
 // fix the wrong divergent short) from the weak-overnight divergent winners that ARE
 // the edge (05-20 +144, 06-12 chop). Calibrated on the 19-session corpus; tune with
 // the Discord calls / full-year fold.
-const STRONG_OVN_NET = Number(process.env.GOFNQ_STRONG_OVN_NET) || 300;
+const STRONG_OVN_NET = Number(process.env.GOFNQ_STRONG_OVN_NET) || 200;
 
 export function resolveOpenReaction({
   htf_bias,
@@ -147,7 +147,7 @@ export function resolveOpenReaction({
   // both bull, overnight +448 strong → the 09:30 LO.H grab shouldn't flip it; oracle = long.)
   const ovnBacksLean = Number.isFinite(overnight_net) && Math.abs(overnight_net) >= STRONG_OVN_NET
     && ((overnight_net > 0 && htf_bias === 'bullish') || (overnight_net < 0 && htf_bias === 'bearish'));
-  // FRESH-DRAW backing (GOFNQ_FRESH_DRAW_HOLD=1, default-off): the lean is backed by
+  // FRESH-DRAW backing (default-ON 2026-06-27, opt out GOFNQ_FRESH_DRAW_HOLD=0): the lean is backed by
   // a FRESH near-price PD array in the lean direction that price has NOT reacted to
   // yet — the real reaction is still pending AT that array, so an early opposing grab
   // (the liquidity before the array) does NOT flip the lean (BIAS 20:33 "it's the
@@ -155,7 +155,7 @@ export function resolveOpenReaction({
   // m5/m15 bear FVG above price; the 09:30-34 low-sweep bounce is the grab, the 09:55
   // rejection AT the bear FVG is the reaction. Complements the strong-overnight gate
   // for chop-overnight days the overnight test can't cover.
-  const freshDrawBacks = process.env.GOFNQ_FRESH_DRAW_HOLD === '1' && lean_backed_by_fresh_draw === true;
+  const freshDrawBacks = process.env.GOFNQ_FRESH_DRAW_HOLD !== '0' && lean_backed_by_fresh_draw === true;
   if (process.env.GOFNQ_WAIT_FOR_REACTION !== '0' && htf_bias && !aligned && interaction !== 'failed_break' && (ovnBacksLean || freshDrawBacks)) {
     const why = ovnBacksLean ? `strong overnight ${overnight_net} backs it` : 'a fresh near-price draw backs it';
     return {

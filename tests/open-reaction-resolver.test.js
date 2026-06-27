@@ -88,16 +88,20 @@ test('fresh-draw hold: a fresh near-price draw holds the lean on a weak-overnigh
   } finally { process.env.GOFNQ_FRESH_DRAW_HOLD = prev; }
 });
 
-test('fresh-draw hold default-off: the weak-overnight divergent grab still flips the lean', () => {
-  const r = resolveOpenReaction({
-    htf_bias: 'bearish',
-    sweeps: [sweep({ target: 'AS.L', rejected: true })],
-    window: W,
-    overnight_net: -21,
-    lean_backed_by_fresh_draw: true, // present, but flag off → no hold
-  });
-  assert.equal(r.ltf_bias, 'bullish');
-  assert.equal(r.htf_ltf_alignment, 'divergent');
+test('fresh-draw hold opt-out (=0): the weak-overnight divergent grab still flips the lean', () => {
+  const prev = process.env.GOFNQ_FRESH_DRAW_HOLD;
+  process.env.GOFNQ_FRESH_DRAW_HOLD = '0';
+  try {
+    const r = resolveOpenReaction({
+      htf_bias: 'bearish',
+      sweeps: [sweep({ target: 'AS.L', rejected: true })],
+      window: W,
+      overnight_net: -21,
+      lean_backed_by_fresh_draw: true, // present, but flag opted out → no hold
+    });
+    assert.equal(r.ltf_bias, 'bullish');
+    assert.equal(r.htf_ltf_alignment, 'divergent');
+  } finally { process.env.GOFNQ_FRESH_DRAW_HOLD = prev; }
 });
 
 // §2.3: extension day — overnight extends the HTF move and NY continues
