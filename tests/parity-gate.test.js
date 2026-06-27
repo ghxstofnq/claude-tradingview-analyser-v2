@@ -42,3 +42,17 @@ for (const file of fixtures) {
     assert.ok(setEq(btP, expected), `backtest drifted from frozen expectation in ${file}\n  bt:       ${JSON.stringify(btP)}\n  expected: ${JSON.stringify(expected)}`);
   });
 }
+
+// Tamper test (A2 acceptance): prove the gate's equality check is not vacuous —
+// a side-flipped expectation must NOT match the real fold.
+test("parity gate is not vacuous — a side-flipped expectation is rejected", async () => {
+  const traded = fixtures
+    .map((f) => JSON.parse(fs.readFileSync(path.join(PARITY_DIR, f), "utf8")))
+    .find((fx) => Array.isArray(fx.expected_packets) && fx.expected_packets.length > 0);
+  if (!traded) return; // only no-trade fixtures present — nothing to flip
+  const liveP = await foldLive(traded.live_entries, traded.session);
+  const setEq = (a, b) => a.length === b.length && a.every((s) => b.includes(s));
+  const flipped = traded.expected_packets.map((s) =>
+    s.includes("|long|") ? s.replace("|long|", "|short|") : s.replace("|short|", "|long|"));
+  assert.ok(!setEq(liveP, flipped), "the gate must reject a side-flipped expectation — the equality check is real");
+});
