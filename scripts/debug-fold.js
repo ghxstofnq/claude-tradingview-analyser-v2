@@ -2,6 +2,16 @@
 // Fold a recorded run's tape through the production truth fn, printing
 // walker stages, packets, and block reasons per bar. Pure disk — no chart.
 //
+// Mirrors the backtest-engine per-bar open-reaction EXACTLY: it recomputes the
+// brief context with current code (regen → recomputeGate), accumulates the
+// in-window 1m closes, and resolves the open read via deriveLtfBiasContext —
+// the SAME resolver the live chain + baseline fold use, levers and all
+// (overnight_net / fresh-draw / wait-for-reaction). The old version called a
+// bare resolveOpenReaction WITHOUT the levers and read the stale baked
+// payloads, so its open read diverged from the real chain on every lever-era
+// day (2026-06-18 read "bearish divergent" here but resolves differently in the
+// real fold). This trace is now faithful to the baseline fold.
+//
 // Usage: node scripts/debug-fold.js <run-id> [session] [fromHHMM] [toHHMM]
 
 import fs from "node:fs";
@@ -10,7 +20,8 @@ import { fileURLToPath } from "node:url";
 import { contextFromBriefPayloads } from "../app/main/backtest-context.js";
 import { __test as barCloseTruth } from "../app/main/bar-close.js";
 import { openReactionWindowMs } from "../app/main/backtest-engine.js";
-import { resolveOpenReaction } from "../cli/lib/open-reaction-resolver.js";
+import { deriveLtfBiasContext } from "../app/main/live-ltf-resolver.js";
+import { regen } from "../app/main/backtest-baseline.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -18,11 +29,14 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const [runId, session = "ny-am", fromHHMM = "09:30", toHHMM = "12:00"] = process.argv.slice(2);
 const runDir = path.join(REPO_ROOT, "state", "backtest", runId, session);
 const tape = JSON.parse(fs.readFileSync(path.join(runDir, "tape.json"), "utf8"));
-const payloads = JSON.parse(fs.readFileSync(path.join(runDir, "brief-payloads.json"), "utf8"));
+const symbol = tape.entries?.[0]?.inputs?.leader ?? "MNQ1!";
+// Recompute the brief with CURRENT code (same regen the baseline fold uses) so
+// the HTF bias/draw reflect the live levers, not the stale baked payloads.
+const payloads = regen(runDir, session, symbol)
+  ?? JSON.parse(fs.readFileSync(path.join(runDir, "brief-payloads.json"), "utf8"));
 const context = contextFromBriefPayloads({ session, payloads });
 
 const w = openReactionWindowMs({ date: tape.date, session });
-const freezeMs = w.endMs;
 const et = (iso) => {
   const d = new Date(iso);
   return `${String((d.getUTCHours() + 20) % 24).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
@@ -34,29 +48,48 @@ const inRange = (iso) => {
 
 let walkers = [];
 let openReaction = null;
+let prevInteraction = null;
+const windowCloses = [];
 for (const entry of tape.entries) {
-  const ms = Date.parse(entry.event.ts);
-  if (ms >= w.resolveMs && (!openReaction || ms <= freezeMs)) {
-    const gates = entry.inputs.bundle.gates.engine;
-    const swings = gates?.pillar3?.structures_by_tier?.swing ?? [];
-    const swing = swings.reduce((a, b) => ((b?.confirmed_ms ?? 0) >= (a?.confirmed_ms ?? 0) ? b : a), null);
-    const v = resolveOpenReaction({
-      htf_bias: context.session_state.pillar1.htfBias,
-      sweeps: gates?.pillar1?.sweeps ?? [],
-      swing_structure: swing,
-      window: w,
+  const entryMs = Date.parse(entry?.event?.ts ?? "");
+  // Accumulate the in-window 1m closes exactly like backtest-engine does.
+  const lastBar = entry?.inputs?.bundle?.bars?.last_5_bars?.at(-1);
+  const lastBarCloseMs = Number(lastBar?.time) * 1000 + 60_000;
+  if (Number.isFinite(lastBarCloseMs) && Number.isFinite(Number(lastBar?.close))
+    && lastBarCloseMs > w.startMs && lastBarCloseMs <= w.endMs
+    && !windowCloses.some((c) => c.time_ms === lastBarCloseMs)) {
+    windowCloses.push({ time_ms: lastBarCloseMs, close: Number(lastBar.close) });
+  }
+  // ONE open-read via the production resolver (levers included), every bar from
+  // minute 15; deriveLtfBiasContext self-freezes post-window.
+  if (Number.isFinite(entryMs) && entryMs >= w.resolveMs) {
+    const read = deriveLtfBiasContext({
+      bundle: entry?.inputs?.bundle,
+      brief: {
+        htf_bias_dir: context?.session_state?.pillar1?.htfBias ?? null,
+        h4_struct_dir: context?.session_state?.pillar1?.h4StructDir ?? null,
+        h1_struct_dir: context?.session_state?.pillar1?.h1StructDir ?? null,
+        primary_draw: context?.session_state?.pillar1?.primaryDraw ?? null,
+        pillar2_verdict: context?.session_state?.pillar2?.verdict ?? null,
+      },
+      session,
+      eventTs: entry?.event?.ts ?? null,
+      windowClosesOverride: windowCloses,
     });
-    if (!openReaction || v.interaction !== openReaction.interaction || v.htf_ltf_alignment !== openReaction.htf_ltf_alignment) {
-      openReaction = v;
-      console.log(`>> ${et(entry.event.ts)} open-reaction: ${v.interaction} ${v.level ?? ""} → ${v.ltf_bias} ${v.htf_ltf_alignment} cap=${v.grade_cap}`);
+    if (read) {
+      openReaction = read;
+      if (read.interaction !== prevInteraction) {
+        console.log(`>> ${et(entry.event.ts)} open-reaction: ${read.interaction} ${read.level ?? ""} → ${read.bias} ${read.htf_ltf_alignment} cap=${read.grade_cap}`);
+        prevInteraction = read.interaction;
+      }
     }
   }
   if (openReaction) {
     entry.inputs.ltf_bias_context = {
-      bias: openReaction.ltf_bias,
+      bias: openReaction.bias,
       htf_ltf_alignment: openReaction.htf_ltf_alignment,
       is_retrace_day: openReaction.is_retrace_day,
-      entry_model_priority: "undecided",
+      entry_model_priority: openReaction.entry_model_priority ?? "undecided",
       grade_cap: openReaction.grade_cap,
     };
   }
