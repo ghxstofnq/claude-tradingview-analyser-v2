@@ -128,12 +128,27 @@ export async function run(argv) {
   }
 }
 
+// Close the CDP WebSocket before exiting. Each `tv` invocation is a fresh
+// process that connects + enables Page/Runtime/DOM; exiting without closing
+// leaves the connection dangling, and rapid repeated invocations (e.g. health
+// polling) churn connect/enable/abrupt-exit cycles that destabilize TV Desktop's
+// chart renderer ("chart may still be loading", empty engine table). Best-effort
+// + timeout so cleanup can never hang the CLI. No-op when nothing connected.
+async function safeDisconnect() {
+  try {
+    const { disconnect } = await import('@tvmcp/core/connection');
+    await Promise.race([disconnect(), new Promise((r) => setTimeout(r, 1500))]);
+  } catch { /* best-effort cleanup */ }
+}
+
 async function execute(handler, values, positionals) {
   try {
     const result = await handler(values, positionals);
     console.log(JSON.stringify(result, null, 2));
+    await safeDisconnect();
     process.exit(0);
   } catch (err) {
+    await safeDisconnect();
     handleError(err);
   }
 }
