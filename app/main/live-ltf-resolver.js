@@ -70,6 +70,9 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
     window,
     overnight_targets: overnightTargetsForSession(session),
     window_closes: windowCloses,
+    // Strong-overnight gate for wait-for-reaction (BIAS 39:20): the |net| of the
+    // overnight move. From the bundle's engine quality row, else the brief.
+    overnight_net: bundle?.engine?.quality?.overnight_net ?? brief?.overnight_net ?? null,
     // Post-window, freeze the open read like the backtest: ignore a `rejected`
     // flag that matured after minute 30 and rely on the window-confined closes.
     // ONLY when we actually have window-close coverage (windowClosesOverride);
