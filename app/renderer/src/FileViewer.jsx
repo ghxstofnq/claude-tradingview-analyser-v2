@@ -35,9 +35,9 @@ function JsonNode({ k, value, depth, defaultOpen = false }) {
   if (!isObj) {
     let str;
     let color;
-    if (typeof value === "string") { str = `"${value}"`; color = "#9ed98a"; }
-    else if (typeof value === "number") { str = String(value); color = "#7fc6ff"; }
-    else if (typeof value === "boolean") { str = String(value); color = "#e3b341"; }
+    if (typeof value === "string") { str = `"${value}"`; color = "#59d499"; }
+    else if (typeof value === "number") { str = String(value); color = "#57c1ff"; }
+    else if (typeof value === "boolean") { str = String(value); color = "#ffc533"; }
     else if (value === null) { str = "null"; color = "var(--label)"; }
     else { str = String(value); color = "var(--value)"; }
     return (
@@ -79,7 +79,7 @@ function JsonNode({ k, value, depth, defaultOpen = false }) {
 function JsonViewer({ data }) {
   return (
     <div style={{
-      fontFamily: "ui-monospace, Menlo, monospace",
+      fontFamily: "var(--mono)",
       fontSize: 11.5,
       lineHeight: 1.55,
       color: "var(--value)",
@@ -119,7 +119,7 @@ function JsonlViewer({ text, maxRows = 500 }) {
       <div style={{ overflow: "auto", border: "1px solid var(--border)" }}>
         <table style={{
           borderCollapse: "collapse",
-          fontFamily: "ui-monospace, Menlo, monospace",
+          fontFamily: "var(--mono)",
           fontSize: 10.5,
           minWidth: "100%",
         }}>
@@ -206,7 +206,7 @@ function PlainViewer({ text }) {
   return (
     <pre style={{
       color: "var(--value)",
-      fontFamily: "ui-monospace, Menlo, monospace",
+      fontFamily: "var(--mono)",
       fontSize: 11.5,
       whiteSpace: "pre-wrap",
       lineHeight: 1.5,
@@ -278,7 +278,7 @@ export function FileViewer({ file, onClose }) {
         border: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "ui-monospace, Menlo, monospace",
+        fontFamily: "var(--mono)",
       }}>
         <div style={{
           padding: "8px 14px",
@@ -302,7 +302,7 @@ export function FileViewer({ file, onClose }) {
               onClick={() => window.api?.files?.open?.(file.path)}
               style={{
                 color: "var(--amber)", background: "transparent",
-                border: "1px solid var(--amber, #e3b341)",
+                border: "1px solid var(--amber)",
                 padding: "3px 9px", fontSize: 9.5, letterSpacing: ".16em",
                 cursor: "pointer", fontFamily: "inherit",
               }}>

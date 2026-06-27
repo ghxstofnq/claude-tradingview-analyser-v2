@@ -13,10 +13,36 @@ import {
   formatChainChip,
   htfBiasToRowsConcise,
   htfBiasToRowsDesigner,
+  drawBiasVoteRows,
   overnightHeaderRows,
   scenariosMeta,
   stripCitations,
+  decisionLine,
+  openReactionVerdict,
 } from "../app/renderer/src/Prep.helpers.js";
+
+describe("drawBiasVoteRows (Stage F — 3-component draw-bias grade)", () => {
+  it("maps both pre-open votes + a pending NY-open row, counts cast votes", () => {
+    const out = drawBiasVoteRows({ pillar1_votes: { htf: "bullish", overnight: "bearish" }, pillar_grade: "B" });
+    assert.equal(out.rows.length, 3);
+    assert.equal(out.rows[0].v, "BULL"); assert.equal(out.rows[0].tone, "bull");
+    assert.equal(out.rows[1].v, "BEAR"); assert.equal(out.rows[1].tone, "bear");
+    assert.equal(out.rows[2].v, "PENDING"); assert.equal(out.rows[2].tone, "dim");
+    assert.equal(out.cast, 2);
+    assert.equal(out.grade, "B");
+  });
+  it("a 'none' vote renders NONE/dim and does not count toward cast", () => {
+    const out = drawBiasVoteRows({ pillar1_votes: { htf: "none", overnight: "bullish" } });
+    assert.equal(out.rows[0].v, "NONE"); assert.equal(out.rows[0].tone, "dim");
+    assert.equal(out.cast, 1);
+  });
+  it("absent votes → all NONE/PENDING, cast 0, grade null", () => {
+    const out = drawBiasVoteRows({});
+    assert.equal(out.cast, 0);
+    assert.equal(out.grade, null);
+    assert.equal(out.rows[0].v, "NONE");
+  });
+});
 
 describe("groupLevelsByPrice", () => {
   const levels = [
@@ -216,11 +242,157 @@ describe("scenariosMeta", () => {
   });
 });
 
-describe("PrepPopover deterministic labels", () => {
-  it("does not brand deterministic prep sections as Claude-authored", () => {
-    assert.match(prepPopoverSource, /Panel title="BRIEF · DETERMINISTIC"/);
+describe("PrepPopover deterministic / AI separation", () => {
+  it("renders deterministic structured panels (not Claude-branded prose)", () => {
+    // Verdict-first redesign: the DET view is structured panels, not prose.
+    assert.match(prepPopoverSource, /title="BIAS"/);
+    assert.match(prepPopoverSource, /title="OPEN REACTION"/);
+    assert.match(prepPopoverSource, /title="PLAN/);
+    // The deterministic body must never be branded as Claude/AI-authored.
     assert.doesNotMatch(prepPopoverSource, /BRIEF · CLAUDE/);
     assert.doesNotMatch(prepPopoverSource, /Claude will propose/);
+  });
+  it("gates AI analysis behind an explicit DET/AI toggle + labelled AI view", () => {
+    assert.match(prepPopoverSource, /onView\("det"\)/);
+    assert.match(prepPopoverSource, /onView\("ai"\)/);
+    assert.match(prepPopoverSource, /AI IN-DEPTH/);
+  });
+});
+
+describe("decisionLine (verdict-first hero)", () => {
+  it("maps grade → tone, net bias, cast count, draw, and a deterministic reason", () => {
+    const out = decisionLine({
+      pillar_grade: "B",
+      htf_bias_dir: "bearish",
+      pillar1_votes: { htf: "bearish", overnight: "bearish" },
+      pillar2_verdict: "marginal",
+      primary_draw: { tf: "h4", kind: "ifvg", dir: "bull", ce: 29916.5, vote_reason: "inverted-displaced(0.52)" },
+    });
+    assert.equal(out.grade, "B");
+    assert.equal(out.gradeTone, "amber");
+    assert.equal(out.bias, "BEARISH");
+    assert.equal(out.biasTone, "bad");
+    assert.equal(out.cast, 2);
+    assert.equal(out.draw, "h4 bull IFVG · 29916.5");
+    assert.equal(out.reason, "inverted-displaced(0.52) · price quality marginal");
+  });
+
+  it("no-trade grade → red; empty brief → neutral defaults with cast 0", () => {
+    assert.equal(decisionLine({ pillar_grade: "no-trade" }).gradeTone, "red");
+    const empty = decisionLine({});
+    assert.equal(empty.grade, "—");
+    assert.equal(empty.bias, "NEUTRAL");
+    assert.equal(empty.biasTone, "warn");
+    assert.equal(empty.cast, 0);
+    assert.equal(empty.draw, "—");
+    assert.equal(empty.reason, "");
+  });
+
+  it("falls back to htf_destination when no primary_draw", () => {
+    assert.equal(decisionLine({ htf_destination: "below nearest untaken liquidity" }).draw, "below nearest untaken liquidity");
+  });
+
+  // Faithful pre-open (rubric §1): a lean shows its potential ceiling + pending,
+  // not a dead no-trade.
+  it("pending 1-component lean → 'B?' amber · LEANING BULL · pending-open reason", () => {
+    const out = decisionLine({
+      pillar_grade: "no-trade",
+      no_trade_reason: "open_unconfirmed",
+      lean: { direction: "bullish", count: 1, potential: "B", status: "pending_open" },
+      pillar1_votes: { htf: "bullish", overnight: "none" },
+    });
+    assert.equal(out.grade, "B?");
+    assert.equal(out.gradeTone, "amber");
+    assert.equal(out.bias, "LEANING BULL");
+    assert.equal(out.biasTone, "ok");
+    assert.equal(out.cast, 1);
+    assert.equal(out.pending, true);
+    assert.match(out.reason, /pending open reaction · B-capable/);
+  });
+
+  it("pending 2-component lean → 'A+?' · LEANING BEAR", () => {
+    const out = decisionLine({
+      pillar_grade: "no-trade",
+      no_trade_reason: "open_unconfirmed",
+      lean: { direction: "bearish", count: 2, potential: "A+", status: "pending_open" },
+      pillar1_votes: { htf: "bearish", overnight: "bearish" },
+    });
+    assert.equal(out.grade, "A+?");
+    assert.equal(out.bias, "LEANING BEAR");
+    assert.equal(out.cast, 2);
+  });
+
+  it("no read (0 components) → 'NO READ' dim, neutral bias", () => {
+    const out = decisionLine({
+      pillar_grade: "no-trade",
+      no_trade_reason: "no_bias",
+      lean: { direction: null, count: 0, potential: null, status: "no_read" },
+    });
+    assert.equal(out.grade, "NO READ");
+    assert.equal(out.gradeTone, "dim");
+    assert.equal(out.bias, "NEUTRAL");
+    assert.match(out.reason, /no clean read/);
+  });
+
+  it("data_gap stays a hard red no-trade (pipeline failure, not a lean)", () => {
+    const out = decisionLine({ pillar_grade: "no-trade", no_trade_reason: "data_gap" });
+    assert.equal(out.grade, "no-trade");
+    assert.equal(out.gradeTone, "red");
+    assert.match(out.reason, /HTF capture incomplete/);
+  });
+});
+
+describe("openReactionVerdict (Lanto's 3rd component)", () => {
+  const brief = { pillar1_votes: { htf: "bearish", overnight: "bearish" } };
+
+  it("pre-open (no live read) → PENDING with HTF/Overnight votes mapped", () => {
+    const out = openReactionVerdict(null, brief);
+    assert.equal(out.resolved, false);
+    assert.equal(out.verdict, "PENDING");
+    assert.equal(out.rows[0].v, "BEAR");
+    assert.equal(out.rows[1].v, "BEAR");
+    assert.equal(out.rows[2].v, "PENDING");
+    assert.equal(out.rows[2].tone, "dim");
+  });
+
+  it("live confirm → CONFIRMS; flip → FLIPS; stand-aside → NOT YET", () => {
+    assert.equal(openReactionVerdict({ verdict: "confirmed", bias: "bearish" }, brief).verdict, "CONFIRMS");
+    assert.equal(openReactionVerdict({ verdict: "flip", bias: "bullish" }, brief).verdict, "FLIPS");
+    assert.equal(openReactionVerdict({ confirmation: "stand aside", reaction_dir: "mixed" }, brief).verdict, "NOT YET");
+  });
+
+  // The masked latent bug: the real deterministic writer emits `bias_direction`,
+  // not `bias`/`verdict`/`reaction_dir`. The old reader keyed on the latter, so a
+  // directional open showed PENDING. Now bias_direction drives the Open row, and
+  // the verdict derives from the HTF vote when no alignment word is present.
+  it("real record: bias_direction directional → Open row + verdict resolve (regression)", () => {
+    const out = openReactionVerdict({ bias_direction: "bearish", latest_read: "NY swept the high and rolled" }, brief);
+    assert.equal(out.resolved, true);
+    assert.equal(out.rows[2].v, "BEAR");
+    assert.equal(out.verdict, "CONFIRMS"); // HTF vote is bearish → open ran with the lean
+    assert.equal(out.note, "NY swept the high and rolled");
+  });
+
+  // Option B: the live LTF context's own htf_ltf_alignment is the verdict source.
+  it("live ltf: aligned → CONFIRMS, divergent → FLIPS, with direction from ltf.bias", () => {
+    const aligned = openReactionVerdict({ bias_direction: "pending" }, brief, { bias: "bear", htf_ltf_alignment: "aligned", grade_cap: "A" });
+    assert.equal(aligned.rows[2].v, "BEAR");
+    assert.equal(aligned.verdict, "CONFIRMS");
+    assert.equal(aligned.verdictTone, "green");
+
+    const divergent = openReactionVerdict({ bias_direction: "pending" }, brief, { bias: "bull", htf_ltf_alignment: "divergent" });
+    assert.equal(divergent.rows[2].v, "BULL");
+    assert.equal(divergent.verdict, "FLIPS");
+    assert.equal(divergent.verdictTone, "amber");
+  });
+
+  // 2026-06-24: a genuinely-pending open (stand-aside) must STILL read PENDING —
+  // the live ltf has null bias + unclear alignment, the record says "pending".
+  it("genuinely-pending open → PENDING (not a false resolve)", () => {
+    const out = openReactionVerdict({ bias_direction: "pending" }, brief, { bias: null, htf_ltf_alignment: "unclear", grade_cap: "B" });
+    assert.equal(out.resolved, false);
+    assert.equal(out.verdict, "PENDING");
+    assert.equal(out.rows[2].v, "PENDING");
   });
 });
 

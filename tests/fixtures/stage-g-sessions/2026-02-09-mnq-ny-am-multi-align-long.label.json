@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-02-09-mnq-ny-am-multi-align-long",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "oracle-D1-2026-06-22",
+  "source_message": "Oracle D1: A+ long via MULTI-ALIGNMENT (the two-and-one — 5m bull FVG rebalance + 1m bear->bull iFVG in one). Bias ~2/3 bullish elevated by the entry. Entry ~25632 (1m bullish-inversion close on the reclaim ~09:54-09:56 inside the 5m bull FVG, after swing-tier bull MSS 09:47 + 5m FVG CE-tap at the 25611 pullback). Stop ~25605 (below the 25611 reclaim low). TP1 NYAM.H 25707 / LO.H 25723 (~2.6-3R); TP2 AS.H 25855.25 (HIT, ran to 25864); ultimate PWH 26536.",
+  "trade_date": "2026-02-09",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "trade",
+    "model": "Trend",
+    "side": "long",
+    "grade": "A+",
+    "entry": 25632,
+    "stop": 25605,
+    "tp1": 25707,
+    "tp2": 25855.25
+  }
+}

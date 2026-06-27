@@ -97,7 +97,16 @@ function buildContext({ session, leader, brief, ltf }) {
     },
     session_state: {
       pillar1: {
-        status: brief?.pillar_grade === "no-trade" ? "fail" : "pass",
+        // Pillar 1 = "Draw & Bias" passes when there is an HTF draw OR a
+        // directional LEAN (overnight/HTF — Lanto's "2 out of 3", Daily Bias 22:25).
+        // It must NOT inherit the pre-open lean GRADE: the anchor brief grades
+        // `no-trade: open_unconfirmed` (the NY open hasn't resolved a bias yet —
+        // earned LIVE per direct-session-brief.js), and mapping that to
+        // pillar1='fail' froze every replay bar into a Pillar-1 block so the walker
+        // never spawned while live fired. No-lean days (no_bias) and hard gaps
+        // already return null upstream, so a built context always has a draw or a
+        // lean → pass.
+        status: (draw || brief?.htf_bias_dir) ? "pass" : "fail",
         htfBias: ltf.bias ?? brief?.htf_bias_dir ?? biasFromDraw(draw),
         h4StructDir: brief?.h4_struct_dir ?? null,
         h1StructDir: brief?.h1_struct_dir ?? null,
@@ -175,14 +184,27 @@ export async function loadDayContext({ date, session, sessionRoot = DEFAULT_SESS
   });
 }
 
+// A no-HTF-draw day is still tradeable when a directional LEAN exists — Lanto's
+// "2 out of 3" (Daily Bias 22:25: "two out of three ... it's not [A+] but you can
+// trade it"): overnight price + the NY open carry the bias, and the TARGET is
+// session liquidity (untaken_targets), not an HTF gap. Live already runs these
+// (buildDetectorInputs never requires a draw); the backtest must match or it
+// silently sits out ~half the no-draw days Lanto trades. Skipped: hard gaps,
+// pillar2_poor (bad price action — stand aside), and no_bias (no lean = nothing
+// to trade). The lean comes from brief.htf_bias_dir (combineBias: HTF ∨ overnight).
+const NO_LEAN_SKIP = new Set([...HARD_NO_TRADE, "pillar2_poor"]);
+
 /**
  * Synthetic context from deterministic brief payloads (no day state).
- * Returns null when no payload carries a usable draw, or when the leading
- * payload is a hard no-trade (data_gap and friends) — the run must report
- * the gap, not trade through it.
+ * Returns null when no payload carries a usable draw OR a directional lean, or
+ * when the leading payload is a hard no-trade (data_gap and friends).
  */
 export function contextFromBriefPayloads({ session, payloads = [] }) {
-  const lead = payloads.find((p) => p?.primary_draw) ?? null;
+  // Prefer an HTF draw (unchanged); else fall back to a lean-only no-draw day.
+  const lead = payloads.find((p) => p?.primary_draw)
+    ?? payloads.find((p) => p?.htf_bias_dir
+      && !(p.pillar_grade === "no-trade" && NO_LEAN_SKIP.has(p.no_trade_reason)))
+    ?? null;
   if (!lead) return null;
   if (lead.pillar_grade === "no-trade" && HARD_NO_TRADE.has(lead.no_trade_reason)) return null;
 

@@ -1194,7 +1194,15 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
       const top = Number(row.top);
       const bottom = Number(row.bottom);
       if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(Number(close))) return false;
-      return wantDir === 'bear' ? Number(close) < bottom : Number(close) > top;
+      // The engine already determined the zone inverted (stamped inverted_ms in this
+      // bar); the bridge re-checking a STRICT close-beyond-boundary is redundant and
+      // drops boundary closes (06-15 10:29: a bear FVG inverted bullish with the close
+      // landing EXACTLY at the zone top, so close > top failed and the long never
+      // confirmed). GOFNQ_INV_RECLAIM makes the boundary inclusive (>=/<=).
+      const inclusive = process.env.GOFNQ_INV_RECLAIM === '1';
+      return wantDir === 'bear'
+        ? (inclusive ? Number(close) <= bottom : Number(close) < bottom)
+        : (inclusive ? Number(close) >= top : Number(close) > top);
     });
     const source = confirmed ?? violated;
     if (source) {
@@ -1331,6 +1339,10 @@ function buildStrategyBundleForRuntime(inputs, ev, session) {
       isRetraceDay: inputs.ltf_bias_context?.is_retrace_day ?? false,
       entryModelPriority: inputs.ltf_bias_context?.entry_model_priority ?? null,
       gradeCap: inputs.ltf_bias_context?.grade_cap ?? null,
+      // Stage C nested 3-vote grade (drives deriveGrade's A+/B label).
+      drawBiasPillar: inputs.ltf_bias_context?.draw_bias_pillar ?? null,
+      bElevatable: inputs.ltf_bias_context?.b_elevatable ?? false,
+      aPlusEligible: inputs.ltf_bias_context?.a_plus_eligible ?? false,
       pillar1: inputs.session_state?.pillar1 ?? null,
       pillar2: inputs.session_state?.pillar2 ?? null,
     },
@@ -1386,6 +1398,10 @@ function deterministicPacketToSurfacePayload(packet, ev) {
   return {
     id: deterministicSetupId(packet, ev),
     model: packet.model,
+    // Lanto's model CLASS (Reversal/Continuation) — computed in execution-packet.js
+    // from leg direction, distinct from the lifecycle name. Surfaced so the UI
+    // shows the bot's own classification instead of guessing it (UI-fidelity mandate).
+    model_class: packet.model_class ?? null,
     side: packet.side,
     entry: packet.entry?.price,
     entry_cite: packet.entry?.evidenceRef ?? 'deterministic.entry',
@@ -1573,6 +1589,22 @@ async function buildDetectorInputs(session) {
       if (derived) ltf_bias_context = derived;
     } catch { /* fallback is best-effort; the chain blocks honestly without it */ }
   }
+
+  // Persist the per-bar EFFECTIVE LTF bias so the LIVE/PREP popovers can show it
+  // resolving in real time (depth-2). The minute-14 ltf-bias.json snapshot stays
+  // PENDING through a stand-aside open while THIS per-bar resolver actively earns
+  // a direction — that work was invisible because it was never written down.
+  // activeSessionDir() isolates this to the backtest folder under replay, so it
+  // never pollutes live state. Best-effort: getOpenReaction falls back to the
+  // snapshot if the file is absent.
+  try {
+    const liveDir = await activeSessionDir();
+    await fs.writeFile(
+      path.join(liveDir, "ltf-bias-live.json"),
+      JSON.stringify({ ...(ltf_bias_context || {}), ts: new Date().toISOString() }, null, 2),
+    );
+  } catch { /* best-effort; popover falls back to the ltf-bias.json snapshot */ }
+
   const session_state = await readSessionStrategyState(brief).catch(() => ({}));
 
   // Synthesize brief_digest fields the detector reads — see

@@ -5,7 +5,9 @@ import * as replay from '@tvmcp/core/replay';
 import { findIctEngineRows, parseIctEngineTable } from '../lib/ict-engine-parser.js';
 import { computeEngineGates } from '../lib/compute-engine-gates.js';
 import { lastBarFacts, dropFormingBar } from '../lib/last-bar.js';
+import { computeSmtLeader } from '../lib/smt-leader.js';
 import { computeLeader } from '../lib/compute-leader.js';
+import { buildLeaderEvidence } from '../lib/smt-leader-evidence.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
 import { captureMultiTfWithHealth, applyBaselineFallback, tfMatchesMeta } from '../lib/tf-capture.js';
@@ -92,6 +94,13 @@ export function computeSessionGate({ quote, replayStatus }) {
   if (isMarketClosed) {
     sessionPhase = 'closed';
     phaseStartMin = 0; nextKillzoneMin = -1; nextKillzoneLabel = null;
+  } else if (etMinutesTotal >= 18 * 60 || etMinutesTotal < 3 * 60) {
+    // Asia session 18:00–03:00 ET (the overnight read; Lanto treats it as a
+    // session, not just a level). The next killzone is London Open at 03:00.
+    sessionPhase = 'asia';
+    // ponytail: minutes_into_phase reads 0 in the post-midnight slice (the
+    // 18:00→24:00 wrap); no consumer needs Asia minute-precision yet.
+    phaseStartMin = 18 * 60; nextKillzoneMin = 3 * 60; nextKillzoneLabel = 'London Open';
   } else if (etMinutesTotal >= 3 * 60 && etMinutesTotal < 5 * 60) {
     sessionPhase = 'london_open';
     phaseStartMin = 3 * 60; nextKillzoneMin = 8 * 60 + 30; nextKillzoneLabel = 'NY AM';
@@ -153,7 +162,13 @@ export function computeSessionGate({ quote, replayStatus }) {
   // Outside NY phases, leaving the fields null means analyze.js skips
   // compute-leader. That matches the strategy chain's intent: leader
   // picks only happen relative to the most recent NY open-reaction.
-  const OPEN_REACTION_MIN = 15; // window length matches compute-leader's 15-min slice
+  // 30 min — the SMT leader pick (computeSmtLeader) reads cross-asset divergence
+  // off pivots created in this window; a divergence often hasn't formed by minute
+  // 15, so a 15-min cap defaulted to MNQ most days. daily-bias §4/§7: the open-
+  // reaction window is the "first 15–30 min". This matches the legacy open-reaction
+  // resolver's interaction window (openReactionWindowMs endMs = minute 30); the
+  // verdict still first resolves at minute 15 (resolveMs / phaseFor 9:45).
+  const OPEN_REACTION_MIN = 30;
   const etMidnightMs = ts - (etMinutesTotal * 60_000 + Number(parts.second || 0) * 1000);
   let openWindowStartMin = null;
   if (/_ny_am$/.test(sessionPhase) || sessionPhase === 'pre_session_ny_am') {
@@ -217,12 +232,15 @@ export function computeSessionGate({ quote, replayStatus }) {
   };
 }
 
-// Multi-timeframe set per strategy §2.1 (Daily / 4H / 1H), §3 (4H/1H/15m/5m),
-// §7 step 6 (1m/5m). TradingView resolution strings → safe citation keys.
+// Multi-timeframe set per the Lanto spec: Daily / 4H / 1H / 30m / 15m / 5m / 1m
+// (PRICE 15:16 — 30m is part of his read). TradingView resolution strings →
+// safe citation keys. tf-capture matches "30" against the engine's meta.tf
+// stamp the same way as the other minute resolutions (no special map needed).
 const HTF_LTF_TIMEFRAMES = [
   { tv: 'D',   key: 'daily' },
   { tv: '240', key: 'h4' },
   { tv: '60',  key: 'h1' },
+  { tv: '30',  key: 'm30' },
   { tv: '15',  key: 'm15' },
   { tv: '5',   key: 'm5' },
   { tv: '1',   key: 'm1' },
@@ -477,6 +495,9 @@ async function healAndReportCapture(capture, { bareSymbol, explicitPath, replayA
 async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replayStatus) {
   await chart.setSymbol({ symbol });
   await new Promise((r) => setTimeout(r, SYMBOL_SETTLE_MS));
+  // Lock ETH on the secondary too — a symbol switch can land on the new
+  // symbol's default (regular) session, which would hide its overnight.
+  await chart.setExtendedHours(true);
   // Force secondary's TF to match primary's so the current-TF data is
   // comparable. captureMultiTf below restores this TF after sweeping the
   // others, so the chart is left on (secondary, originalTf).
@@ -500,6 +521,14 @@ async function captureSymbolBundle(symbol, originalTf, baselineSecondary, replay
   }
 
   const state = await chart.getState();
+  // Fail closed on a symbol hijack: if the chart didn't actually land on the
+  // requested secondary (reload race / wedge), refuse rather than fold the
+  // wrong symbol's bars under it (the 2026-06-12 MES-under-MNQ bug).
+  const landed = String(state?.symbol || '').replace(/^[A-Z_]+:/, '');
+  const want = String(symbol).replace(/^[A-Z_]+:/, '');
+  if (landed !== want) {
+    throw new Error(`symbol_mismatch: requested '${want}' but chart is on '${landed || 'unknown'}'`);
+  }
   const [visibleRange, quote, bars, indicatorValues, tables, full1mRaw] = await Promise.all([
     chart.getVisibleRange(),
     data.getQuote(),
@@ -767,6 +796,9 @@ register('analyze', {
       bars_by_tf = null;
       engine_by_tf = null;
     } else {
+      // Lock Extended Trading Hours before sweeping — overnight (Asia/London)
+      // only shows in ETH (BIAS 12:11). Idempotent: no reload once locked.
+      await chart.setExtendedHours(true);
       const captured = await captureMultiTf(originalTf);
       await healAndReportCapture(captured, {
         bareSymbol: originalSymbol.replace(/^[A-Z_]+:/, ''),
@@ -845,14 +877,37 @@ register('analyze', {
       const windowStartMs = sessionGate?.open_window_start_ms;
       const windowEndMs = sessionGate?.open_window_end_ms;
 
-      const leader = computeLeader({
+      // SMT leader (Stage C / daily-bias §6): divergence-based ES↔NQ selection
+      // (short the weaker, long the stronger), opposite-sign-only, ATR-normalized.
+      // No divergence → leader null (caller defaults the primary); unreadable →
+      // null (stand aside, never a silent wrong pick).
+      const smt = computeSmtLeader({
         primary: pairConfig.primary,
         secondary: pairConfig.secondary,
         primaryEngine: engine,
         secondaryEngine: secondaryBundle.engine,
+        context: 'auto',
         windowStartMs: windowStartMs ?? Number.POSITIVE_INFINITY,
         windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
       });
+
+      // Faithful leader (GOFNQ_FAITHFUL_LEADER, default OFF — validated 2026-06-25,
+      // 9-session pair-leader fold: displacement 5/8 vs Lanto + MNQ-safe; divergence
+      // 4/8 + R-negative). ON: the displacement / relative-strength pick (compute-
+      // leader.js — Lanto trades the leading instrument, DB 36:32/37:28) drives the
+      // leader, and the divergence-SMT above rides along only as a demoted direction
+      // confirmation. OFF: legacy SMT-divergence leader, unchanged.
+      const faithfulLeader = process.env.GOFNQ_FAITHFUL_LEADER === '1';
+      const disp = faithfulLeader
+        ? computeLeader({
+          primary: pairConfig.primary,
+          secondary: pairConfig.secondary,
+          primaryEngine: engine,
+          secondaryEngine: secondaryBundle.engine,
+          windowStartMs: windowStartMs ?? Number.POSITIVE_INFINITY,
+          windowEndMs: windowEndMs ?? Number.POSITIVE_INFINITY,
+        })
+        : null;
 
       pair = {
         primary: pairConfig.primary,
@@ -874,30 +929,22 @@ register('analyze', {
           },
           [pairConfig.secondary]: secondaryBundle,
         },
-        leader_evidence: {
-          primary_disp_score: leader.primary_disp_score,
-          secondary_disp_score: leader.secondary_disp_score,
-          margin: leader.margin,
-          threshold: leader.threshold,
-          reason: leader.reason,
-          // cite-or-reject anchors. The exact FVG index isn't plumbed
-          // through compute-leader in v1 — paths point at the array.
-          primary_fvg_path: leader.primary_disp_score > 0
-            ? `pair.symbols.${pairConfig.primary}.engine.fvgs`
-            : null,
-          secondary_fvg_path: leader.secondary_disp_score > 0
-            ? `pair.symbols.${pairConfig.secondary}.engine.fvgs`
-            : null,
-        },
+        leader_evidence: buildLeaderEvidence({
+          faithful: faithfulLeader,
+          disp,
+          smt,
+          primary: pairConfig.primary,
+          secondary: pairConfig.secondary,
+        }),
         leader_decided: false,
         leader: null,    // set by surface_leader_decision, not by tv analyze
       };
 
       // Loud warning when the secondary engine is missing so the user can
       // load the ICT Engine indicator on the secondary chart and retry.
-      if (leader.reason === 'secondary_engine_missing') {
+      if (!secondaryBundle.engine) {
         process.stderr.write(
-          `warning: ICT Engine missing on ${pairConfig.secondary}. Leader pick will be inconclusive until the engine is loaded on both charts.\n`,
+          `warning: ICT Engine missing on ${pairConfig.secondary}. SMT leader pick will read unreadable until the engine is loaded on both charts.\n`,
         );
       }
     }

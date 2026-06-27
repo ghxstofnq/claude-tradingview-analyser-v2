@@ -17,15 +17,46 @@ export async function getState() {
           return { id: s.id, name: s.name || s.title || 'unknown' };
         });
       } catch(e) {}
+      var session = null;
+      try { session = chart._chartWidget.model().mainSeries().properties().sessionId.value(); } catch(e) {}
       return {
         symbol: chart.symbol(),
         resolution: chart.resolution(),
         chartType: chart.chartType(),
+        session: session,
         studies: studies,
       };
     })()
   `);
   return { success: true, ...state };
+}
+
+/**
+ * Lock the chart's trading session to Extended (electronic / overnight) hours.
+ * Lanto reads overnight off ETH — "regular" can hide the Asia/London move
+ * (BIAS 12:11). Idempotent: reads the current sessionId and only writes (which
+ * triggers a bar reload) when it differs, so live polling never pays the
+ * reload cost once locked. Returns { success, session, changed }.
+ */
+export async function setExtendedHours(on = true) {
+  const want = on ? 'extended' : 'regular';
+  const result = await evaluateAsync(`
+    (function() {
+      var chart = ${CHART_API};
+      return new Promise(function(resolve) {
+        try {
+          var props = chart._chartWidget.model().mainSeries().properties();
+          var cur = props.sessionId && props.sessionId.value();
+          if (cur === '${want}') { resolve({ changed: false, sessionId: cur }); return; }
+          props.sessionId.setValue('${want}');
+          setTimeout(function() { resolve({ changed: true, sessionId: '${want}' }); }, 500);
+        } catch (e) { resolve({ error: String(e) }); }
+      });
+    })()
+  `);
+  if (result?.error) return { success: false, error: result.error };
+  if (result?.changed) await waitForChartReady(); // bars reload after a session change
+  return { success: true, session: result?.sessionId ?? want, changed: !!result?.changed };
 }
 
 export async function setSymbol({ symbol }) {

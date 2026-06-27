@@ -16,6 +16,13 @@ export function normalizeLtfBiasRecord(rec) {
     is_retrace_day: rec.is_retrace_day === true || rec.is_retrace_day === "true",
     entry_model_priority: rec.entry_model_priority ?? null,
     grade_cap: rec.grade_cap ?? null,
+    // Surfaced for the LIVE panel's no-trade explanation: the resolver's own read
+    // of WHY it's standing aside (e.g. "divergent_weak_rejection" at "AS.L"), so
+    // the UI says it instead of the bare `missing_ltf_bias` token. Additive —
+    // existing consumers read named fields and are unaffected.
+    interaction: rec.interaction ?? null,
+    level: rec.level ?? null,
+    cite: rec.cite ?? null,
   };
 }
 

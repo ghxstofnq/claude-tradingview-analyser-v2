@@ -1,6 +1,5 @@
 // Pure helpers for Live.jsx — extracted so they can be unit-tested with
 // `node --test`. Importing this file has no side effects.
-import { greenLightReached } from "../../../cli/lib/scale-in-rules.js";
 
 // Normalize a position/order "side" to "long" | "short" | null, accepting every
 // vocabulary the execution feeds emit: order side ("buy"/"sell"), TradingView's
@@ -16,27 +15,47 @@ export function normalizeSide(side) {
   return null;
 }
 
-// Find Pillar 3 ("Entry Model + Confirmation") in a pillar_breakdown array
-// by name substring (case-insensitive). Robust to ordering changes in the
-// prompt — index-based access is fragile.
+// Find Pillar 3 (the entry-model + confirmation pillar) in a pillar_breakdown
+// array by name substring (case-insensitive). Robust to ordering changes —
+// index-based access is fragile. Matches both shapes the panel can receive:
+// the LLM-surfaced "Entry Model + Confirmation" and the live single-brain
+// deterministic packet's "Pillar 3" (bar-close.js deterministicPacketToSurfacePayload).
 //
 // Returns the pillar object or null if not found.
 export function selectPillar3(pillars) {
   if (!Array.isArray(pillars)) return null;
-  return pillars.find((p) => p && typeof p.name === "string" && /entry|confirmation/i.test(p.name)) || null;
+  return pillars.find((p) => p && typeof p.name === "string" && /entry|confirmation|pillar\s*3/i.test(p.name)) || null;
 }
 
-// Map Pillar 3 elements to the four confirmation rows displayed in the
-// STEP 5+6 panel. Elements are matched by name substring:
-//   - "PD-array tap" → /pd|tap/i
-//   - "1m close past structure" → /1m/i
-//   - "5m close past structure" → /5m/i
-//   - "Clean delivery" → /delivery|clean/i
+// Map Pillar 3 to the three confirmation rows in the ENTRY panel. Lanto's
+// confirmation is the ONE-MINUTE close ONLY — "I don't use five-minute
+// confirmation … one minute confirmation on every single gap" (Entry Models
+// 04:43) — so there is NO 5m confirmation row. The faithful checks are:
+//   - "PD-array tap"            → /pd|tap/i   (price rebalanced the entry array)
+//   - "1m confirmation close"   → /1m/i       (the deliberate 1m close)
+//   - "Clean delivery"          → /delivery|clean/i  (displaced, not a >10-15m fight)
 //
-// Returns [{ label, status, detail }] — one entry per slot, always 4 rows.
-// Missing elements render as { status: "missing", detail: "—" }.
+// Two input shapes:
+//   1. Live single-brain deterministic packet — carries no named elements; its
+//      Pillar-3 VERDICT string is the confirmation truth (the chain only
+//      surfaces a setup AFTER the 1m confirmation close, so a PASS verdict means
+//      all three held). Map the verdict onto the three rows.
+//   2. LLM-surfaced "Entry Model + Confirmation" pillar with named elements —
+//      match each row by name substring.
+//
+// Returns [{ label, status, detail }] — always 3 rows. Missing elements render
+// as { status: "missing", detail: "—" }.
 export function pillar3ToConfirmationRows(pillar3) {
   const elements = pillar3?.elements || [];
+  if (!elements.length && pillar3?.verdict) {
+    const status = /^pass/i.test(String(pillar3.verdict)) ? "pass" : "pending";
+    const detail = String(pillar3.verdict);
+    return [
+      { label: "PD-array tap", status, detail },
+      { label: "1m confirmation close", status, detail },
+      { label: "Clean delivery", status, detail },
+    ];
+  }
   const find = (rx) => elements.find((e) => e && typeof e.name === "string" && rx.test(e.name));
   const rowFor = (label, rx) => {
     const el = find(rx);
@@ -49,8 +68,7 @@ export function pillar3ToConfirmationRows(pillar3) {
   };
   return [
     rowFor("PD-array tap", /pd|tap/i),
-    rowFor("1m close past structure", /1m/i),
-    rowFor("5m close past structure", /5m/i),
+    rowFor("1m confirmation close", /1m/i),
     rowFor("Clean delivery", /delivery|clean/i),
   ];
 }
@@ -111,63 +129,88 @@ export function liveGridFromTrade(trade, lastClose) {
   };
 }
 
-// Decide whether a same-side scale-in ("ADD") should surface onto the open
-// position. Per strategy §7 Step 7, you only add to a WINNER: the anchor must
-// be green-lit and the new live candidate must be the SAME side as the
-// position — never reverse via an add.
-//
-// Green-light uses the SAME shared rule as the auto tranche engine
-// (greenLightReached: 50% to the anchor's nearest intraday objective
-// greenlight_ref, falling back to TP1) so MANUAL and AUTO add-timing are
-// identical. Pass the journal anchor (carries greenlight_ref); when it's
-// absent we judge off the live position's avgFill/tp.
-//
-// Inputs:
-//   position    — live broker position { side:"buy"|"sell", avgFill, tp, ... }
-//   anchor      — journal anchor { side, entry, tp1, greenlight_ref } (optional)
-//   activeSetup — the live walker candidate { side:"long"|"short", entry, ... }
-//   price       — current mid price
-// Returns the activeSetup (the add candidate) when all conditions hold, else null.
-export function deriveAddCandidate({ position, anchor = null, activeSetup, price } = {}) {
-  if (!position || !activeSetup) return null;
-  const posSide = normalizeSide(position.side);
-  if (!posSide || activeSetup.side !== posSide) return null;     // same side only
-  const gl = anchor && Number.isFinite(Number(anchor.entry))
-    ? { side: posSide, entry: Number(anchor.entry), tp1: Number(anchor.tp1), greenlight_ref: anchor.greenlight_ref }
-    : { side: posSide, entry: Number(position.avgFill), tp1: Number(position.tp) };
-  // Target must be finite and beyond entry in the trade's direction — a broker
-  // position can momentarily lack a tp; don't judge green-lit off garbage.
-  const target = Number(gl.greenlight_ref ?? gl.tp1);
-  if (!Number.isFinite(gl.entry) || !Number.isFinite(target)) return null;
-  if (posSide === "long" ? target <= gl.entry : target >= gl.entry) return null;
-  return greenLightReached(gl, price) ? activeSetup : null;
+// design.md 2×2 framing: 2 models (Reversal / Continuation) × 2 mechanisms
+// (FVG-retrace / inversion). The walker emits one combined name — MSS / Trend /
+// Inversion — so annotate the model family for a clearer entry-model label,
+// falling back to the raw string.
+//   MSS       → Reversal · MSS        (liquidity grab + market-structure shift)
+//   Trend     → Continuation · Trend  (continuation in the direction of displacement)
+//   Inversion → Inversion             (failed PD array flips and is traded the other way)
+export function modelLabel(setup) {
+  const m = String(setup?.model || "").trim();
+  if (!m) return "—";
+  const mech = /^mss$/i.test(m) ? "MSS" : /^trend$/i.test(m) ? "Trend" : /^inversion$/i.test(m) ? "Inversion" : m;
+  // Prefer the bot's OWN model_class (Reversal/Continuation — execution-packet.js
+  // computes it from leg direction and warns it's distinct from the lifecycle
+  // name). The UI must show the bot's classification, not re-derive it.
+  const cls = String(setup?.model_class || "").trim().toLowerCase();
+  const family = cls === "reversal" ? "Reversal" : cls === "continuation" ? "Continuation" : null;
+  if (family) return `${family} · ${mech}`;
+  // Back-compat fallback when model_class isn't surfaced: the legacy guess.
+  if (/^mss$/i.test(m)) return "Reversal · MSS";
+  if (/^trend$/i.test(m)) return "Continuation · Trend";
+  if (/^inversion$/i.test(m)) return "Inversion";
+  return m;
 }
 
-// Build the IN-TRADE tranche stack from the open journal trades (each tranche
-// is its own trade on a netting account). Anchor first, then adds by seq. Each
-// row carries its own entry/stop/tp + unrealized R (via liveGridFromTrade).
-export function trancheStackFromState(openTrades, price) {
-  if (!Array.isArray(openTrades)) return [];
-  const rows = openTrades
-    .filter((t) => t && t.state !== "closed")
-    .map((t) => {
-      const grid = liveGridFromTrade(
-        { entry: t.entry, stop: t.stop, tp1: t.tp1, tp2: t.tp2, side: t.side, r_realized: t.r_realized, tp1_hit: t.tp1_hit },
-        price,
-      );
-      return {
-        id: t.id,
-        role: t.tranche_role || "anchor",
-        seq: t.tranche_seq ?? 0,
-        side: t.side,
-        grade: t.grade,
-        entry: t.entry,
-        stop: t.stop,
-        tp: t.tp1,
-        r: grid.pnl.v,
-        tone: grid.pnl.tone,
-      };
-    });
-  rows.sort((a, b) => (a.role === "anchor" ? 0 : 1) - (b.role === "anchor" ? 0 : 1) || (a.seq - b.seq));
-  return rows;
+// Roll the four Pillar-3 confirmation rows into one verdict for the entry
+// header (verdict-first). Lanto's confirmation = a deliberate 1m close, so the
+// AWAITING state names it explicitly. Returns { label, tone } where tone is a
+// pill class (green | amber | red | dim).
+//   - any row fail            → INVALIDATED (red)
+//   - all rows pass           → CONFIRMED (green)
+//   - otherwise (pending/etc) → AWAITING 1m CLOSE (amber)
+//   - no rows                 → "—" (dim)
+export function entryConfirmationVerdict(confRows) {
+  const rows = Array.isArray(confRows) ? confRows : [];
+  if (!rows.length) return { label: "—", tone: "dim" };
+  if (rows.some((r) => r.status === "fail")) return { label: "INVALIDATED", tone: "red" };
+  if (rows.every((r) => r.status === "pass")) return { label: "CONFIRMED", tone: "green" };
+  return { label: "AWAITING 1m CLOSE", tone: "amber" };
+}
+
+// Turn a raw strategy-chain blocker into plain English for the LIVE panel. The
+// chain's reason strings ("cannot evaluate: strategy chain incomplete:
+// missing_ltf_bias", "deterministic packet blocked: no_confirmed_packet") read
+// like errors but are normal no-trade states — this names what the bot is
+// actually doing so the trader isn't staring at a bare blocker token.
+//
+//   - missing_ltf_bias   → open-reaction resolved to stand-aside (no directional
+//        bias). Prefer the resolver's own read — `interaction` (+ `level`) once
+//        the normalizer passes them through — else the minute-14 open-reaction
+//        `latest_read`, else a static stand-aside line.
+//   - no_confirmed_packet → a bias + setup exist but no clean 1m close yet.
+//   - anything else       → strip the noisy "cannot evaluate: ..." prefix.
+//
+// Returns { text, sub } — `text` is the explanation, `sub` keeps the raw token
+// as a small debug line (null when it would just repeat `text`). Returns null
+// when there is no reason. Pure — ctx is { ltf, latest } from useOpenReaction.
+export function explainNoTradeReason(reason, ctx = {}) {
+  const raw = String(reason || "").trim();
+  if (!raw) return null;
+  const { ltf, latest } = ctx;
+
+  if (/missing_ltf_bias/.test(raw)) {
+    const interaction = ltf?.interaction ? String(ltf.interaction).replace(/_/g, " ") : null;
+    const level = ltf?.level ? String(ltf.level) : null;
+    let text;
+    if (interaction) {
+      text = `Standing aside${level ? ` at ${level}` : ""} — ${interaction}. No directional bias resolved, so there's nothing to hunt yet.`;
+    } else if (latest?.latest_read) {
+      text = `Standing aside — ${String(latest.latest_read)}`;
+    } else {
+      text = "Standing aside — the open-reaction hasn't resolved a directional bias yet (no clean draw / structure). Not an error: it's waiting for a clean structure to earn direction.";
+    }
+    return { text, sub: raw };
+  }
+
+  if (/no_confirmed_packet/.test(raw)) {
+    return {
+      text: "A bias and setup are in play, but there's no clean 1m confirmation close yet — holding (no entry without a deliberate candle close).",
+      sub: raw,
+    };
+  }
+
+  const cleaned = raw.replace(/^cannot evaluate:\s*strategy chain incomplete:\s*/i, "Chain incomplete — ");
+  return { text: cleaned, sub: cleaned === raw ? null : raw };
 }

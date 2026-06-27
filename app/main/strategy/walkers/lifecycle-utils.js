@@ -57,12 +57,34 @@ export function allPdArrays(context) {
   return context?.pillar3?.pdArrays ?? context?.pillar3?.fvgs ?? [];
 }
 
-export function isValidConfirmationForSide(row, side) {
+// Confirmation §: "it always has to be deliberate. If I see a wick, if I see
+// sloppy delivery, I do not take" (TRADE24 09:02); a strong body, minimal wicks
+// (PRICE 19:55). body_ratio >= 0.6 = the §3 "good body" (the same bar Lanto would
+// take, not a doji/wicky close) — already the bar on the Trend wick-tap path.
+export const CONFIRM_BODY_MIN = 0.6;
+
+// Filter-only-when-present: real confirmation rows carry last_bar.body_ratio
+// (cli/lib/last-bar.js); field-less hand-built rows keep the legacy behavior.
+export function hasDeliberateBody(row) {
+  const body = Number(row?.last_bar?.body_ratio ?? row?.body_ratio);
+  if (!Number.isFinite(body)) return true;
+  return body >= CONFIRM_BODY_MIN;
+}
+
+// `requireBody` gates the deliberate-body discipline. ON for the FVG-RETRACE
+// confirmation (MSS / Trend: "a candle closes back above/below the zone,
+// respecting it — that respect is the confirmation", confirmation.md). OFF for
+// the inversion VIOLATION close, which is judged by closing THROUGH the opposing
+// FVG with displacement (its own `fullCloseThrough` gate) — a violating candle
+// legitimately carries a wick (it spikes through and closes through), so a body
+// ratio is the wrong measure there (confirmation.md per-model breakdown).
+export function isValidConfirmationForSide(row, side, { requireBody = true } = {}) {
   const wanted = directionForSide(side);
   return row?.entry_state === 'confirmed'
     && isTruthyFlag(row?.confirm_close)
     && isTruthyFlag(row?.ce_held)
     && isFalseFlag(row?.chop_15m)
+    && (!requireBody || hasDeliberateBody(row))
     && wanted.confirm.includes(row?.confirm_dir ?? row?.direction ?? row?.dir);
 }
 

@@ -2,6 +2,14 @@
 
 This file extends the user's global working agreement at `~/.claude/CLAUDE.md`. The global agreement still applies in full. This file documents project-specific decisions, constraints, and context.
 
+## Design context
+
+UI/design work follows two committed references at the repo root:
+- [DESIGN.md](DESIGN.md) — the **Raycast** visual system (near-black surface ladder #07080a→#0d0d0d→#101111→#121212, hairline #242728 borders, no shadows, white CTA pill, saturated hues are status-only/never chrome, Inter + ss03). The active design language.
+- [PRODUCT.md](PRODUCT.md) — strategic context (register = product, the solo ICT-trader user, purpose, personality, anti-references, 5 design principles).
+
+**Before any UI / design / CSS / component / layout / typography work, read both, and use the Impeccable design skill** (installed globally; `Skill(skill="impeccable", args="<command> <target>")`, or run its detector directly: `node ~/.claude/skills/impeccable/scripts/detect.mjs --json <files>`). Verify rendered output with the headless harness in `design-harness/` (`node shoot.mjs` → PNG + computed-style probe) — not computer-use.
+
 ## Research basis
 
 Behavioral rules in this project are grounded in two research passes, both saved in-repo:

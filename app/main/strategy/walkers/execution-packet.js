@@ -60,30 +60,6 @@ function psychFallback(context, side, entry) {
   return lvls.map((l) => ({ ...l, name: `psych_${l.grid}`, target_class: 'psych', cite: 'psych_grid' }));
 }
 
-// No new entries after the late-session cutoff (user ruling 2026-06-13): a
-// trade confirmed too close to the 16:00 ET forced close has no runway to
-// reach its target before it. The last 1m candle that may confirm a NEW
-// entry is the 15:30 ET candle (which closes at 15:31); confirmations whose
-// bar closes at 15:32 ET or later are blocked. Wall-clock (the 16:00 close is
-// session-agnostic); inert for AM trades, which confirm before noon.
-const ENTRY_CUTOFF_ET_MIN = 15 * 60 + 32; // 15:32 ET (15:31-candle close onward)
-// Grade-tiered AM cutoff (user ruling 2026-06-13): in the NY-AM session a B
-// setup may only surface until 11:40 ET; A+ setups keep the full window to
-// 12:00. Conviction-tiered latitude — higher grade earns more rope in time
-// (mirrors A+→TP2 giving it more rope in target).
-const AM_B_CUTOFF_ET_MIN = 11 * 60 + 40; // 11:40 ET
-function etMinutesOfUtc(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(d);
-  const hh = Number(parts.find((p) => p.type === 'hour')?.value || 0);
-  const mm = Number(parts.find((p) => p.type === 'minute')?.value || 0);
-  return hh * 60 + mm;
-}
-
 function normalizeModelName(model) {
   const value = String(model ?? '').trim().toLowerCase();
   if (value === 'mss') return 'mss';
@@ -91,6 +67,28 @@ function normalizeModelName(model) {
   if (value === 'inversion') return 'inversion';
   if (value === 'undecided' || value === 'unknown' || value === 'none') return value;
   return value;
+}
+
+// Lanto's MODEL (Reversal vs Continuation) is whether the entry TURNS the
+// current leg or RIDES it — distinct from the walker LIFECYCLE name (MSS/Trend/
+// Inversion), which is the entry MECHANISM. Leg direction = the engine's most
+// recent leg extreme (leg_high_ms vs leg_low_ms); a short on an up-leg / a long
+// on a down-leg is counter-to-leg = Reversal, else Continuation. Validated on
+// the 5 oracle sessions (06-09/06-16/02-09 Reversal, 06-18 Continuation).
+// Null when the leg stamps are unreadable (cannot classify).
+function classifySetupModel(context, side) {
+  const lhMs = Number(context?.pillar2?.legHighMs);
+  const llMs = Number(context?.pillar2?.legLowMs);
+  if (!Number.isFinite(lhMs) || !Number.isFinite(llMs) || lhMs === llMs) return null;
+  const legUp = lhMs > llMs;
+  const counter = (side === 'short' && legUp) || (side === 'long' && !legUp);
+  return counter ? 'Reversal' : 'Continuation';
+}
+
+// Entry MECHANISM from the walker lifecycle: the Inversion lifecycle violates an
+// opposing FVG; MSS/Trend retrace into and respect one.
+function mechanismOf(walkerModel) {
+  return normalizeModelName(walkerModel) === 'inversion' ? 'inversion' : 'fvg_retrace';
 }
 
 function capGrade(grade, cap) {
@@ -284,18 +282,24 @@ function inversionStructuralStop(walker, side, entry, context) {
   }, null);
   const candle = walker?.evidence?.confirmation?.rawPayload?.last_bar ?? {};
   const candleExtreme = side === 'short' ? numberOrNull(candle.high) : numberOrNull(candle.low);
-  // Wide-leg risk cap (user ruling 2026-06-14): in high-volatility regimes the
-  // failed leg can be enormous (June 11: 131 pts), so the leg-extreme stop
-  // deflates every target's R and the trade reaches past nearer liquidity. When
-  // the leg stop exceeds WIDE_LEG_PTS, fall back to the tighter violating-candle
-  // stop (entry-models.md Inversion §5 — "below the candle that closed through
-  // it"). Threshold chosen by a 4-week fold sweep: 90-99 is a flat plateau
-  // (+6.13R, zero week-level losses, no winner broken); <85 falls off a whipsaw
-  // cliff (80pt: -1.37 May25-29, breaks the June 3 winner); 100 leaves +2.1 on
-  // the table. 95 sits mid-plateau. MNQ-point scale (the only calibrated symbol;
-  // rarely fires on MES, whose stops are an order of magnitude smaller).
-  const WIDE_LEG_PTS = 95;
-  if (legExtreme != null && correctSide(legExtreme) && Math.abs(legExtreme - entry) > WIDE_LEG_PTS
+  // VOLATILITY-RELATIVE wide-leg cap — the stop is sized to current conditions,
+  // not a fixed number. PRICE 10:34: "in normal conditions our typical stop loss
+  // is 20 points" — the stop scales with the prevailing delivery (a 20-pt 4H
+  // candle → a 20-pt stop; a 130-pt one → far wider). TRADE24 15:59: "we're not
+  // going to have as wide of a stop." The failed-leg extreme is the default
+  // structural anchor, but when its distance is disproportionate to the current
+  // delivery size — wider than WIDE_LEG_ATR_MULT × the Wilder ATR — tighten to
+  // the violating-candle (entry-array) stop (entry-models.md Inversion §5 "below
+  // the candle that closed through it"). Dynamic: the budget expands in a fast
+  // morning (June 9: atr 13.25 → budget 66 keeps the 55-pt leg) and contracts in
+  // chop, replacing the old fixed 95-pt cap (which equalled ~5×ATR at a normal
+  // ~19-pt ATR). atr_14 unavailable → the leg anchor stands (no volatility read →
+  // cannot judge "too wide"). The 5× multiple is the lone calibration knob,
+  // refined in the verification pass against the Discord-call stops.
+  const atr14 = numberOrNull(context?.pillar2?.atr14);
+  const WIDE_LEG_ATR_MULT = 5;
+  const wideLegBudget = atr14 != null && atr14 > 0 ? WIDE_LEG_ATR_MULT * atr14 : Infinity;
+  if (legExtreme != null && correctSide(legExtreme) && Math.abs(legExtreme - entry) > wideLegBudget
       && candleExtreme != null && correctSide(candleExtreme)) {
     return { kind: 'inversion_violating_candle', price: candleExtreme, evidenceRef: 'gates.engine.confirmation.last_bar' };
   }
@@ -442,24 +446,67 @@ function nearestIntradayTarget(context, side, entry, stop) {
 // grading element: the 2026-06-09 hand-graded A+ Inversion rode a medium
 // zone (GXNQ ruling 2026-06-12); the strategy grades alignment, not zone
 // size.
+// D5 multi-alignment (the "two-and-one", entry-models.md / ENTRY 25:13-27:05):
+// "two imbalances making one move — a 5m FVG rebalance paired with a 1m iFVG
+// go-invert in one spot." Detected as a DISTINCT same-direction 5m FVG
+// overlapping the walker's 1m entry zone. Elevates an otherwise-aligned 2/3
+// (b_elevatable) day to A+; never creates a trade on its own. Absent 5m data →
+// false (no elevation, the day stays B).
+function hasMultiAlignment(context, walker) {
+  // The real "two-and-one" (ENTRY 27:05) is a 5m FVG REBALANCE that took
+  // liquidity, paired with a 1m iFVG go-invert IN ONE spot. So it requires
+  // (a) the entry be an INVERSION (a plain FVG-retrace is a single mechanism,
+  // never a two-and-one — excludes 06-16), and (b) a DISTINCT same-dir 5m FVG
+  // that TOOK LIQUIDITY overlapping the entry (incidental non-liquidity 5m
+  // overlap is not the pairing — excludes 06-18). Calibrated on the 5 oracle
+  // sessions: 02-09 multi (A+); 06-16/06-18 NOT (B).
+  if (normalizeModelName(walker?.model) !== 'inversion') return false;
+  const pd = walker?.evidence?.pdArray?.rawPayload
+    ?? walker?.evidence?.confirmation?.rawPayload ?? {};
+  const top = Number(pd.top ?? pd.zone_top);
+  const bottom = Number(pd.bottom ?? pd.zone_bottom);
+  if (!Number.isFinite(top) || !Number.isFinite(bottom)) return false;
+  const wantDir = walker?.side === 'long' ? ['bull', 'bullish']
+    : walker?.side === 'short' ? ['bear', 'bearish'] : [];
+  const near = (a, b) => Number.isFinite(a) && Math.abs(a - b) < 0.26;
+  return (context?.pillar3?.fvgs5m ?? []).some((z) => {
+    const zt = Number(z?.top), zb = Number(z?.bottom);
+    if (!Number.isFinite(zt) || !Number.isFinite(zb)) return false;
+    // a DISTINCT 5m zone (not the entry zone itself) that overlaps it, same dir.
+    if (near(zt, top) && near(zb, bottom)) return false;
+    const overlaps = bottom <= zt && zb <= top;
+    return overlaps && z?.took_liq === true
+      && wantDir.includes(String(z?.dir ?? z?.direction ?? '').toLowerCase());
+  });
+}
+
 function deriveGrade({ context, walker }) {
   const chain = context?.sessionChain ?? {};
   const pillarsPass = context?.pillar1?.status === 'pass' && context?.pillar2?.status === 'pass';
   if (!pillarsPass) return capGrade('no-trade', chain.gradeCap);
   const modelKnown = ['mss', 'trend', 'inversion'].includes(normalizeModelName(walker?.model));
-  // A+ requires the packet to BE the aligned trade: bias present, HTF/LTF
-  // aligned, and the side in the bias direction (§2.4 / constraint #9).
+  // A+ requires the packet to BE the aligned trade: a known model in the bias
+  // direction (§2.4 / constraint #9).
   const sideAligned =
     (walker?.side === 'long' && chain.ltfBias === 'bullish') ||
     (walker?.side === 'short' && chain.ltfBias === 'bearish');
+
+  // Stage-C 3-vote NESTED grade (daily-bias §1) when the live resolver supplied
+  // it (chain.drawBiasPillar present): a_plus_eligible = 3/3 + good price → A+;
+  // 2/3 → B (D5 multi-alignment elevation is added in the next slice). The grade
+  // is the COUNT of HTF + overnight + NY-open votes, not the old alignment
+  // heuristic. Field-less old tapes/fixtures fall back to the legacy logic below.
+  if (chain.drawBiasPillar != null) {
+    if (!modelKnown || !sideAligned) return capGrade('B', chain.gradeCap);
+    if (chain.aPlusEligible) return capGrade('A+', chain.gradeCap);
+    // D5: a 2/3 (b_elevatable) day elevates to A+ via a multi-alignment entry —
+    // the "two-and-one". This LIFTS the B cap (the elevation IS the A+ path).
+    if (chain.bElevatable && chain.gradeCap !== 'no-trade' && hasMultiAlignment(context, walker)) return 'A+';
+    return capGrade('B', chain.gradeCap);
+  }
+
+  // Legacy fallback (no nested grade in the inputs): alignment + displacement.
   const reactionConfirmed = Boolean(chain.ltfBias) && chain.htfLtfAlignment === 'aligned' && sideAligned;
-  // Constraint #9 + §7 Step 3: A+ needs real displacement. The engine's enum
-  // draws the line at weak (clean/acceptable keep A+; weak/na → B). FIX A
-  // (SHIPPED default-on, opt out GOFNQ_P2_DISP_HTF=0): the doc judges displacement
-  // on 4H/1H — read the session's HTF displacement (context.pillar2.htfDisplacement)
-  // instead of current_tf (1m live chart). SAFE FALLBACK: when HTF displacement is
-  // unavailable (no h4/h1 capture), fall back to current_tf so live never silently
-  // loses A+ (the runners) on a degraded capture.
   const htfDisp = context?.pillar2?.htfDisplacement;
   const dispSource = process.env.GOFNQ_P2_DISP_HTF !== '0' && htfDisp != null && htfDisp !== ''
     ? htfDisp
@@ -527,7 +574,8 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
-  if (tp1Candidate && tp1Candidate.rMultiple < 1.5) blockers.push('tp1_below_1_5r');
+  // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
+  // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
   const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
     : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
@@ -538,35 +586,12 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     ? null
     : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price);
 
-  // Late-session cutoff: no NEW entry once the confirming bar closes at 15:32
-  // ET or later (user ruling 2026-06-13) — too little runway to the 16:00
-  // forced close. Uses the bar being evaluated (eventTimeUtc); inert for AM.
-  const entryEtMin = etMinutesOfUtc(context?.eventTimeUtc);
-  if (entryEtMin != null && entryEtMin >= ENTRY_CUTOFF_ET_MIN) blockers.push('entry_after_session_cutoff');
-
+  // (D6: the bot-specific late-session overlays with no transcript basis are
+  // removed — the 15:32 ET entry cutoff, the 11:00 ET exhaustion-runner A+→B cap,
+  // and the 11:40 ET NY-AM B cutoff, per lanto-source-of-truth.md §5. Lanto
+  // grades by the three components + the entry, not the clock.)
   let grade = deriveGrade({ context, walker });
-  // Exhaustion-runner conviction cap (auto-research finding 2026-06-20): a CLEAN
-  // (sharp) displacement means the impulsive move has already fired, so a clean
-  // entry taken LATE (>= 11:00 ET) is an exhaustion entry — as an A+ runner it
-  // tends to tag TP1 then trail back to break-even (0R), giving back R. Folded
-  // MNQ corpus: clean/"good"-quality entries win 32% vs 52% for "marginal"
-  // (n=119), and capping the late-clean A+ runner to B (bank the TP1 win, skip
-  // the TP2 ride) nets +1.03R corpus-wide. EARLY clean runners are spared — those
-  // are genuine breakouts (e.g. the 2026-06-09 +25R day), not exhaustion.
-  const EXHAUSTION_ET_MIN = 11 * 60; // 11:00 ET
-  if (grade === 'A+' && context?.pillar2?.displacement === 'clean'
-      && entryEtMin != null && entryEtMin >= EXHAUSTION_ET_MIN) {
-    grade = 'B';
-  }
   if (grade === 'no-trade') blockers.push('grade_blocked');
-
-  // Grade-tiered AM cutoff (user ruling 2026-06-13): a non-A+ setup confirming
-  // at 11:40 ET or later in the NY-AM session is blocked — late-session B
-  // chop. A+ setups keep the full window to noon.
-  if (grade !== 'A+' && context?.session === 'ny-am'
-      && entryEtMin != null && entryEtMin >= AM_B_CUTOFF_ET_MIN) {
-    blockers.push('b_grade_after_am_cutoff');
-  }
 
   // entry_model_priority is a SELECTION preference (resolver spec §3.4:
   // "which model to walk first"), applied in deterministic-strategy's
@@ -595,6 +620,11 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     status,
     finalVerdict: status === 'executable' ? 'manual_candidate' : 'no_trade',
     model: walker?.model ?? 'unknown',
+    // Lanto's model (Reversal/Continuation) + entry mechanism (fvg_retrace/
+    // inversion), distinct from the lifecycle name in `model`. model_class is
+    // what the oracle pass-bar compares; `model` stays the lifecycle (stops).
+    model_class: classifySetupModel(context, side),
+    mechanism: mechanismOf(walker?.model),
     side: side ?? 'unknown',
     grade: packetGrade,
     size,
@@ -644,4 +674,4 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 }
 
 // Test surface for the pure target-selection helpers.
-export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget };
+export const __test = { targetPool, validTargets, selectTp1, selectTp2, psychFallback, nearestIntradayTarget, deriveGrade, classifySetupModel, mechanismOf };

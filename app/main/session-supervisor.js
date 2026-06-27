@@ -65,13 +65,26 @@ export function planSupervisorAction({
   manualStopSession = null,
   restartsThisSession = 0,
   secondsSinceIntervention = Infinity,
+  backtestActive = false,
+  staleCode = false,
 }) {
+  // A backtest holds the chart (TV 9225 is shared). Stand down completely —
+  // never arm, restart, or disarm — until it releases. The detector was already
+  // paused imperatively at backtest start; live re-arms on the first tick after.
+  if (backtestActive) return { action: "none", reason: "backtest_active" };
   if (session === "idle") {
     if (mode === "live" && !hasOpenTrades) return { action: "disarm", reason: "session_over" };
     return { action: "none", reason: mode === "live" ? "open_trades" : "idle" };
   }
   if (manualStopSession === session) return { action: "none", reason: "manual_stop" };
-  if (mode !== "live") return { action: "arm", reason: `session_${session}_open` };
+  if (mode !== "live") {
+    // Parity keystone: never cold-arm a live session on stale code. When the
+    // running process is behind the on-disk code (version-status restart_needed),
+    // the live chain would fold a DIFFERENT brain than the backtest does — the
+    // exact divergence behind backtest≠live. Refuse to arm until the app restarts.
+    if (staleCode) return { action: "block_arm_stale", reason: "stale_code" };
+    return { action: "arm", reason: `session_${session}_open` };
+  }
   if (heartbeatAgeS != null && heartbeatAgeS <= HEARTBEAT_STALE_S) return { action: "none", reason: "healthy" };
   if (secondsSinceIntervention < INTERVENTION_GRACE_S) return { action: "none", reason: "intervention_grace" };
   if (restartsThisSession < RESTART_CAP_PER_SESSION) return { action: "restart_detector", reason: "heartbeat_stale" };
@@ -86,6 +99,7 @@ export function planSupervisorAction({
  *   heartbeatAgeS() → seconds | null         (async)
  *   startDetector() / stopDetector() / resetDetectorRestarts()
  *   hasOpenTrades() → bool                   (async)
+ *   isStaleCode() → bool                     (running process behind on-disk code)
  *   runReadinessCheck(session) → readiness   (async; the CLI live-check verdict)
  *   notify({ level, title, body })           (system + in-app)
  *   send(channel, payload)                   (renderer event stream)
@@ -101,6 +115,7 @@ export function createSessionSupervisor(deps) {
     lastInterventionMs: null,
     readinessCheckedKey: null,
     readinessInFlight: false,
+    staleNotifiedKey: null,
   };
 
   function keyFor(date, session) {
@@ -165,6 +180,8 @@ export function createSessionSupervisor(deps) {
       manualStopSession: state.manualStopKey === state.sessionKey && session !== "idle" ? session : null,
       restartsThisSession: state.restartsThisSession,
       secondsSinceIntervention: state.lastInterventionMs == null ? Infinity : (now - state.lastInterventionMs) / 1000,
+      backtestActive: deps.isBacktestActive?.() ?? false,
+      staleCode: deps.isStaleCode?.() ?? false,
     });
 
     if (plan.action === "arm") {
@@ -179,6 +196,18 @@ export function createSessionSupervisor(deps) {
       });
       deps.send?.("supervisor:state", { action: "arm", session });
       deps.recordMetric?.({ kind: "supervisor", event: "arm", session });
+    } else if (plan.action === "block_arm_stale") {
+      // Loud, once per session: the window is open but we won't arm on stale code.
+      if (state.staleNotifiedKey !== state.sessionKey) {
+        state.staleNotifiedKey = state.sessionKey;
+        deps.notify?.({
+          level: "error",
+          title: "Live arming BLOCKED — stale code",
+          body: `${session}: the running app is behind its on-disk code. Restart the app so live runs the same code the backtest does (parity). NOT arming.`,
+        });
+        deps.send?.("supervisor:state", { action: "block_arm_stale", session });
+        deps.recordMetric?.({ kind: "supervisor", event: "block_arm_stale", session });
+      }
     } else if (plan.action === "restart_detector") {
       deps.stopDetector();
       deps.resetDetectorRestarts?.();
@@ -263,14 +292,15 @@ function runLiveCheckCli(session) {
 let _supervisor = null;
 let _timer = null;
 
-export function startSessionSupervisor({ send }) {
+export function startSessionSupervisor({ send, isStaleCode }) {
   return Promise.all([
     import("./sessions.js"),
     import("./mode.js"),
     import("./bar-close.js"),
     import("./metrics.js"),
     import("./notify.js"),
-  ]).then(([sessions, mode, barClose, metrics, notifyMod]) => {
+    import("./backtest-lock.js"),
+  ]).then(([sessions, mode, barClose, metrics, notifyMod, backtestLock]) => {
     _supervisor = createSessionSupervisor({
       getSession: () => {
         const s = sessions.currentSession();
@@ -283,7 +313,9 @@ export function startSessionSupervisor({ send }) {
       stopDetector: barClose.stopDetector,
       resetDetectorRestarts: barClose.resetDetectorRestarts,
       hasOpenTrades: barClose.hasOpenTrades,
+      isStaleCode,
       runReadinessCheck: runLiveCheckCli,
+      isBacktestActive: backtestLock.isBacktestActive,
       notify: ({ level, title, body }) => {
         notifyMod.notifySystem({ title, body });
         send?.("app:error", { source: "supervisor", level, message: `${title}: ${body}` });
@@ -310,3 +342,7 @@ export function stopSessionSupervisor() {
 
 export function noteManualStop() { _supervisor?.noteManualStop(); }
 export function noteManualStart() { _supervisor?.noteManualStart(); }
+
+// Run one supervisor tick now (out of band). Used to re-arm live promptly when
+// a backtest releases the chart instead of waiting for the next interval tick.
+export function nudgeSupervisor() { return _supervisor?.tick?.().catch(() => {}); }

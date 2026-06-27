@@ -64,8 +64,10 @@ test('runDeterministicWalkerStrategy transitions executable confirmed walkers to
 });
 
 test('runDeterministicWalkerStrategy keeps blocked packets visible but final verdict no_trade', () => {
+  // No derivable stop (empty pool + a zone with no bounds) → missing_structural_stop.
+  // (D6 removed the 1.5R TP1 floor this case previously used as the blocker.)
   const context = contextWithPacket({
-    pillar1: { status: 'pass', blockers: [], untakenTargets: { above: [{ evidenceRef: 'target.too_close', label: 'near high', price: 21004 }], below: [] } },
+    pillar3: { pdArrays: [], fvgs: [], ifvgs: [], bprs: [], insidePdArrays: [], confirmationRows: [], structuralStops: [] },
   });
   const confirmed = {
     ...createWalker({ context, model: 'Trend', side: 'long', pdArray: bullishPd }),
@@ -81,7 +83,7 @@ test('runDeterministicWalkerStrategy keeps blocked packets visible but final ver
   assert.equal(result.walkers[0].stage, 'blocked');
   assert.equal(result.packets[0].status, 'blocked');
   assert.equal(result.packets[0].finalVerdict, 'no_trade');
-  assert.ok(result.packets[0].blockers.includes('tp1_below_1_5r'));
+  assert.ok(result.packets[0].blockers.includes('missing_structural_stop'));
   assert.equal(result.bestPacket, null);
 });
 

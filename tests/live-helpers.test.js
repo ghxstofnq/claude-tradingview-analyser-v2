@@ -7,10 +7,30 @@ import {
   selectPillar3,
   pillar3ToConfirmationRows,
   liveGridFromTrade,
-  deriveAddCandidate,
-  trancheStackFromState,
+  modelLabel,
   normalizeSide,
+  entryConfirmationVerdict,
+  explainNoTradeReason,
 } from "../app/renderer/src/Live.helpers.js";
+
+describe("entryConfirmationVerdict", () => {
+  it("all pass → CONFIRMED (green)", () => {
+    const rows = [{ status: "pass" }, { status: "pass" }, { status: "pass" }, { status: "pass" }];
+    assert.deepEqual(entryConfirmationVerdict(rows), { label: "CONFIRMED", tone: "green" });
+  });
+  it("any fail → INVALIDATED (red)", () => {
+    const rows = [{ status: "pass" }, { status: "fail" }, { status: "pending" }];
+    assert.deepEqual(entryConfirmationVerdict(rows), { label: "INVALIDATED", tone: "red" });
+  });
+  it("pending/weak (no fail, not all pass) → AWAITING 1m CLOSE (amber)", () => {
+    const rows = [{ status: "pass" }, { status: "pending" }, { status: "missing" }];
+    assert.deepEqual(entryConfirmationVerdict(rows), { label: "AWAITING 1m CLOSE", tone: "amber" });
+  });
+  it("empty / non-array → dim dash", () => {
+    assert.deepEqual(entryConfirmationVerdict([]), { label: "—", tone: "dim" });
+    assert.deepEqual(entryConfirmationVerdict(null), { label: "—", tone: "dim" });
+  });
+});
 
 describe("normalizeSide", () => {
   it("maps order vocabulary buy/sell → long/short", () => {
@@ -61,6 +81,16 @@ describe("selectPillar3", () => {
     assert.equal(p.status, "pending");
   });
 
+  it("finds the live deterministic packet's 'Pillar 3' entry", () => {
+    const det = [
+      { name: "Pillar 1", verdict: "PASS · deterministic context gate", elements: [] },
+      { name: "Pillar 2", verdict: "PASS · deterministic quality gate", elements: [] },
+      { name: "Pillar 3", verdict: "PASS · Inversion exact confirmation close", elements: [] },
+    ];
+    const p = selectPillar3(det);
+    assert.equal(p.name, "Pillar 3");
+  });
+
   it("returns null when no pillar matches", () => {
     assert.equal(selectPillar3([pillars[0]]), null);
   });
@@ -72,7 +102,7 @@ describe("selectPillar3", () => {
 });
 
 describe("pillar3ToConfirmationRows", () => {
-  it("maps four rows in fixed order, matched by name substring", () => {
+  it("maps three 1m-only rows in fixed order, matched by name substring (no 5m row — EM 04:43)", () => {
     const pillar3 = {
       elements: [
         { name: "1m close past structure", status: "pass", detail: "21 322.50 close > 21 320" },
@@ -82,16 +112,24 @@ describe("pillar3ToConfirmationRows", () => {
       ],
     };
     const rows = pillar3ToConfirmationRows(pillar3);
-    assert.equal(rows.length, 4);
+    assert.equal(rows.length, 3);
     assert.equal(rows[0].label, "PD-array tap");
     assert.equal(rows[0].status, "pass");
     assert.match(rows[0].detail, /wick tapped/);
-    assert.equal(rows[1].label, "1m close past structure");
+    assert.equal(rows[1].label, "1m confirmation close");
     assert.equal(rows[1].status, "pass");
-    assert.equal(rows[2].label, "5m close past structure");
-    assert.equal(rows[2].status, "weak");
-    assert.equal(rows[3].label, "Clean delivery");
-    assert.equal(rows[3].status, "pending");
+    assert.equal(rows[2].label, "Clean delivery");
+    assert.equal(rows[2].status, "pending");
+    // Lanto confirms on the 1m ONLY — the 5m element must NOT render a row.
+    assert.equal(rows.some((r) => /5m/i.test(r.label)), false);
+  });
+
+  it("maps the live deterministic packet's Pillar-3 verdict onto three pass rows", () => {
+    const rows = pillar3ToConfirmationRows({ name: "Pillar 3", verdict: "PASS · Inversion exact confirmation close", elements: [] });
+    assert.equal(rows.length, 3);
+    assert.equal(rows.every((r) => r.status === "pass"), true);
+    assert.equal(rows[1].label, "1m confirmation close");
+    assert.match(rows[0].detail, /exact confirmation close/);
   });
 
   it("renders missing elements as 'missing' status with em-dash detail", () => {
@@ -102,7 +140,7 @@ describe("pillar3ToConfirmationRows", () => {
 
   it("tolerates null pillar3 input", () => {
     const rows = pillar3ToConfirmationRows(null);
-    assert.equal(rows.length, 4);
+    assert.equal(rows.length, 3);
     assert.equal(rows[0].status, "missing");
   });
 });
@@ -160,99 +198,76 @@ describe("liveGridFromTrade", () => {
   });
 });
 
-describe("deriveAddCandidate", () => {
-  const longSetup = { side: "long", entry: 105, stop: 100, tp1: 120, model: "Trend" };
-  const shortSetup = { side: "short", entry: 105, stop: 110, tp1: 90, model: "MSS" };
-  const longPos = { side: "buy", qty: 1, avgFill: 100, sl: 95, tp: 110 };
-  const shortPos = { side: "sell", qty: 1, avgFill: 110, sl: 115, tp: 100 };
+// (deriveAddCandidate + trancheStackFromState removed 2026-06-23 — scale-in
+// deleted; the LIVE panel trades one position at a time.)
 
-  it("returns null with no position", () => {
-    assert.equal(deriveAddCandidate({ position: null, activeSetup: longSetup, price: 106 }), null);
+describe("modelLabel (Stage F — 2×2 entry-model framing)", () => {
+  it("MSS → Reversal · MSS", () => {
+    assert.equal(modelLabel({ model: "MSS" }), "Reversal · MSS");
   });
-
-  it("returns null with no activeSetup", () => {
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: null, price: 106 }), null);
+  it("Trend → Continuation · Trend", () => {
+    assert.equal(modelLabel({ model: "Trend" }), "Continuation · Trend");
   });
-
-  it("returns null when sides differ (no reversing via add)", () => {
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: shortSetup, price: 106 }), null);
+  it("Inversion → Inversion", () => {
+    assert.equal(modelLabel({ model: "Inversion" }), "Inversion");
   });
-
-  it("recognizes a DOM-sourced position side ('long'/'short'), not just 'buy'/'sell'", () => {
-    // When the WS feed hasn't connected, exec.position comes from the DOM read,
-    // whose side is "long"/"short". The add must still surface on a same-side,
-    // green-lit long — previously this returned null (only buy/sell handled).
-    const domLongPos = { side: "long", qty: 1, avgFill: 100, sl: 95, tp: 110 };
-    assert.equal(deriveAddCandidate({ position: domLongPos, activeSetup: longSetup, price: 105 }), longSetup);
-    const domShortPos = { side: "short", qty: 1, avgFill: 110, sl: 115, tp: 100 };
-    assert.equal(deriveAddCandidate({ position: domShortPos, activeSetup: shortSetup, price: 105 }), shortSetup);
+  it("unknown model falls back to the raw string; missing → —", () => {
+    assert.equal(modelLabel({ model: "Custom" }), "Custom");
+    assert.equal(modelLabel({}), "—");
   });
-
-  it("returns null when the anchor is not green-lit (<50% to TP1)", () => {
-    // long: entry 100, tp 110, price 104 → progress 0.4
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: 104 }), null);
+  // Fidelity: read the bot's own model_class (Reversal/Continuation, computed in
+  // execution-packet.js from leg direction) instead of guessing it from the
+  // lifecycle name — they can diverge (a Trend lifecycle can be a Reversal class).
+  it("reads the bot's model_class over the lifecycle-name guess (divergent case)", () => {
+    assert.equal(modelLabel({ model: "Trend", model_class: "Reversal" }), "Reversal · Trend");
+    assert.equal(modelLabel({ model: "MSS", model_class: "Continuation" }), "Continuation · MSS");
   });
-
-  it("returns the candidate when same side and green-lit (>=50% to TP1) — long", () => {
-    // long: entry 100, tp 110, price 105 → progress 0.5
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: 105 }), longSetup);
+  it("surfaces model_class for inversions too (Reversal/Continuation · Inversion)", () => {
+    assert.equal(modelLabel({ model: "Inversion", model_class: "Continuation" }), "Continuation · Inversion");
   });
-
-  it("returns the candidate when same side and green-lit — short", () => {
-    // short: entry 110, tp 100, price 105 → progress 0.5
-    assert.equal(deriveAddCandidate({ position: shortPos, activeSetup: shortSetup, price: 105 }), shortSetup);
-  });
-
-  it("returns null when TP is missing / equal to entry (can't judge green-lit)", () => {
-    assert.equal(deriveAddCandidate({ position: { ...longPos, tp: null }, activeSetup: longSetup, price: 109 }), null);
-    assert.equal(deriveAddCandidate({ position: { ...longPos, tp: 100 }, activeSetup: longSetup, price: 109 }), null);
-  });
-
-  it("returns null when price is not finite", () => {
-    assert.equal(deriveAddCandidate({ position: longPos, activeSetup: longSetup, price: undefined }), null);
-  });
-
-  it("uses the journal anchor's greenlight_ref — green-lights earlier, same as auto", () => {
-    // Anchor entry 100, tp1 120, greenlight_ref 110. 50% to ref(110)=105;
-    // 50% to tp1(120)=110. At 105 the ref-based rule (matching the auto engine)
-    // surfaces the add, while the tp1-only rule would still wait.
-    const anchor = { side: "long", entry: 100, tp1: 120, greenlight_ref: 110 };
-    assert.equal(deriveAddCandidate({ position: longPos, anchor, activeSetup: longSetup, price: 105 }), longSetup);
-    // Without greenlight_ref the anchor falls back to tp1 → 105 is not yet 50%.
-    const noRef = { side: "long", entry: 100, tp1: 120, greenlight_ref: null };
-    assert.equal(deriveAddCandidate({ position: longPos, anchor: noRef, activeSetup: longSetup, price: 105 }), null);
-  });
-
-  it("short anchor honors greenlight_ref", () => {
-    const anchor = { side: "short", entry: 110, tp1: 90, greenlight_ref: 100 };
-    // 50% to ref(100)=105; reached at 105.
-    assert.equal(deriveAddCandidate({ position: shortPos, anchor, activeSetup: shortSetup, price: 105 }), shortSetup);
+  it("agrees with the legacy guess when model_class matches the lifecycle", () => {
+    assert.equal(modelLabel({ model: "MSS", model_class: "Reversal" }), "Reversal · MSS");
   });
 });
 
-describe("trancheStackFromState", () => {
-  it("maps open journal trades to stack rows, anchor first then adds by seq", () => {
-    const trades = [
-      { id: "T-0002", tranche_role: "add", tranche_seq: 1, side: "long", grade: "B", entry: 105, stop: 102, tp1: 112, state: "filled" },
-      { id: "T-0001", tranche_role: "anchor", tranche_seq: 0, side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, state: "filled" },
-    ];
-    const rows = trancheStackFromState(trades, 108);
-    assert.equal(rows.length, 2);
-    assert.equal(rows[0].role, "anchor");
-    assert.equal(rows[0].id, "T-0001");
-    assert.equal(rows[1].role, "add");
+describe("explainNoTradeReason", () => {
+  const reason = "cannot evaluate: strategy chain incomplete: missing_ltf_bias";
+
+  it("returns null for an empty reason", () => {
+    assert.equal(explainNoTradeReason(null), null);
+    assert.equal(explainNoTradeReason("  "), null);
   });
-  it("excludes closed tranches", () => {
-    const trades = [
-      { id: "T-0001", tranche_role: "anchor", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, state: "closed" },
-      { id: "T-0002", tranche_role: "add", side: "long", grade: "B", entry: 105, stop: 102, tp1: 112, state: "filled" },
-    ];
-    const rows = trancheStackFromState(trades, 108);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].id, "T-0002");
+
+  it("missing_ltf_bias prefers the resolver's interaction + level when present", () => {
+    const ex = explainNoTradeReason(reason, {
+      ltf: { interaction: "divergent_weak_rejection", level: "AS.L" },
+    });
+    assert.match(ex.text, /Standing aside at AS\.L/);
+    assert.match(ex.text, /divergent weak rejection/);
+    assert.equal(ex.sub, reason); // raw token kept as debug line
   });
-  it("returns [] for empty / non-array", () => {
-    assert.deepEqual(trancheStackFromState(null, 100), []);
-    assert.deepEqual(trancheStackFromState([], 100), []);
+
+  it("missing_ltf_bias falls back to the minute-14 open-reaction read", () => {
+    const ex = explainNoTradeReason(reason, {
+      latest: { latest_read: "Open-reaction resolving — bias pending until a post-window structure earns direction (+15m)." },
+    });
+    assert.match(ex.text, /^Standing aside — Open-reaction resolving/);
+  });
+
+  it("missing_ltf_bias with no context still gives a non-error stand-aside line", () => {
+    const ex = explainNoTradeReason(reason, {});
+    assert.match(ex.text, /Standing aside/);
+    assert.match(ex.text, /Not an error/);
+  });
+
+  it("no_confirmed_packet explains the missing 1m confirmation", () => {
+    const ex = explainNoTradeReason("deterministic packet blocked: no_confirmed_packet", {});
+    assert.match(ex.text, /1m confirmation/);
+    assert.equal(ex.sub, "deterministic packet blocked: no_confirmed_packet");
+  });
+
+  it("unknown chain-incomplete blocker strips the noisy prefix", () => {
+    const ex = explainNoTradeReason("cannot evaluate: strategy chain incomplete: missing_grade_cap", {});
+    assert.equal(ex.text, "Chain incomplete — missing_grade_cap");
   });
 });

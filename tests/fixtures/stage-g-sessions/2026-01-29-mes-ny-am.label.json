@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-01-29-mes-ny-am",
+  "fixtureSource": "real",
+  "label_status": "unlabeled",
+  "reviewer": "smt-pair-2026-06-25",
+  "source_message": "Lanto NY-AM: SHORT ES @~10:28, TP1 smashed, TP2 hourly wick low 6879, trailing 6940/6923. WON. The leader SHOULD pick MES this day. expected is a PLACEHOLDER; leader ground truth = the Discord pick. verified stays false.",
+  "trade_date": "2026-01-29",
+  "symbol": "MES",
+  "contract_hint": "CME_MINI:MES1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "unknown",
+    "model": null,
+    "side": null,
+    "grade": null,
+    "entry": null,
+    "stop": null,
+    "tp1": null,
+    "tp2": null
+  }
+}

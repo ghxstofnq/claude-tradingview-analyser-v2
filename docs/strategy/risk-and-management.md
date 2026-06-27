@@ -6,6 +6,21 @@ classes.
 
 ---
 
+## Current approach — "1-and-0" (the faithful default)
+
+Lanto reverted from a September **R-based / size-to-the-R experiment** back to the
+**1-and-0 probability mindset** — take good probable trades, standard sizing, judge by
+hit-rate, not R-engineering:
+
+> "pre-September our approach was always that 1-and-0 mindset — just looking for good
+> probable trades… I'm removing all our R trades and focused on probability entirely…
+> going back to what we did pre-September." (RISK ~20:31–21:27)
+
+So the faithful default is **standard day-of-week × grade sizing** (see the table below) +
+the **no-trim ride-the-trail** management (his personal style). The R-adjusted
+"size-to-the-R" style is the **dropped experiment** — kept below only as a documented prop
+variant.
+
 ## Accounts: prop vs personal
 
 Two account types, different management:
@@ -44,8 +59,9 @@ Three valid styles (pick one and be consistent):
 
 1. **Trim 50% at TP1 + stop to break-even + ride to the ultimate target.** Guarantees
    profit, keeps upside. (Prop-lenient / personal "trader 1".)
-2. **100% trim at TP1, sized to the R.** Risk is pre-set to the planned R so TP1 meets
-   the goal; nothing left on. (Capped/aggressive prop "trader 2".)
+2. **100% trim at TP1, sized to the R.** *(Dropped experiment — the R-adjusted approach
+   Lanto abandoned; documented as a capped-prop variant only.)* Risk pre-set to the planned
+   R so TP1 meets the goal; nothing left on.
 3. **No trim — ride the trail.** Hold the full position through targets; move the stop up
    structurally; exit on a market-structure change. (Lanto's personal style.)
 
@@ -57,7 +73,11 @@ On a TP1 hit (style 1 or 3): **move the stop to break-even**, then manage the ru
 
 ---
 
-## R-based sizing (size to the planned R)
+## R-based sizing (size to the planned R) — DROPPED experiment
+
+> **Note:** this is the September experiment Lanto **abandoned** (see "Current approach"
+> above). Documented for completeness only — the faithful default is standard day-of-week
+> sizing + the 1-and-0 mindset, not this.
 
 Predetermine the trade's R, then set dollar risk against it — don't take full risk and
 cut short before the target.

@@ -296,10 +296,181 @@ export function overnightHeaderRows(brief) {
   ];
 }
 
+// Map brief.pillar1_votes to the Draw & Bias 3-component vote breakdown
+// (daily-bias §1: grade = count of HTF + overnight + NY-open reaction votes).
+// The brief carries the two PRE-OPEN votes (htf, overnight); the third
+// (NY-open reaction) resolves live, so pre-session it renders PENDING.
+//
+// Returns { rows: [{k,v,tone,tip}], cast, grade } where `cast` is how many
+// pre-open components voted directionally and `grade` is the brief's pillar_grade.
+export function drawBiasVoteRows(brief) {
+  const votes = brief?.pillar1_votes || {};
+  const fmt = (x) => {
+    const s = String(x || "none").toLowerCase();
+    if (s === "bullish" || s === "bull") return { v: "BULL", tone: "bull" };
+    if (s === "bearish" || s === "bear") return { v: "BEAR", tone: "bear" };
+    return { v: "NONE", tone: "dim" };
+  };
+  const htf = fmt(votes.htf);
+  const overnight = fmt(votes.overnight);
+  const isCast = (x) => x != null && String(x).toLowerCase() !== "none";
+  const cast = [votes.htf, votes.overnight].filter(isCast).length;
+  return {
+    rows: [
+      { k: "HTF vote", v: htf.v, tone: htf.tone, tip: "Reaction off the significant near-price HTF PD array (daily-bias §1)" },
+      { k: "Overnight vote", v: overnight.v, tone: overnight.tone, tip: "Overnight directional read (Asia/London) — engine overnight_dir" },
+      { k: "Open", v: "PENDING", tone: "dim", tip: "Third component — the session-open reaction, resolves live after the open" },
+    ],
+    cast,
+    grade: brief?.pillar_grade || null,
+  };
+}
+
 // Render the SCENARIOS panel meta — sizing-if-A+ line. Reads sizing_note
 // from the deterministic/direct brief if present.
 export function scenariosMeta(brief) {
   const note = brief?.sizing_note;
   if (!note) return "deterministic prep";
   return `deterministic prep · ${note}`;
+}
+
+// Build the verdict-first DECISION strip line from a deterministic brief.
+// Pure — used by PrepPopover's hero. Returns:
+//   { grade, gradeTone, bias, biasTone, cast, draw, reason, pending, potential }
+// Faithful pre-open (rubric §1): pre-session is an UNCONFIRMED LEAN, not a B —
+// the grade is earned live at the open. So a lean (lean.status==='pending_open')
+// shows its POTENTIAL ceiling + a "?" marker and "LEANING {dir}", not a dead
+// red no-trade; a no-read shows "NO READ" (dim). `cast` is the pre-open vote
+// count (HTF + overnight) of 3; the third (NY-open) resolves live.
+export function decisionLine(brief) {
+  const rawGrade = brief?.pillar_grade || "—";
+  const lean = brief?.lean || null;
+  const ntr = brief?.no_trade_reason || null;
+  const pending = rawGrade === "no-trade" && lean?.status === "pending_open";
+
+  let grade;
+  let gradeTone;
+  if (pending) {
+    grade = lean.potential ? `${lean.potential}?` : "LEAN"; // "B?" / "A+?" — earned live
+    gradeTone = "amber";
+  } else if (rawGrade === "no-trade" && ntr === "no_bias") {
+    grade = "NO READ";
+    gradeTone = "dim";
+  } else {
+    grade = rawGrade;
+    gradeTone = rawGrade === "A+" ? "green" : rawGrade === "B" ? "amber" : rawGrade === "no-trade" ? "red" : "dim";
+  }
+
+  const dirRaw = String(lean?.direction || brief?.htf_bias_dir || brief?.primary_draw?.dir || "").toLowerCase();
+  const dirWord = dirRaw.startsWith("bull") ? "BULLISH" : dirRaw.startsWith("bear") ? "BEARISH" : null;
+  const bias = pending && dirWord ? `LEANING ${dirWord === "BULLISH" ? "BULL" : "BEAR"}`
+             : (dirWord || (dirRaw ? dirRaw.toUpperCase() : "NEUTRAL"));
+  const biasTone = dirWord === "BULLISH" ? "ok" : dirWord === "BEARISH" ? "bad" : "warn";
+
+  const votes = brief?.pillar1_votes || {};
+  const isCast = (x) => x != null && String(x).toLowerCase() !== "none";
+  const cast = [votes.htf, votes.overnight].filter(isCast).length;
+
+  const pd = brief?.primary_draw;
+  let draw = "—";
+  if (pd) {
+    const price = pd.ce ?? pd.top ?? pd.bottom;
+    const tf = pd.tf || pd.timeframe || "";
+    const kind = String(pd.kind || pd.type || "").toUpperCase();
+    const d = pd.dir ? String(pd.dir).toLowerCase() : "";
+    const head = [tf, d, kind].filter(Boolean).join(" ");
+    draw = head + (price != null ? ` · ${price}` : "");
+  } else if (brief?.htf_destination) {
+    draw = brief.htf_destination;
+  }
+
+  const reasonParts = [];
+  if (pending) reasonParts.push(`pending open reaction · ${lean.potential || "?"}-capable`);
+  else if (ntr === "no_bias") reasonParts.push("no clean read (0 components)");
+  else if (ntr === "components_conflict") reasonParts.push("HTF / overnight conflict");
+  else if (ntr === "data_gap") reasonParts.push("HTF capture incomplete");
+  else if (ntr === "pillar2_poor") reasonParts.push("price quality poor");
+  if (pd?.vote_reason) reasonParts.push(pd.vote_reason);
+  if (brief?.pillar2_verdict) reasonParts.push(`price quality ${brief.pillar2_verdict}`);
+  const reason = reasonParts.join(" · ");
+
+  return { grade, gradeTone, bias, biasTone, cast, draw, reason, pending, potential: lean?.potential ?? null };
+}
+
+// Resolve the OPEN-REACTION verdict block. Pre-open the third component is
+// PENDING; once a live read exists it shows the direction + CONFIRMS / FLIPS /
+// NOT YET. Three data sources, in precedence:
+//   1. `ltf` — the live LTF-bias context (getOpenReaction merges
+//      ltf-bias-live.json / ltf-bias.json, normalized to { bias,
+//      htf_ltf_alignment, grade_cap, ... }). This is the resolver's OWN verdict
+//      (Option B) and evolves per-bar through entry-hunt.
+//   2. `latest.bias_direction` — the open-reaction record's snapshot field the
+//      deterministic finalizer actually writes (the old reader looked for
+//      `bias`/`verdict`/`reaction_dir`, which the record never contains, so it
+//      showed PENDING on every directional day — fixed here).
+//   3. legacy `verdict`/`confirmation`/`bias`/`reaction_dir` — LLM path + old
+//      fixtures.
+// Returns { rows:[{k,v,tone}], verdict, verdictTone, note, resolved }.
+export function openReactionVerdict(latest, brief, ltf) {
+  const votes = brief?.pillar1_votes || {};
+  const fmtVote = (x) => {
+    const s = String(x || "none").toLowerCase();
+    if (s.startsWith("bull")) return { v: "BULL", tone: "ok" };
+    if (s.startsWith("bear")) return { v: "BEAR", tone: "bad" };
+    return { v: "NONE", tone: "dim" };
+  };
+  const htf = fmtVote(votes.htf);
+  const overnight = fmtVote(votes.overnight);
+
+  // Direction of the open reaction (precedence above). ltf.bias is the live
+  // resolver value; `?? "pending"` strings never read as bull/bear.
+  const dirRaw = String(
+    ltf?.bias ?? latest?.bias_direction ?? latest?.bias ?? latest?.reaction_dir ?? ""
+  ).toLowerCase();
+  const isBull = dirRaw.startsWith("bull");
+  const isBear = dirRaw.startsWith("bear");
+  const hasDir = isBull || isBear;
+
+  // Verdict word. Option B: the resolver's own htf_ltf_alignment is the source
+  // of truth; fall back to the legacy keyword scan, then derive from the HTF vote.
+  const align = String(ltf?.htf_ltf_alignment ?? "").toLowerCase();
+  const legacyConf = String(latest?.verdict ?? latest?.confirmation ?? "").toLowerCase();
+
+  const resolved = hasDir || (align !== "" && align !== "unclear") || legacyConf !== "";
+
+  let ny = { v: "PENDING", tone: "dim" };
+  let verdict = "PENDING";
+  let verdictTone = "dim";
+  let note = "Resolves at the session open — the initial move into opposing / overnight liquidity, then the reaction (not the grab).";
+
+  if (resolved) {
+    ny = isBull ? { v: "BULL", tone: "ok" }
+       : isBear ? { v: "BEAR", tone: "bad" }
+       : { v: "MIXED", tone: "warn" };
+    // verdictTone is a pill class (green | amber | red | dim).
+    if (align === "aligned") { verdict = "CONFIRMS"; verdictTone = "green"; }
+    else if (align === "divergent") { verdict = "FLIPS"; verdictTone = "amber"; }
+    else if (align === "unclear" && !legacyConf) { verdict = "NOT YET"; verdictTone = "dim"; }
+    else if (legacyConf.includes("confirm") || legacyConf.includes("aligned")) { verdict = "CONFIRMS"; verdictTone = "green"; }
+    else if (legacyConf.includes("flip") || legacyConf.includes("revers") || legacyConf.includes("divergent")) { verdict = "FLIPS"; verdictTone = "amber"; }
+    else if (legacyConf.includes("stand") || legacyConf.includes("hands") || legacyConf.includes("unclear") || legacyConf.includes("no")) { verdict = "NOT YET"; verdictTone = "dim"; }
+    else if (hasDir) {
+      // No explicit verdict word — derive from the HTF vote (CONFIRMS if the
+      // open ran with the higher-timeframe lean, FLIPS if against it).
+      const htfDir = String(votes.htf || "").toLowerCase();
+      if ((htfDir.startsWith("bull") && isBull) || (htfDir.startsWith("bear") && isBear)) { verdict = "CONFIRMS"; verdictTone = "green"; }
+      else if ((htfDir.startsWith("bull") && isBear) || (htfDir.startsWith("bear") && isBull)) { verdict = "FLIPS"; verdictTone = "amber"; }
+      else { verdict = ny.v; verdictTone = "amber"; }
+    } else { verdict = "NOT YET"; verdictTone = "dim"; }
+    note = latest?.latest_read || latest?.note || latest?.summary || latest?.reason || ltf?.reasoning || note;
+  }
+
+  return {
+    rows: [
+      { k: "HTF", v: htf.v, tone: htf.tone },
+      { k: "Overnight", v: overnight.v, tone: overnight.tone },
+      { k: "Open", v: ny.v, tone: ny.tone },
+    ],
+    verdict, verdictTone, note, resolved,
+  };
 }

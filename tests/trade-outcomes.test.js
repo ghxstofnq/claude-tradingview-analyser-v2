@@ -228,6 +228,84 @@ test("short filled (B) → TP1_HIT banks at TP1 when bar.low ≤ tp1", () => {
   assert.equal(out.updated[0].state, "closed");
 });
 
+// ── Structural trail + exit-on-structure-change (Stage E1) ─────────────
+// The runner phase only — filter-only-when-present: no ctx ⇒ BE/TP2 unchanged.
+const runnerLong = { ...baseLong, state: "filled", tp1_hit: true, stop: 100, orig_stop: 95 };
+const runnerShort = {
+  ...baseLong, side: "short", state: "filled", tp1_hit: true,
+  entry: 100, stop: 100, orig_stop: 105, tp1: 90, tp2: 80, invalidation: 110,
+};
+
+test("runner: no ctx ⇒ BE stop tap books 0R (unchanged)", () => {
+  const out = tickTrades([runnerLong], { open: 100, high: 105, low: 99, ts: "T" });
+  assert.equal(out.transitions[0].status, "STOPPED");
+  assert.equal(out.transitions[0].r_realized, 0);
+});
+
+test("runner: structure break against a long → CLOSED_STRUCTURE at bar.close, R off original risk", () => {
+  // close 112 vs entry 100, orig risk 5 → +2.4R
+  const out = tickTrades([runnerLong], { open: 113, high: 114, low: 108, close: 112, ts: "T" }, { structureBreakAgainst: true });
+  assert.equal(out.transitions[0].status, "CLOSED_STRUCTURE");
+  assert.equal(out.transitions[0].exit, 112);
+  assert.equal(out.transitions[0].r_realized, 2.4);
+  assert.equal(out.updated[0].outcome, "CLOSED_STRUCTURE");
+});
+
+test("runner: structure break against a short → CLOSED_STRUCTURE", () => {
+  // close 88 vs entry 100, orig risk 5 → +2.4R
+  const out = tickTrades([runnerShort], { open: 87, high: 92, low: 86, close: 88, ts: "T" }, { structureBreakAgainst: true });
+  assert.equal(out.transitions[0].status, "CLOSED_STRUCTURE");
+  assert.equal(out.transitions[0].r_realized, 2.4);
+});
+
+test("runner long: protective level above the stop ratchets it up (STOP_TRAILED), never loosened", () => {
+  const out = tickTrades([runnerLong], { open: 113, high: 115, low: 109, ts: "T" }, { protectiveLevel: 108 });
+  const trailed = out.transitions.find((x) => x.status === "STOP_TRAILED");
+  assert.equal(trailed.stop, 108);
+  assert.equal(out.updated[0].stop, 108);   // applied to in-memory state
+  // a lower protective level on the next tick must NOT loosen it
+  const out2 = tickTrades([out.updated[0]], { open: 114, high: 116, low: 112, ts: "T2" }, { protectiveLevel: 104 });
+  assert.equal(out2.transitions.find((x) => x.status === "STOP_TRAILED"), undefined);
+  assert.equal(out2.updated[0].stop, 108);
+});
+
+test("runner long: a trailed-out stop books the booked gain, not 0R", () => {
+  // trail stop to 108, then a bar wicks back to 107 → STOPPED at 108 = +1.6R off risk 5
+  const out = tickTrades([runnerLong], { open: 113, high: 115, low: 107, ts: "T" }, { protectiveLevel: 108 });
+  const stop = out.transitions.find((x) => x.status === "STOPPED");
+  assert.equal(stop.r_realized, 1.6);
+  assert.equal(out.updated[0].outcome, "STOPPED");
+});
+
+test("foldOpenTrades replays STOP_TRAILED (stop moves, trade stays open) and CLOSED_STRUCTURE (terminal)", () => {
+  const open = foldOpenTrades([
+    { type: "accept", id: "A", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "outcome", id: "A", status: "FILLED" },
+    { type: "outcome", id: "A", status: "TP1_HIT" },
+    { type: "outcome", id: "A", status: "STOP_TRAILED", stop: 108 },
+  ]);
+  assert.equal(open.length, 1);
+  assert.equal(open[0].stop, 108);
+  assert.equal(open[0].orig_stop, 95);    // original risk retained for R
+  const closed = foldOpenTrades([
+    { type: "accept", id: "B", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "outcome", id: "B", status: "FILLED" },
+    { type: "outcome", id: "B", status: "TP1_HIT" },
+    { type: "outcome", id: "B", status: "CLOSED_STRUCTURE", exit: 114, r_realized: 2.8 },
+  ]);
+  assert.equal(closed.length, 0);
+});
+
+test("consecutiveLossStreak: a trailed-out runner (STOPPED, r≥0) does not count; a CLOSED_STRUCTURE underwater does", () => {
+  assert.equal(consecutiveLossStreak([
+    { type: "outcome", id: "a", status: "STOPPED", r_realized: -1, ts: "1" },
+    { type: "outcome", id: "b", status: "STOPPED", r_realized: 1.6, ts: "2" }, // trail-out win → reset
+  ]), 0);
+  assert.equal(consecutiveLossStreak([
+    { type: "outcome", id: "a", status: "CLOSED_STRUCTURE", r_realized: -0.5, ts: "1" },
+  ]), 1);
+});
+
 test("foldOpenTrades collapses an event log", () => {
   const events = [
     { type: "accept", id: "T-1", side: "long", entry: 100, stop: 95, tp1: 110, tp2: 120, invalidation: 90 },

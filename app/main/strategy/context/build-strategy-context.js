@@ -67,6 +67,23 @@ function buildPillar2(engine, blocked, sessionChain = {}) {
     status: blockers.length === 0 ? 'pass' : 'blocked',
     candleQuality: current.candle ?? 'unknown',
     displacement: current.displacement ?? 'unknown',
+    // Current delivery size (Wilder ATR) — PRICE 10:34 sizes the stop to the
+    // current candle/gap ("4H candle trades 20 points → stop 20 points"), which
+    // is what scales the inversion wide-leg stop cap dynamically.
+    atr14: Number.isFinite(Number(current.atr_14)) ? Number(current.atr_14) : null,
+    // Leg extremes + coherence (engine V3/V4 quality row, parsed in
+    // ict-engine-parser.js). leg_high/leg_low = running extremes of the CURRENT
+    // leg (reset per external structure break) — the "reversal established"
+    // signal: an inversion entry needs price displaced from the leg extreme in
+    // the trade direction ("price [trade-dir] all the way into your entry",
+    // ENTRY 31:25). coherence = directional efficiency (net/gross) for the
+    // two-sided-chop stand-aside (Stage B). Null when the row omits them.
+    legHigh: Number.isFinite(Number(current.leg_high)) ? Number(current.leg_high) : null,
+    legLow: Number.isFinite(Number(current.leg_low)) ? Number(current.leg_low) : null,
+    legHighMs: Number.isFinite(Number(current.leg_high_ms)) ? Number(current.leg_high_ms) : null,
+    legLowMs: Number.isFinite(Number(current.leg_low_ms)) ? Number(current.leg_low_ms) : null,
+    coherence: Number.isFinite(Number(current.coherence)) ? Number(current.coherence) : null,
+    rangeVsNormal: Number.isFinite(Number(current.range_vs_normal)) ? Number(current.range_vs_normal) : null,
     // §7 Step 3: displacement is a 4H/1H judgment. Carried from the session brief
     // (sessionChain.pillar2.htf_displacement) — the per-bar engine is on the LTF
     // chart, so the HTF displacement can only come from the brief snapshot.
@@ -85,6 +102,11 @@ function buildPillar3(engine) {
   // evidence the Trend model gates on (EM Trend §1 "a clear MSS ... you are now
   // in the continuation phase"; §3/§4 structure-break invalidation).
   const structuresSwing = normalizeEvidenceList(engine?.pillar3?.structures_by_tier?.swing ?? engine?.pillar3?.structuresSwing ?? [], 'gates.engine.pillar3.structures_by_tier.swing');
+  // Internal swing PIVOTS (HH/HL/LH/LL) with swept + swept_ms — the stop-anchoring
+  // internal-liquidity sweep the inversion patience gate keys on (a long needs a
+  // recently-swept internal LOW, a short a swept internal HIGH). swept_ms is schema-4;
+  // pre-swept_ms tapes carry the pivots without timing → the gate fails open.
+  const internalSwings = normalizeEvidenceList(engine?.pillar3?.swings?.internal ?? [], 'gates.engine.pillar3.swings.internal');
   const structuralStops = normalizeEvidenceList(engine?.pillar3?.structural_stops ?? engine?.pillar3?.structuralStops ?? engine?.risk?.structural_stops ?? [], 'gates.engine.pillar3.structural_stops');
   const insideFvgs = normalizeEvidenceList(engine?.price_context?.inside_fvgs ?? [], 'gates.engine.price_context.inside_fvgs');
   const insideBprs = normalizeEvidenceList(engine?.price_context?.inside_bprs ?? [], 'gates.engine.price_context.inside_bprs');
@@ -97,6 +119,7 @@ function buildPillar3(engine) {
     sweeps,
     failureSwings,
     structuresSwing,
+    internalSwings,
     structuralStops,
     insidePdArrays: [...insideFvgs, ...insideBprs],
     confirmationRows,
@@ -122,7 +145,20 @@ export function buildStrategyContext(bundle = {}) {
   pillar3.ohlcv1m = bundle.ohlcv1m ?? bundle.bars?.m1 ?? [];
   pillar3.ohlcv5m = bundle.ohlcv5m ?? bundle.bars?.m5 ?? [];
   pillar3.full1m = bundle.full1m ?? [];
+  // 5m FVG zones — the partner imbalance for the multi-alignment "two-and-one"
+  // elevator (entry-models.md: a 5m FVG rebalance lined up with a 1m iFVG in one
+  // spot). Read from the per-bar m5 overlay; absent → [] (no elevation, safe).
+  pillar3.fvgs5m = bundle.engine_by_tf?.m5?.fvgs ?? [];
 
+  const pillar2 = buildPillar2(engine, hardBlockers, sessionChain);
+  // The deployed engine omits `coherence` (it's in the Pine source, undeployed),
+  // so compute it from the m15 bars the multi-TF recorder captures — the
+  // two-sided-chop signal the 1m quality fields can't see (Stage-G G3 veto).
+  if (pillar2.coherence == null) {
+    pillar2.coherence = computeCoherenceFromBars(
+      bundle.bars_by_tf?.m15?.last_5_bars ?? bundle.bars_by_tf?.m15?.bars,
+    );
+  }
   return {
     market: bundle.market ?? 'unknown',
     session: bundle.session ?? 'unknown',
@@ -131,8 +167,20 @@ export function buildStrategyContext(bundle = {}) {
     sourceHealth: effectiveSourceHealth,
     sessionChain,
     pillar1: buildPillar1(engine, hardBlockers, sessionChain),
-    pillar2: buildPillar2(engine, hardBlockers, sessionChain),
+    pillar2,
     pillar3,
     blockers: [...new Set(blockers)],
   };
+}
+
+// Directional coherence (efficiency ratio = |net move| / gross path) over the
+// supplied closes — Stage B's two-sided-chop signal. Low = chop (price covers
+// ground but goes nowhere); high = a clean trend. Null when too few bars.
+export function computeCoherenceFromBars(bars) {
+  const c = (bars ?? []).map((b) => Number(b?.close)).filter(Number.isFinite);
+  if (c.length < 3) return null;
+  let gross = 0;
+  for (let i = 1; i < c.length; i += 1) gross += Math.abs(c[i] - c[i - 1]);
+  if (!(gross > 0)) return null;
+  return Number((Math.abs(c[c.length - 1] - c[0]) / gross).toFixed(2));
 }

@@ -6,6 +6,8 @@
 // thought from the channel you're not looking at.
 
 import React, { useState, useEffect, useRef } from "react";
+import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { buildProviderSubmitOptions } from "./provider-popover-contract.js";
 import { useWalkers } from "./hooks/useWalkers.js";
 import { useDeterministicBrain } from "./hooks/useDeterministicBrain.js";
@@ -137,6 +139,7 @@ function ChatPeek({ ch, setCh, brainEntries, walkers }) {
 
 export function ChatCell({ chats }) {
   const [open, setOpen] = useState(false);
+  const float = useFloat();
   const [ch, setCh] = useState("claude");
   const walkers = useWalkers();
   const brainEntries = useDeterministicBrain();
@@ -155,12 +158,12 @@ export function ChatCell({ chats }) {
 
   return (
     <div className={"cell pop-cell" + (open ? " open" : "")}
-         onClick={(e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); }}>
+         {...clickable((e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); })}>
       <span className="k">CHAT</span>
       <span className={"claude-dot" + (live ? " active" : "")} />
       {open && (
-        <div className="bt-popover w-660 chat-pop" onClick={(e) => e.stopPropagation()}>
-          <div className="head">
+        <div className={"bt-popover w-660 chat-pop" + float.popoverClass} style={float.popoverStyle} onClick={(e) => e.stopPropagation()}>
+          <div className="head" onMouseDown={float.onDragStart}>
             <span className="t">CHAT</span>
             <span className="spacer" style={{ flex: 1 }} />
             <div className="live-tabs">
@@ -168,6 +171,9 @@ export function ChatCell({ chats }) {
                 <span key={c.k} className={"tab" + (ch === c.k ? " on" : "")} onClick={() => setCh(c.k)}>{c.l}</span>
               ))}
             </div>
+            <span className={"float-btn" + (float.floating ? " on" : "")}
+                  title={float.floating ? "Dock window" : "Float — move & resize freely"}
+                  onClick={float.toggle}>⛶</span>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <div className="body chat-body">

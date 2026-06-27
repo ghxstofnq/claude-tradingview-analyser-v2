@@ -7,7 +7,9 @@ Source: *How To Identify Price Action* (`nEAGVMAJypE`).
 > "You can never outrade bad price. That's what's key." (~27:25)
 
 Price is **fractal** — these checks apply on every timeframe (Daily/4H/1H for the
-environment, 15m/5m/1m for the entry).
+environment, 15m/5m/1m for the entry). Quality is judged **relative to the instrument's
+own recent/normal delivery** — compare current gaps/range to the recent average, and
+benchmark gap size against the typical stop — **not** fixed point values. *(PRICE 12:26–14:20)*
 
 ---
 
@@ -82,7 +84,14 @@ wants the move.
 
 The engine emits displacement (clean/acceptable/weak) and candle quality
 (doji_wick/engulfing/normal), and A+ requires clean/acceptable displacement — **MATCH**.
-But **gap size does not gate target validity** (a tiny gap can still be a TP), and there
-is **no hard stand-aside** on tight consolidation (only a soft retrace-day cap). The
-15-minute fight-timeout is implemented. Details + `file:line`:
+**Hard stand-aside on bad price is now implemented** (Stage B, 2026-06-23):
+`cli/lib/pillar2-verdict.js` collapses the schema-4 quality enums into a
+`good | marginal | poor` verdict on `gates.engine.pillar2` (and the brief). `poor` is
+the master gate — it fires on a tight 3h range (the verbatim 28pt/3h test), no
+displacement, or two-sided doji delivery; the old verdict regex-matched
+`/poor|chop|doji/` and silently ignored `range_quality:"tight"` and
+`displacement:"weak"`. Aggregation: a tight range vetoes on one LTF alone; otherwise
+both 5m+15m must be bad to stand aside (oracle 06-17), a mix is marginal/tradeable
+(oracle 06-18). Still a gap: **gap size does not gate target validity** (a tiny gap can
+still be a TP — Stage C/D). The 15-minute fight-timeout is implemented. Details + `file:line`:
 [`lanto-source-of-truth.md`](lanto-source-of-truth.md) §2.

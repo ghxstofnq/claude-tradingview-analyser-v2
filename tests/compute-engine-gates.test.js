@@ -251,3 +251,49 @@ test('computeEngineGates emit_age is null when quoteTimeMs not provided', () => 
   assert.equal(g.meta.emit_age_seconds, null);
   assert.equal(g.meta.stale, false);
 });
+
+test('computeEngineGates exposes the Pillar 1 bias (HTF array vote + overnight) — Stage C', () => {
+  const engine = {
+    schema: 4, schema_supported: true, meta: { tf: '1', emit_ms: 0 },
+    levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [], pools: [],
+    quality: { overnight_dir: 'bear', overnight_net: -120, range_quality: 'good', displacement: 'clean', candle: 'normal' },
+  };
+  const engineByTf = {
+    daily: { fvgs: [], bprs: [] },
+    h4: { fvgs: [], bprs: [] },
+    // fresh, took-liq, displaced bear FVG just above price → bearish supply
+    h1: { fvgs: [{ kind: 'fvg', dir: 'bear', top: 29355, bottom: 29296, ce: 29326, took_liq: true, disp_score: 0.74, state: 'fresh', size_quality: 'normal', cite: 'engine_by_tf.h1.fvgs[0]' }], bprs: [] },
+  };
+  const g = computeEngineGates({ engine, engineByTf, last: 29300 });
+  assert.equal(g.pillar1.bias.htf.vote, 'bearish');
+  assert.equal(g.pillar1.bias.htf.significant, true);
+  assert.equal(g.pillar1.bias.draw.cite, 'engine_by_tf.h1.fvgs[0]');
+  assert.equal(g.pillar1.bias.overnight.vote, 'bearish');
+});
+
+test('computeEngineGates Pillar 1 bias abstains cleanly when no HTF arrays / no overnight', () => {
+  const engine = {
+    schema: 4, schema_supported: true, meta: { tf: '1', emit_ms: 0 },
+    levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [], pools: [],
+    quality: { overnight_dir: 'chop' },
+  };
+  const g = computeEngineGates({ engine, engineByTf: { daily: { fvgs: [] }, h4: { fvgs: [] }, h1: { fvgs: [] } }, last: 29300 });
+  assert.equal(g.pillar1.bias.htf.vote, 'none');
+  assert.equal(g.pillar1.bias.overnight.vote, 'none');
+  assert.equal(g.pillar1.bias.draw, null);
+});
+
+test('the forwarded primary_draw carries a resolvable cite (cite-or-reject — 2026-06-24 MES fix)', () => {
+  // An UNCITED qualifying h4 array (the raw engine list never had a cite — only
+  // digest-ranked zones did). The gate must stamp it so the forwarded draw is
+  // never cite:null.
+  const byTf = {
+    ...sampleByTf,
+    h4: { fvgs: [{ kind: 'fvg', dir: 'bull', top: 29330, bottom: 29320, ce: 29325, took_liq: true, disp_score: 0.8, state: 'fresh', size_quality: 'normal' }], bprs: [] },
+  };
+  const g = computeEngineGates({ engine: sampleEngine(), engineByTf: byTf, last: 29320 });
+  assert.ok(g.pillar1.bias.draw, 'expected a forwarded primary draw');
+  assert.equal(g.pillar1.bias.draw.cite, 'engine_by_tf.h4.fvgs[0]');
+  // the shared engine zone is stamped too → the bundle's engine_by_tf is citeable.
+  assert.equal(byTf.h4.fvgs[0].cite, 'engine_by_tf.h4.fvgs[0]');
+});

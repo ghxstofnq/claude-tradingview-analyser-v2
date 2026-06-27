@@ -65,6 +65,14 @@ function sweepRejected(sweep, closes, endMs, ignoreEngineFlag = false) {
     && (high ? c.close < level : c.close > level));
 }
 
+// Strong-overnight threshold (GOFNQ_STRONG_OVN_NET, default 300pt). BIAS 39:20:
+// the bias follows "overnight overall price through HOURS of data" — a BIG overnight
+// move is that hours-of-data context; a small one is not. Separates 06-18 (+448,
+// fix the wrong divergent short) from the weak-overnight divergent winners that ARE
+// the edge (05-20 +144, 06-12 chop). Calibrated on the 19-session corpus; tune with
+// the Discord calls / full-year fold.
+const STRONG_OVN_NET = Number(process.env.GOFNQ_STRONG_OVN_NET) || 200;
+
 export function resolveOpenReaction({
   htf_bias,
   sweeps = [],
@@ -73,6 +81,8 @@ export function resolveOpenReaction({
   overnight_targets = OVERNIGHT_TARGETS,
   window_closes = [],
   ignore_engine_rejected_flag = false,
+  overnight_net = null,
+  lean_backed_by_fresh_draw = false,
 } = {}) {
   const targets = overnight_targets instanceof Set ? overnight_targets : new Set(overnight_targets);
   const { startMs = -Infinity, endMs = Infinity } = window;
@@ -123,6 +133,41 @@ export function resolveOpenReaction({
   }
 
   const aligned = htf_bias === dir;
+
+  // WAIT FOR REACTION (default-ON 2026-06-27, opt out GOFNQ_WAIT_FOR_REACTION=0) — transcript fix
+  // (BIAS 20:33 "it's not the initial liquidity we take — it's the reaction"; 38:23
+  // "wait for later displacement"; 39:20 "just because we had a five-minute candle
+  // showcase another direction does not mean we were going to seek reversal… overnight
+  // through HOURS of data was showcasing one direction"). A RAW opening grab (sweep
+  // rejection/continuation, not a swing-tier 'failed_break') that DIVERGES from the
+  // HTF lean does NOT flip it — BUT ONLY when a STRONG overnight (|net| ≥ STRONG_OVN_NET)
+  // BACKS that lean (the "hours of data" dominance). A weak/chop overnight leaves the
+  // divergent retrace trade intact — that's the edge (05-20 +3.96, 06-12 +2.15). Holds
+  // the lean as pending until a displaced reaction confirms/flips it. (06-18: htf+overnight
+  // both bull, overnight +448 strong → the 09:30 LO.H grab shouldn't flip it; oracle = long.)
+  const ovnBacksLean = Number.isFinite(overnight_net) && Math.abs(overnight_net) >= STRONG_OVN_NET
+    && ((overnight_net > 0 && htf_bias === 'bullish') || (overnight_net < 0 && htf_bias === 'bearish'));
+  // FRESH-DRAW backing (default-ON 2026-06-27, opt out GOFNQ_FRESH_DRAW_HOLD=0): the lean is backed by
+  // a FRESH near-price PD array in the lean direction that price has NOT reacted to
+  // yet — the real reaction is still pending AT that array, so an early opposing grab
+  // (the liquidity before the array) does NOT flip the lean (BIAS 20:33 "it's the
+  // reaction"; 38:23 "wait for later displacement"). 06-16: bearish lean off the fresh
+  // m5/m15 bear FVG above price; the 09:30-34 low-sweep bounce is the grab, the 09:55
+  // rejection AT the bear FVG is the reaction. Complements the strong-overnight gate
+  // for chop-overnight days the overnight test can't cover.
+  const freshDrawBacks = process.env.GOFNQ_FRESH_DRAW_HOLD !== '0' && lean_backed_by_fresh_draw === true;
+  if (process.env.GOFNQ_WAIT_FOR_REACTION !== '0' && htf_bias && !aligned && interaction !== 'failed_break' && (ovnBacksLean || freshDrawBacks)) {
+    const why = ovnBacksLean ? `strong overnight ${overnight_net} backs it` : 'a fresh near-price draw backs it';
+    return {
+      interaction: 'pending_reaction',
+      level: last.target,
+      ltf_bias: htf_bias,
+      htf_ltf_alignment: 'unclear',
+      is_retrace_day: false,
+      grade_cap: 'B',
+      cite: `${cite} (raw grab diverges from HTF lean + ${why} → wait, BIAS 39:20/20:33)`,
+    };
+  }
 
   // §2.4 + §3 divergent-clean gate: a DIVERGENT (retrace) trade is lower-conviction,
   // so it demands a CLEAN rejection. "accept-bars" = how many window closes held the

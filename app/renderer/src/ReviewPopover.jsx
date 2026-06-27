@@ -4,9 +4,12 @@
 // expand into a full TradeCard for confirmed/accepted rows.
 
 import React, { useState, useEffect } from "react";
+import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { Panel, Row, Grade } from "./Shared.jsx";
 import {
   buildLedger,
+  computeFaithfulness,
   buildTrackRecord,
   buildTrackRecordByAccount,
   degradedChainStages,
@@ -17,6 +20,7 @@ import {
 } from "./Review.helpers.js";
 import { useReview } from "./hooks/useReview.js";
 import { useFills } from "./hooks/useFills.js";
+import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
 
 const gradeTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "dim");
 
@@ -43,8 +47,7 @@ function SessionJournalPanel({ journal, onExport }) {
   return (
     <Panel title={`SESSION JOURNAL · ${(journal.session || "").toUpperCase()} · ${journal.date}`} right={meta}>
       {degraded.length > 0 && (
-        <div style={{ color: "var(--red)", fontSize: 11, lineHeight: 1.5,
-                       borderLeft: "2px solid var(--red)", paddingLeft: 6, margin: "6px 0" }}>
+        <div className="chain-degraded">
           {`CHAIN DEGRADED — ${degraded.map((d) => `${d.stage}: ${d.status}`).join(" · ")}`}
         </div>
       )}
@@ -57,121 +60,105 @@ function SessionJournalPanel({ journal, onExport }) {
 }
 
 // ── CANDIDATE LEDGER ─────────────────────────────────────────────────
-// Mockup 05-essentialist.html .cand-row uses 5 separate columns:
-//   cyc | grade-pill | side | mod | reason
-// Confirmed/accepted rows get a green left border + tinted bg; clicking
-// opens a compact 3-row trade summary inline (not the full TradeCard).
-function LedgerRow({ row, expanded, onToggle }) {
+// Each candidate carries a per-trade Lanto faithfulness verdict (computed
+// by Review.helpers.computeFaithfulness from the setup + executionPacket).
+// Row columns: time · grade · side · model · 3-segment faithfulness mark ·
+// outcome. Click any gradable row to expand the full breakdown.
+const F_GLYPH = { pass: "✓", soft: "◐", deviation: "✗", na: "—" };
+
+function FaithfulnessMark({ marks = [] }) {
+  return (
+    <span className="fmark" aria-label="faithfulness: bias, price action, entry model">
+      {marks.map((m, i) => <span key={i} className={"fseg " + (m || "na")} />)}
+    </span>
+  );
+}
+
+function FRow({ label, dim }) {
+  const s = dim?.status || "na";
+  return (
+    <div className={"frow " + s}>
+      <span className="fg" aria-hidden="true">{F_GLYPH[s]}</span>
+      <span className="fk">{label}</span>
+      <span className="fv">{dim?.detail || "—"}</span>
+    </div>
+  );
+}
+
+function FaithfulnessBreakdown({ f, setup }) {
+  return (
+    <div className="fbreak">
+      <FRow label="Bias" dim={f.bias} />
+      <FRow label="Price action" dim={f.priceAction} />
+      <FRow label="Entry model" dim={f.entryModel} />
+      <FRow label="Stop anchor" dim={f.stop} />
+      <FRow label="Liquidity draw" dim={f.draw} />
+      <div className="ffig">
+        <span>entry <b>{setup.entry ?? "—"}</b></span>
+        <span>stop <b>{setup.stop ?? "—"}</b></span>
+        <span>tp1 <b>{setup.tp1 ?? "—"}</b></span>
+        {setup.rr != null && <span>R:R <b className="g">{setup.rr}</b></span>}
+        {setup.size?.label && <span>{setup.size.label}</span>}
+      </div>
+    </div>
+  );
+}
+
+function LedgerRow({ row, f, expanded, onToggle }) {
   const setup = row.setup;
   const stateLabel = row.state?.label || "—";
-  const tone = row.state?.tone || "dim";
   const cycle = setup.ts
     ? new Date(setup.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })
     : "—";
   const sideUp = (setup.direction || setup.side || "").toUpperCase();
   const sideCls = (setup.direction === "long" || setup.side === "long") ? "l" : "s";
   const grade = formatGradeShort(setup.grade);
-  const clickable = row.expandable;
-  // Confirmed/expandable rows get a green left border tint matching the mockup.
-  const rowHighlight = clickable
-    ? { background: "rgba(110,199,136,0.05)", borderLeft: "2px solid var(--green)", paddingLeft: 6 }
-    : {};
+  const clickable = f.summary.gradable;
   const caret = clickable ? (expanded ? " ▴" : " ▾") : "";
-  // For confirmed rows the reason column carries the state label + caret;
-  // for non-confirmed rows it carries the no-trade/rejection reason.
-  const reasonText = clickable
-    ? `${stateLabel}${caret}`
-    : (row.reason || stateLabel || "");
+  // Gradable rows show the outcome/state + caret; others the no-trade /
+  // rejection reason.
+  const reasonText = clickable ? `${stateLabel}${caret}` : (row.reason || stateLabel || "");
+  const reasonTone = ["green", "red", "amber"].includes(row.state?.tone) ? row.state.tone : "";
   return (
     <>
-      <div className="cand-row"
-           style={{ cursor: clickable ? "pointer" : "default", ...rowHighlight }}
+      <div className={"cand-row" + (clickable ? " clickable" : "")}
            onClick={clickable ? onToggle : undefined}>
         <span className="cyc">{cycle}</span>
         <span className={"grade-pill " + (grade === "A+" ? "green" : grade === "B" ? "amber" : "dim")}>{grade}</span>
-        <span className={"side " + sideCls}>{sideUp}</span>
+        <span className={"side " + sideCls}>{sideUp || "—"}</span>
         <span className="mod">{setup.model || "—"}</span>
-        <span className={"reason " + (clickable ? "green" : "")}>{reasonText}</span>
+        <FaithfulnessMark marks={f.marks} />
+        <span className={"reason " + reasonTone}>{reasonText}</span>
       </div>
-      {expanded && row.trade && (
-        <LedgerTradeExpand row={row} />
-      )}
+      {expanded && clickable && <FaithfulnessBreakdown f={f} setup={setup} />}
     </>
   );
 }
 
-// Compact inline expansion for a confirmed/accepted trade. Matches the
-// mockup's 3-row summary (Entry · Stop · BE / TP1 · P&L / Size) with a
-// header line showing grade / side / model · trade-id / outcome.
-function LedgerTradeExpand({ row }) {
-  const t = row.trade || {};
-  const s = row.setup || {};
-  const entry = s.entry ?? t.entry;
-  const stop = s.stop ?? t.stop;
-  const tp1 = s.tp1 ?? t.tp1;
-  const pnl = t.r_realized != null
-    ? `${t.r_realized > 0 ? "+" : ""}${t.r_realized} R`
-    : "—";
-  const sizeLbl = t.size?.label
-    || (t.size?.contracts ? `${t.size.contracts}c` : "—");
-  const sideUp = (t.side || s.direction || s.side || "").toUpperCase();
-  const sideCls = (t.side === "long" || s.direction === "long" || s.side === "long") ? "l" : "s";
-  const outcome = t.outcome || (t.state === "closed" ? "CLOSED" : "OPEN");
-  const outcomeTone = (outcome === "TP1_HIT" || outcome === "TP2_HIT") ? "var(--green)"
-                    : (outcome === "STOPPED" || outcome === "INVALIDATED") ? "var(--red)"
-                    : "var(--label)";
-  return (
-    <div style={{
-      borderLeft: "2px solid var(--green)",
-      background: "rgba(110,199,136,0.04)",
-      paddingLeft: 6,
-    }}>
-      <div style={{
-        display: "flex", gap: 8, alignItems: "center",
-        fontSize: 10, padding: "8px 0 6px",
-      }}>
-        <span className="grade-pill green">{s.grade || "A+"}</span>
-        <span className={"side " + sideCls}
-              style={{ fontSize: 9, letterSpacing: ".18em",
-                       color: sideCls === "l" ? "var(--green)" : "var(--red)" }}>
-          {sideUp}
-        </span>
-        <span style={{ color: "var(--value)" }}>
-          {s.model || t.model || "—"}{t.id ? ` · #${t.id}` : ""}
-        </span>
-        <span style={{
-          marginLeft: "auto",
-          color: outcomeTone,
-          fontSize: 9.5, letterSpacing: ".12em",
-        }}>
-          ● {outcome.replace(/_/g, " ")}
-        </span>
-      </div>
-      <Row k="Entry · Stop" v={`${entry ?? "—"} · ${stop ?? "—"}${t.tp1_hit ? " · BE" : ""}`} />
-      <Row k="TP1 · P&L" v={`${tp1 ?? "—"} · ${pnl}`} tone={t.r_realized > 0 ? "ok" : t.r_realized < 0 ? "bad" : ""} />
-      <Row k="Size" v={sizeLbl} />
-    </div>
-  );
-}
-
-function CandidateLedgerPanel({ ledger }) {
+function CandidateLedgerPanel({ ledger, brief }) {
   const [expanded, setExpanded] = useState(new Set());
   const toggle = (id) => setExpanded((s) => {
     const next = new Set(s);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+  const rows = ledger.map((row) => ({ row, f: computeFaithfulness(row.setup, row.trade, brief) }));
+  const faithful = rows.filter((x) => x.f.summary.faithful).length;
+  const deviated = rows.filter((x) => x.f.summary.deviations > 0).length;
+  const meta = ledger.length === 0
+    ? "—"
+    : `${ledger.length} candidate${ledger.length === 1 ? "" : "s"} · faithful ${faithful} · deviated ${deviated}`;
   return (
-    <Panel title="CANDIDATE LEDGER"
-           meta={`${ledger.length} candidate${ledger.length === 1 ? "" : "s"} · click confirmed rows to expand`}>
+    <Panel title="CANDIDATE LEDGER" meta={meta}>
       {ledger.length === 0 && (
-        <Row k="—" v="no candidates this session" tone="dim" />
+        <Row k="—" v="no candidates yet — the chain surfaces setups as price confirms" tone="dim" />
       )}
-      {ledger.map((row) => {
+      {rows.map(({ row, f }) => {
         const id = row.setup?.id || row.setup?.ts || Math.random();
         return (
           <LedgerRow key={id}
                      row={row}
+                     f={f}
                      expanded={expanded.has(id)}
                      onToggle={() => toggle(id)} />
         );
@@ -188,15 +175,18 @@ function SessionLibraryPanel({ library, currentDate, currentSession, onPick }) {
         <thead>
           <tr>
             <th>DATE</th><th>SESSION</th><th>GRADE</th>
-            <th className="r">CANDS</th><th className="r">CONFIRMED</th>
+            <th className="r">CANDS</th><th className="r">TAKEN</th><th className="r">FAITHFUL</th>
           </tr>
         </thead>
         <tbody>
           {library.length === 0 && (
-            <tr><td colSpan={5} style={{ color: "var(--label)", padding: 14 }}>no sessions yet</td></tr>
+            <tr><td colSpan={6} style={{ color: "var(--label)", padding: 14 }}>no sessions yet</td></tr>
           )}
           {library.map((r, i) => {
             const isCur = r.date === currentDate && r.session === currentSession;
+            const fr = r.stats?.faithful_rate;
+            const frColor = fr == null ? "var(--label-dim)"
+              : fr >= 0.6 ? "var(--green)" : fr >= 0.3 ? "var(--amber)" : "var(--red)";
             return (
               <tr key={i} className={isCur ? "cur" : ""}
                   style={{ cursor: "pointer" }}
@@ -206,6 +196,7 @@ function SessionLibraryPanel({ library, currentDate, currentSession, onPick }) {
                 <td>{r.grade || "—"}</td>
                 <td className="r">{r.stats?.setups ?? "—"}</td>
                 <td className="r">{r.stats?.accepted ?? "—"}</td>
+                <td className="r" style={{ color: frColor }}>{fr == null ? "—" : Math.round(fr * 100) + "%"}</td>
               </tr>
             );
           })}
@@ -247,42 +238,109 @@ function SessionFillsPanel({ date }) {
   );
 }
 
-// ── TRACK RECORD ─────────────────────────────────────────────────────
-// Per-FILL performance from real execution fills (state/trades) up top —
-// cumulative R, expectancy, payoff, avg win/loss, max DD — then the
-// session-level summary (concentration, by-grade) below. Every number is
-// from real fills or real per-session totals (no fabrication).
-function TrackRecordView({ library }) {
+// ── ACCOUNT LEDGER (per-account, collapsible) ────────────────────────
+// Trades grouped by the specific broker account, headed by the account name,
+// click to expand into that account's trades. The armed account (where orders
+// route) is tagged and open by default. Fixes the old collapse-by-broker bug
+// where every Tradovate account merged into one "tradovate" row.
+function AccountTradeRow({ t }) {
+  const a = t.actual || {};
+  const sideCls = (t.side === "long" || t.side === "buy") ? "l" : "s";
+  const sym = (t.symbol || "").replace(/^[A-Z_]+:/, "");
+  const time = t.ts
+    ? new Date(t.ts).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" })
+    : "—";
+  const rTone = a.r > 0 ? "var(--green)" : a.r < 0 ? "var(--red)" : "var(--label)";
+  const usdTone = a.usd > 0 ? "var(--green)" : a.usd < 0 ? "var(--red)" : "var(--label)";
+  return (
+    <div className="acct-trade">
+      <span className="att-t">{time}</span>
+      <span className={"att-side " + sideCls}>{(t.side || "").toUpperCase()}</span>
+      <span className="att-sym">{sym}<span className="att-qty">{t.qty}c</span></span>
+      <span className="att-px">{a.entry ?? "—"} <span className="arr">→</span> {a.exit ?? "—"}</span>
+      <span className="att-pl">
+        {a.r != null && <span style={{ color: rTone }}>{a.r > 0 ? "+" : ""}{a.r}R</span>}
+        <span style={{ color: usdTone }}>{a.usd >= 0 ? "+" : ""}${a.usd ?? "—"}</span>
+      </span>
+    </div>
+  );
+}
+
+function AccountGroup({ acct, expanded, onToggle }) {
+  const empty = acct.n_trades === 0;
+  const rTone = acct.net_r == null ? "var(--label)" : acct.net_r > 0 ? "var(--green)" : acct.net_r < 0 ? "var(--red)" : "var(--label)";
+  const usdTone = acct.net_usd > 0 ? "var(--green)" : acct.net_usd < 0 ? "var(--red)" : "var(--label)";
+  return (
+    <div className={"acct-group" + (expanded ? " open" : "") + (empty ? " empty" : "")}>
+      <button type="button" className="acct-head"
+              onClick={empty ? undefined : onToggle} disabled={empty}
+              aria-expanded={empty ? undefined : expanded}>
+        <span className="ah-caret" aria-hidden="true">{empty ? "·" : expanded ? "▾" : "▸"}</span>
+        <span className="ah-name">{acct.name}</span>
+        <span className={"ah-tag" + (acct.armed ? " armed" : "")}>{acct.armed ? "ARMED" : String(acct.broker || "").toUpperCase()}</span>
+        <span className="ah-sum">
+          <span className="ah-n">{empty ? "no fills here" : `${acct.n_trades} trade${acct.n_trades === 1 ? "" : "s"}`}</span>
+          {acct.net_r != null && <span style={{ color: rTone }}>{acct.net_r > 0 ? "+" : ""}{acct.net_r}R</span>}
+          {!empty && <span style={{ color: usdTone }}>{acct.net_usd >= 0 ? "+" : ""}${acct.net_usd}</span>}
+        </span>
+      </button>
+      {expanded && !empty && (
+        <div className="acct-body">
+          <div className="acct-stat">
+            <span>{acct.win_pct}% win</span>
+            <span>payoff {acct.payoff.toFixed(2)}×</span>
+            <span style={{ color: "var(--green)" }}>+{acct.avg_win.toFixed(2)}R</span>
+            <span style={{ color: "var(--red)" }}>{acct.avg_loss.toFixed(2)}R</span>
+            <span style={{ color: "var(--red)" }}>DD {acct.max_drawdown_r.toFixed(1)}R</span>
+          </div>
+          {acct.trades.map((t, i) => <AccountTradeRow key={i} t={t} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccountLedger() {
   const { fills } = useFills("all");
-  const byAccount = buildTrackRecordByAccount(fills);
+  const { acct } = useBrokerAccount();
+  const confirmed = acct?.confirmed || null;
+  const groups = buildTrackRecordByAccount(fills, confirmed);
+  // Default-open the armed account; respect the user's toggles after that.
+  const armedId = groups.find((g) => g.armed)?.accountId;
+  const [open, setOpen] = useState(null);
+  const openSet = open ?? new Set(armedId ? [armedId] : []);
+  const toggle = (id) => setOpen((prev) => {
+    const next = new Set(prev ?? (armedId ? [armedId] : []));
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  return (
+    <div className="section">
+      <div className="sect-hd">
+        <span>ACCOUNTS</span>
+        <span className="meta">{groups.length} account{groups.length === 1 ? "" : "s"} · click to expand</span>
+      </div>
+      {groups.length === 0 && <Row k="—" v="no executed trades yet" tone="dim" />}
+      {groups.map((g) => (
+        <AccountGroup key={g.accountId} acct={g}
+                      expanded={openSet.has(g.accountId)}
+                      onToggle={() => toggle(g.accountId)} />
+      ))}
+    </div>
+  );
+}
+
+// ── TRACK RECORD ─────────────────────────────────────────────────────
+// Trades grouped by account (collapsible) up top — clear separation of which
+// account each trade belongs to — then the session-level summary
+// (concentration, by-grade) below. Every number is from real fills or real
+// per-session totals (no fabrication).
+function TrackRecordView({ library }) {
   const A = buildTrackRecord(library);
   const maxSession = Math.max(1, ...A.by_session.map((s) => Math.abs(s.r)));
   return (
     <div className="work-scroll">
-      {byAccount.map((F) => (
-        <div className="section" key={F.account}>
-          <div className="sect-hd"><span>PERFORMANCE · {String(F.account).toUpperCase()}</span><span className="meta">{F.n_trades} TRADE{F.n_trades === 1 ? "" : "S"}</span></div>
-          <div className="an-hero">
-            <div className="htile">
-              <span className="k">CUMULATIVE R</span>
-              <span className={"v " + (F.cum_r >= 0 ? "green" : "red")}>{F.cum_r > 0 ? "+" : ""}{F.cum_r.toFixed(1)}R</span>
-              <span className="sub">{F.n_trades} fills · {F.cum_usd >= 0 ? "+" : ""}${F.cum_usd}</span>
-            </div>
-            <div className="htile">
-              <span className="k">EXPECTANCY</span>
-              <span className={"v " + (F.expectancy >= 0 ? "green" : "red")}>{F.expectancy > 0 ? "+" : ""}{F.expectancy.toFixed(2)}R</span>
-              <span className="sub">per trade · payoff {F.payoff.toFixed(2)}× · {F.win_pct}% win</span>
-            </div>
-          </div>
-          <div className="an-strip">
-            <div className="c"><span className="k">WIN RATE</span><span className="v">{F.win_pct}%</span></div>
-            <div className="c"><span className="k">PAYOFF</span><span className="v">{F.payoff.toFixed(2)}×</span></div>
-            <div className="c"><span className="k">AVG WIN</span><span className="v green">+{F.avg_win.toFixed(2)}R</span></div>
-            <div className="c"><span className="k">AVG LOSS</span><span className="v red">{F.avg_loss.toFixed(2)}R</span></div>
-            <div className="c"><span className="k">MAX DD</span><span className="v red">{F.max_drawdown_r.toFixed(1)}R</span></div>
-          </div>
-        </div>
-      ))}
+      <AccountLedger />
       <div className="section">
         <div className="sect-hd"><span>PERFORMANCE</span><span className="meta">{A.n_sessions} SESSION{A.n_sessions === 1 ? "" : "S"} · REAL FILLS</span></div>
         <div className="an-hero">
@@ -368,7 +426,7 @@ function ReviewBody({ view = "SESSION", picked, setPicked }) {
     <div className="work-scroll">
       <SessionJournalPanel journal={journal} onExport={onExport} />
       <SessionFillsPanel date={journal?.date} />
-      <CandidateLedgerPanel ledger={ledger} />
+      <CandidateLedgerPanel ledger={ledger} brief={journal?.brief} />
     </div>
   );
 }
@@ -410,14 +468,15 @@ function ReviewCell() {
     if (e.target.closest(".bt-popover")) return;
     setOpen((o) => !o);
   };
+  const float = useFloat();
 
   return (
-    <div className={"cell pop-cell" + (open ? " open" : "")} onClick={onCellClick}>
+    <div className={"cell pop-cell" + (open ? " open" : "")} {...clickable(onCellClick)}>
       <span className="k">REVIEW</span>
       {badge}
       {open && (
-        <div className={"bt-popover " + (view === "TRACK" ? "w-analytics" : "w-660")} onClick={(e) => e.stopPropagation()}>
-          <div className="head">
+        <div className={"bt-popover " + (view === "TRACK" ? "w-analytics" : "w-660") + float.popoverClass} style={float.popoverStyle} onClick={(e) => e.stopPropagation()}>
+          <div className="head" onMouseDown={float.onDragStart}>
             <span className="t">REVIEW</span>
             <span className="live-tabs" style={{ marginLeft: 10 }} onClick={(e) => e.stopPropagation()}>
               {RV_TABS.map(([v, l]) => (
@@ -425,6 +484,9 @@ function ReviewCell() {
               ))}
             </span>
             <span className="spacer" style={{ flex: 1 }} />
+            <span className={"float-btn" + (float.floating ? " on" : "")}
+                  title={float.floating ? "Dock window" : "Float — move & resize freely"}
+                  onClick={float.toggle}>⛶</span>
             <span className="x" onClick={() => setOpen(false)}>×</span>
           </div>
           <div className="body">

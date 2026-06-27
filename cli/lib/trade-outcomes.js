@@ -21,7 +21,18 @@ export function runnerEligible(t) {
   return t.side === "long" ? t2 > t1 : t2 < t1;
 }
 
-export function tickTrades(trades, bar) {
+// ctx (optional) carries this bar's market structure for the runner phase —
+// the faithful "no-trim trail … exit on a market-structure change" management
+// (risk-and-management.md §"Management styles" / RISK ~13:07–13:59). Two fields,
+// both filter-only-when-present (absent ctx ⇒ today's BE/TP2 behavior exactly,
+// so existing tapes/fixtures that call tickTrades(open, bar) are unchanged):
+//   ctx.structureBreakAgainst — a swing-tier MSS formed against the open runner
+//     on THIS bar → exit at market (Lanto: "until I get trailed out and we see
+//     a structure change").
+//   ctx.protectiveLevel — the latest confirmed same-direction protective swing
+//     pivot (Higher Low for a long, Lower High for a short) to ratchet the stop
+//     to ("move the stop up structurally"); never loosened.
+export function tickTrades(trades, bar, ctx = {}) {
   const transitions = [];
   const updated = [];
 
@@ -112,19 +123,42 @@ export function tickTrades(trades, bar) {
         }
         continue;
       }
-      // A+ runner phase (TP1 already hit, stop at break-even).
+      // A+ runner phase (TP1 already hit, stop at break-even). With structure
+      // context this is the no-trim trail: ratchet the stop structurally and
+      // exit on a structure change; without it, the original BE/TP2 behavior.
       if (t.tp1_hit) {
+        // Exit on a market-structure change — a swing-tier MSS against the
+        // runner ends the ride at market this bar (closes at bar.close).
+        if (ctx.structureBreakAgainst) {
+          transitions.push({ id: t.id, ts: bar.ts, status: "CLOSED_STRUCTURE", exit: bar.close, r_realized: rOrig(bar.close) });
+          updated.push({ ...t, state: "closed", outcome: "CLOSED_STRUCTURE" });
+          continue;
+        }
+        // Structural trail — ratchet the stop up to the latest protective swing
+        // pivot, never loosening it. Emits STOP_TRAILED so the fold + broker
+        // mirror move the resting stop. R is always measured off ORIGINAL risk
+        // (orig_stop), so a trailed-out runner books its real gain.
+        let runner = t;
+        const lvl = Number(ctx.protectiveLevel);
+        if (Number.isFinite(lvl)) {
+          const tighter = t.side === "long" ? lvl > t.stop : lvl < t.stop;
+          if (tighter) {
+            runner = { ...t, stop: lvl };
+            transitions.push({ id: t.id, ts: bar.ts, status: "STOP_TRAILED", stop: lvl });
+          }
+        }
         if (hitTP2) {
           transitions.push({ id: t.id, ts: bar.ts, status: "TP2_HIT", r_realized: rOrig(t.tp2) });
-          updated.push({ ...t, state: "closed", outcome: "TP2_HIT" });
+          updated.push({ ...runner, state: "closed", outcome: "TP2_HIT" });
           continue;
         }
-        if (hitStop) { // stop is at break-even → 0R scratch
-          transitions.push({ id: t.id, ts: bar.ts, status: "STOPPED", r_realized: 0 });
-          updated.push({ ...t, state: "closed", outcome: "STOPPED" });
+        const hitTrailedStop = runner.side === "long" ? bar.low <= runner.stop : bar.high >= runner.stop;
+        if (hitTrailedStop) { // BE → 0R scratch; trailed above entry → booked gain
+          transitions.push({ id: t.id, ts: bar.ts, status: "STOPPED", r_realized: rOrig(runner.stop) });
+          updated.push({ ...runner, state: "closed", outcome: "STOPPED" });
           continue;
         }
-        updated.push(t);
+        updated.push(runner);
         continue;
       }
       // Pre-TP1 stop.
@@ -207,8 +241,12 @@ export function consecutiveLossStreak(events) {
   const closes = [];
   for (const ev of events) {
     if (ev.type !== "outcome") continue;
-    if (ev.status === "STOPPED") closes.push({ ts: ev.ts, loss: true });
-    else if (ev.status === "CLOSED_EOD" || ev.status === "CLOSED_BROKER") closes.push({ ts: ev.ts, loss: Number(ev.r_realized) < 0 });
+    // STOPPED is a loss UNLESS its realized R is explicitly ≥ 0 — a structural
+    // trail-out books a gain (and a BE-stop tap is a scratch), neither of which
+    // should count toward the 3-loss halt. A bare STOPPED (no r_realized, e.g.
+    // a pre-TP1 stop) stays a loss.
+    if (ev.status === "STOPPED") closes.push({ ts: ev.ts, loss: !(Number(ev.r_realized) >= 0) });
+    else if (ev.status === "CLOSED_EOD" || ev.status === "CLOSED_BROKER" || ev.status === "CLOSED_STRUCTURE") closes.push({ ts: ev.ts, loss: Number(ev.r_realized) < 0 });
     else if (["TP1_HIT", "TP2_HIT", "CLOSED_BE"].includes(ev.status)) closes.push({ ts: ev.ts, loss: false });
   }
   closes.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
@@ -233,7 +271,16 @@ export function foldOpenTrades(events) {
         if (runnerEligible(t)) { t.tp1_hit = true; t.orig_stop = t.stop; t.stop = t.entry; }
         else { t.state = "closed"; t.outcome = "TP1_HIT"; }
       }
-      else if (["TP2_HIT", "STOPPED", "INVALIDATED", "CLOSED_EOD", "EXPIRED_EOD", "CLOSED_BROKER"].includes(ev.status)) {
+      // Structural trail moves the resting stop but keeps the runner open
+      // (orig_stop retained for R). Apply only a tighter level.
+      else if (ev.status === "STOP_TRAILED") {
+        const lvl = Number(ev.stop);
+        if (Number.isFinite(lvl)) {
+          if (t.orig_stop == null) t.orig_stop = t.stop;
+          t.stop = lvl;
+        }
+      }
+      else if (["TP2_HIT", "STOPPED", "INVALIDATED", "CLOSED_EOD", "EXPIRED_EOD", "CLOSED_BROKER", "CLOSED_STRUCTURE"].includes(ev.status)) {
         t.state = "closed";
         t.outcome = ev.status;
       }

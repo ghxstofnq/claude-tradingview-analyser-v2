@@ -12,6 +12,7 @@ import {
   buildTrackRecord,
   buildTrackRecordFromFills,
   buildTrackRecordByAccount,
+  resolveAccountName,
   todayBadge,
 } from "../app/renderer/src/Review.helpers.js";
 
@@ -93,6 +94,67 @@ describe("buildTrackRecordByAccount", () => {
   });
   it("orders the busiest account first", () => {
     assert.equal(buildTrackRecordByAccount(fills)[0].account, "paper"); // 2 trades > 1
+  });
+});
+
+describe("buildTrackRecordByAccount — per-accountId separation", () => {
+  // Two distinct Tradovate accounts under the same broker label must NOT
+  // collapse — the old key was the broker ("tradovate"), which merged them.
+  const fills = [
+    { ts: "2026-06-25T14:03:00Z", account: "tradovate", accountId: "D50756821", side: "long", symbol: "MNQ1!", qty: 1, actual: { r: -0.63, usd: -300 } },
+    { ts: "2026-06-25T14:20:00Z", account: "tradovate", accountId: "D54902911", side: "sell", symbol: "MNQ1!", qty: 2, actual: { r: null, usd: 24.5 } },
+    { ts: "2026-06-25T14:33:00Z", account: "tradovate", accountId: "D54902911", side: "sell", symbol: "MNQ1!", qty: 3, actual: { r: null, usd: -457.5 } },
+  ];
+  const confirmed = { id: "D50756821", name: "Tradovate (demo)", type: "live" };
+
+  it("keys by accountId, not the broker label", () => {
+    const by = buildTrackRecordByAccount(fills, confirmed);
+    assert.equal(by.length, 2);
+    assert.ok(by.find((a) => a.accountId === "D50756821"));
+    assert.ok(by.find((a) => a.accountId === "D54902911"));
+  });
+  it("resolves the armed account's real name; others show their id", () => {
+    const by = buildTrackRecordByAccount(fills, confirmed);
+    assert.equal(by.find((a) => a.accountId === "D50756821").name, "Tradovate (demo)");
+    assert.equal(by.find((a) => a.accountId === "D54902911").name, "D54902911");
+  });
+  it("flags the armed account and orders it first", () => {
+    const by = buildTrackRecordByAccount(fills, confirmed);
+    assert.equal(by[0].accountId, "D50756821"); // armed, despite fewer trades than D54902911
+    assert.equal(by[0].armed, true);
+    assert.equal(by.find((a) => a.accountId === "D54902911").armed, false);
+  });
+  it("counts ALL fills incl. un-bracketed (r:null) and sums real $", () => {
+    const manual = buildTrackRecordByAccount(fills, confirmed).find((a) => a.accountId === "D54902911");
+    assert.equal(manual.n_trades, 2);          // both fills, even though r is null
+    assert.equal(manual.net_usd, -433);        // 24.5 + (-457.5), rounded
+    assert.equal(manual.net_r, null);          // no bracketed R on either
+  });
+  it("attaches each account's trades newest-first", () => {
+    const manual = buildTrackRecordByAccount(fills, confirmed).find((a) => a.accountId === "D54902911");
+    assert.equal(manual.trades.length, 2);
+    assert.equal(manual.trades[0].ts, "2026-06-25T14:33:00Z"); // newest first
+  });
+  it("always surfaces the armed account, even with zero fills here", () => {
+    const by = buildTrackRecordByAccount([], confirmed);
+    assert.equal(by.length, 1);
+    assert.equal(by[0].accountId, "D50756821");
+    assert.equal(by[0].n_trades, 0);
+    assert.equal(by[0].armed, true);
+  });
+});
+
+describe("resolveAccountName", () => {
+  const confirmed = { id: "D50756821", name: "Tradovate (demo)" };
+  it("uses the confirmed account's real name", () => {
+    assert.equal(resolveAccountName("D50756821", "tradovate", confirmed), "Tradovate (demo)");
+  });
+  it("falls back to the account id for everything else (never invents)", () => {
+    assert.equal(resolveAccountName("D54902911", "tradovate", confirmed), "D54902911");
+    assert.equal(resolveAccountName("D54902911", "tradovate", null), "D54902911");
+  });
+  it("labels a truly unattributed fill", () => {
+    assert.equal(resolveAccountName("unknown", null, confirmed), "Unattributed");
   });
 });
 

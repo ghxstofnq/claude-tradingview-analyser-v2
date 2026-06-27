@@ -74,33 +74,19 @@ function makeHarness() {
 }
 
 describe("controlled lifecycle replay (real manager + grader + exit)", () => {
-  it("B anchor + B add: add stops → cancel add limit; anchor TP1 → cancel anchor stop (no orphans)", async () => {
+  // (The B-anchor + B-add lifecycle test was removed 2026-06-23 — scale-in
+  // deleted; the manager opens one position and never an add.)
+
+  it("auto, a position already open → skip:active (no second tranche opens)", async () => {
     const h = makeHarness();
     const anchor = { id: "S-A", side: "long", grade: "B", symbol: "MNQ1!", entry: 100, stop: 40, tp1: 160, tp2: 220 };
-    const add = { id: "S-B", side: "long", grade: "B", symbol: "MNQ1!", entry: 100, stop: 48, tp1: 148, tp2: 196, event_ts: new Date(Date.now() + 20 * 60000).toISOString() };
+    const second = { id: "S-B", side: "long", grade: "B", symbol: "MNQ1!", entry: 100, stop: 48, tp1: 148, tp2: 196, event_ts: new Date(Date.now() + 20 * 60000).toISOString() };
 
     const r1 = await h.open(anchor, 100);
     assert.equal(r1.action, "open_anchor");
-    // price reaches 50% to TP1 (130) → anchor green-lights AND the add opens.
-    const r2 = await h.open(add, 130);
-    assert.equal(r2.action, "open_add");
-
-    // record the two tranches' order ids
-    const anchorOrders = h.events.find((e) => e.type === "tranche_orders");
-    const addOrders = [...h.events].reverse().find((e) => e.type === "tranche_orders");
-    const anchorStop = anchorOrders.stopOrderId;
-    const addLimit = addOrders.limitOrderId;
-
-    await h.bar({ open: 100, high: 131, low: 99, ts: "b-fill" });   // both FILLED
-    await h.bar({ open: 100, high: 101, low: 47, ts: "b-addstop" }); // add stop 48 hit; anchor stop 40 safe
-    await h.bar({ open: 100, high: 161, low: 100, ts: "b-anchortp" }); // anchor TP1 160 hit (B → exit)
-
-    const cancels = h.cancelsOf();
-    assert.ok(cancels.includes(addLimit), "add's resting limit cancelled when its stop filled");
-    assert.ok(cancels.includes(anchorStop), "anchor's resting stop cancelled when its TP1 filled (the bug fix)");
-    // No tranche left with both legs live: every opened tranche's stop OR limit got cancelled/filled.
-    const opens = h.broker.filter((x) => x.a === "open").length;
-    assert.equal(opens, 2);
+    const r2 = await h.open(second, 130);
+    assert.equal(r2.action, "skip:active");
+    assert.equal(h.broker.filter((x) => x.a === "open").length, 1, "only the anchor opened");
   });
 
   it("A+ runner: TP1 → BE move (cancel old stop + place BE); TP2 → cancel BE stop", async () => {

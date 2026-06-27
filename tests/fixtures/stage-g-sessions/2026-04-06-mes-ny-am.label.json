@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-04-06-mes-ny-am",
+  "fixtureSource": "real",
+  "label_status": "unlabeled",
+  "reviewer": "smt-pair-2026-06-25",
+  "source_message": "Lanto NY-AM Seq2: LONG ES @10:12 (ES leading now), b/e outcome (choppy). NOTE the ES-lead emerged at 10:12, just AFTER the 30-min leader window. expected is a PLACEHOLDER; leader ground truth = the Discord pick. verified stays false.",
+  "trade_date": "2026-04-06",
+  "symbol": "MES",
+  "contract_hint": "CME_MINI:MES1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "unknown",
+    "model": null,
+    "side": null,
+    "grade": null,
+    "entry": null,
+    "stop": null,
+    "tp1": null,
+    "tp2": null
+  }
+}

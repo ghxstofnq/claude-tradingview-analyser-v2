@@ -29,12 +29,13 @@ test('before NY AM, next killzone is still NY AM today', () => {
   assert.equal(s.seconds_to_next_killzone, 30 * 60);
 });
 
-test('after midnight, next killzone is NY AM (London Open not jumped into)', () => {
-  // 01:00 ET — pre_session_ny_am phase deliberately leads toward NY AM, and
-  // no killzone has passed yet, so this behavior must stay unchanged.
+test('after midnight (Asia session), next killzone is London Open', () => {
+  // 01:00 ET — Asia session (18:00–03:00 ET). London is a real session now,
+  // so the next killzone is London Open at 03:00 ET, not NY AM.
   const s = sessionAt('2026-05-20T05:00:00Z');
-  assert.equal(s.next_killzone_label, 'NY AM');
-  assert.equal(s.seconds_to_next_killzone, (8 * 60 + 30 - 60) * 60);
+  assert.equal(s.phase, 'asia');
+  assert.equal(s.next_killzone_label, 'London Open');
+  assert.equal(s.seconds_to_next_killzone, (3 * 60 - 60) * 60);
 });
 
 test('NY AM entry-hunt phase points at NY PM', () => {
@@ -58,32 +59,33 @@ test('after NY PM start, next killzone wraps to next-day London Open', () => {
 // reason="no_fvgs_created_in_window" every time, regardless of data.
 // ─────────────────────────────────────────────────────────────────────────
 
-test('open_window bounds match NY-AM 09:30→09:45 ET during NY-AM phases', () => {
+test('open_window bounds match NY-AM 09:30→10:00 ET during NY-AM phases', () => {
   // 09:35 ET on 2026-05-20 (Wed, EDT) — phase open_reaction_ny_am.
+  // 30-min SMT pick window (OPEN_REACTION_MIN, daily-bias §4/§7).
   const s = sessionAt('2026-05-20T13:35:00Z');
   assert.equal(s.phase, 'open_reaction_ny_am');
   const expectedStart = Date.parse('2026-05-20T13:30:00Z'); // 09:30 ET
-  const expectedEnd   = Date.parse('2026-05-20T13:45:00Z'); // 09:45 ET
+  const expectedEnd   = Date.parse('2026-05-20T14:00:00Z'); // 10:00 ET
   assert.equal(s.open_window_start_ms, expectedStart);
   assert.equal(s.open_window_end_ms,   expectedEnd);
 });
 
 test('open_window bounds still anchor to today during pre_session_ny_am', () => {
   // 08:00 ET — before the open window but window bounds should already
-  // point at today's 09:30 ET so compute-leader can pre-emptively read.
+  // point at today's 09:30 ET so the leader pick can pre-emptively read.
   const s = sessionAt('2026-05-20T12:00:00Z');
   assert.equal(s.phase, 'pre_session_ny_am');
   const expectedStart = Date.parse('2026-05-20T13:30:00Z');
   assert.equal(s.open_window_start_ms, expectedStart);
-  assert.equal(s.open_window_end_ms,   expectedStart + 15 * 60 * 1000);
+  assert.equal(s.open_window_end_ms,   expectedStart + 30 * 60 * 1000);
 });
 
-test('open_window bounds shift to NY-PM 13:30→13:45 ET during NY-PM phases', () => {
+test('open_window bounds shift to NY-PM 13:30→14:00 ET during NY-PM phases', () => {
   // 13:35 ET on 2026-05-20 — phase open_reaction_ny_pm.
   const s = sessionAt('2026-05-20T17:35:00Z');
   assert.equal(s.phase, 'open_reaction_ny_pm');
   const expectedStart = Date.parse('2026-05-20T17:30:00Z'); // 13:30 ET
-  const expectedEnd   = Date.parse('2026-05-20T17:45:00Z'); // 13:45 ET
+  const expectedEnd   = Date.parse('2026-05-20T18:00:00Z'); // 14:00 ET
   assert.equal(s.open_window_start_ms, expectedStart);
   assert.equal(s.open_window_end_ms,   expectedEnd);
 });
@@ -97,11 +99,38 @@ test('open_window bounds are null during london_open phase', () => {
   assert.equal(s.open_window_end_ms, null);
 });
 
-test('open_window bounds are null during inter_session', () => {
-  // 18:30 ET — past NY PM + past the 17:00-18:00 ET daily settlement
-  // break, before next-day's pre-session. Phase is inter_session.
+test('open_window bounds are null during the Asia session', () => {
+  // 18:30 ET — past NY PM + past the 17:00-18:00 ET daily settlement break.
+  // 18:00–03:00 ET is the Asia session; open-reaction bounds are NY-only.
   const s = sessionAt('2026-05-20T22:30:00Z');
-  assert.equal(s.phase, 'inter_session');
+  assert.equal(s.phase, 'asia');
   assert.equal(s.open_window_start_ms, null);
   assert.equal(s.open_window_end_ms, null);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Asia session 18:00–03:00 ET — recognized as its own session/phase (the
+// faithful-Lanto rebuild treats overnight as a session, not just a level).
+// ─────────────────────────────────────────────────────────────────────────
+test('18:00 ET (Asia open) → asia phase + Asia label', () => {
+  const s = sessionAt('2026-05-20T22:00:00Z'); // 18:00 EDT
+  assert.equal(s.phase, 'asia');
+  assert.equal(s.label, 'Asia');
+});
+
+test('02:00 ET (post-midnight) → asia phase, not pre_session_ny_am', () => {
+  const s = sessionAt('2026-05-20T06:00:00Z'); // 02:00 EDT
+  assert.equal(s.phase, 'asia');
+  assert.equal(s.next_killzone_label, 'London Open');
+});
+
+test('20:00 ET → asia phase, next killzone wraps to next-day London Open', () => {
+  const s = sessionAt('2026-05-21T00:00:00Z'); // 20:00 EDT (prev ET day)
+  assert.equal(s.phase, 'asia');
+  assert.equal(s.next_killzone_label, 'London Open (next day)');
+});
+
+test('03:00 ET → london_open (Asia has ended)', () => {
+  const s = sessionAt('2026-05-20T07:00:00Z'); // 03:00 EDT
+  assert.equal(s.phase, 'london_open');
 });

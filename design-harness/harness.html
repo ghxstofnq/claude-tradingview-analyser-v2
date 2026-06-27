@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>design harness</title>
+  <!-- the REAL stylesheet — @font-face urls resolve relative to app.css -->
+  <link rel="stylesheet" href="../app/renderer/src/app.css" />
+  <style>
+    /* harness-only: un-float the popover + stack chrome so one shot shows it all */
+    body { margin: 0; padding: 24px; background: var(--surface-0);
+           display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .topbar, .statusline { position: static !important; }
+    .bt-popover { position: static !important; inset: auto !important; margin: 0 !important; max-height: none !important; }
+    /* harness-only: unclip the scroll viewport so one shot shows the whole panel stack */
+    .work-scroll, .bt-popover .body { height: auto !important; max-height: none !important; overflow: visible !important; }
+    .stage { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+    .pill-rail { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 14px; }
+  </style>
+</head>
+<body>
+
+  <!-- TOPBAR chrome -->
+  <header class="topbar">
+    <div class="id"><span class="wm">G<span class="accent">X</span>OFNQ</span></div>
+    <div class="status">
+      <div class="cell"><span class="k">VER</span><span class="v">9c3aafe</span></div>
+      <div class="cell"><span class="k">ACCT</span><span class="v">PAPER · 9256021</span></div>
+      <div class="cell pop-cell"><span class="k">ALERTS</span><span class="count">3</span></div>
+      <div class="cell pop-cell"><span class="k">NEWS</span><span class="count">2</span></div>
+      <div class="cell"><button class="th-btn">◐</button></div>
+    </div>
+  </header>
+
+  <!-- STATUSLINE chrome -->
+  <div class="statusline">
+    <div class="grp">
+      <div class="cell pop-cell open"><span class="k">PREP</span><span class="dot"></span></div>
+      <div class="cell pop-cell"><span class="k">LIVE</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">REVIEW</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">BACKTEST</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">CHAT</span><span class="dot dim"></span></div>
+      <div class="cell pop-cell"><span class="k">ORDERS</span><span class="dot dim"></span></div>
+    </div>
+    <div class="grp">
+      <span class="item"><span class="k">PH</span><span class="v amber">NY-PM</span></span>
+      <span class="item"><span class="k">KZ</span><span class="v">13:00–13:30</span></span>
+      <span class="item"><span class="k">LAST BAR</span><span class="v">30521.50</span></span>
+    </div>
+  </div>
+
+  <div class="stage">
+
+    <!-- PREP popover — DET view (verdict-first) -->
+    <div class="bt-popover w-660">
+      <div class="head">
+        <span class="t">PREP</span>
+        <span class="sub">2026-06-23 · NY-PM · B</span>
+        <span class="float-btn" title="Float — move & resize freely">⛶</span>
+        <span class="x">×</span>
+      </div>
+      <div class="body">
+        <div class="work-scroll">
+
+          <!-- DECISION strip (hero) -->
+          <div class="prep-decision">
+            <div class="top">
+              <span class="grade-pill grade-lg amber">B</span>
+              <span class="bias bad">BEARISH</span>
+              <span class="count">2/3 · open pending</span>
+              <span class="seg">
+                <span class="pill interactive active">DET</span>
+                <span class="pill interactive">AI</span>
+              </span>
+            </div>
+            <div class="draw">→ DRAW <b>h4 bull IFVG · 29916.5</b></div>
+            <div class="reason">inverted-displaced(0.52) · price quality marginal</div>
+            <div class="ctl">
+              <span class="pill interactive active">MNQ</span>
+              <span class="pill interactive">MES</span>
+              <span class="pill interactive">↻ REFRESH</span>
+            </div>
+          </div>
+
+          <!-- BIAS -->
+          <section class="panel">
+            <header class="panel-head"><span class="title">BIAS</span><span class="meta">2/3 components</span></header>
+            <div class="panel-body">
+              <div class="row"><span class="k">HTF vote</span><span class="v bad">BEAR</span></div>
+              <div class="row"><span class="k">Overnight vote</span><span class="v bad">BEAR</span></div>
+              <div class="row"><span class="k">Open</span><span class="v dim">PENDING</span></div>
+              <div class="sect-hd">STRUCTURE · D / 4H / 1H</div>
+              <div class="row"><span class="k">Daily</span><span class="v"><span class="ok">BULL</span><span style="color:var(--label)">  momentum 12.59%</span></span></div>
+              <div class="row"><span class="k">4H</span><span class="v"><span class="bad">BEAR</span><span style="color:var(--label)">  momentum -2.84%</span></span></div>
+              <div class="row"><span class="k">1H</span><span class="v"><span class="bad">BEAR</span><span style="color:var(--label)">  momentum -2.11%</span></span></div>
+              <div class="row"><span class="k">Draw</span><span class="v">29916.5<span style="color:var(--label)">  h4 · IFVG midpoint · bull · took liq</span></span></div>
+            </div>
+          </section>
+
+          <!-- OVERNIGHT -->
+          <section class="panel">
+            <header class="panel-head"><span class="title">OVERNIGHT</span><span class="meta">Asia + London</span></header>
+            <div class="panel-body">
+              <div class="row"><span class="k">Asia H / L</span><span class="v">30699.75 / 30336.75</span></div>
+              <div class="row"><span class="k">London H / L</span><span class="v">30054.25 / 29524.00</span></div>
+              <div class="row"><span class="k">Overnight</span><span class="v">retracing_htf</span></div>
+              <div class="row"><span class="k">Path</span><span class="v">PWH</span></div>
+            </div>
+          </section>
+
+          <!-- PRICE QUALITY -->
+          <section class="panel">
+            <header class="panel-head"><span class="title">PRICE QUALITY</span><span class="meta"><span class="pill amber">MARGINAL</span></span></header>
+            <div class="panel-body">
+              <div class="row"><span class="k">3h range</span><span class="v warn">WEAK · good (351.75pt)</span></div>
+              <div class="row"><span class="k">4H/1H displacement</span><span class="v warn">WEAK · 4H clean / 1H clean</span></div>
+              <div class="row"><span class="k">15m/5m candles</span><span class="v warn">WEAK · 5m doji_wick</span></div>
+            </div>
+          </section>
+
+          <!-- LEVELS IN PLAY -->
+          <section class="panel">
+            <header class="panel-head"><span class="title">LEVELS IN PLAY</span><span class="meta">untaken</span></header>
+            <div class="panel-body">
+              <div class="sect-hd">ABOVE</div>
+              <div class="lvl"><span class="marker">─</span><span class="name">NYAM_H</span><span class="price">30046.75</span><span class="state">UNTAKEN</span><span class="bell">○</span></div>
+              <div class="lvl"><span class="marker">─</span><span class="name">LO_H</span><span class="price">30054.25</span><span class="state">UNTAKEN</span><span class="bell armed">●</span></div>
+              <div class="lvl"><span class="marker">─</span><span class="name">AS_H</span><span class="price">30699.75</span><span class="state">UNTAKEN</span><span class="bell fired">◉</span></div>
+              <div class="sect-hd">BELOW</div>
+              <div class="lvl"><span class="marker">─</span><span class="name">NYAM_L</span><span class="price">29616.50</span><span class="state">UNTAKEN</span><span class="bell">○</span></div>
+            </div>
+          </section>
+
+          <!-- OPEN REACTION -->
+          <section class="panel">
+            <header class="panel-head"><span class="title">OPEN REACTION</span><span class="meta"><span class="pill dim">PENDING</span></span></header>
+            <div class="panel-body">
+              <div class="row"><span class="k">HTF</span><span class="v bad">BEAR</span></div>
+              <div class="row"><span class="k">Overnight</span><span class="v bad">BEAR</span></div>
+              <div class="row"><span class="k">Open</span><span class="v dim">PENDING</span></div>
+              <div class="or-note">Resolves at the session open — the initial move into opposing / overnight liquidity, then the reaction (not the grab).</div>
+            </div>
+          </section>
+
+          <!-- PLAN -->
+          <section class="panel">
+            <header class="panel-head"><span class="title">PLAN · IF / THEN</span><span class="meta">deterministic prep · 0.5 R · direct B</span></header>
+            <div class="panel-body">
+              <div class="scn">
+                <div class="h"><span>SCN-1</span><span class="pill amber">B</span></div>
+                <div class="r"><span class="k">TRIGGER</span><span class="v">Live confirms toward PWH 30975.5</span></div>
+                <div class="r"><span class="k">ACTION</span><span class="v">Wait for deterministic MSS/Trend/Inversion confirmation packet.</span></div>
+                <div class="r"><span class="k">TARGET</span><span class="v">30975.5</span></div>
+              </div>
+              <div class="row"><span class="k">Target</span><span class="v ok">30975.5</span></div>
+              <div class="row"><span class="k">Stop</span><span class="v bad">30046.75</span></div>
+              <div class="row"><span class="k">Sizing</span><span class="v">0.5 R · direct B</span></div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- PREP popover — AI view (fresh in-depth pass) -->
+    <div class="bt-popover w-660">
+      <div class="head">
+        <span class="t">PREP</span>
+        <span class="sub">2026-06-23 · NY-PM · B</span>
+        <span class="float-btn" title="Float — move & resize freely">⛶</span>
+        <span class="x">×</span>
+      </div>
+      <div class="body">
+        <div class="work-scroll">
+          <div class="prep-decision">
+            <div class="top">
+              <span class="grade-pill grade-lg amber">B</span>
+              <span class="bias bad">BEARISH</span>
+              <span class="count">2/3 · open pending</span>
+              <span class="seg">
+                <span class="pill interactive">DET</span>
+                <span class="pill interactive active">AI</span>
+              </span>
+            </div>
+            <div class="draw">→ DRAW <b>h4 bull IFVG · 29916.5</b></div>
+            <div class="reason">inverted-displaced(0.52) · price quality marginal</div>
+            <div class="ctl">
+              <span class="pill interactive active">MNQ</span>
+              <span class="pill interactive">MES</span>
+              <span class="pill interactive">↻ REFRESH</span>
+            </div>
+          </div>
+          <div class="prep-ai">
+            <div class="meta">
+              <span>AI IN-DEPTH · MNQ1!</span>
+              <span class="spacer"></span>
+              <span class="ts">13:01 ET</span>
+              <span class="pill interactive">RE-ANALYZE</span>
+            </div>
+            <div class="prose">MNQ NY-PM leans bearish on a 2-of-3 read: the daily is still bullish but the 4H and 1H have rolled over (−2.84% / −2.11%), and the near-price h4 bull FVG has inverted with displacement — so the array that should support price is now a ceiling. Overnight retraced the HTF move rather than extending it, which keeps conviction at B, not A+. Price quality is marginal: clean 4H/1H displacement but doji-wick 5m candles, so this is a "wait for the trigger" day, not a press. Watch the open's reaction into NYAM_H / LO_H above and the NYAM_L pool below: a sweep of a high that rejects with displacement back down confirms the short toward PWH; a clean reclaim of the inverted h4 zone flips the read and you stand aside.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREP popover — FLOATING window state (chrome only: all-corner radius, top border, resize grip) -->
+    <div class="bt-popover w-660 floating" style="height:auto;">
+      <div class="head">
+        <span class="t">PREP</span>
+        <span class="sub">2026-06-23 · NY-PM · B · floating</span>
+        <span class="float-btn on" title="Dock window">⛶</span>
+        <span class="x">×</span>
+      </div>
+      <div class="body">
+        <div class="work-scroll">
+          <div class="prep-decision">
+            <div class="top">
+              <span class="grade-pill grade-lg amber">B</span>
+              <span class="bias bad">BEARISH</span>
+              <span class="count">2/3 · open pending</span>
+              <span class="seg"><span class="pill interactive active">DET</span><span class="pill interactive">AI</span></span>
+            </div>
+            <div class="draw">→ DRAW <b>h4 bull IFVG · 29916.5</b></div>
+          </div>
+          <section class="panel"><header class="panel-head"><span class="title">BIAS</span></header>
+            <div class="panel-body"><div class="row"><span class="k">HTF vote</span><span class="v bad">BEAR</span></div></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE popover header — verify rounded header controls (tabs / STOP / x) -->
+    <div class="bt-popover w-660" style="max-height:none;">
+      <div class="head live-head">
+        <span class="t">LIVE</span>
+        <span class="det"><i class="dot"></i><span class="lbl">DETECTOR</span><span class="run">RUNNING</span><span class="stop">STOP</span></span>
+        <span class="spacer" style="flex:1"></span>
+        <div class="live-tabs">
+          <span class="tab">HUNT</span><span class="tab">TICKET</span><span class="tab on">IN-TRADE</span>
+        </div>
+        <span class="float-btn">⛶</span>
+        <span class="x">×</span>
+      </div>
+    </div>
+
+    <!-- REVIEW popover — CANDIDATE LEDGER with per-trade faithfulness verdict -->
+    <div class="bt-popover w-660" style="max-height:none;">
+      <div class="head">
+        <span class="t">REVIEW</span>
+        <span class="live-tabs" style="margin-left:10px">
+          <span class="tab on">SESSION</span><span class="tab">TRACK</span><span class="tab">LIBRARY</span>
+        </span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="float-btn">⛶</span>
+        <span class="x">×</span>
+      </div>
+      <div class="body">
+        <div class="work-scroll">
+          <div class="chain-degraded">CHAIN DEGRADED — open_reaction: degraded:open_unclear</div>
+          <section class="panel">
+            <header class="panel-head"><span class="title">CANDIDATE LEDGER</span><span class="meta">5 candidates · faithful 1 · deviated 1</span></header>
+            <div class="panel-body">
+
+              <div class="cand-row clickable">
+                <span class="cyc">09:32</span>
+                <span class="grade-pill dim">NO</span>
+                <span class="side s">—</span>
+                <span class="mod">Inversion</span>
+                <span class="fmark"><span class="fseg soft"></span><span class="fseg na"></span><span class="fseg deviation"></span></span>
+                <span class="reason amber">no-trade · premature, no grab ▾</span>
+              </div>
+
+              <div class="cand-row clickable">
+                <span class="cyc">09:47</span>
+                <span class="grade-pill amber">B</span>
+                <span class="side l">LONG</span>
+                <span class="mod">Inversion</span>
+                <span class="fmark"><span class="fseg pass"></span><span class="fseg pass"></span><span class="fseg soft"></span></span>
+                <span class="reason green">CONFIRMED · TP1 ▴</span>
+              </div>
+              <div class="fbreak">
+                <div class="frow pass"><span class="fg">✓</span><span class="fk">Bias</span><span class="fv">context gate pass · draw bear</span></div>
+                <div class="frow pass"><span class="fg">✓</span><span class="fk">Price action</span><span class="fv">displacement clean, 15m not chop</span></div>
+                <div class="frow soft"><span class="fg">◐</span><span class="fk">Entry model</span><span class="fv">Inversion confirm via bridge (aggressive, not engine-stamped)</span></div>
+                <div class="frow deviation"><span class="fg">✗</span><span class="fk">Stop anchor</span><span class="fv">bars.last_5_bars[extreme] (136pt) — Lanto anchors just beyond the inverted array</span></div>
+                <div class="frow soft"><span class="fg">◐</span><span class="fk">Liquidity draw</span><span class="fv">TP1 cites session_history — verify it's a named draw, not an internal swing</span></div>
+                <div class="ffig"><span>entry <b>29862.75</b></span><span>stop <b>29726.75</b></span><span>tp1 <b>30699.75</b></span><span>R:R <b class="g">6.15</b></span><span>1c · 0.5 R (B)</span></div>
+              </div>
+
+              <div class="cand-row clickable">
+                <span class="cyc">10:05</span>
+                <span class="grade-pill amber">B</span>
+                <span class="side s">SHORT</span>
+                <span class="mod">MSS</span>
+                <span class="fmark"><span class="fseg pass"></span><span class="fseg pass"></span><span class="fseg pass"></span></span>
+                <span class="reason red">stopped · faithful loss ▾</span>
+              </div>
+
+              <div class="cand-row clickable">
+                <span class="cyc">10:41</span>
+                <span class="grade-pill dim">NO</span>
+                <span class="side s">—</span>
+                <span class="mod">Trend</span>
+                <span class="fmark"><span class="fseg deviation"></span><span class="fseg na"></span><span class="fseg na"></span></span>
+                <span class="reason amber">no-trade · counter to draw ▾</span>
+              </div>
+
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="sect-hd"><span>ACCOUNTS</span><span class="meta">2 accounts · click to expand</span></div>
+
+            <!-- armed account, expanded into its trades -->
+            <div class="acct-group open">
+              <button class="acct-head" aria-expanded="true">
+                <span class="ah-caret">▾</span>
+                <span class="ah-name">Tradovate (demo)</span>
+                <span class="ah-tag armed">ARMED</span>
+                <span class="ah-sum"><span class="ah-n">1 trade</span><span style="color:var(--red)">-0.63R</span><span style="color:var(--red)">-$300</span></span>
+              </button>
+              <div class="acct-body">
+                <div class="acct-stat"><span>0% win</span><span>payoff 0.00×</span><span style="color:var(--green)">+0.00R</span><span style="color:var(--red)">-0.63R</span><span style="color:var(--red)">DD -0.6R</span></div>
+                <div class="acct-trade">
+                  <span class="att-t">Jun 25 14:52</span>
+                  <span class="att-side l">LONG</span>
+                  <span class="att-sym">MNQ1!<span class="att-qty">1c</span></span>
+                  <span class="att-px">29728.25 <span class="arr">→</span> 29644.75</span>
+                  <span class="att-pl"><span style="color:var(--red)">-0.63R</span><span style="color:var(--red)">-$300</span></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- manual subaccount, collapsed -->
+            <div class="acct-group">
+              <button class="acct-head" aria-expanded="false">
+                <span class="ah-caret">▸</span>
+                <span class="ah-name">D54902911</span>
+                <span class="ah-tag">TRADOVATE</span>
+                <span class="ah-sum"><span class="ah-n">5 trades</span><span style="color:var(--red)">-$711</span></span>
+              </button>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="sect-hd"><span>PERFORMANCE</span><span class="meta">3 SESSIONS · REAL FILLS</span></div>
+            <div class="an-hero">
+              <div class="htile"><span class="k">CUMULATIVE R</span><span class="v red">-1.3R</span><span class="sub">3 sessions · 1 taken of 8 candidates</span></div>
+              <div class="htile"><span class="k">AVG R / SESSION</span><span class="v red">-0.43R</span><span class="sub">0W · 2L sessions</span></div>
+            </div>
+            <div class="an-strip">
+              <div class="c"><span class="k">SESSIONS</span><span class="v">3</span></div>
+              <div class="c"><span class="k">WIN SESSIONS</span><span class="v">0%</span></div>
+              <div class="c"><span class="k">BEST</span><span class="v green">+0.0R</span></div>
+              <div class="c"><span class="k">WORST</span><span class="v red">-0.6R</span></div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="sect-hd"><span>SESSION CONCENTRATION</span><span class="meta">R BY SESSION TYPE</span></div>
+            <div class="conc-row"><span class="lbl">NY-AM<span class="n">1 session</span></span><span class="track"><span class="fill neg" style="width:60%"></span></span><span class="rval neg">-0.6R</span></div>
+          </section>
+
+          <section class="section">
+            <div class="sect-hd"><span>SESSION LIBRARY</span><span class="meta">recent · click to load</span></div>
+            <table class="lib-table">
+              <thead><tr><th>DATE</th><th>SESSION</th><th>GRADE</th><th class="r">CANDS</th><th class="r">TAKEN</th><th class="r">FAITHFUL</th></tr></thead>
+              <tbody>
+                <tr><td>2026-06-24</td><td class="dim">ny-am</td><td>B</td><td class="r">3</td><td class="r">1</td><td class="r" style="color:var(--green)">100%</td></tr>
+                <tr><td>2026-06-23</td><td class="dim">ny-pm</td><td>no-trade</td><td class="r">2</td><td class="r">0</td><td class="r" style="color:var(--amber)">50%</td></tr>
+                <tr class="cur"><td>2026-06-25</td><td class="dim">ny-am</td><td>no-trade</td><td class="r">3</td><td class="r">1</td><td class="r" style="color:var(--red)">0%</td></tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- BACKTEST popover — Slice 1: 3-mode nav + corpus status + rounded controls -->
+    <div class="bt-popover w-660" style="max-height:none;">
+      <div class="head">
+        <span class="t">BACKTEST</span>
+        <span class="bt-modes">
+          <button class="bt-mode on">RECORD</button>
+          <button class="bt-mode">BASELINE</button>
+          <button class="bt-mode">COMPARE</button>
+        </span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="float-btn">⛶</span>
+        <span class="x">×</span>
+      </div>
+      <div class="bt-corpus empty">
+        <span class="cs-k">CORPUS</span>
+        <span class="cs-sym">MNQ</span>
+        <span class="cs-empty">empty — record a sample to begin</span>
+      </div>
+      <div class="body">
+        <div class="section">
+          <div class="sect-hd"><span>CONFIGURE RECORD</span><span class="meta">records from the chart</span></div>
+          <div class="cfg-form">
+            <div class="cfg-row">
+              <span class="cfg-rk">SYMBOL</span>
+              <div class="seg"><div class="s">MNQ</div><div class="s">MES</div><div class="s on">BOTH</div></div>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-rk">RANGE<span class="cfg-rk-hint">9d</span></span>
+              <div class="cfg-presets">
+                <button class="cfg-preset">TODAY</button>
+                <button class="cfg-preset">THIS WEEK</button>
+                <button class="cfg-preset on">LAST WEEK</button>
+                <button class="cfg-preset">CUSTOM</button>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-rk">SESSIONS</span>
+              <div class="cfg-multi">
+                <button class="cfg-chip on"><span class="ck">✓</span>NY-AM</button>
+                <button class="cfg-chip"><span class="ck"></span>NY-PM</button>
+                <button class="cfg-chip on"><span class="ck">✓</span>LONDON</button>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-rk">MODE</span>
+              <div class="seg"><div class="s on">AUTO</div><div class="s">PAUSE ON SETUP</div></div>
+            </div>
+          </div>
+          <div class="cfg-plan">▸ <b>MNQ1! + MES1!</b> · <b>NY-AM + LONDON</b> · 2026-06-15 → 2026-06-24 → <b>18</b> sessions to record</div>
+          <div class="cfg-cost">drives the chart session-by-session · pauses the live loop while it records, then live re-arms</div>
+          <button class="start-btn">▶  START RECORD</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- token rail (keep for palette regression) -->
+  <div class="pill-rail">
+    <span class="grade-pill green">A+</span>
+    <span class="grade-pill amber">B</span>
+    <span class="grade-pill red">no-trade</span>
+    <span class="pill">idle</span>
+    <span class="pill active">active</span>
+    <span class="pill amber">amber</span>
+    <span class="pill green">green</span>
+    <span class="pill red">red</span>
+    <span class="pill primary">PRIMARY</span>
+    <button class="btn green">ACCEPT</button>
+    <button class="btn">AI · DEEPER READ ▸</button>
+  </div>
+
+</body>
+</html>

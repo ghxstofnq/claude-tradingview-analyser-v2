@@ -102,6 +102,9 @@ function pillar1ForSymbol(symBundle) {
   return {
     session_levels: p1.session_levels || {},
     sweeps: p1.sweeps || [],
+    // Stage C Pillar-1 bias (HTF array vote + overnight vote + draw) — the brief
+    // reads this and adds the open-reaction + combine. See cli/lib/pillar1-bias.js.
+    bias: p1.bias || null,
     // Engine-partitioned untaken session draws, already split by side of price
     // and sorted nearest-first (compute-engine-gates). The brief's
     // overnight_block reads these so sell-side session lows (LO.L, AS.L) reach

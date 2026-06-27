@@ -1,0 +1,13 @@
+{
+  "name": "design-harness",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Headless visual + computed-style harness for app.css (no computer-use, no Electron).",
+  "scripts": {
+    "shoot": "node shoot.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

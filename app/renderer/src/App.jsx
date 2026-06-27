@@ -3,6 +3,7 @@
 // adapter has been removed.
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { clickable } from "./a11y.js";
 import { TradingViewChart, TvSignInBanner } from "./TvChart.jsx";
 import { EvidenceContext, EvidenceSidePanel, ClaudeFeed } from "./Shared.jsx";
 import { BacktestCell } from "./BacktestPopover.jsx";
@@ -231,7 +232,7 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
         <VersionCell />
         <AccountCell guards={guards} setGuards={setGuards} />
         <div className={"cell pop-cell" + (alertCount > 0 ? " has-alerts" : "")}
-             onClick={() => setAlertsOpen((o) => !o)}>
+             {...clickable(() => setAlertsOpen((o) => !o))}>
           <span className="k">ALERTS</span>
           <span className="count">{alertCount}</span>
           {alertsOpen && (
@@ -241,7 +242,7 @@ function TopBar({ symbol, setSymbol, theme, setTheme,
           )}
         </div>
         <div className={"cell pop-cell" + (newsCount > 0 ? " has-news" : "")}
-             onClick={() => setNewsOpen((o) => !o)}>
+             {...clickable(() => setNewsOpen((o) => !o))}>
           <span className="k">NEWS</span>
           <span className="count">{newsCount}</span>
           {newsImminent && (

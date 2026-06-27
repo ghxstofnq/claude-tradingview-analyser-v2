@@ -101,7 +101,6 @@ contextBridge.exposeInMainWorld("api", {
     moveStopToBE(payload) { return ipcRenderer.invoke("execution:moveStopToBE", payload); },
     trail(payload) { return ipcRenderer.invoke("execution:trail", payload); },
     cancel(payload) { return ipcRenderer.invoke("execution:cancel", payload); },
-    openTranche(payload) { return ipcRenderer.invoke("execution:openTranche", payload); },
     orderContext(opts) { return ipcRenderer.invoke("execution:orderContext", opts || {}); },
     orderPreview(p) { return ipcRenderer.invoke("execution:orderPreview", p); },
     placeManual(p) { return ipcRenderer.invoke("execution:placeManual", p); },
@@ -312,6 +311,9 @@ contextBridge.exposeInMainWorld("api", {
     tests: {
       list(symbol) {
         return ipcRenderer.invoke("backtest:tests:list", { symbol });
+      },
+      run({ symbol, label, env }) {
+        return ipcRenderer.invoke("backtest:tests:run", { symbol, label, env });
       },
       get(id) {
         return ipcRenderer.invoke("backtest:tests:get", { id });

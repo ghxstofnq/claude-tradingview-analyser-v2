@@ -7,6 +7,8 @@ import { surfaceSessionBrief } from "./tools/surface.js";
 import { applyCodexAnalysisToBriefPayloads, runCodexStructuredAnalysis } from "./codex-structured-analysis.js";
 import { biasFromDraw } from "./backtest-context.js";
 import { untakenSessionDraws } from "../../cli/lib/session-levels.js";
+import { pillar2Verdict } from "../../cli/lib/pillar2-verdict.js";
+import { htfVote, overnightVote, combineBias } from "../../cli/lib/pillar1-bias.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -174,20 +176,11 @@ function htfBiasRows(symbol, digestSymbol) {
 }
 
 function pillar2Status(digestSymbol) {
-  const p2 = digestSymbol?.pillar2 ?? {};
-  // §7 Step 3 grades Pillar 2 on 5m/15m candle anatomy ("not dominated by
-  // dojis/wicks"); the chart's current-TF row is a non-authoritative live gauge
-  // (2026-05-20 decision), NOT a grading input. Counting it tipped a clean MNQ
-  // session to "poor" off a stale/odd current-TF row (598pt 3h range + 12h-old
-  // leg) while 5m read normal. Use 5m/15m only; fall back to current_tf solely
-  // when both LTF rows are absent (degraded capture).
-  const ltf = [p2.m5, p2.m15].filter(Boolean);
-  const checks = ltf.length ? ltf : [p2.current_tf].filter(Boolean);
-  const bad = checks.filter((check) => /poor|chop|doji/i.test(`${check.range_quality ?? ""} ${check.displacement ?? ""} ${check.candle ?? ""}`)).length;
-  if (!checks.length) return { verdict: "poor", status: "fail" };
-  if (bad >= 2) return { verdict: "poor", status: "fail" };
-  if (bad === 1) return { verdict: "marginal", status: "weak" };
-  return { verdict: "good", status: "pass" };
+  // §7 Step 3 grades Pillar 2 on 5m/15m candle anatomy; current_tf is a fallback
+  // only (degraded capture). The verdict logic — and the master-gate stand-aside
+  // (poor) — lives in the shared pillar2Verdict helper so the gate and the brief
+  // agree. See cli/lib/pillar2-verdict.js.
+  return pillar2Verdict(digestSymbol?.pillar2 ?? {});
 }
 
 // HTF quality from the digest's real h4/h1 engine quality rows. The previous
@@ -259,41 +252,6 @@ function pillar2Elements(symbol, digestSymbol) {
       cite: `brief_digest.symbols.${symbol}.pillar2.m5`,
     },
   ];
-}
-
-function pickPrimaryDraw(digestSymbol, { price = null } = {}) {
-  // §2.1: "Primary charts: Daily and 4H (sometimes 1H)" + "prefers 4H PD
-  // arrays when possible" — so 4H first, then DAILY, then 1H. (The previous
-  // h4→h1→daily order put 1H above Daily, backwards from the doc.)
-  for (const tf of ["h4", "daily", "h1"]) {
-    const block = digestSymbol?.htf?.[tf] ?? {};
-    const candidates = [...(block.top_fvgs ?? []), ...(block.top_bprs ?? [])];
-    const found = candidates.find((row) => Number.isFinite(row?.top) && Number.isFinite(row?.bottom) && row?.cite);
-    if (found) {
-      const kind = /bprs/.test(found.cite) ? "bpr" : "fvg";
-      const dir = /bear/i.test(found.direction ?? found.dir ?? "") ? "bear" : "bull";
-      const ce = Number.isFinite(found.ce) ? found.ce : (found.top + found.bottom) / 2;
-      return {
-        tf,
-        kind,
-        dir,
-        top: found.top,
-        bottom: found.bottom,
-        ce,
-        disp_score: Number.isFinite(found.disp_score) ? found.disp_score : 0,
-        took_liq: !!found.took_liq,
-        state: found.state || "fresh",
-        // Reaction + position evidence for downstream bias derivation
-        // (strategy §2.1 step 3: reactions off the PD array set bias;
-        // §2.3: an unreacted zone is a destination — path toward it).
-        reacted: !!found.reacted,
-        ...(found.reaction_dir ? { reaction_dir: found.reaction_dir } : {}),
-        ...(Number.isFinite(price) ? { position: ce > price ? "above_price" : "below_price" } : {}),
-        cite: found.cite,
-      };
-    }
-  }
-  return null;
 }
 
 // §7 Step 2 / §2.2: decide whether overnight is extending the HTF move or
@@ -373,6 +331,27 @@ function symbolQuote(bundle, symbol) {
   return Number.isFinite(single) ? single : null;
 }
 
+// Stage C Pillar-1 bias for the brief. Prefer the gate's forwarded
+// `pillar1.bias` (htf + overnight votes + draw — single-sourced in
+// cli/lib/pillar1-bias.js via compute-engine-gates); fall back to computing it
+// from the digest's HTF arrays + overnight quality when the gate didn't forward
+// it (older bundles / test fixtures). The brief is PRE-OPEN, so the NY-open
+// reaction is pending (nyopen='none') — combineBias yields the pre-open LEAN
+// (HTF + overnight); the confirm/reverse/flip grade resolves live.
+function pillar1BiasFor(digestSymbol, price) {
+  const forwarded = digestSymbol?.pillar1?.bias;
+  if (forwarded?.htf) return forwarded;
+  const htfByTf = {
+    daily: { top_fvgs: digestSymbol?.htf?.daily?.top_fvgs ?? [], top_bprs: digestSymbol?.htf?.daily?.top_bprs ?? [] },
+    h4: { top_fvgs: digestSymbol?.htf?.h4?.top_fvgs ?? [], top_bprs: digestSymbol?.htf?.h4?.top_bprs ?? [] },
+    h1: { top_fvgs: digestSymbol?.htf?.h1?.top_fvgs ?? [], top_bprs: digestSymbol?.htf?.h1?.top_bprs ?? [] },
+  };
+  const htf = htfVote(htfByTf, { price });
+  const ovQuality = digestSymbol?.htf?.h1?.quality ?? digestSymbol?.htf?.h4?.quality
+    ?? digestSymbol?.pillar2?.m15 ?? digestSymbol?.pillar2?.current_tf ?? null;
+  return { htf, overnight: overnightVote(ovQuality), draw: htf.draw };
+}
+
 export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade = {}, symbols = [PAIR_PRIMARY, PAIR_SECONDARY] } = {}) {
   const digest = bundle?.brief_digest;
   if (!digest?.symbols) throw new Error("direct session brief requires bundle.brief_digest.symbols");
@@ -381,8 +360,16 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     const levels = levelRows(symbol, ds);
     const htf = htfBiasRows(symbol, ds);
     const p2 = pillar2Status(ds);
-    const draw = pickPrimaryDraw(ds, { price: symbolQuote(bundle, symbol) });
-    const drawStatus = draw ? "pass" : "weak";
+    const price = symbolQuote(bundle, symbol);
+    // Stage C: HTF array vote + overnight vote → the pre-open LEAN (the NY-open
+    // reaction is pending pre-session and resolves live). Replaces the old
+    // momentum/structure derivation (deriveHtfBiasDir/htfTrendDir).
+    const p1bias = pillar1BiasFor(ds, price);
+    const lean = combineBias({ htf: p1bias.htf, overnight: p1bias.overnight, nyopen: "none", pillar2: p2.verdict });
+    const draw = p1bias.draw;
+    // Draw & Bias passes when there is ANY lean (HTF array OR overnight) — a
+    // no-HTF day is still tradeable 2/3 on overnight + open-reaction (BIAS 21:29).
+    const drawStatus = lean.lean ? "pass" : "weak";
     // Capture provenance (brief_digest data_status, 2026-06-11): a missing HTF
     // capture is an instrument failure (data_gap), not a market verdict
     // (htf_unclear). 8 of 13 June briefs died as htf_unclear when the H4/H1
@@ -390,13 +377,27 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     const HTF_TF_KEYS = ["daily", "h4", "h1"];
     const missingTfs = HTF_TF_KEYS.filter((tf) => ds?.htf?.[tf]?.data_status === "missing");
     const fallbackTfs = HTF_TF_KEYS.filter((tf) => ds?.htf?.[tf]?.data_status === "fallback");
-    // Grade per CLAUDE.md constraint #9: one weaker element → B; no-trade only
-    // when the draw is absent or price quality fails outright.
-    let pillar_grade = "B";
-    let no_trade_reason;
+    // Faithful grade (rubric §1; Daily Bias 22:25 "one of three → don't trade…
+    // three → A+"): combineBias already counts the components per Lanto's rule and
+    // returns the grade. PRE-OPEN this is an UNCONFIRMED LEAN (grade_cap 'no-trade',
+    // reason 'open_unconfirmed'/'no_bias'), NOT a B — the grade is earned LIVE when
+    // the open confirms (23:21 "the only time I take earlier is if we've already had
+    // the open move"). Stop defaulting to B. data_gap (capture failure) and
+    // pillar2_poor are upstream gates that precede the count.
+    let pillar_grade = lean.grade_cap;
+    let no_trade_reason = lean.no_trade_reason ?? null;
     if (!draw && missingTfs.length) { pillar_grade = "no-trade"; no_trade_reason = "data_gap"; }
     else if (p2.status === "fail") { pillar_grade = "no-trade"; no_trade_reason = "pillar2_poor"; }
-    else if (!draw) { pillar_grade = "no-trade"; no_trade_reason = "htf_unclear"; }
+    // The pre-open LEAN + its A+/B ceiling (1 component + a confirming open → 2/3 B;
+    // 2 → 3/3 A+). Surfaced so PREP shows "leaning {dir} · {potential}-capable ·
+    // pending open" instead of a flat no-trade.
+    const ndir = (x) => /^bull/i.test(String(x || "")) ? "bull" : /^bear/i.test(String(x || "")) ? "bear" : "none";
+    const leanDir = lean.lean ?? null;
+    const leanCount = leanDir ? ["htf", "overnight"].filter((k) => ndir(lean.votes?.[k]) === ndir(leanDir)).length : 0;
+    const leanPotential = leanCount >= 2 ? "A+" : leanCount === 1 ? "B" : null;
+    const leanBlock = leanDir
+      ? { direction: leanDir, count: leanCount, potential: leanPotential, status: "pending_open" }
+      : { direction: null, count: 0, potential: null, status: "no_read" };
     const targetLevel = levels.find((l) => l.state === "untaken") ?? levels[0] ?? { name: "reference", price: 0 };
     const stopLevel = [...levels].reverse().find((l) => l.price !== targetLevel.price) ?? targetLevel;
     const sizing = sizingByGrade[pillar_grade] ?? sizingByGrade.B ?? { r_size: pillar_grade === "no-trade" ? 0 : 1, override_reason: null };
@@ -405,7 +406,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
     // a "draw" that contradicted the traded bias (bull bias shown as a bear
     // draw) and fed setup-detector.resolveSidesToEvaluate the wrong side on a
     // manual /analyze. Display + manual-side now follow one HTF read.
-    const htfBiasDir = draw ? deriveHtfBiasDir({ draw, sweeps: ds?.pillar1?.sweeps ?? [], htfTrend: htfTrendDir(ds) }) : null;
+    const htfBiasDir = lean.lean ?? null;
     // HTF structure direction for the GOFNQ_HTF4H_ALIGN grading rule (h4 default,
     // h1 via GOFNQ_HTF_ALIGN_TF=h1). TRUE structure only: most recent CLEAN break
     // (validation=break — cleared the level by ≥1 ATR band) WITH displacement —
@@ -436,6 +437,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       ],
       key_levels: levels,
       pillar_grade,
+      lean: leanBlock,
       ...(no_trade_reason ? { no_trade_reason } : {}),
       pillars: [
         { name: "Draw & Bias", status: drawStatus, elements: [{ name: "primary HTF draw", status: drawStatus }] },
@@ -445,7 +447,9 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       plan: `Use ${symbol} only if live Pillar 3 confirms. Primary target reference: ${targetLevel.name} ${formatPrice(targetLevel.price)}. Stand aside if source health or P1/P2 chain degrades.`,
       scenarios: [{
         id: "scn-1",
-        grade: pillar_grade,
+        // A scenario is "IF the open confirms" → its grade is the lean's ceiling
+        // (the A+/B it earns once confirmed), not the pre-open no-trade.
+        grade: leanPotential ?? pillar_grade,
         condition: `Live confirms toward ${targetLevel.name} ${formatPrice(targetLevel.price)}`,
         action: `Wait for deterministic MSS/Trend/Inversion confirmation packet; no discretionary entry.`,
         target: `${formatPrice(targetLevel.price)} (${targetLevel.cite || "brief_digest"})`,
@@ -455,7 +459,13 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
       sizing_note: sizing.override_reason
         ? `${sizing.r_size} R · override: ${sizing.override_reason} (strategy.sizing-table)`
         : `${sizing.r_size} R · direct ${pillar_grade} (strategy.sizing-table)`,
-      ...(draw ? { primary_draw: draw, htf_bias_dir: htfBiasDir } : {}),
+      ...(draw ? { primary_draw: draw } : {}),
+      ...(htfBiasDir ? { htf_bias_dir: htfBiasDir } : {}),
+      // The two pre-open votes, separately (the brief's htf_bias_dir is their
+      // combined lean). The live open-reaction resolver adds the third vote
+      // (the NY-open reaction) and runs combineBias for the 3-vote nested grade
+      // (daily-bias §1) — see app/main/live-ltf-resolver.js.
+      pillar1_votes: { htf: p1bias.htf.vote, overnight: p1bias.overnight.vote },
       htf_destination: htfBiasDir === "bullish" ? "above nearest untaken liquidity"
         : htfBiasDir === "bearish" ? "below nearest untaken liquidity"
         : (targetLevel.price >= (levels[Math.floor(levels.length / 2)]?.price ?? targetLevel.price) ? "above nearest untaken liquidity" : "below nearest untaken liquidity"),
@@ -463,7 +473,7 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
         ...mergeDraws(overnightDrawTargets(symbol, ds), sessionHistoryDraws(bundle, symbol)),
         overnight_verdict: computeOvernightVerdict({
           sweeps: ds?.pillar1?.sweeps ?? [],
-          htfBias: biasFromDraw(draw),
+          htfBias: htfBiasDir ?? biasFromDraw(draw),
         }),
         path_to_destination: targetLevel.name,
       },
@@ -472,7 +482,10 @@ export function buildDirectSessionBriefPayloads({ session, bundle, sizingByGrade
         h1: htfQualityRow(symbol, ds, "h1"),
       },
       pillar2_verdict: p2.verdict,
-      chain_status: no_trade_reason ? `degraded:${no_trade_reason}`
+      // chain_status = PIPELINE health only. A pre-open lean (open_unconfirmed /
+      // no_bias / conflict) is a normal market verdict, not a degradation — the
+      // chain is clean. Only a capture failure degrades it.
+      chain_status: no_trade_reason === "data_gap" ? "degraded:data_gap"
         : missingTfs.length ? "degraded:htf_partial"
         : fallbackTfs.length ? "degraded:htf_fallback"
         : "clean:direct-codex-compatible",

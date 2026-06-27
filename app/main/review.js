@@ -5,6 +5,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { computeFaithfulness } from "../renderer/src/Review.helpers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -73,7 +74,7 @@ function foldAllTrades(events) {
   return [...byId.values()];
 }
 
-function computeStats(setups, events) {
+export function computeStats(setups, events) {
   const trades = foldAllTrades(events);
   let wins = 0, losses = 0, totalR = 0;
   for (const t of trades) {
@@ -84,6 +85,11 @@ function computeStats(setups, events) {
     totalR += t.r_realized || 0;
   }
   const noTrade = setups.filter((s) => s.grade === "no-trade").length;
+  // Per-trade Lanto faithfulness rolled up over gradable setups (the same pure
+  // helper the SESSION ledger uses — the verdict is setup-derived, so no brief
+  // is needed and the rate computes on read for every session, old or new).
+  const faith = setups.map((s) => computeFaithfulness(s)).filter((f) => f.summary.gradable);
+  const faithful = faith.filter((f) => f.summary.faithful).length;
   return {
     setups: setups.length,
     accepted: events.filter((e) => e.type === "accept").length,
@@ -92,6 +98,9 @@ function computeStats(setups, events) {
     wins,
     losses,
     net_r: Number(totalR.toFixed(2)),
+    gradable: faith.length,
+    faithful,
+    faithful_rate: faith.length ? Number((faithful / faith.length).toFixed(2)) : null,
   };
 }
 

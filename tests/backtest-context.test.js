@@ -109,6 +109,63 @@ describe("contextFromBriefPayloads", () => {
     const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [mes, BRIEF] });
     assert.equal(ctx.leader, "MNQ1!");
   });
+
+  // Parity regression (2026-06-26, commit 1459970): the pre-open anchor brief
+  // grades `no-trade: open_unconfirmed` (the NY open hasn't resolved a bias yet),
+  // but with a draw present Pillar 1 is satisfied. Mapping the soft pre-open grade
+  // to pillar1.status='fail' froze every replay bar into a Pillar-1 block so the
+  // walker never spawned, while live (pillar1='pass') fired. Pillar-1 status must
+  // track the DRAW, not the lean grade.
+  test("pre-open no-trade brief WITH a draw → pillar1.status is pass, not fail", () => {
+    for (const reason of ["open_unconfirmed", "no_bias", "pillar2_poor"]) {
+      const ctx = contextFromBriefPayloads({
+        session: "ny-am",
+        payloads: [{ ...BRIEF, pillar_grade: "no-trade", no_trade_reason: reason }],
+      });
+      assert.ok(ctx, `context should build for a drawful ${reason} day`);
+      assert.equal(ctx.session_state.pillar1.status, "pass", `pillar1 must pass on ${reason} with a draw`);
+    }
+  });
+});
+
+// Faithful-Lanto: a no-HTF-draw day is still tradeable on a directional LEAN
+// (overnight/HTF) — his "2 out of 3" (Daily Bias 22:25). Live runs these; the
+// backtest must match instead of skipping them for lack of an HTF gap.
+describe("contextFromBriefPayloads — no-draw 2/3 days (Lanto)", () => {
+  const noDraw = (extra) => ({ ...BRIEF, primary_draw: undefined, pillar_grade: "no-trade", ...extra });
+
+  test("no draw but a lean (open_unconfirmed + htf_bias_dir) → context builds, pillar1 pass, no primaryDraw", () => {
+    const ctx = contextFromBriefPayloads({
+      session: "ny-am",
+      payloads: [noDraw({ no_trade_reason: "open_unconfirmed", htf_bias_dir: "bearish" })],
+    });
+    assert.ok(ctx, "a lean day must build a context");
+    assert.equal(ctx.session_state.pillar1.status, "pass");
+    assert.equal(ctx.session_state.pillar1.htfBias, "bearish"); // bias seeds from the lean
+    assert.equal(ctx.session_state.pillar1.primaryDraw, null);  // target is liquidity, not an HTF gap
+  });
+
+  test("no lean (no_bias, no htf_bias_dir) → null — nothing to trade (0/3)", () => {
+    const ctx = contextFromBriefPayloads({
+      session: "ny-am",
+      payloads: [noDraw({ no_trade_reason: "no_bias", htf_bias_dir: undefined })],
+    });
+    assert.equal(ctx, null);
+  });
+
+  test("bad price action (pillar2_poor) → null even with a lean — stand aside", () => {
+    const ctx = contextFromBriefPayloads({
+      session: "ny-am",
+      payloads: [noDraw({ no_trade_reason: "pillar2_poor", htf_bias_dir: "bullish" })],
+    });
+    assert.equal(ctx, null);
+  });
+
+  test("a drawful payload still wins over a lean-only one (order-independent)", () => {
+    const leanOnly = noDraw({ symbol: "MES1!", no_trade_reason: "open_unconfirmed", htf_bias_dir: "bullish" });
+    const ctx = contextFromBriefPayloads({ session: "ny-am", payloads: [leanOnly, BRIEF] });
+    assert.equal(ctx.leader, "MNQ1!"); // the drawful MNQ payload leads
+  });
 });
 
 describe("bias + pillar2 derivation from brief payloads", () => {

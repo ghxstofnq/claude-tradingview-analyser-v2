@@ -12,6 +12,7 @@
 // minute-15 boundary, mirroring live ltf-bias.md timing and the backtest.
 
 import { resolveOpenReaction, overnightTargetsForSession } from "../../cli/lib/open-reaction-resolver.js";
+import { combineBias } from "../../cli/lib/pillar1-bias.js";
 import { computeEntryModelPriority } from "../../cli/lib/entry-model-priority.js";
 import { openReactionWindowMs } from "./backtest-engine.js";
 import { biasFromDraw } from "./backtest-context.js";
@@ -41,6 +42,16 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
   const htfBias = brief?.htf_bias_dir ?? biasFromDraw(brief?.primary_draw) ?? null;
   if (!htfBias) return null;
 
+  // FRESH-DRAW backing (GOFNQ_FRESH_DRAW_HOLD): the lean is backed by a FRESH
+  // near-price PD array voting the lean direction — the reaction is still pending
+  // AT that array, so an early opposing grab doesn't flip the lean (06-16). The
+  // draw's vote already encodes its lifecycle (fresh/ce_tapped → own dir).
+  const pd = brief?.primary_draw ?? null;
+  const leanBackedByFreshDraw = !!pd
+    && (pd.state === 'fresh' || pd.state === 'ce_tapped')
+    && pd.near === true
+    && (pd.vote === htfBias);
+
   const gates = bundle?.gates?.engine ?? {};
   const swingStructs = swingStructuresForBias(bundle);          // open read → STRUCTURE_TF
   const swingStructsRealign = swingStructuresForRealign(bundle); // realignment → REALIGN_TF
@@ -69,6 +80,10 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
     window,
     overnight_targets: overnightTargetsForSession(session),
     window_closes: windowCloses,
+    // Strong-overnight gate for wait-for-reaction (BIAS 39:20): the |net| of the
+    // overnight move. From the bundle's engine quality row, else the brief.
+    overnight_net: bundle?.engine?.quality?.overnight_net ?? brief?.overnight_net ?? null,
+    lean_backed_by_fresh_draw: leanBackedByFreshDraw,
     // Post-window, freeze the open read like the backtest: ignore a `rejected`
     // flag that matured after minute 30 and rely on the window-confined closes.
     // ONLY when we actually have window-close coverage (windowClosesOverride);
@@ -139,7 +154,10 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
   // later bar replaces the fallback, exactly mirroring the backtest loop.
   let htfFallback = false;
   if (!verdict.ltf_bias) {
-    const patch = htfFallbackVerdict({ htfBias, session, ms, windowEndMs: window.endMs });
+    const patch = htfFallbackVerdict({
+      htfBias, session, ms, windowEndMs: window.endMs,
+      h4StructDir: brief?.h4_struct_dir, h1StructDir: brief?.h1_struct_dir,
+    });
     if (patch) {
       verdict = { ...verdict, ...patch };
       htfFallback = true;
@@ -168,6 +186,22 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
       };
     }
   }
+  // Stage C nested 3-vote grade (daily-bias §1). The resolver owns the trade
+  // DIRECTION (validated above); combineBias owns the GRADE — the count of the
+  // two pre-open votes (the brief's pillar1_votes) + the resolved NY-open
+  // reaction. nyopen is fed the resolved bias, flagged swing-displaced when a
+  // swing structure earned/realigned it, so the count forms around the actual
+  // resolved direction. grade_cap stays the resolver's (it drives the chain's
+  // blocking, unchanged); these added fields drive deriveGrade's A+/B label.
+  const votes = brief?.pillar1_votes ?? {};
+  const nyopenSwing = realigned || lateDirection;
+  const nested = combineBias({
+    htf: votes.htf ?? (htfBias ?? "none"),
+    overnight: votes.overnight ?? "none",
+    nyopen: { vote: verdict.ltf_bias ?? "none", tier: nyopenSwing ? "swing" : "internal", displaced: nyopenSwing },
+    pillar2: brief?.pillar2_verdict ?? null,
+  });
+
   const p3 = gates?.pillar3 ?? {};
   const priority = computeEntryModelPriority({
     pillar2_verdict: brief?.pillar2_verdict ?? null,
@@ -184,6 +218,11 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
     is_retrace_day: verdict.is_retrace_day,
     entry_model_priority: priority.priority,
     grade_cap: verdict.grade_cap,
+    // Stage C nested grade (daily-bias §1) — drives deriveGrade's A+/B label.
+    draw_bias_pillar: nested.draw_bias_pillar,
+    b_elevatable: nested.b_elevatable,
+    a_plus_eligible: nested.a_plus_eligible,
+    requires_clean_entry: nested.requires_clean_entry,
     source: realigned ? "deterministic-resolver:realigned"
       : lateDirection ? "deterministic-resolver:late-direction"
       : htfFallback ? "deterministic-resolver:htf-fallback"

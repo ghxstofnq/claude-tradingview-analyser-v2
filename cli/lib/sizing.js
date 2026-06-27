@@ -1,7 +1,11 @@
-// Prescribed sizing per the strategy's Step 7 (grade × day-of-week).
+// Prescribed sizing: grade × day-of-week.
 //
-// Numbers below are placeholders documented for v1; replace with the actual
-// table from docs/strategy/trading-strategy-2026.md §7 step 7 once confirmed.
+// Day-of-week is transcript-confirmed (Lanto, 10/2/2025 risk class): Mon & Fri
+// = HALF risk (~$250 = 0.5R), Tue/Wed/Thu = FULL risk (~$500 = 1R). Grade
+// modulates size (A+ full, B reduced) per the daily-bias 3-component grade.
+// Source of truth: docs/strategy/transcripts/ (risk class + daily-bias class) —
+// NOT the derived strategy docs. (B = 0.5R and the 1c/2c contract counts are a
+// system interpretation; Lanto states half/full *risk*, not contract counts.)
 //
 // Conventions:
 //   - grade ∈ {"A+", "B", "no-trade"}
@@ -16,7 +20,8 @@ const TABLE = {
   "B":  { Mon: 1, Tue: 1, Wed: 1, Thu: 1, Fri: 1 },
 };
 
-// Risk-unit (R) fraction. Matches docs/strategy/risk-and-management.md#sizing-table.
+// Risk-unit (R) fraction. Mon/Fri half (0.5R) · Tue-Thu A+ full (1R) — per the
+// transcript risk class (docs/strategy/transcripts/).
 const R_UNIT = {
   "A+": { Mon: 0.5, Tue: 1.0, Wed: 1.0, Thu: 1.0, Fri: 0.5 },
   "B":  { Mon: 0.5, Tue: 0.5, Wed: 0.5, Thu: 0.5, Fri: 0.5 },
@@ -57,10 +62,8 @@ export function dayOfWeek(date = new Date()) {
 // arithmetic (CLAUDE.md #7); the model just copies r_size and the cites.
 //
 // Lookup (not multiplication — Mon/Fri B and Tue-Thu B both land at 0.5R,
-// which doesn't factor cleanly). Strategy authority:
-// docs/strategy/risk-and-management.md#sizing-table
-//
-// Spec: docs/superpowers/specs/2026-05-26-strategy-chain-design.md §4.5
+// which doesn't factor cleanly). Authority: Lanto's risk class transcript
+// (docs/strategy/transcripts/) — Mon/Fri half, Tue-Thu full, A+ bigger than B.
 
 const SIZING_TABLE = {
   Mon: { "A+": 0.5, B: 0.5, "no-trade": 0 },

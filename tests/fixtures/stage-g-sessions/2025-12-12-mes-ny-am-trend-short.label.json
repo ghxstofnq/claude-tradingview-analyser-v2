@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2025-12-12-mes-ny-am-trend-short",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "oracle-D3-discord-2026-06-23",
+  "source_message": "Oracle D3 (Lanto's ACTUAL Discord call, MES not MNQ): 2/3-B continuation short on the S&P. No HTF (nothing massive); used overnight + opening-range (2/3). Entry 6888.25 (the 1H gap/equilibrium), SL 6894.50 (just above the gap, risk 6.25 handles), TP1 6860.50 = Hourly Wick Low (4.44R), TP2 6817.50 (11.32R). Stop anchors on the ENTRY ARRAY not the swing high. NOTE: MES handles != MNQ points (do not cross-compare).",
+  "trade_date": "2025-12-12",
+  "symbol": "MES",
+  "contract_hint": "CME_MINI:MES1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "trade",
+    "model": "Trend",
+    "side": "short",
+    "grade": "B",
+    "entry": 6888.25,
+    "stop": 6894.50,
+    "tp1": 6860.50,
+    "tp2": 6817.50
+  }
+}

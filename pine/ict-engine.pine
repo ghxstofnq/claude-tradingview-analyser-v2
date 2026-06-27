@@ -3,16 +3,16 @@
 // Emits one machine-readable table for the backend.
 // Phases 1-5: levels, FVG/iFVG, BPR, swings, structure, quality.
 // Spec: docs/specs/2026-05-21-unified-custom-indicator-design.md
-indicator("ICT Engine V3", "ICT-V3", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+indicator("ICT Engine V5", "ICT-V5", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // ── Evidence table contract ──────────────────────────────────────────
-// V3 additions (2026-06-12) are purely ADDITIVE — meta.bar_ms/bar_closed,
-// fvg.inverted_ms, quality leg_high/leg_low (+ms), NYPM.H/L levels — and the
-// backend parser tolerates unknown fields, so the schema marker stays 2.
-// The schema number marks BREAKING shape changes only; bumping it would
-// brick any deployed parser that pins supported schemas (the running app
-// rejects unknown schemas as a safety gate).
-SCHEMA_VERSION = 2
+// Schema 4 (2026-06-22, faithful-Lanto rebuild) is a BREAKING shape change:
+// decision fields (entry_state, chop_15m) stripped from fvg/bpr, plus new
+// evidence (wick_tapped, swing significance, sweep significance, leg disp
+// magnitude/speed, regime, range_vs_normal, overnight + open_reaction rows).
+// The bump is intentional — the old parser (supports {1,2,3}) rejects schema 4
+// as a safety gate; only the rebuilt parser accepts it.
+SCHEMA_VERSION = 4
 // Worst case at the old 120: 14 levels + 14 sweeps + 24 fvg + 12 bpr +
 // 26 swings + 24 structures + 12 pools + 1 quality = 127 — table.cell past
 // the row cap is a runtime error. 140 leaves headroom.
@@ -81,6 +81,7 @@ QUALITY_CLEAN_BODY  = 0.5      // body/range >= 0.5 = clean bar
 QUALITY_CANDLE_BARS = 3        // window for doji/wick detection
 QUALITY_DOJI_BODY   = 0.25     // body/range < 25% AND...
 QUALITY_DOJI_WICK   = 0.60     // ...max wick/range > 60% -> doji_wick
+QUALITY_COH_HOURS   = 1.5      // directional-coherence (efficiency-ratio) window
 
 // Entry-model evidence tuning. The strategy waits for a 1m/5m candle-close
 // confirmation after a PD-array tap/retest, and blocks if price chops inside
@@ -116,6 +117,7 @@ type Fvg
     bool chop15 = false
     int invertedMs = na
     int mitigatedMs = na
+    bool wickTapped = false
     // The 3 candles that form the FVG (c1 = oldest [2], c2 = displacement [1],
     // c3 = newest [0]) captured at the formation bar — OHLC each.
     float c1o = na
@@ -151,9 +153,12 @@ type Bpr
     int confirmMs = na
     bool chop15 = false
     int mitigatedMs = na
+    bool wickTapped = false
 
 // A confirmed swing point — a two-tier pivot classified vs the prior pivot of
-// its type. `swept` latches once a later bar trades through `price`.
+// its type. `swept` latches once a later bar trades through `price`; `sweptMs`
+// records WHEN (the internal-swing sweep is the stop-anchoring liquidity grab
+// Lanto waits for before an inversion — entry-models "stop relative low").
 type Swing
     string kind
     float price
@@ -161,6 +166,8 @@ type Swing
     string tier
     bool isHigh
     bool swept
+    bool significant = false
+    int sweptMs = na
 
 // A market-structure break — a close beyond a swing level. `event` is bos
 // (continuation) or mss (reversal); `validation` is break or sweep per the
@@ -174,6 +181,7 @@ type Structure
     bool displacement
     string tier
     string validation
+    float dispPts = na
 
 // An equal-high / equal-low liquidity pool — two consecutive external swings
 // within tolerance. `swept` latches once price trades through `price`.
@@ -310,6 +318,40 @@ trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
 [pdlSwept, pdlSweptMs, pdlRej] = trackSweep(pdl, false, true)
 [pwhSwept, pwhSweptMs, pwhRej] = trackSweep(pwh, true, true)
 [pwlSwept, pwlSweptMs, pwlRej] = trackSweep(pwl, false, true)
+
+// ── Overnight direction + NY open-reaction (Pillar 1 evidence) ────────
+// Overnight (Asia 18:00 -> London 09:30): open captured at Asia start, close
+// tracked through London end; chop if the net move is small vs the overnight
+// range, else bull/bear by sign.
+var float ovOpen = na
+var float ovClose = na
+ovActive = inAsia or inLondon
+if ovActive and not ovActive[1]
+    ovOpen := open
+if ovActive
+    ovClose := close
+ovNet = na(ovOpen) or na(ovClose) ? na : ovClose - ovOpen
+ovHi = na(asiaH) ? lonH : na(lonH) ? asiaH : math.max(asiaH, lonH)
+ovLo = na(asiaL) ? lonL : na(lonL) ? asiaL : math.min(asiaL, lonL)
+ovRange = na(ovHi) or na(ovLo) ? na : ovHi - ovLo
+ovDir = na(ovNet) or na(ovRange) or ovRange <= 0 ? "na" : math.abs(ovNet) < 0.25 * ovRange ? "chop" : ovNet > 0 ? "bull" : "bear"
+// NY open-reaction window — first 30 min of ny_am: range high/low + which
+// overnight level got swept in the window (the reaction off the open Lanto reads).
+OR_WINDOW_MS = 30 * 60 * 1000
+var float orHigh = na
+var float orLow = na
+var int orStartMs = na
+var string orSwept = "none"
+if inNyam and not inNyam[1]
+    orHigh := high
+    orLow := low
+    orStartMs := time
+    orSwept := "none"
+else if inNyam and not na(orStartMs) and time - orStartMs <= OR_WINDOW_MS
+    orHigh := math.max(orHigh, high)
+    orLow := math.min(orLow, low)
+if orSwept == "none" and not na(orStartMs)
+    orSwept := not na(asiaHSweptMs) and asiaHSweptMs >= orStartMs and asiaHSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.H" : not na(asiaLSweptMs) and asiaLSweptMs >= orStartMs and asiaLSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.L" : not na(lonHSweptMs) and lonHSweptMs >= orStartMs and lonHSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.H" : not na(lonLSweptMs) and lonLSweptMs >= orStartMs and lonLSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.L" : "none"
 
 // ── Shared ATR ───────────────────────────────────────────────────────
 // 17-period ATR — the structure break/sweep band, the FVG/BPR reaction
@@ -481,6 +523,7 @@ if barstate.isconfirmed
                 f.confirmDir := "none"
                 f.confirmMs := na
                 f.chop15 := false
+                f.wickTapped := false
                 f.invertedMs := time
             else
                 newState = fvgFillState(f)
@@ -499,6 +542,8 @@ if barstate.isconfirmed
         // Reaction is skipped on the bar a zone inverts or invalidates.
         if runReaction
             ce = (f.top + f.bottom) / 2
+            if not f.wickTapped and high >= f.bottom and low <= f.top
+                f.wickTapped := true
             inZone = meaningfulZoneTouch(f.top, f.bottom, ce)
             if inZone
                 if not f.entered
@@ -556,6 +601,8 @@ if barstate.isconfirmed
                 b.mitigatedMs := time
         // Reaction: entered the zone, then a close cleared the push edge.
         ce = (b.top + b.bottom) / 2
+        if not b.wickTapped and high >= b.bottom and low <= b.top
+            b.wickTapped := true
         inZone = meaningfulZoneTouch(b.top, b.bottom, ce)
         if inZone
             if not b.entered
@@ -621,11 +668,13 @@ trackTier(array<Swing> arr, string tier, int len, float topPx, float btmPx, int 
     var float priorLow = na
     if not na(topPx)
         kind = na(priorHigh) or topPx > priorHigh ? "HH" : "LH"
-        array.push(arr, Swing.new(kind, topPx, time[len], tier, true, false))
+        sigH = (high[len] - low[len]) > 0 and (high[len] - math.max(open[len], close[len])) >= 0.5 * (high[len] - low[len])
+        array.push(arr, Swing.new(kind, topPx, time[len], tier, true, false, sigH))
         priorHigh := topPx
     if not na(btmPx)
         kind = na(priorLow) or btmPx > priorLow ? "HL" : "LL"
-        array.push(arr, Swing.new(kind, btmPx, time[len], tier, false, false))
+        sigL = (high[len] - low[len]) > 0 and (math.min(open[len], close[len]) - low[len]) >= 0.5 * (high[len] - low[len])
+        array.push(arr, Swing.new(kind, btmPx, time[len], tier, false, false, sigL))
         priorLow := btmPx
     if array.size(arr) > maxLen
         array.shift(arr)
@@ -641,13 +690,17 @@ if barstate.isconfirmed
         priorSwingHigh := intTop
     if not na(intBtm)
         priorSwingLow := intBtm
-    // A swing is swept once a later bar trades through its price.
+    // A swing is swept once a later bar trades through its price. Stamp the time
+    // so consumers can find the MOST-RECENT opposing-side internal sweep (the
+    // stop-anchoring grab that precedes a valid inversion).
     for sw in swingsExt
         if not sw.swept and (sw.isHigh ? high > sw.price : low < sw.price)
             sw.swept := true
+            sw.sweptMs := time
     for sw in swingsInt
         if not sw.swept and (sw.isHigh ? high > sw.price : low < sw.price)
             sw.swept := true
+            sw.sweptMs := time
 
 // ── Liquidity-pool detection ─────────────────────────────────────────
 // Two consecutive external swings within tolerance form an equal-high/low
@@ -686,7 +739,9 @@ if barstate.isconfirmed
 
 // ── Market-structure detection ───────────────────────────────────────
 // A close beyond an armed swing level is a break: continuation (bos) or
-// counter-trend (mss). An arm-and-consume flag fires each swing at most once.
+// counter-trend (mss). Each swing emits ONE event (first close), but its
+// validation upgrades sweep→break whenever a later close clears the ATR band —
+// strength always reflects the strongest close, no time window.
 // Tier-separated arrays so internal events can't crowd out external ones.
 var array<Structure> structuresExt = array.new<Structure>()
 var array<Structure> structuresInt = array.new<Structure>()
@@ -703,27 +758,63 @@ trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand
     var int lastLowMs = na
     var bool lowArmed = false
     var bool trendUp = true
+    // Upgrade state. A swing first broken weakly is tagged "sweep" but stays
+    // watchable: any later close that clears the ATR band upgrades that SAME
+    // event to "break" — no time window. Still one event per swing (the first
+    // close emits it; later closes only mutate strength), so no duplicates.
+    // Reset when a new pivot re-arms the level (the watched price changes).
+    var Structure pendingHigh = na
+    var bool highSwept = false
+    var float highMaxDisp = na
+    var Structure pendingLow = na
+    var bool lowSwept = false
+    var float lowMaxDisp = na
     if not na(topPx)
         lastHigh := topPx
         lastHighMs := pivotMs
         highArmed := true
+        highSwept := false
+        pendingHigh := na
     if not na(btmPx)
         lastLow := btmPx
         lastLowMs := pivotMs
         lowArmed := true
+        lowSwept := false
+        pendingLow := na
     rng = high - low
     disp = rng > 0 and math.abs(close - open) / rng >= STRUCT_DISP_MIN
+    dispPts = math.abs(close - open)
     events = array.new<Structure>()
-    if highArmed and not na(lastHigh) and close > lastHigh
-        valid = close >= lastHigh + atrBand ? "break" : "sweep"
-        array.push(events, Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid))
-        trendUp := true
-        highArmed := false
-    if lowArmed and not na(lastLow) and close < lastLow
-        valid = close <= lastLow - atrBand ? "break" : "sweep"
-        array.push(events, Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid))
-        trendUp := false
-        lowArmed := false
+    if not na(lastHigh) and close > lastHigh
+        if highArmed
+            valid = close >= lastHigh + atrBand ? "break" : "sweep"
+            pendingHigh := Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid, dispPts)
+            array.push(events, pendingHigh)
+            trendUp := true
+            highArmed := false
+            highSwept := valid == "sweep"
+            highMaxDisp := dispPts
+        else if highSwept and not na(pendingHigh) and close >= lastHigh + atrBand
+            pendingHigh.validation := "break"
+            highMaxDisp := math.max(highMaxDisp, dispPts)
+            pendingHigh.dispPts := highMaxDisp
+            pendingHigh.displacement := pendingHigh.displacement or disp
+            highSwept := false
+    if not na(lastLow) and close < lastLow
+        if lowArmed
+            valid = close <= lastLow - atrBand ? "break" : "sweep"
+            pendingLow := Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid, dispPts)
+            array.push(events, pendingLow)
+            trendUp := false
+            lowArmed := false
+            lowSwept := valid == "sweep"
+            lowMaxDisp := dispPts
+        else if lowSwept and not na(pendingLow) and close <= lastLow - atrBand
+            pendingLow.validation := "break"
+            lowMaxDisp := math.max(lowMaxDisp, dispPts)
+            pendingLow.dispPts := lowMaxDisp
+            pendingLow.displacement := pendingLow.displacement or disp
+            lowSwept := false
     events
 
 // Running extremes of the CURRENT leg — reset when an external structure
@@ -795,6 +886,25 @@ qRangeQuality = bar_index < qRangeBars or na(close) or close <= 0 ? "na" : qRang
 qDisplacement = bar_index < QUALITY_DISP_BARS ? "na" : qCleanRecent >= QUALITY_DISP_CLEAN ? "clean" : qCleanRecent >= QUALITY_DISP_ACCEPT ? "acceptable" : "weak"
 qCandle = qDojiWickRecent > 0 ? "doji_wick" : qEngulfing ? "engulfing" : "normal"
 
+// Regime — price is either displacing (tradable) or consolidating (stand aside).
+qRegime = (qDisplacement == "clean" or qDisplacement == "acceptable") and qRangeQuality == "good" ? "displacement" : "consolidation"
+// Range vs normal — the 3h range in ATR units. Lanto judges range/gap size
+// against the instrument's own recent normal, not fixed points (PRICE 12:26).
+qRangeVsNormal = atr14 > 0 ? qRange3h / atr14 : na
+
+// Directional coherence — efficiency ratio (net move / gross path travelled)
+// over a trailing window. Low = two-sided / round-trip whipsaw (stand aside,
+// oracle 06-17); high = clean follow-through (good price). This is the tell the
+// clean-bar displacement count gets BACKWARDS: two-sided whipsaw prints clean-
+// bodied bars in BOTH directions (high displacement) yet nets nowhere (low
+// coherence). Unlike the dropped has_chop boolean, this ships RAW — the
+// good/poor bands live in the backend verdict (cli/lib/pillar2-verdict.js), and
+// it's TF-dependent in magnitude (finer TF = more path wiggle), so the verdict
+// reads it off the 15m row. emitted; never gates inside Pine.
+qCohBars = math.max(3, int(QUALITY_COH_HOURS * 3600 / timeframe.in_seconds()))
+qGross = math.sum(math.abs(close - close[1]), qCohBars)
+qCoherence = bar_index < qCohBars or qGross <= 0 ? na : math.abs(close - close[qCohBars]) / qGross
+
 // ── Emitters ─────────────────────────────────────────────────────────
 // Emit one `level` record and, when it has been swept, the matching `sweep`
 // record. Skips a level whose price is na. Returns the next free row.
@@ -814,7 +924,8 @@ emitLevelAndSweep(int row, string name, float price, string state, int formedMs,
                            "|price=" + str.tostring(price, format.mintick) +
                            "|side=" + (isHighSide ? "buy" : "sell") +
                            "|swept_ms=" + str.tostring(na(sweptMs) ? 0 : sweptMs) +
-                           "|rejected=" + (rejected ? "1" : "0")
+                           "|rejected=" + (rejected ? "1" : "0") +
+                           "|significance=session_level"
             table.cell(evidence, 0, next, "sweep")
             table.cell(evidence, 1, next, sweepPayload)
             next := next + 1
@@ -825,7 +936,6 @@ emitLevelAndSweep(int row, string name, float price, string state, int formedMs,
 emitFvg(int row, Fvg f) =>
     ce = (f.top + f.bottom) / 2
     zoneMinutes = zoneMinutesSince(f.enteredMs)
-    entryState = f.state == "invalidated" ? "invalidated" : f.chop15 ? "chop" : f.confirmClose ? "confirmed" : f.entered and not f.ceHeld ? "failed_ce" : f.entered ? "waiting" : "none"
     payload = "kind=" + f.kind +
               "|dir=" + f.dir +
               "|top=" + str.tostring(f.top, format.mintick) +
@@ -838,6 +948,7 @@ emitFvg(int row, Fvg f) =>
               "|reaction_dir=" + f.reactionDir +
               "|state=" + f.state +
               "|size_quality=" + f.sizeQuality +
+              "|wick_tapped=" + (f.wickTapped ? "1" : "0") +
               "|entered_ms=" + str.tostring(na(f.enteredMs) ? 0 : f.enteredMs) +
               "|bars_in_zone=" + str.tostring(f.barsInZone) +
               "|minutes_in_zone=" + str.tostring(zoneMinutes) +
@@ -845,8 +956,6 @@ emitFvg(int row, Fvg f) =>
               "|confirm_close=" + (f.confirmClose ? "1" : "0") +
               "|confirm_dir=" + f.confirmDir +
               "|confirm_ms=" + str.tostring(na(f.confirmMs) ? 0 : f.confirmMs) +
-              "|chop_15m=" + (f.chop15 ? "1" : "0") +
-              "|entry_state=" + entryState +
               "|inverted_ms=" + str.tostring(na(f.invertedMs) ? 0 : f.invertedMs) +
               "|c1o=" + str.tostring(f.c1o, format.mintick) +
               "|c1h=" + str.tostring(f.c1h, format.mintick) +
@@ -869,7 +978,6 @@ emitFvg(int row, Fvg f) =>
 emitBpr(int row, Bpr b) =>
     ce = (b.top + b.bottom) / 2
     zoneMinutes = zoneMinutesSince(b.enteredMs)
-    entryState = b.state == "invalidated" ? "invalidated" : b.chop15 ? "chop" : b.confirmClose ? "confirmed" : b.entered and not b.ceHeld ? "failed_ce" : b.entered ? "waiting" : "none"
     payload = "dir=" + b.dir +
               "|top=" + str.tostring(b.top, format.mintick) +
               "|bottom=" + str.tostring(b.bottom, format.mintick) +
@@ -878,6 +986,7 @@ emitBpr(int row, Bpr b) =>
               "|reacted=" + (b.reacted ? "1" : "0") +
               "|reaction_dir=" + b.reactionDir +
               "|state=" + b.state +
+              "|wick_tapped=" + (b.wickTapped ? "1" : "0") +
               "|ce=" + str.tostring(ce, format.mintick) +
               "|entered_ms=" + str.tostring(na(b.enteredMs) ? 0 : b.enteredMs) +
               "|bars_in_zone=" + str.tostring(b.barsInZone) +
@@ -885,9 +994,7 @@ emitBpr(int row, Bpr b) =>
               "|ce_held=" + (b.entered and b.ceHeld ? "1" : "0") +
               "|confirm_close=" + (b.confirmClose ? "1" : "0") +
               "|confirm_dir=" + b.confirmDir +
-              "|confirm_ms=" + str.tostring(na(b.confirmMs) ? 0 : b.confirmMs) +
-              "|chop_15m=" + (b.chop15 ? "1" : "0") +
-              "|entry_state=" + entryState
+              "|confirm_ms=" + str.tostring(na(b.confirmMs) ? 0 : b.confirmMs)
     table.cell(evidence, 0, row, "bpr")
     table.cell(evidence, 1, row, payload)
     row + 1
@@ -898,7 +1005,9 @@ emitSwing(int row, Swing sw) =>
               "|price=" + str.tostring(sw.price, format.mintick) +
               "|bar_ms=" + str.tostring(sw.barMs) +
               "|tier=" + sw.tier +
-              "|swept=" + (sw.swept ? "1" : "0")
+              "|swept=" + (sw.swept ? "1" : "0") +
+              "|swept_ms=" + str.tostring(na(sw.sweptMs) ? 0 : sw.sweptMs) +
+              "|significant=" + (sw.significant ? "1" : "0")
     table.cell(evidence, 0, row, "swing")
     table.cell(evidence, 1, row, payload)
     row + 1
@@ -912,7 +1021,8 @@ emitStructure(int row, Structure s) =>
               "|confirmed_ms=" + str.tostring(s.confirmedMs) +
               "|displacement=" + (s.displacement ? "1" : "0") +
               "|tier=" + s.tier +
-              "|validation=" + s.validation
+              "|validation=" + s.validation +
+              "|disp_pts=" + str.tostring(s.dispPts, format.mintick)
     table.cell(evidence, 0, row, "structure")
     table.cell(evidence, 1, row, payload)
     row + 1
@@ -943,9 +1053,17 @@ emitQuality(int row) =>
               "|range_quality=" + qRangeQuality +
               "|displacement=" + qDisplacement +
               "|candle=" + qCandle +
+              "|regime=" + qRegime +
+              "|range_vs_normal=" + str.tostring(qRangeVsNormal, "#.##") +
+              "|coherence=" + str.tostring(qCoherence, "#.##") +
               "|atr_14=" + str.tostring(atr14, format.mintick) +
               "|atr_17=" + str.tostring(atr17, format.mintick) +
-              "|session=" + currentSession + legPart
+              "|session=" + currentSession +
+              "|overnight_dir=" + ovDir +
+              "|overnight_net=" + str.tostring(na(ovNet) ? 0 : ovNet, format.mintick) +
+              "|or_high=" + str.tostring(na(orHigh) ? 0 : orHigh, format.mintick) +
+              "|or_low=" + str.tostring(na(orLow) ? 0 : orLow, format.mintick) +
+              "|or_swept=" + orSwept + legPart
     table.cell(evidence, 0, row, "quality")
     table.cell(evidence, 1, row, payload)
     row + 1

@@ -145,7 +145,7 @@ function TvLoading() {
       position: "absolute", inset: 0,
       display: "flex", alignItems: "center", justifyContent: "center",
       flexDirection: "column", gap: 12,
-      color: "var(--label)", fontFamily: "ui-monospace, Menlo, monospace",
+      color: "var(--label)", fontFamily: "var(--mono)",
     }}>
       <div style={{ color: "var(--amber)", letterSpacing: ".22em", fontSize: 11 }}>
         TRADINGVIEW · LOADING
@@ -163,7 +163,7 @@ function TvFailed({ failure, onRetry }) {
       position: "absolute", inset: 0,
       display: "flex", alignItems: "center", justifyContent: "center",
       flexDirection: "column", gap: 10,
-      color: "var(--value)", fontFamily: "ui-monospace, Menlo, monospace",
+      color: "var(--value)", fontFamily: "var(--mono)",
       padding: 24, textAlign: "center",
     }}>
       <div style={{ color: "var(--red)", letterSpacing: ".22em", fontSize: 11 }}>
@@ -179,7 +179,7 @@ function TvFailed({ failure, onRetry }) {
         border: "1px solid var(--border, #1e2228)",
         padding: "8px 12px",
         textAlign: "left",
-        fontFamily: "ui-monospace, Menlo, monospace",
+        fontFamily: "var(--mono)",
       }}>
         <div>code: <span style={{ color: "var(--amber)" }}>{String(failure?.code)}</span></div>
         <div>error: <span style={{ color: "var(--value)" }}>{failure?.desc || "n/a"}</span></div>
@@ -193,9 +193,9 @@ function TvFailed({ failure, onRetry }) {
                 marginTop: 6,
                 color: "var(--amber)",
                 background: "transparent",
-                border: "1px solid var(--amber, #e3b341)",
+                border: "1px solid var(--amber)",
                 padding: "6px 14px",
-                fontFamily: "ui-monospace, Menlo, monospace",
+                fontFamily: "var(--mono)",
                 fontSize: 10.5,
                 letterSpacing: ".18em",
                 cursor: "pointer",
@@ -226,7 +226,7 @@ function TvSignInBanner() {
       border: "1px solid var(--border)",
       padding: "8px 12px 9px",
       display: "flex", alignItems: "center", gap: 12,
-      fontFamily: "ui-monospace, Menlo, monospace",
+      fontFamily: "var(--mono)",
       fontSize: 10.5,
       zIndex: 6,
       maxWidth: 460,

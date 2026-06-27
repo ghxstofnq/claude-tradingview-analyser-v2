@@ -10,6 +10,10 @@
  * independent); this module only covers the indicator-derived pillars.
  */
 
+import { pillar2Verdict } from './pillar2-verdict.js';
+import { htfVote, overnightVote } from './pillar1-bias.js';
+import { annotateEngineByTfCites } from './engine-cites.js';
+
 /** "AS.H" -> "AS_H": dots are illegal in citation paths. */
 function levelKey(name) {
   return typeof name === 'string' ? name.replace(/\./g, '_') : name;
@@ -102,6 +106,12 @@ export function computeEngineGates({
   if (!engine) return null;
   const px = typeof last === 'number' ? last : null;
 
+  // Cite-or-reject (constraint #6): stamp a resolvable path on every engine zone
+  // BEFORE pickPrimaryDraw reads them, so the forwarded primary_draw is never
+  // cite:null (2026-06-24 MES). This mutates the shared engine_by_tf reference,
+  // so the bundle's zones become citeable too. Idempotent.
+  annotateEngineByTfCites(engineByTf);
+
   // -- Pillar 1: session levels, untaken draws, sweeps, liquidity pools --
   const session_levels = {};
   for (const lvl of engine.levels || []) {
@@ -140,11 +150,38 @@ export function computeEngineGates({
         .filter((p) => p.kind === 'eql' && p.swept === false && p.price < px)
         .sort((a, b) => b.price - a.price);
 
+  // Pillar 1 bias (Stage C) — the engine-pure components of the pre-open lean:
+  // the HTF array vote (reaction off the significant near-price PD array) + the
+  // overnight vote. The NY-open reaction and the confirm/reverse/flip combine
+  // need the session clock, so the live consumer (brief / live chain) adds them;
+  // here we expose the lean inputs every bundle can read. See cli/lib/pillar1-bias.js.
+  const htfByTf = {
+    daily: { top_fvgs: engineByTf?.daily?.fvgs ?? [], top_bprs: engineByTf?.daily?.bprs ?? [] },
+    h4: { top_fvgs: engineByTf?.h4?.fvgs ?? [], top_bprs: engineByTf?.h4?.bprs ?? [] },
+    h1: { top_fvgs: engineByTf?.h1?.fvgs ?? [], top_bprs: engineByTf?.h1?.bprs ?? [] },
+  };
+  // Intraday blocks for the fresh-opposing override (pillar1-bias pickPrimaryDraw,
+  // GOFNQ_HTF_INTRADAY_DRAW): a fresh near-price m15/m5 array overrides an inverted
+  // HTF vote pointing the other way (06-16). Only consulted behind the flag.
+  const intradayByTf = {
+    m15: { top_fvgs: engineByTf?.m15?.fvgs ?? [], top_bprs: engineByTf?.m15?.bprs ?? [] },
+    m5: { top_fvgs: engineByTf?.m5?.fvgs ?? [], top_bprs: engineByTf?.m5?.bprs ?? [] },
+  };
+  const htf_vote = htfVote(htfByTf, { price: px, intradayByTf });
+  const overnight_vote = overnightVote(engine.quality);
+  const bias = { htf: htf_vote, overnight: overnight_vote, draw: htf_vote.draw };
+
   // -- Pillar 2: price-action quality, sourced from the engine quality row --
+  // verdict is the master gate (good|marginal|poor) — see pillar2-verdict.js.
   const pillar2 = {
     current_tf: engine.quality,
     m5: engineByTf?.m5?.quality ?? null,
     m15: engineByTf?.m15?.quality ?? null,
+    ...pillar2Verdict({
+      current_tf: engine.quality,
+      m5: engineByTf?.m5?.quality ?? null,
+      m15: engineByTf?.m15?.quality ?? null,
+    }),
   };
 
   // -- Pillar 3: FVGs, BPRs, swings, structure events --
@@ -247,6 +284,7 @@ export function computeEngineGates({
       liquidity_pools: pools,
       untaken_pools_above,
       untaken_pools_below,
+      bias,
     },
     pillar2,
     pillar3: {

@@ -1,0 +1,16 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-06-17-mnq-ny-am-no-trade",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "oracle-E3-2026-06-22",
+  "source_message": "Oracle OOS 06-17: NO-TRADE on PRICE QUALITY (not bias). Bias ~2/3 bearish (daily bull FVG inverted w/ displacement, 4H fresh bear FVG, NY-open bear MSS 10:00), but range normal/two-sided (sold to 30384, bounced ~85% to 30509, ground to 30359), all structure internal-tier (no swing-tier), neither candidate entry clean (10:00 MSS whipsawed +120; 10:25 retrace-short ground 40min). No clean fast entry + choppy two-sided quality = stand aside (Pillar 2/3 veto).",
+  "trade_date": "2026-06-17",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "no_trade",
+    "side": "short"
+  }
+}

@@ -1,0 +1,384 @@
+# Lanto Oracle — the fidelity test
+
+**Phase 0 of the faithful rebuild.** This is the measurable definition of "correct": the
+hand-grade rubric + Lanto's own worked examples. The rebuilt system is judged by
+reproducing these — never by R on the old corpus. Spec: [README.md](README.md). Plan:
+[../plans/2026-06-21-faithful-lanto-rebuild.md](../plans/2026-06-21-faithful-lanto-rebuild.md).
+
+Sources tagged as in [lanto-source-of-truth.md](lanto-source-of-truth.md): BIAS · ENTRY ·
+TRADE24 · PRICE · RISK.
+
+---
+
+## Part A — Hand-grade rubric
+
+Grade a session by walking these in order. The **day grade is a count of the three bias
+components**; Pillars 2–3 are gating filters on top.
+
+**Pillar 1 — bias (the three votes):**
+- [ ] **HTF**: a displacive, liquidity-taking PD array near price on D/4H/1H; direction
+  set by the *reaction* off it. Vote = bullish / bearish / none.
+- [ ] **Overnight**: Asia (18:00–03:00) / London (03:00–09:30) direction + untaken
+  liquidity. Vote = bullish / bearish / chop(=no vote).
+- [ ] **NY-open reaction**: at the key level/gap, **reject** (tap + close back through →
+  continuation) or **invert** (close through → flip). Extension vs retrace. Vote.
+- **Draw-bias pillar = votes aligned:** 1/3 → no-trade · 2/3 → tradable, capped at B · 3/3
+  → fully-confirmed bias (2/3 trades with no HTF read).
+- **Overall grade (alignment + conviction, NOT a hard 3/3 cap — see daily-bias.md §1):**
+  - **A+** = the three pillars **align (no conflict) with high conviction**, via *either* a
+    3/3 bias *or* a **multi-alignment entry** (Lanto's *"two-and-one"* — two imbalances confirming one
+    move, ENTRY 27:05/31:25) on an otherwise-aligned, good-price day. (2026-02-09: 2/3 bias + A+
+    multi-alignment entry → A+.) A **single** clean/displaced entry does **NOT** elevate.
+  - **B** = aligned but **one element marginal** — a **single/ordinary entry (even clean) at 2/3**, or
+    a sloppy entry *even at 3/3*.
+  - **No-trade** = a real **conflict** among bias inputs (open-reaction **reverses** the bias →
+    **hands off**), a missing/weak pillar, or no clean entry.
+  - A **neutral** input (chop overnight / no HTF) is a non-vote, not a conflict. The entry only
+    **elevates an already-aligned day**; multi-alignment in a conflicted/choppy tape is still no-trade/B.
+
+**Pillar 2 — price quality (filter — *"you can never outrade bad price"*, PRICE 27:25; it gates the
+other two: bad price into confirmation ⇒ the entry model and the draw are unreliable too):**
+- [ ] Displacement present; engulfing/flush, not mass wicks/dojis. *Speed* is the tell (PRICE 28:21,
+  TRADE24 15:59 — the best entries go in-the-money instantly / near-zero drawdown).
+- [ ] Gap size is a real magnet (not a ~20pt 4H gap).
+- [ ] Not tight consolidation (the "28pt/3h = stand aside" test — verbatim, PRICE 30:12, on NQ).
+
+**Pillar 3 — entry + confirmation (filter):**
+- [ ] Model identified: Reversal (MSS) or Continuation (Trend), entered via FVG-retrace or
+  inversion (or multi-alignment).
+- [ ] Best gap: displacement + took liquidity while forming.
+- [ ] MSS only: significant swept liquidity + reversal speed matches/exceeds the down-move.
+- [ ] Confirmation = 1m candle close, deliberate/engulfing, not a tap alone, doesn't fight
+  >10–15 min.
+
+**Risk/management (filter):**
+- [ ] Stop structural — just beyond the **entry array** (FVG edge / inversion level), tight, **NOT**
+  above the session swing (12-12: a 6.25-handle MES stop at the 1H gap). ⚠️ A tight stop only works on
+  **clean/displacing** price — **a tight stop in chop gets wicked out** (PRICE 26:29: that trade lost
+  because the stop was tight relative to how consolidative price was). So the tight stop pairs with the
+  Pillar-2 clean-price filter (don't take the entry if price is consolidative). TP1 ≈ his stated 1–1.5R
+  but can be far higher off a tight stop (12-12 TP1 = 4.44R); ultimate ≈ 2R+ HTF draw. Mgmt = trail / BE.
+
+---
+
+## Part B — Worked examples (qualitative oracle)
+
+The discriminator column is the one thing that makes it good vs bad — that's what the
+rebuilt logic must get right.
+
+### MSS (reversal)
+| # | Source | Setup | Lanto's call | Discriminator |
+|---|---|---|---|---|
+| M1 good | TRADE24 ~06:00 | 30m FVG, prior Fri; swept liquidity, shift off the 5, retrace, **candle close over** | Long, confirmed | Liquidity grab + speed change + deliberate close |
+| M2 good | ENTRY ~12:47 | PDL swept; displacement back up **matching** the down-move; 5m FVG tap + confirm | Long | Reversal speed matches the sell leg |
+| M3 bad | TRADE24 ~08:02 | 2nd low off an FVG, no sweep, sloppy delivery through the gap | No trade | No significant grab; no deliberate confirmation |
+| M4 bad | ENTRY ~15:53 | gap tapped, no major liquidity taken, weak flip | No trade | No significant liquidity + no confirmation |
+
+### Trend (continuation)
+| # | Source | Setup | Lanto's call | Discriminator |
+|---|---|---|---|---|
+| T1 good | TRADE24 ~14:59 | post-MSS uptrend; retrace to 5m FVG **CE**, candle close over | Long | Established trend + decisive close, zero drawdown |
+| T2 good | ENTRY ~14:04 | strong trend, **tap** of 5m FVG (no full fill), confirm | Long | A tap suffices when price is strongly trending |
+| T3 bad | TRADE24 ~16:59 | retrace into 1m FVG, **never** a confirming close | No trade | No displacement/close back up |
+
+### Inversion (failed opposing PD array)
+| # | Source | Setup | Lanto's call | Discriminator |
+|---|---|---|---|---|
+| I1 good | TRADE24 ~20:57 | overnight low grab (London/Asia), speed, **close over** a bearish FVG → iFVG | Long | Grab + fluid speed + close through |
+| I2 good | ENTRY ~20:34 | London low + 4H FVG tap, displacement up, **go invert** off 5m array | Long | Displacement before the inversion |
+| I3 bad | TRADE24 ~22:57 | first inversion off a short-term low, no mass liquidity, no fluid conviction | No trade | No real grab; sluggish delivery |
+
+### Multi-alignment (advanced A+) — the cleanest dated case
+| # | Source | Setup | Lanto's call | Discriminator |
+|---|---|---|---|---|
+| X1 | ENTRY ~25:13 (**2026-02-09**, real Discord trade) | **5m bullish FVG rebalance** + **1m bearish FVG go bullish-invert**, in one | A+ long | Two imbalances confirming one move |
+
+### Bias / price-quality (whole-session reads)
+| # | Source | Setup | Lanto's call | Discriminator |
+|---|---|---|---|---|
+| B1 | BIAS (**2026-12-12**... see note) | overnight bearish (London sold off); NY swept London lows then **displaced down 9:40** | Bearish, **2/3 = B** (no strong HTF) | Overnight + open-reaction agree; HTF absent |
+| B2 | BIAS ~26:46 | took London lows then bounced, but **no major displacement** up | Did NOT flip long | Reversal needs mass displacement vs strong overnight |
+| B3 | BIAS ~36:32 | NQ weaker than ES; ES showed the sell first | Flipped on **ES**, rode NQ | SMT / leading asset |
+| P1 good | PRICE ~19:00 | 1m FVG retest, **engulfing** confirmation | Long, ran fast | Engulfing close → immediate follow-through |
+| P2 bad | PRICE ~24:37 | PPI 1m gap, consolidation, **fought >15 min** | Should not have taken | Tight/choppy delivery, fight-timeout |
+| R1 | RISK (**2025-10-02**) | bullish HTF; long off hourly gap + 4H FVG + overnight lows; later **hourly inverts** → short | Long then flip short | Confluence stack; flip on gap inversion |
+
+> Note on dates: transcript timestamps are class times; the *trade* dates are as labelled
+> by Lanto (he marks real Discord trades with a date). Verify each against the chart when
+> reconstructing.
+
+---
+
+## Part C — Candidate golden sessions (for quantitative hand-grading)
+
+Sessions we can reconstruct on the chart and grade end-to-end. **Next concrete step** —
+needs real chart data (TV Desktop CDP 9225 / replay):
+
+1. **2026-02-09 NY** (X1) — multi-alignment A+ long. Best first case; Lanto gives the exact
+   structure.
+2. **2026-06-09 NY-AM** — already a repo tape (`tests/tapes/2026-06-09-ny-am-replay.tape.json`),
+   GXNQ hand-graded (Inversion short). Re-use as a known fidelity case.
+3. **2025-12-12** (B1) — bearish 2/3 B day; tests the grade count + open-reaction read.
+4. **2025-10-02** (R1) — long-then-flip; tests confluence + bias flip on inversion.
+
+For each: write Lanto's expected bias / grade / model / side / entry / stop / target, then
+check the rebuilt chain reproduces it.
+
+---
+
+## Part D — Per-session oracle entries (the gate)
+
+The verdict each reconstructed session must reproduce. **Status** says how grounded each
+field is: `documented` = Lanto's own stated call (authoritative); `hand-grade` = applied
+the Part-A rubric, **needs your sign-off**; `reconstruct` = exact entry/stop/TP pin to the
+real FVG/level on the chart (the grade/model/side don't change, only the ticks). Entry /
+stop / TP are written as the **level or FVG** (pass bar = same array element ±~2–3 MNQ pts),
+not a fabricated tick.
+
+### D1 · 2026-02-09 NY-AM — A+ long (multi-alignment)  ·  status: graded (replay + transcript-confirmed)
+- **Grade A+ — and WHY (Lanto's own words, ENTRY 27:05):** the A+ comes from the **entry model**,
+  not a 3/3 bias: *"this entry model with today's trade was [an] A plus because we ended up
+  utilizing a five-minute gap rebalance… and also an inversion fair value gap entry… in one"* —
+  **two imbalances confirming one long.** He calls bias + price the *"two other main component
+  factors."* (31:25: *"perfect… textbook… two and one."*) This is the case that set our
+  **alignment+conviction** grade model — a **multi-alignment** entry (this two-and-one) elevates an
+  aligned 2/3 day to A+; a single clean entry does not.
+- **Bias (replay): ~2/3 bullish, elevated by the entry.** HTF **bullish via arrays** (h1 **fresh**
+  bull FVG at price + h4 bull FVG at price — tiny/marginal, tl-light; daily near-price arrays
+  invalidated, so the old "daily bear MSS reclaimed + 1H bull MSS" *structure* language is dropped —
+  re-derived 2026-06-22); NY-open bullish (rallied 25553 → 25864, bull MSS 09:50, **swing-tier** bull
+  BoS 11:30 at 25855); overnight **chop** (net −92 = non-vote). The HTF vote is **marginal** (tiny
+  fresh array) — consistent with Lanto's "A+ from the ENTRY, not a 3/3 bias." Price-action good
+  (sustained +310 trend).
+- **Model / side:** multi-alignment long (5m bullish FVG rebalance + 1m bearish→bullish iFVG, in one).
+- **Entry (1m-pinned): ~25630–25635** — the 1m bullish-inversion close on the reclaim (~09:54–09:56)
+  inside the 5m bull FVG, after the **swing-tier bull MSS 09:47** (25665) and the **5m FVG CE-tap** at
+  the **25611** pullback (09:53). The two imbalances in one: 5m bull FVG rebalance + the 1m bearish FVGs
+  (≈25610–25631) inverting bullish on the reclaim. **Stop ~25605** (below the 25611 reclaim/inversion
+  low; structural alt ~25575 below the 25581 dip) → **1R ≈ 28 pts.**
+- **Draws (untaken buy-side above):** **TP1 = NYAM.H 25707 / LO.H 25723 cluster (~2.6–3.0R)**;
+  **TP2 = AS.H 25855.25 (~7.3R — HIT**, price ran to 25864); ultimate **PWH 26536**. **BE → entry (25630)
+  at TP1.**
+- **Discriminator the chain must get right:** two imbalances confirming the *same* move → A+ even at
+  2/3 bias; a single ordinary FVG entry on the same day would be a B.
+
+### D2 · 2026-06-09 NY-AM — A+ Inversion short  ·  status: graded (replay-confirmed; GXNQ's logged draws corrected)
+- **Setup:** overnight rallied (+301) and NY **swept the highs** (AS.H/NYAM.H/PDH) at the 30136
+  spike → reversed **down off the HTF bear draw** (fresh bear daily FVG *at price* + 4H/1H bear
+  FVGs) → **swing-tier bear MSS 10:45** (29595, dp 152) → sold off to 29154. Bias bearish; the
+  bullish overnight was the **liquidity grab** that set up the reversal (not a conflict).
+- **Model / side:** **Inversion short** — the bullish FVGs **29743–29776** violated to bearish
+  (inverted) on the retrace into the bear FVGs; the 1m violation close confirms.
+- **Entry: 29731.25** (1m inversion close, **~10:29–10:34** — NOT 09:50; the documented time was
+  ~40 min early). **Stop: 29851.50** (above the 29836 retrace swing). **1R = 120.25 pts.**
+- **Draws (untaken sell-side below):** **TP1 = AS.L 29595.25 (1.13R)** — nearest sell-side draw;
+  **TP2 = PDL 29113.75 (5.13R)** then **PWL 29071.25 (5.49R)** — the ultimate HTF draw (price hit
+  29154 ≈ PDL). **BE → entry (29731.25) when TP1 fills** (no-trim ride-the-trail).
+- **Grade A+ — via MULTI-ALIGNMENT (the "two-and-one", not a single inversion).** Two imbalances
+  confirmed the one short *in one*: (1) the retrace **rejecting off the HTF bear FVG** (a bearish FVG
+  rebalance) **and** (2) the **1m bull-FVG inversion** (violation close) — the structural analogue of
+  02-09's 5m-rebalance + 1m-inversion (ENTRY 27:05/31:25). Plus a significant grab (AS.H/NYAM.H/PDH),
+  swing-tier reversal, and it reached the draw. A *single* inversion here would have been **B**; the
+  A+ rests specifically on the two-imbalance alignment.
+- **Corrections to GXNQ's label:** logged TP1 **29302** maps to no level/pool (dropped); logged
+  **TP2 "28779 PWL"** is wrong — actual **PWL is 29071.25**; logged entry time **09:50** is ~40 min
+  early (actual ~10:30).
+
+### D3 · 2025-12-12 NY-AM — 2/3-B short on **MES** (the documented B1)  ·  status: graded (transcript + Lanto's actual Discord call; instrument-corrected 2026-06-23) — engine HTF over-read flagged
+- **Lanto's own words (BIAS class, THIS day):** *"we didn't end up using higher time frame today…
+  there wasn't anything massive… we ended up utilizing overnight price **two out of the three
+  components** — overnight price and the opening range move"* (25:44/27:42); *"the whole week we
+  didn't have a clear ultra HTF look"* (21:29). So **2/3-B, no HTF.** This IS B1 (not a different date).
+- **Bias:** overnight **bearish** (Asia consolidated, London sold off); NY-open **bearish** — swept
+  the London lows then **displaced down on the 9:40 5m sequence**, confirming downside. HTF **not
+  used** (no clean near-price array). 2/3 → **B**.
+- **No reversal long:** Lanto passed the long when the London lows were swept + price bounced —
+  *"we didn't see major displacement… overnight was bearish"* (26:46). A sweep without mass
+  displacement is not a reversal.
+- **Trade (Lanto's ACTUAL call, from his Discord — instrument-corrected 2026-06-23): MES (S&P 500),
+  NOT MNQ.** He traded the **S&P**, not the Nasdaq — the SMT vehicle pick (§6). Bearish **continuation
+  short**: **entry 6,888.25** (the 1H gap / equilibrium), **SL 6,894.50** (just above the gap — **risk
+  only 6.25 pts**), **TP1 6,860.50 = the Hourly Wick Low (4.44R), TP2 6,817.50 (11.32R)** — the deeper
+  draw. Levels verified to the tick against his on-chart position tool (orange box top 6,894.50 = SL,
+  boundary 6,888.25 = entry). Grade unchanged (**2/3-B**, continuation short — the *levels* were wrong
+  instrument before, the grade/bias was not).
+- **Two lessons from the real call:** (1) **INSTRUMENT** — I graded the whole oracle on MNQ1!, but
+  Lanto picks **ES-or-NQ per day** (here ES); the traded instrument per session must be **confirmed,
+  not assumed**. (2) **STOP ANCHORS ON THE ENTRY ARRAY, not the swing high** — his SL sat just beyond
+  the 1H entry gap (entry 6,888.25 / SL 6,894.50), giving **TP1 = 4.44R**; my engine anchored "above the
+  swing high." This is a *placement* rule, **not a point count**. ⚠️ **MES handles ≠ MNQ points** (S&P
+  ~$5/pt, Nasdaq ~$2/pt; index scales differ ~4×) — so the raw "6.25 vs 65" is **NOT** a valid
+  comparison. To judge whether my stop is genuinely looser, compare on **one** instrument or normalize
+  (% of price / R), not raw points. [[lanto-discord-actual-calls]]
+- **(Superseded MNQ reconstruction, kept for the record):** on MNQ the same move read entry ~26,300–
+  26,316, stop ~26,375, TP1 PDL 26,139, TP2 PWL 25,951 (low 25,930) — directionally right, wrong
+  instrument + far too loose a stop.
+- **ENGINE HTF OVER-READ (key fidelity finding):** my engine read graded this **3/3** (daily bear
+  MSS **dp 837** + 4H/1H bear MSS = "strong HTF bearish"), but Lanto says **2/3 / no HTF**. The daily
+  break (level 25168) is **~1150 pts BELOW** the open (26317) — a stale/distant/reclaimed structure,
+  not a near-price actionable draw. **Tweak (corrected):** Lanto's HTF primitives are **only PD
+  arrays (FVG/iFVG) + buy/sell liquidity** (BIAS 02:48), and the bias is the **reaction (reject /
+  invert) off the near-price displacive took-liq array** (BIAS 11:14). **Structure (MSS/BoS) does
+  NOT vote on HTF bias** — it's the entry model + open-reaction read. (My `is_reclaimed` idea patched
+  the wrong primitive.) Open question: calibrating the "clean/significant-enough array" threshold —
+  Lanto's *"massive"* vs *"nothing crazy"*. Stage-C build item. See [[engine-htf-overread]].
+
+### D4 · 2025-10-02 (R1) NY-AM — B long that FAILED → flip short, on **MNQ**  ·  status: graded (replay schema-4 + transcript-confirmed; instrument **MNQ confirmed** 2026-06-23 — ES was the SMT *leader* drawing lower, NQ the vehicle. Exact entry/SL/TP **not shown in the video** → engine reconstruction retained.)
+- **Lanto's own words (RISK class, THIS day, 25:11–31:34):** *"coming into New York open I [was]
+  bullish higher time frame… overnight we had massive buy sequence creating a new all-time high…
+  I remain bullish"* (25:11); the draw was *"this hourly gap… an hourly internal low… that small
+  4-hour FVG fill… overnight low / London lows sitting right here"* (26:07); the long *"jabbed out…
+  the only reason you see invalidation is because ES had interest in drawing lower"* (26:59/31:34);
+  *"price never showcased that true interest and pivot… you want engulfing displacement… never an
+  MSS off a 1m/5m low, especially with the type of open we had — really bearish"* (28:47–30:39);
+  then *"price traded below this hourly disrespecting it… inverting this gap, you see me shift
+  narrative and go short… price kind of slowed down after that"* (27:00).
+- **Bias: 2/3 bullish** (arrays+reaction read) — HTF bull (fresh bull h1 FVG 25881.75–25901, dist
+  21.75, took-liq, + the confluence FVGs, all `size:tiny`) + overnight bull (+155.5 to a new ATH);
+  NY-open reaction did **NOT** confirm (the bounce off the confluence failed). 2/3 → capped **B**.
+- **Confluence draw (~25786–25811):** h1 bull FVG 25785.75–25804.25 + h4 bull FVG 25794.75–25801 +
+  London low LO.L 25811.5 + swept PDH 25794.75 / PWH 25785.
+- **Setup A — LONG (the primary trade, B, FAILED):** entry ~25805 (reclaim above the h1 gap after
+  the 09:50 tap of 25786.75), **stop ~25780** (below the 09:50 low / swept overnight lows; 1R = 25 pts).
+  **TP1 AS.H 25834.5 (1.18R) — FILLED** (bounce ran to 25846 @10:40); **TP2 LO.H 25937.75 (5.31R) —
+  MISSED**; runner **jabbed out at BE**. Marginal entry — tiny gaps + non-engulfing reversal off a low
+  after a bearish open (the MSS-quality gate Lanto warns against).
+- **Setup B — FLIP SHORT (reactive scalp):** hourly gap **inverts** (close 25780.5 @10:55) → bear BoS
+  25772 @11:05 → **short ~25780**, stop above the 25846 swing high (~25850 — structural R poor, TP1 only
+  0.3R) or tight above the inverted gap 25804.25 (24 pts). **TP1 AS.L 25758.75 — tagged** (low 25753.5)
+  then **slowed/chopped**; TP2 NYAM.L 25483.75 not reached in window.
+- **Setup C — bearish-FVG SHORT (found 2026-06-22; the divergent-structure winner Lanto's bias skipped):**
+  the open's bear MSS leg (bear MSS 09:35 internal → swing 09:50 @25801) left a **fresh bearish FVG
+  25839.5–25871 (CE 25855, took-liq)** that stayed live ~65 min; price **retraced into its lower edge
+  (25839–25846, 10:25–10:40) and rejected** (10:45 bearish close 25822). **Short ~25830, stop ~25873**
+  (above FVG top), **TP1 AS.L/NYAM.L ~25755 ≈ 1.7R — hit** (low 25753.5 @11:05). Mechanically a clean
+  MSS-leg-FVG-retrace short that **WORKED** — but it is **counter to Lanto's HTF-bull bias**, so by his
+  own bias rule he passes it (he was long, and lost). This is the divergent-day lesson made concrete:
+  the intraday structure offered the winner the bias said skip. Same "carry the MSS-leg FVG forward"
+  entry as 06-16; I missed it on the first D4 pass [[lanto-entry-on-prior-leg-fvg]].
+- **KEY ORACLE VALUE — the SMT + displacement teaching case:** a textbook confluence long that Lanto
+  was *"really convinced in"* still **lost**, for the two gates the engine can't yet see: (1) **SMT** —
+  ES (the leader) drew lower and dragged NQ out; (2) **MSS displacement quality** — the reversal off
+  the pivot was not engulfing. Both are Stage B–F build items (§6 SMT, displacement-speed gate). Grade
+  going in was **B** (2/3, marginal entry); outcome a **loss → modest flip**.
+- **Calibration note (open threshold):** all the HTF arrays were `size:tiny`, yet Lanto still read
+  himself *"bullish higher time frame"* — so a tiny-but-fresh, took-liq, near-price array DOES carry an
+  HTF vote when overnight reinforces it. Data point for the *"massive" vs "nothing crazy"* threshold
+  ([[engine-htf-overread]]).
+- **Discriminator:** the chain must (a) read HTF bull from the arrays + the confluence, grade **B** (not
+  A+: open-reaction unconfirmed + tiny gaps), and (b) flip short on the gap inversion — while the SMT +
+  displacement gates explain WHY the long was not an A+ winner.
+
+---
+
+## Part E — Fresh out-of-sample sessions (to capture + hand-grade)
+
+The documented cases above are pre-cutoff (truth = Lanto's stated call). To prove the chain
+on data it has **not** seen, grade **post-cutoff** sessions by applying the Part-A rubric
+**without recalling outcomes** (constraint #10); your approval is the independence check.
+Capture each via TV Desktop replay on the deployed schema-4 engine. Target coverage:
+
+| Slot | Model to exercise | What it tests |
+|---|---|---|
+| E1 | **Reversal (MSS)** | significant sweep + reversal-speed-match gate (D3 of the build) |
+| E2 | **Continuation (Trend)** | retrace-to-FVG/CE in an established trend |
+| E3 | **No-trade / chop** | price-quality filter (the "28pt/3h = stand aside" test) |
+| E4 | **2/3 → B** | the grade count caps at B with one missing vote |
+
+Capture step (per session): `replay_start` at the date → step into the session → record the
+multi-TF schema-4 evidence (D/4H/1H/30m/15m/5m/1m) → hand-grade → fill the D-style entry.
+**Grade the FULL move** — extend the window past the open chop until structure resolves, and
+read the full `structures[]` event list (not just `most_recent_structure`). See the 06-16
+lesson below.
+
+### Graded OOS sessions
+
+**E? · 2026-06-16 NY-AM — B short (Reversal, bias-ALIGNED bearish)  ·  status: graded (user-confirmed; HTF re-derived + 1m entry pinned + grade corrected 2026-06-22)**
+- **HTF: bearish via the near-price BEARISH FVG ARRAY** (NOT long — the old "daily dp 548 → long" was
+  a structure over-read). The vote is the **fresh bearish FVG 30883.75–30894.25** (from the 08:24 swing
+  MSS leg) sitting just above price → bearish lean (price expected to reject it). **Liquidity is the
+  DRAW, NOT a vote** — marking buy/sell side ≠ a bias (BIAS 09:21: *"we haven't even had a bias yet"*);
+  the draw is **down** (highs AS.H 30869 / NYAM.H 30887 swept, sell-side AS.L 30755 / LO.L 30783 / NYAM.L
+  30561 untaken below), but that is the target, not the third vote. The daily/4H arrays were failed
+  (daily bull FVG inverted w/o displacement ds 0.06; 4H all invalidated). Overnight: **chop** (−21 =
+  neutral, no opposing anchor → freer to follow the reaction, BIAS 27:42). **Bias 2/3 at best** (bear
+  FVG array + open-reaction; overnight chop) — **arguably 1/3** if that intraday FVG isn't "significant"
+  enough to count as the HTF vote (BIAS 27:42 *"nothing massive"*).
+- **Model / side: Reversal — swing-tier bear MSS** (level 30793.5, displacement+sweep). **Short,
+  bias-ALIGNED** (bearish FVG + the open-reaction reversal toward the sell-side draw). A genuine
+  **reversal**, not a retrace — significant grab (AS.H/NYAM.H) + **mass displacement** (swing-tier
+  MSS): Lanto's exact test (BIAS 28:38, RISK 29:43).
+- **Grade B (corrected from a wrong "A" 2026-06-22).** The entry is clean and high-R, but it is a
+  **single** MSS-retrace — and a single clean entry **does NOT elevate to A+**. Lanto reserves the
+  elevation for **multi-alignment** (*"two-and-one"*, two imbalances in one — ENTRY 27:05/31:25); a
+  strongly-displaced single entry is only the bar to *trade* it (B), per daily-bias §1. With a 2/3-at-
+  best bias + a single entry → **B**. (My earlier "A" conflated clean+high-R with A+-worthy, and leaned
+  on a non-existent "liquidity-draw vote" for the 2/3.)
+- **The move:** high **30869.75 @ 09:55** → broke down **10:20** → bottomed at **NYAM.L 30561.75 @10:59**;
+  **AS.L 30755 + LO.L 30783 swept** en route (lower draws taken).
+- **Entry / stop / TP (1m-pinned 2026-06-22): MSS-leg FVG retrace.** The **08:24 swing bear MSS** leg
+  left a **fresh bearish FVG 30883.75–30894.25 (CE 30889)** that stayed live ~90 min; at **09:55 the
+  high tapped CE 30889 exactly** (also sweeping AS.H/NYAM.H), and the **09:56 candle closed bearish with
+  a ~1pt upper wick** (O 30883 → C 30864) = the confirmation. **Entry 30864.25**, **stop 30896** (above
+  the FVG high 30894.25; never threatened — max bounce 30867). **TP1 LO.L 30783 (2.6R) / AS.L 30755
+  (3.4R); TP2 NYAM.L 30561.75 (9.5R) — reached.** (NYAM.L = 30561.75 on the 1m engine, not the ~30601
+  in the earlier 5m note.)
+- **Discriminator:** a near-price-bearish-FVG + open-reaction-reversal day is **bias-aligned** (NOT
+  "counter-HTF divergent" — that was the structure over-read), and grades **B** — a single clean entry
+  does not make A+ (only multi-alignment does). The chain must (a) take the HTF vote from a **significant
+  near-price array**, not from the liquidity map (liquidity = the draw/target), (b) require **mass
+  displacement** to call the reversal real, (c) **carry the MSS-leg FVG forward** and fire the entry on
+  the retrace into it, and (d) hold the short through the open chop to the lower draw.
+- **Grading lessons (2026-06-22):** (1) my first pass called this NO-TRADE (window ended 10:15, one bar
+  early; read only `most_recent_structure`) — grade through structure resolution + the full event list.
+  (2) the HTF re-derivation found the original "counter-HTF long" was a **structure over-read**; the
+  HTF vote comes from a **significant near-price array + reaction**, NOT the liquidity map — liquidity
+  is the draw/target, not a vote (BIAS 09:21) [[engine-htf-overread]]. (3) **the clean entry was an
+  MSS-leg FVG retrace I first MISSED** by windowing to 09:45+ — the entry FVG formed at 08:22 in the
+  08:24 MSS leg. **Carry prior-leg FVGs forward**; the entry is the retrace into a held array, not the
+  impulse break [[lanto-entry-on-prior-leg-fvg]].
+
+**E3 · 2026-06-17 NY-AM — no-trade (conflicted + choppy)  ·  status: graded (user-confirmed)**
+- **Bias re-derived (arrays + liquidity, 2026-06-22): ~2/3 bearish, NOT "conflicted."** HTF
+  **bearish**: daily bull FVG **inverted *with* displacement** (ds 0.84), 4H **fresh bear FVG** (ds
+  0.73 normal), 1H bear arrays — and the swept AS.H 30546 leaves the draw toward the untaken sell-side.
+  Overnight **bull (+213)** was the **liquidity grab** that set up the reversal (like D2 06-09), not a
+  conflicting vote. NY-open **bearish** (opened 30527 → bull pop → bear MSS 10:00 `break` dp 125 → sold
+  30384, swept NYAM.L then LO.L). HTF + open-reaction agree bearish (~2/3); the old "daily macro bullish
+  dp 548 → mixed/conflicted" was the arrays-only/structure over-read.
+- **Verdict: no-trade — on PRICE QUALITY, not a bias conflict.** Range *normal* (rvn ≤ 1.68), two-sided
+  (sold to 30384, **bounced to 30509 ≈85% recovery**, ground to 30359); all structure **internal-tier**
+  (no swing-tier confirmation); neither candidate entry was clean (10:00 MSS whipsawed +120 against;
+  10:25 retrace-short ground 40 min). A tradeable-direction bias but **no clean fast entry + choppy
+  two-sided quality = stand aside** (Pillar 2/3 veto, not a Pillar 1 conflict).
+- **Discriminator:** the bearish move eventually reached the lower draw, but a setup with no clean fast
+  entry + marginal two-sided quality is NOT tradeable — stand aside, don't chase the eventual delivery.
+  Contrast 06-16 (swing-tier MSS + clean breakdown + mass displacement = tradeable B).
+
+**E2 · 2026-06-18 NY-AM — marginal B long (Continuation / Trend)  ·  status: graded (user-confirmed)**
+- **Bias bullish ALIGNED (2/3–3/3; re-derived 2026-06-22):** overnight bull **+448** (swept
+  AS.H/NYAM.H/PDH — the dominant vote); HTF **bull** via near-price 4H/1H **bear FVGs inverted UP**
+  (tiny) + the buy-side draw (daily arrays invalidated — drop the old "daily dp 548" anchor, that was
+  the structure over-read); NY-open bull (shallow dip 30402 → bull BoS 10:25 → higher highs to 30646,
+  swept LO.H+PDH). Model/side: **Continuation (Trend), long.**
+- **Exact entry:** ~**30452.75** (CE of the dip-reclaim bull FVG **30448.25–30457.25**, formed 09:45,
+  took-liq, ds 0.82; long the 1m reclaim ~09:46). **Stop 30400** (below the 30402.5 dip low; risk
+  ≈ 52.75). **TP1 30615** (NYAM.H — the only untaken draw above; ≈ +162 / **~3.1R**) — **filled**
+  (ran to 30646). TP2 = trail to the next HTF draw.
+- **Why B not A+ (and near no-trade):** the 3/3 bias is A+-*grade*, but the entry is marginal —
+  not in-money-fast (−34 pt drawdown to 30418 before working), the entry FVG **invalidated** mid-trade
+  (structural stop 30400 held), the window is choppy (FVGs print "invalidated" bar-after-bar), the open
+  dip **swept no significant low** (NYAM.L 30392 never reached), and the structure breaks are weak
+  (internal-tier, dp ~24-25). Caps at B.
+- **Discriminator + lesson:** an aligned-bias trend day with a tradeable-but-sloppy entry = B, not A+.
+  **Drilling to the 1m exact entry is what separates a clean A+ from a marginal B** — the 5m "dip then
+  rally" looked cleaner than the 1m delivery actually was.
+
+---
+
+## Pass bar
+
+A reconstructed session **passes** if the deterministic chain matches Lanto on **bias
+direction, grade tier, entry model, and side**, with entry / stop / TP1 within tolerance
+(same FVG/level, or ±~2–3 MNQ pts). A miss on any of bias / grade / model / side is a
+**fail** — those are the load-bearing decisions, not the exact tick.

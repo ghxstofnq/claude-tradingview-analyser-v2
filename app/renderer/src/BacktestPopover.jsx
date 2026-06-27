@@ -3,6 +3,8 @@
 // Logic + IPC bridge live in hooks/useBacktest.js; this file is presentation.
 
 import React, { useState, useMemo } from "react";
+import { clickable } from "./a11y.js";
+import { useFloat } from "./hooks/useFloat.js";
 import { useBacktest } from "./hooks/useBacktest.js";
 import { useBaseline } from "./hooks/useBaseline.js";
 import { useTests } from "./hooks/useTests.js";
@@ -11,20 +13,24 @@ import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
-  weekdaysBetween, expandStudy, todayET,
+  weekdaysBetween, expandStudy, todayET, parseGateInput,
 } from "./Backtest.helpers.js";
 
-// Header state-switcher (designer's NEW/RUN/PAUSE/DONE/ANALYTICS). Internal
-// reducer states map: IDLE→NEW, AUTO_RUNNING→RUN, PAUSE_AWAITING→PAUSE,
-// DONE→DONE, LIBRARY→ANALYTICS. NEW + ANALYTICS are always navigable; the
-// engine-driven states only light up when the run is in them.
-const BT_SWITCHER = [
-  ["IDLE", "NEW"], ["AUTO_RUNNING", "RUN"], ["PAUSE_AWAITING", "PAUSE"],
-  ["DONE", "DONE"], ["LIBRARY", "ANALYTICS"], ["TESTS", "TESTS"],
-];
+// Three workflow modes the panel walks: RECORD a corpus → measure it
+// (BASELINE) → COMPARE a fix. The transient engine states (running / pause /
+// done) live INSIDE record; DETAIL is a drill-in, not a mode.
+const BT_MODES = [["RECORD", "RECORD"], ["BASELINE", "BASELINE"], ["COMPARE", "COMPARE"]];
+const RECORD_UIS = new Set(["IDLE", "AUTO_RUNNING", "PAUSE_AWAITING", "DONE"]);
+function modeForUi(ui) {
+  if (RECORD_UIS.has(ui)) return "RECORD";
+  if (ui === "LIBRARY") return "BASELINE";
+  if (ui === "TESTS") return "COMPARE";
+  return null; // DETAIL — a drill-in, no mode highlighted
+}
 
 export function BacktestCell() {
   const [open, setOpen] = useState(false);
+  const float = useFloat();
   const { state, actions } = useBacktest();
   // Instrument view — scopes the configure form's recents and the analytics to
   // one symbol. Persists while the popover is open; the configure SYMBOL
@@ -43,16 +49,20 @@ export function BacktestCell() {
   const close = () => setOpen(false);
 
   return (
-    <div className={"cell pop-cell bt" + (open ? " open" : "")} onClick={onCellClick}>
+    <div className={"cell pop-cell bt" + (open ? " open" : "")} {...clickable(onCellClick)}>
       <span className="k">BACKTEST</span>
       <BadgeForState state={state} />
       {open && (
         <div
-          className={"bt-popover " + (state.ui === "LIBRARY" || state.ui === "TESTS" ? "w-analytics" : "w-660 bt-fixed")}
+          className={"bt-popover " + (state.ui === "LIBRARY" || state.ui === "TESTS" ? "w-analytics" : "w-660 bt-fixed") + float.popoverClass}
+          style={float.popoverStyle}
           onClick={(e) => e.stopPropagation()}
         >
-          <Header state={state} actions={actions} onClose={close} />
-          {(state.ui === "IDLE" || state.ui === "LIBRARY") && (
+          <Header state={state} actions={actions} onClose={close} float={float} />
+          {state.ui !== "DETAIL" && (
+            <CorpusStatus runs={state.library.runs} symbolView={symbolView} />
+          )}
+          {state.ui === "LIBRARY" && (
             <div className="bt-sym-bar">
               <span className="bt-sym-label">INSTRUMENT</span>
               <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
@@ -76,12 +86,17 @@ export function BacktestCell() {
 // ─────────────────────────────────────────────────────────────────────
 // Header — varies by state.ui
 // ─────────────────────────────────────────────────────────────────────
-function Header({ state, actions, onClose }) {
+function Header({ state, actions, onClose, float }) {
+  const floatBtn = float ? (
+    <span className={"float-btn" + (float.floating ? " on" : "")}
+          title={float.floating ? "Dock window" : "Float — move & resize freely"}
+          onClick={float.toggle}>⛶</span>
+  ) : null;
   if (state.ui === "DETAIL") {
     const run = state.detail?.entry;
     return (
-      <div className="head">
-        <span className="back" onClick={(e) => { e.stopPropagation(); actions.back(); }}>← LIBRARY</span>
+      <div className="head" onMouseDown={float?.onDragStart}>
+        <span className="back" onClick={(e) => { e.stopPropagation(); actions.back(); }}>← BASELINE</span>
         <span className="t">{run?.date ?? state.selectedRunId} · {sessionLabel(run?.session)}</span>
         {run && (
           <span className={"meta-pill " + (run.total_r >= 0 ? "" : "red")}>
@@ -90,6 +105,7 @@ function Header({ state, actions, onClose }) {
         )}
         {run && <span className="meta-pill amber">{(run.mode ?? "").toUpperCase()}</span>}
         <span className="spacer" />
+        {floatBtn}
         <span className="x" onClick={(e) => { e.stopPropagation(); onClose(); }}>×</span>
       </div>
     );
@@ -104,30 +120,34 @@ function Header({ state, actions, onClose }) {
     TESTS:          { cls: "",      x: "×",  dismissable: true },
   }[state.ui] ?? { cls: "", x: "×", dismissable: true };
 
-  // Navigate via the switcher: NEW resets to IDLE, ANALYTICS opens the
-  // library, TESTS opens the fold-tests; engine-driven states (RUN/PAUSE/DONE)
-  // aren't manually entered.
-  const goState = (s) => {
-    if (s === state.ui) return;
-    if (s === "IDLE") actions.runAnother();
-    else if (s === "LIBRARY") actions.viewAll();
-    else if (s === "TESTS") actions.viewTests();
+  // Navigate by workflow mode: RECORD resets to the configure form, BASELINE
+  // opens the corpus analytics, COMPARE opens the fold-tests. The engine-driven
+  // record sub-states (running / pause / done) aren't manually entered.
+  const activeMode = modeForUi(state.ui);
+  const recording = state.ui === "AUTO_RUNNING" || state.ui === "PAUSE_AWAITING";
+  const goMode = (m) => {
+    if (m === activeMode) return;
+    if (recording) return;                 // don't navigate away mid-record
+    if (m === "RECORD") actions.runAnother();
+    else if (m === "BASELINE") actions.viewAll();
+    else if (m === "COMPARE") actions.viewTests();
   };
 
   return (
-    <div className="head">
+    <div className="head" onMouseDown={float?.onDragStart}>
       <span className={"t " + cfg.cls}>
         {cfg.pulse && <span className="pulse" />}
         BACKTEST
       </span>
-      <span className="live-tabs" style={{ marginLeft: 10 }} onClick={(e) => e.stopPropagation()}>
-        {BT_SWITCHER.map(([s, l]) => (
-          <span key={s}
-                className={"tab" + (state.ui === s ? " on" : "") + (s === "IDLE" || s === "LIBRARY" || s === "TESTS" ? "" : " dim")}
-                onClick={() => goState(s)}>{l}</span>
+      <span className="bt-modes" onClick={(e) => e.stopPropagation()}>
+        {BT_MODES.map(([m, l]) => (
+          <button key={m} type="button"
+                  className={"bt-mode" + (activeMode === m ? " on" : "") + (recording && m !== activeMode ? " locked" : "")}
+                  onClick={() => goMode(m)}>{l}</button>
         ))}
       </span>
       <span className="spacer" />
+      {floatBtn}
       <span
         className="x"
         onClick={(e) => {
@@ -173,6 +193,28 @@ function BadgeForState({ state }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Corpus status — the recorded sample the whole workflow folds over. Sits
+// under the header in every mode; the loop is meaningless without it, and
+// right now (post-wipe) it's empty, so the empty read points at RECORD.
+// ─────────────────────────────────────────────────────────────────────
+function CorpusStatus({ runs = [], symbolView }) {
+  const sym = symbolView === "MES1!" ? "MES" : "MNQ";
+  const mine = filterRuns(runs, { symbol: symbolView });
+  const n = mine.length;
+  const dates = mine.map((r) => r.date).filter(Boolean).sort();
+  const span = n > 0 ? `${dates[0]} → ${dates[dates.length - 1]}` : null;
+  return (
+    <div className={"bt-corpus" + (n === 0 ? " empty" : "")}>
+      <span className="cs-k">CORPUS</span>
+      <span className="cs-sym">{sym}</span>
+      {n === 0
+        ? <span className="cs-empty">empty — record a sample to begin</span>
+        : <span className="cs-v">{n} session{n === 1 ? "" : "s"} · {span}</span>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // IDLE body — configure a new run + recent 5
 // ─────────────────────────────────────────────────────────────────────
 function IdleBody({ state, actions, symbolView }) {
@@ -205,56 +247,68 @@ function IdleBody({ state, actions, symbolView }) {
   // and the run reflect what's actually replayable — not future dates.
   const jobs = expandStudy({ symbol, start, end, sessions, mode });
   const recordings = jobs.length;
-  const canRun = jobs.length > 0;
+  const noPick = jobs.length === 0;
+  const canRun = !noPick;
   const run = () => { if (canRun) actions.startStudy(jobs); };
 
   return (
     <>
       <div className="section">
-        <div className="sect-hd"><span>CONFIGURE STUDY</span><span className="meta">RUNS ARE FREE</span></div>
+        <div className="sect-hd"><span>CONFIGURE RECORD</span><span className="meta">records from the chart</span></div>
 
-        <div className="cfg-field">
-          <div className="cfg-label">SYMBOL</div>
-          <Seg value={symbol} onChange={setSymbol} options={[["mnq", "MNQ"], ["mes", "MES"], ["both", "BOTH"]]} />
-        </div>
-
-        <div className="cfg-field">
-          <div className="cfg-label">DATE RANGE<span className="cfg-hint">{days} session day{days !== 1 ? "s" : ""}</span></div>
-          <div className="cfg-presets">
-            {STUDY_PRESETS.map((p) => (
-              <div key={p.id} className={"cfg-preset" + (preset === p.id ? " on" : "")} onClick={() => applyPreset(p)}>{p.label}</div>
-            ))}
+        <div className="cfg-form">
+          <div className="cfg-row">
+            <span className="cfg-rk">SYMBOL</span>
+            <Seg value={symbol} onChange={setSymbol} options={[["mnq", "MNQ"], ["mes", "MES"], ["both", "BOTH"]]} />
           </div>
-          <div className="cfg-dates">
-            <label className="cfg-date"><span className="dk">START</span><input type="date" value={start} max={end} onChange={(e) => editDate("start", e.target.value)} /></label>
-            <span className="arrow">→</span>
-            <label className="cfg-date"><span className="dk">END</span><input type="date" value={end} min={start} max={todayET()} onChange={(e) => editDate("end", e.target.value)} /></label>
-          </div>
-        </div>
 
-        <div className="cfg-field">
-          <div className="cfg-label">SESSIONS<span className="cfg-hint">recorded from each day</span></div>
-          <div className="cfg-multi">
-            {SESS.map(([k, l]) => (
-              <div key={k} className={"cfg-chip" + (sessions[k] ? " on" : "")} onClick={() => toggleSession(k)}>
-                <span className="ck">{sessions[k] ? "✓" : ""}</span>{l}
+          <div className="cfg-row">
+            <span className="cfg-rk">RANGE<span className="cfg-rk-hint">{days}d</span></span>
+            <div className="cfg-presets">
+              {STUDY_PRESETS.map((p) => (
+                <button key={p.id} type="button" className={"cfg-preset" + (preset === p.id ? " on" : "")} onClick={() => applyPreset(p)}>{p.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {preset === "custom" && (
+            <div className="cfg-row">
+              <span className="cfg-rk" />
+              <div className="cfg-dates">
+                <label className="cfg-date"><span className="dk">START</span><input type="date" value={start} max={end} onChange={(e) => editDate("start", e.target.value)} /></label>
+                <span className="arrow">→</span>
+                <label className="cfg-date"><span className="dk">END</span><input type="date" value={end} min={start} max={todayET()} onChange={(e) => editDate("end", e.target.value)} /></label>
               </div>
-            ))}
+            </div>
+          )}
+
+          <div className="cfg-row">
+            <span className="cfg-rk">SESSIONS</span>
+            <div className="cfg-multi">
+              {SESS.map(([k, l]) => (
+                <button key={k} type="button" className={"cfg-chip" + (sessions[k] ? " on" : "")} onClick={() => toggleSession(k)}>
+                  <span className="ck">{sessions[k] ? "✓" : ""}</span>{l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="cfg-row">
+            <span className="cfg-rk">MODE</span>
+            <Seg value={mode} onChange={setMode} options={[["auto", "AUTO"], ["pause", "PAUSE ON SETUP"]]} />
           </div>
         </div>
 
-        <div className="cfg-field">
-          <div className="cfg-label">MODE</div>
-          <Seg value={mode} onChange={setMode} options={[["auto", "AUTO"], ["pause", "PAUSE ON SETUP"]]} />
+        <div className="cfg-plan">
+          {noPick
+            ? <span className="warn">Pick at least one session and a valid date range.</span>
+            : <>▸ <b>{symLabel}</b> · <b>{selected.map((s) => s[1]).join(" + ")}</b> · {start} → {end} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} to record</>}
+        </div>
+        <div className="cfg-cost">
+          drives the chart session-by-session · pauses the live loop while it records, then live re-arms
         </div>
 
-        <div className="cfg-summary">
-          {canRun
-            ? <>▸ Records <b>{symLabel}</b> across <b>{selected.map((s) => s[1]).join(" + ")}</b> · <b>{start} → {end}</b> · {days} day{days !== 1 ? "s" : ""} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} aggregated into ANALYTICS</>
-            : <span style={{ color: "var(--red)" }}>▸ Pick at least one session and a valid date range to run.</span>}
-        </div>
-
-        <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RUN</button>
+        <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RECORD</button>
       </div>
 
       <div className="section">
@@ -271,7 +325,7 @@ function IdleBody({ state, actions, symbolView }) {
           <RunRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
         ))}
         <div className="view-all" onClick={actions.viewAll}>
-          VIEW ANALYTICS · {symRuns.length} RUNS  →
+          VIEW BASELINE · {symRuns.length} RUNS  →
         </div>
       </div>
     </>
@@ -441,7 +495,7 @@ function DoneBody({ state, actions }) {
           </div>
         </div>
         <div className="actions">
-          <button className="btn primary full" onClick={actions.viewAll}>▤  VIEW IN ANALYTICS</button>
+          <button className="btn primary full" onClick={actions.viewAll}>▤  VIEW BASELINE</button>
           <button className="btn secondary" onClick={reRun}>↻ RE-RUN</button>
           {runId && <button className="btn secondary" onClick={() => actions.openDetail(runId)}>▸ OPEN DETAIL</button>}
           <button className="btn danger" onClick={discard}>DISCARD</button>
@@ -539,8 +593,33 @@ const testStatusCls = (s) => (s === "accepted" ? "ok" : s === "rejected" ? "bad"
 // ─────────────────────────────────────────────────────────────────────
 // TESTS body — fold-tests vs the accepted baseline, accept/reject + reason
 // ─────────────────────────────────────────────────────────────────────
+// COMPARE — fold a treatment over the corpus and diff it against the accepted
+// baseline, right in the panel. Replaces the old CLI-only save-fold-test.mjs.
+function FoldTestForm({ running, onRun }) {
+  const [label, setLabel] = useState("");
+  const [gate, setGate] = useState("");
+  const submit = () => {
+    if (running) return;
+    onRun({ label: label.trim() || "untitled", env: parseGateInput(gate) });
+  };
+  return (
+    <div className="ft-form">
+      <input className="ft-in" placeholder="what change are you testing?"
+             value={label} onChange={(e) => setLabel(e.target.value)}
+             autoComplete="off" spellCheck="false" />
+      <input className="ft-in ft-gate" placeholder="gate · GOFNQ_X=1 (blank = working tree)"
+             value={gate} onChange={(e) => setGate(e.target.value)}
+             autoComplete="off" spellCheck="false"
+             onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
+      <button className="btn primary" disabled={running} onClick={submit}>
+        {running ? "FOLDING…" : "RUN FOLD TEST"}
+      </button>
+    </div>
+  );
+}
+
 function TestsBody({ symbolView }) {
-  const { tests, loading, setVerdict, getTest, removeTest } = useTests(symbolView);
+  const { tests, loading, running, lastError, setVerdict, getTest, removeTest, runFoldTest } = useTests(symbolView);
   const sym = symbolView === "MES1!" ? "MES" : "MNQ";
   const [expandedId, setExpandedId] = useState(null);
   const [full, setFull] = useState(null);
@@ -560,10 +639,14 @@ function TestsBody({ symbolView }) {
         <span className="meta">{loading ? "loading…" : `${tests.length} · vs accepted baseline`}</span>
       </div>
 
-      {!loading && tests.length === 0 && (
+      <FoldTestForm running={running} onRun={runFoldTest} />
+      {lastError && <div className="ft-err">fold failed — {lastError}</div>}
+
+      {!loading && tests.length === 0 && !running && (
         <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 2px", lineHeight: 1.5 }}>
-          no tests yet — run <code>scripts/save-fold-test.mjs {symbolView} "label"</code> (set an env gate
-          first to test a change) to fold it against the accepted baseline.
+          no tests yet — name a change, set its gate (e.g. <code>GOFNQ_X=1</code>), and RUN FOLD TEST to
+          fold it over the corpus and diff it against the accepted baseline. A blank gate folds the current
+          working tree.
         </div>
       )}
 
@@ -772,7 +855,7 @@ function DetailBody({ state, actions }) {
           this run is no longer in the index
         </div>
         <div className="actions">
-          <button className="btn secondary full" onClick={actions.back}>← LIBRARY</button>
+          <button className="btn secondary full" onClick={actions.back}>← BASELINE</button>
         </div>
       </div>
     );

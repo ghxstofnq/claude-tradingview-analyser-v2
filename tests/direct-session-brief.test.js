@@ -106,7 +106,9 @@ test("pillar2 grades on 5m/15m only — a current_tf doji must NOT tip a clean s
   };
   const [mnq] = buildDirectSessionBriefPayloads({ session: "london", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(mnq.pillar2_verdict, "marginal");
-  assert.notEqual(mnq.pillar_grade, "no-trade");
+  // Pre-open it's an unconfirmed lean (no-trade), but pillar2 marginal must NOT be
+  // the reason — that's reserved for pillar2 'poor' (faithful rubric §1).
+  assert.notEqual(mnq.no_trade_reason, "pillar2_poor");
 });
 
 test("pillar2 still fails when BOTH authoritative TFs (5m + 15m) are doji-dominated", () => {
@@ -127,7 +129,13 @@ test("buildDirectSessionBriefPayloads emits two valid surface_session_brief payl
   for (const payload of payloads) {
     assert.equal(payload.session, "ny-am");
     assert.match(payload.symbol, /^(MNQ1!|MES1!)$/);
-    assert.equal(payload.pillar_grade, "B");
+    // Faithful: pre-open a 1-component lean (h4 bull FVG, no overnight) is an
+    // unconfirmed lean (no-trade), B-capable — not a confirmed B.
+    assert.equal(payload.pillar_grade, "no-trade");
+    assert.equal(payload.no_trade_reason, "open_unconfirmed");
+    assert.equal(payload.lean.direction, "bullish");
+    assert.equal(payload.lean.potential, "B");
+    assert.equal(payload.lean.status, "pending_open");
     assert.equal(payload.primary_draw.cite, "engine_by_tf.h4.fvgs[0]");
     assert.equal(payload.pillar2_verdict, "good");
     assert.ok(payload.sizing_note.includes("0.75 R"));
@@ -250,7 +258,7 @@ test("runDirectSessionBrief lets Codex analyze pulled digest as commentary but J
   assert.equal(surfaced.length, 2);
   assert.match(surfaced[0].prose_summary, /Codex check:/);
   assert.equal(surfaced[0].codex_analysis.risk_challenges[0], "Pillar 3 confirmation is still pending");
-  assert.equal(surfaced[0].pillar_grade, "B");
+  assert.equal(surfaced[0].pillar_grade, "no-trade"); // pre-open unconfirmed lean
   assert.equal(events.some((e) => e.type === "codex_analysis" && e.status === "applied"), true);
 });
 
@@ -303,10 +311,11 @@ function buildOne(ds) {
   })[0];
 }
 
-test("one weak element (p2 marginal, draw pass) grades B per constraint #9, not no-trade", () => {
+test("p2 marginal + 1-component lean → pre-open unconfirmed lean (B-capable), not a confirmed B (faithful §1)", () => {
   const payload = buildOne(digestSymbolWith({ p2: "marginal" }));
-  assert.equal(payload.pillar_grade, "B");
-  assert.equal(payload.no_trade_reason, undefined);
+  assert.equal(payload.pillar_grade, "no-trade");
+  assert.equal(payload.no_trade_reason, "open_unconfirmed");
+  assert.equal(payload.lean.potential, "B");
 });
 
 test("no draw because HTF capture is missing grades no-trade with reason data_gap, not htf_unclear", () => {
@@ -316,10 +325,11 @@ test("no draw because HTF capture is missing grades no-trade with reason data_ga
   assert.equal(payload.chain_status, "degraded:data_gap");
 });
 
-test("no draw on a healthy capture stays no-trade htf_unclear (real market verdict)", () => {
+test("no draw on a healthy capture → no-trade, no_bias (no directional component)", () => {
   const payload = buildOne(digestSymbolWith({ draw: false }));
   assert.equal(payload.pillar_grade, "no-trade");
-  assert.equal(payload.no_trade_reason, "htf_unclear");
+  assert.equal(payload.no_trade_reason, "no_bias");
+  assert.equal(payload.lean.status, "no_read");
 });
 
 test("pillar2 poor still grades no-trade pillar2_poor when a draw exists", () => {
@@ -328,16 +338,17 @@ test("pillar2 poor still grades no-trade pillar2_poor when a draw exists", () =>
   assert.equal(payload.no_trade_reason, "pillar2_poor");
 });
 
-test("2026-06-10 regression: daily draw + missing h4/h1 + marginal p2 grades B with degraded:htf_partial", () => {
+test("2026-06-10: daily draw + missing h4/h1 + marginal p2 → pre-open lean (B-capable), degraded:htf_partial", () => {
   const payload = buildOne(digestSymbolWith({ drawTf: "daily", p2: "marginal", dataStatus: { h4: "missing", h1: "missing" } }));
-  assert.equal(payload.pillar_grade, "B");
-  assert.equal(payload.no_trade_reason, undefined);
+  assert.equal(payload.pillar_grade, "no-trade");
+  assert.equal(payload.no_trade_reason, "open_unconfirmed");
+  assert.equal(payload.lean.potential, "B");
   assert.equal(payload.chain_status, "degraded:htf_partial");
 });
 
-test("fallback-sourced HTF marks the chain degraded:htf_fallback instead of clean", () => {
+test("fallback-sourced HTF → pre-open lean (no-trade) + chain degraded:htf_fallback", () => {
   const payload = buildOne(digestSymbolWith({ dataStatus: { h4: "fallback" } }));
-  assert.equal(payload.pillar_grade, "B");
+  assert.equal(payload.pillar_grade, "no-trade");
   assert.equal(payload.chain_status, "degraded:htf_fallback");
 });
 
@@ -396,7 +407,7 @@ test("single-symbol leader capture rebuilds the brief end-to-end (short-circuit 
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: bundleSingle, sizingByGrade: { B: { r_size: 0.75 } } });
   assert.equal(payloads.length, 1);
   assert.equal(payloads[0].symbol, "MNQ1!");
-  assert.equal(payloads[0].pillar_grade, "B");
+  assert.equal(payloads[0].pillar_grade, "no-trade"); // pre-open unconfirmed lean
   assert.equal(payloads[0].primary_draw.dir, "bull");
   assert.ok(payloads[0].chain_status.includes("direct-codex-compatible"));
 });
@@ -415,7 +426,7 @@ test("primary_draw carries reaction + position evidence for bias derivation", ()
     took_liq: true, state: "fresh", reacted: true, reaction_dir: "bear",
     cite: "engine_by_tf.h4.fvgs[17]",
   };
-  b.quote = { last: 29800 };
+  b.quote = { last: 29950 }; // zone ce ~30002 is then ~0.17% away = near (0.3% gate)
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   const draw = payloads[0].primary_draw;
   assert.equal(draw.reacted, true);
@@ -425,7 +436,7 @@ test("primary_draw carries reaction + position evidence for bias derivation", ()
 
 test("primary_draw position derives from the paired symbol quote when present", () => {
   const b = bundle();
-  b.pair = { symbols: { "MNQ1!": { quote: { last: 30100 } } } };
+  b.pair = { symbols: { "MNQ1!": { quote: { last: 30050 } } } };
   const payloads = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(payloads[0].primary_draw.position, "below_price"); // ce 29975 < last 30100
 });
@@ -463,32 +474,29 @@ test("overnight_verdict computes extending/retracing/consolidating from sweeps",
   assert.equal(p[0].overnight_block.overnight_verdict, "consolidating");
 });
 
-// Doc correction (user Q2): §2.1 step 3 — bias comes from REACTIONS.
-// The payload carries htf_bias derived as: zone's own reaction → latest
-// REJECTED HTF-level sweep → magnet/destination (§2.3) → zone dir.
-// June 9: the pre-open sharp rejection at PDH (engine: swept 09:05,
-// rejected) set the bearish day despite the unreacted bear zone overhead.
-test("payload htf_bias: a rejected high-sweep sets bearish despite an unreacted zone above", () => {
+// Stage C (2026-06-23): htf_bias_dir now comes from the ARRAY-STATE vote (the
+// reaction off the significant near-price PD array — fresh bear = supply,
+// inverted = flipped), NOT the old rejected-sweep / §2.1-supply heuristics. A
+// fresh near-price bear FVG votes bearish on its own; the sweep no longer sets
+// direction. (Open calibration: the near-price gate is 0.3%; a 4H supply zone
+// ~0.5-0.7% above — the June-5 case — is now too far to be the pre-open draw.
+// Revisit the HTF near-threshold against the Discord calls.)
+test("payload htf_bias: a fresh near-price bear FVG votes bearish (array-state vote)", () => {
   const b = bundle();
   const ds = b.brief_digest.symbols["MNQ1!"];
   ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91, took_liq: true, state: "fresh", reacted: false, cite: "engine_by_tf.h4.fvgs[17]" }];
   ds.pillar1.sweeps = [{ target: "PDH", price: 29850, side: "buy", swept_ms: 100, rejected: true }];
-  b.quote = { last: 29800 };
+  b.quote = { last: 29950 }; // zone ce ~30002 is then ~0.17% away = near (0.3% gate)
   const p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(p[0].htf_bias_dir, "bearish");
 });
 
-test("payload htf_bias: a fresh took-liq bear zone above price is SUPPLY → bearish (§2.1 supply rejection; corrected 2026-06-13)", () => {
-  // Previously this read bullish ("unreacted zone above is a bullish magnet").
-  // §2.1 corrects it: a fresh, liquidity-taking 4H bear FVG above price is
-  // supply — price rallies INTO it and rejects sharply → bearish toward the
-  // sell-side below. This is the June 5 case (the day fell -381 under exactly
-  // this overhead zone). Refold-verified frozen-safe (June 10 trades identical).
+test("payload htf_bias: a fresh took-liq bear zone (supply) near price votes bearish", () => {
   const b = bundle();
   const ds = b.brief_digest.symbols["MNQ1!"];
   ds.htf.h4.top_fvgs = [{ dir: "bear", top: 30062, bottom: 29942, ce: 30002, disp_score: 0.91, took_liq: true, state: "fresh", reacted: false, cite: "engine_by_tf.h4.fvgs[17]" }];
   ds.pillar1.sweeps = [];
-  b.quote = { last: 29800 };
+  b.quote = { last: 29950 }; // zone ce ~30002 is then ~0.17% away = near (0.3% gate)
   const p = buildDirectSessionBriefPayloads({ session: "ny-am", bundle: b, symbols: ["MNQ1!"] });
   assert.equal(p[0].htf_bias_dir, "bearish");
 });

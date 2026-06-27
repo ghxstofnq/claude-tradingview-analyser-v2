@@ -116,117 +116,21 @@ test('buildExecutionPacketForWalker blocks instead of inventing stop or weak TP1
   assert.ok(noStop.blockers.includes('missing_structural_stop'));
   assert.equal(noStop.finalVerdict, 'no_trade');
 
+  // D6: the 1.5R TP1 floor blocker is gone (Lanto takes TP1 at 1–1.5R) — a near
+  // target no longer blocks the trade on tp1_below_1_5r.
   const weakTarget = buildExecutionPacketForWalker({
     context: executableContext({
       pillar1: { status: 'pass', untakenTargets: { above: [{ price: 21020, label: 'small internal', evidenceRef: 'target.tooClose' }], below: [] } },
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(weakTarget.status, 'blocked');
-  assert.ok(weakTarget.blockers.includes('tp1_below_1_5r'));
-  assert.equal(weakTarget.finalVerdict, 'no_trade');
+  assert.ok(!weakTarget.blockers.includes('tp1_below_1_5r'));
 });
 
-// ── Late-session entry cutoff (user ruling 2026-06-13) ────────────────
-// No new entries once the confirming bar closes at 15:32 ET or later — too
-// little runway before the 16:00 forced close. The 15:30 candle (closes
-// 15:31) is the last one that may confirm a new entry.
-test('entry cutoff: a confirmation closing 15:33 ET is blocked', () => {
-  const packet = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-11T19:33:00.000Z' }), // 15:33 ET
-    walker: confirmedMssWalker(),
-  });
-  assert.equal(packet.status, 'blocked');
-  assert.ok(packet.blockers.includes('entry_after_session_cutoff'));
-  assert.equal(packet.finalVerdict, 'no_trade');
-});
-
-test('entry cutoff: the 15:31 close (15:30 candle) is the last allowed; 15:32 is blocked', () => {
-  // 'acceptable' displacement isolates the entry-cutoff check from the
-  // late-clean exhaustion cap (which would otherwise demote these A+ to B).
-  const accept = { status: 'pass', displacement: 'acceptable', blockers: [] };
-  const allowed = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), pillar2: accept, eventTimeUtc: '2026-06-02T19:31:00.000Z' }), // 15:31 ET
-    walker: confirmedMssWalker(),
-  });
-  assert.equal(allowed.status, 'executable');
-  assert.ok(!allowed.blockers.includes('entry_after_session_cutoff'));
-
-  const blocked = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), pillar2: accept, eventTimeUtc: '2026-06-02T19:32:00.000Z' }), // 15:32 ET
-    walker: confirmedMssWalker(),
-  });
-  assert.equal(blocked.status, 'blocked');
-  assert.ok(blocked.blockers.includes('entry_after_session_cutoff'));
-});
-
-test('entry cutoff: AM confirmations are unaffected', () => {
-  const packet = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-06-02T13:47:00.000Z' }), // 09:47 ET
-    walker: confirmedMssWalker(),
-  });
-  assert.ok(!packet.blockers.includes('entry_after_session_cutoff'));
-});
-
-// Grade-tiered AM cutoff (user ruling 2026-06-13): a B setup in NY-AM may only
-// confirm until 11:40 ET; A+ keeps the window to noon.
-test('AM cutoff: a B setup at 11:45 ET is blocked; an A+ setup is allowed', () => {
-  // No aligned chain → grade B. At 11:45 ET (15:45 UTC), AM → blocked.
-  const lateB = buildExecutionPacketForWalker({
-    context: executableContext({ eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
-    walker: confirmedMssWalker(),
-  });
-  assert.equal(lateB.status, 'blocked');
-  assert.ok(lateB.blockers.includes('b_grade_after_am_cutoff'));
-
-  // Aligned chain + 'acceptable' (non-exhaustion) displacement → grade A+. Same
-  // 11:45 ET bar → allowed (A+ keeps the rope). 'acceptable' avoids the late-clean
-  // exhaustion cap, which is exercised separately below.
-  const lateAplus = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), pillar2: { status: 'pass', displacement: 'acceptable', blockers: [] }, eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
-    walker: confirmedMssWalker(),
-  });
-  assert.equal(lateAplus.status, 'executable');
-  assert.ok(!lateAplus.blockers.includes('b_grade_after_am_cutoff'));
-});
-
-// Exhaustion cap (auto-research finding 2026-06-20): a CLEAN/sharp displacement
-// = the impulse already fired, so a clean entry taken LATE (>= 11:00 ET) is an
-// exhaustion entry and is demoted from A+ to B (no TP2 runner). EARLY clean A+
-// entries are spared.
-test('exhaustion cap: a clean-displacement A+ confirming late is demoted to B', () => {
-  // PM session at 12:30 ET — clean + aligned would be A+, but late → capped to B.
-  // PM has no B cutoff, so it still trades (as B), proving the cap not a block.
-  const lateClean = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), session: 'ny-pm', eventTimeUtc: '2026-06-11T16:30:00.000Z' }),
-    walker: confirmedMssWalker(),
-  });
-  assert.equal(lateClean.status, 'executable');
-  assert.equal(lateClean.grade, 'B');
-
-  // Same clean + aligned setup taken EARLY (09:47 ET) keeps A+.
-  const earlyClean = buildExecutionPacketForWalker({
-    context: executableContext({ sessionChain: alignedChain(), eventTimeUtc: '2026-05-29T13:47:00.000Z' }),
-    walker: confirmedMssWalker(),
-  });
-  assert.equal(earlyClean.grade, 'A+');
-});
-
-test('AM cutoff: a B setup BEFORE 11:40 ET is allowed', () => {
-  const earlyB = buildExecutionPacketForWalker({
-    context: executableContext({ eventTimeUtc: '2026-06-11T15:30:00.000Z' }), // 11:30 ET
-    walker: confirmedMssWalker(),
-  });
-  assert.ok(!earlyB.blockers.includes('b_grade_after_am_cutoff'));
-});
-
-test('AM cutoff: inert in the PM session (only NY-AM is gated)', () => {
-  const pmB = buildExecutionPacketForWalker({
-    context: executableContext({ session: 'ny-pm', eventTimeUtc: '2026-06-11T15:45:00.000Z' }),
-    walker: confirmedMssWalker(),
-  });
-  assert.ok(!pmB.blockers.includes('b_grade_after_am_cutoff'));
-});
+// D6 (lanto-source-of-truth.md §5): the bot-specific late-session overlays with
+// no transcript basis — the 15:32 ET entry cutoff, the 11:00 ET exhaustion A+→B
+// cap, and the 11:40 ET NY-AM B cutoff — were removed. Lanto grades by the three
+// components + the entry, not the clock. (Their tests were removed with them.)
 
 // ── Six-element grading (2026-06-12) ──────────────────────────────────
 // Grade mirrors constraint #9 / README.md (the grade): A+ when
@@ -513,12 +417,12 @@ test('tp1 never jumps to the weekly draw (PWH) when a wide stop deflates nearby 
     }),
     walker: confirmedMssWalker(),
   });
-  // TP1 lands on the nearest intraday level, NOT the weekly draw...
+  // TP1 lands on the nearest intraday level, NOT the weekly draw. (D6: the 1.5R
+  // floor no longer blocks — the trade opens toward the nearest target rather
+  // than jumping to the far PWH.)
   assert.equal(packet.tp1.price, 21040);
-  // ...and because that nearest target is < 1.5R under the wide stop, the
-  // trade correctly blocks instead of opening toward an unreachable target.
-  assert.equal(packet.status, 'blocked');
-  assert.ok(packet.blockers.includes('tp1_below_1_5r'));
+  assert.notEqual(packet.tp1.price, 21300);
+  assert.ok(!packet.blockers.includes('tp1_below_1_5r'));
 });
 
 // The weekly draw is still a valid TP2/runner (§7 Step 7 "second toward the
@@ -735,10 +639,11 @@ test('inversion stop: the failed-leg extreme across visible 1m bars outranks the
   assert.equal(packet.stop.price, 21022.5);
 });
 
-// Wide-leg risk cap (user ruling 2026-06-14): when the failed-leg extreme is
-// more than 95 pts from entry (high-volatility regime), fall back to the tighter
-// violating-candle stop. 4-week fold: 90-99pt plateau, +6.13R, no winner broken.
-function wideLegInversion({ legHigh, candleHigh, close }) {
+// Volatility-relative wide-leg cap (PRICE 10:34: the stop is sized to the current
+// delivery; TRADE24 15:59 "not as wide a stop"). When the failed-leg extreme is
+// wider than 5 × the Wilder ATR, fall back to the tighter violating-candle stop —
+// the budget scales with volatility instead of a fixed 95-pt number.
+function wideLegInversion({ legHigh, candleHigh, close, atr14 }) {
   const walker = {
     ...confirmedMssWalker({ top: 21010, bottom: 21000, direction: 'bullish' }),
     model: 'Inversion',
@@ -748,6 +653,7 @@ function wideLegInversion({ legHigh, candleHigh, close }) {
   return buildExecutionPacketForWalker({
     context: executableContext({
       sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      ...(atr14 != null ? { pillar2: { status: 'pass', displacement: 'clean', blockers: [], atr14 } } : {}),
       pillar1: { status: 'pass', untakenTargets: { above: [], below: [{ price: 20700, label: 'PDL', evidenceRef: 'p1.targets.pdl' }] } },
       pillar3: {
         structuralStops: [{ kind: 'swing_high', side: 'short', price: 21030, evidenceRef: 'p3.stops.high' }],
@@ -762,16 +668,23 @@ function wideLegInversion({ legHigh, candleHigh, close }) {
   });
 }
 
-test('inversion stop: a leg wider than 95pt falls back to the tighter violating candle', () => {
-  // entry 20900, leg high 21000 = 100pt (> 95) → use the 50pt candle instead.
-  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900 });
+// Same 100-pt leg, three volatility regimes — the boundary is dynamic, not 95pt.
+test('inversion stop: a leg wider than 5×ATR falls back to the tighter violating candle (chop)', () => {
+  // entry 20900, leg high 21000 = 100pt; ATR 15 → budget 75 (<100) → tighten.
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900, atr14: 15 });
   assert.equal(packet.stop.kind, 'inversion_violating_candle');
   assert.equal(packet.stop.price, 20950);
 });
 
-test('inversion stop: a 95pt leg is NOT wide enough — leg extreme kept (boundary)', () => {
-  // entry 20905, leg high 21000 = 95pt exactly; the cap is strictly > 95.
-  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20905 });
+test('inversion stop: the SAME 100pt leg is kept when ATR is high (trending — budget scales up)', () => {
+  // entry 20900, leg high 21000 = 100pt; ATR 25 → budget 125 (>100) → leg kept.
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900, atr14: 25 });
+  assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
+  assert.equal(packet.stop.price, 21000);
+});
+
+test('inversion stop: no ATR reading → the leg anchor stands (cannot judge "too wide")', () => {
+  const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900 }); // no atr14
   assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
   assert.equal(packet.stop.price, 21000);
 });
