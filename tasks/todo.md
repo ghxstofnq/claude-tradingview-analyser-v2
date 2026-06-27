@@ -38,18 +38,27 @@ Tracks run in parallel; only the arrows in the plan's dependency graph are hard 
 
 ## TRACK 2 — Faithful levers (each default-OFF flag, folded old-vs-new, user-approved one at a time)
 
-- [ ] **G1 — Validate the 3-vote grade (option 2; already default-on).** Re-grade the Track-0 oracle under the live
-      grade; fold `scripts/fold-pillar1.mjs` (and `fold-live-corpus.mjs`); spot-check vs Discord bias labels.
-      **Acceptance:** grades match Lanto's actual calls on the checked sessions; no unexplained regressions; OR a
-      tuning need is identified with a fold table. **Verify:** `npm test` (tape+parity gates) + `npm run smoke:fixtures` + the fold report. **◇ user reviews.**
-- [ ] **G2a — MSS-significance spawn gate (gap #3).** A valid MSS/Inversion spawn needs significant liquidity +
-      matching displacement, not any rejected sweep. Reuse the `pillar1-bias.js` significance logic in the walker
-      spawn (`app/main/strategy/walkers/*-lifecycle.js`), behind `GOFNQ_MSS_SIGNIFICANCE=1`. **Acceptance:** premature
-      MSS/inversion spawns drop on the chop days without losing the verified A+ days. **Verify:** unit tests on the gate +
-      fold old-vs-new on the corpus; verified tapes still pass. **◇ user reviews fold.**
-- [ ] **G2b — `join_consecutive` FVG de-noise (option 3).** Merge stacked same-direction FVGs before walker spawn
-      (SMC `join_consecutive`), behind a flag. **Acceptance:** duplicate stacked-zone walkers collapse; no verified
-      tape regresses. **Verify:** unit test + fold. **◇ user reviews fold.**
+- [x] **G1 — Validate the 3-vote grade (option 2; already default-on). DONE 2026-06-28 (user-accepted).**
+      Gates green: day-tape **6/6**, smoke fixtures **22/22**, parity **4/4**. The chain reproduces Lanto's
+      **bias/grade/model/side** on all 5 verified oracle sessions (02-09 A+ · 06-09 A+ · 06-16 B · 06-17 no-trade
+      · 06-18 B). The apparent 06-09 entry "offset" (chain 29964.75 @10:00 vs GXNQ 29731.25 @~10:30) is **two
+      different valid Inversion entries in the same selloff** (no roll, no staleness — tape high 30139.75 ==
+      oracle 30136); user accepts the chain's earlier valid entry. Re-record premise dropped (tapes accurate).
+      Full validation beyond the 5 sessions still awaits more hand-graded corpus (Track 0). Tighter entry-
+      selection (match Lanto's retrace inversion) is a future G2-G4 lever, not a G1 failure. [stage-g-inversion-overfire]
+- [x] **G2a — MSS-significance spawn gate (gap #3). ALREADY BUILT + default-on; VALIDATED 2026-06-28.**
+      Gap #3 is closed: MSS spawn gates unconditionally (`isSignificantSweepTarget` = named session/PD level only +
+      `hasMatchingDisplacement` + rejected sweep, `mss-lifecycle.js`); Inversion spawn has the full anti-overfire
+      gate (`GOFNQ_INV_GATE`, default-on — grab-must-precede / depth / trend-coherence / open-reaction / patience,
+      `inversion-lifecycle.js`). **Fold proof (gate on vs off):** 06-17 chop → 0 packets (faithful no-trade) vs
+      **12 premature inversions** off; 06-09 → valid 10:00 entry on vs the **09:34 pre-grab** short off. The gate
+      IS the difference between Lanto's no-trade and a flurry of bad inversions. Nothing to build.
+- [x] **G2b — `join_consecutive` FVG de-noise (option 3). BUILT + FOLDED + REJECTED 2026-06-28.**
+      Implemented `collapseConsecutiveFvgs` behind `GOFNQ_JOIN_FVG` (default off; 8/8 unit tests). **Not a no-op —
+      net negative:** on the deployed scale (`fold-bias`, recomputed pillar1) **+22.66R → +15.64R (−7.02R)**, lost
+      2 winners, win% 44.8→39.3, and it **broke the 02-09 verified A+** (entry 25562.5 → 25633.25, different zone).
+      Zero de-noise benefit (trade count unchanged) — the overfire it targeted is already handled by G2a.
+      **Code removed** (rejected; restorable from this session). Confirms [filters-dont-separate]. **G2 DONE.**
 - [ ] **G3 — Faithful leader default-on + SMT overlay (option 1).** After ≥3-4 paired weeks (Track 0), fold
       `scripts/fold-pair-leader.mjs` (always-MNQ vs displacement-leader); if it survives, flip `GOFNQ_FAITHFUL_LEADER`
       on; expose divergence-SMT as an optional open-reaction direction confirmation (never the symbol/grade gate);

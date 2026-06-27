@@ -368,3 +368,28 @@ Step 7). **Verified live:** place 1c → add 1c → qty 2 with bracket intact;
 wrong-side + no-position adds rejected; flatten clean; fill recorded qty 2 +
 averaged entry. Deferred: auto-surfacing from a live producer (mirrors the
 backtest's canScaleInto); real-broker LIVE arming.
+
+## 2026-06-28 — G2b join-FVG de-noise REJECTED; G2a (significance gate) already built + validated
+
+**G2a (MSS-significance / gap #3): already in the tree, default-on, now validated.** The
+source-of-truth §6 "any rejected sweep qualifies" gap is closed — MSS spawn requires a
+named session/PD sweep target (`isSignificantSweepTarget`) + matching displacement +
+rejected sweep (`mss-lifecycle.js`); Inversion spawn runs the `GOFNQ_INV_GATE` suite
+(default-on: grab-must-precede / depth / trend-coherence / open-reaction / patience). Fold
+proof (gate on vs off): 06-17 chop → 0 packets vs 12 premature inversions; 06-09 → valid
+10:00 entry vs the 09:34 pre-grab short. The gate is the difference between Lanto's
+no-trade and a flurry of bad inversions.
+
+**G2b (SMC `join_consecutive` FVG de-noise): built behind `GOFNQ_JOIN_FVG`, folded, REJECTED,
+code removed.** Collapsed overlapping same-direction gap spawn-candidates to the highest-
+displacement one. **Not a no-op — net negative on the deployed scale** (`fold-bias`,
+recompute-pillar1): +22.66R → +15.64R (**−7.02R**), 2 winners lost, win% 44.8→39.3, and it
+**broke the 02-09 verified A+** (entry 25562.5 → 25633.25, a different overlapping zone).
+Trade count unchanged (29→28) = zero de-noise benefit: the overfire it targeted is already
+handled by G2a. Removed rather than kept default-off (don't carry harmful dead flexibility);
+reproducible from the 2026-06-28 session transcript if ever revisited.
+
+**Tooling note (cost me a detour):** `fold-pillar1.mjs` reads the BAKED `gates.engine.pillar1`
+and does not recompute it, so its baseline reads +4.48 (pre-lever) not the deployed +22.66 —
+use `fold-bias.mjs` (recomputes pillar1) for any absolute-baseline-sensible comparison. The
+off-vs-on DELTA is valid on either tool, but report on `fold-bias`.
