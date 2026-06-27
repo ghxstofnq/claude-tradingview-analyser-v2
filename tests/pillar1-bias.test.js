@@ -157,6 +157,50 @@ test('pickPrimaryDraw: a far array (> NEAR_PRICE_PCT) is excluded even if otherw
   assert.equal(pickPrimaryDraw(blocks, { price: 30000 }), null);
 });
 
+// Fresh-opposing intraday override (GOFNQ_HTF_INTRADAY_DRAW, default-off): 06-16 —
+// an inverted h1 bear FVG (ce 30855, ds 0.74) votes BULLISH and masks the fresh m5
+// bear FVG above price (ds 0.94) that Lanto reads as the draw. Flag-on, the fresh
+// opposing intraday array takes over → bearish.
+test('pickPrimaryDraw: fresh-opposing intraday override flips an inverted-vote draw (06-16)', () => {
+  const prev = process.env.GOFNQ_HTF_INTRADAY_DRAW;
+  const htfByTf = htf({
+    h4: [], daily: [],
+    h1: [{ dir: 'bear', state: 'inverted', took_liq: true, disp_score: 0.74, size_quality: 'normal', ce: 30855.5, cite: 'inv-h1' }],
+  });
+  const intradayByTf = htf({
+    m15: [{ dir: 'bear', state: 'fresh', took_liq: true, disp_score: 0.71, size_quality: 'normal', ce: 30896.75, cite: 'fresh-m15' }],
+    m5: [{ dir: 'bear', state: 'fresh', took_liq: true, disp_score: 0.94, size_quality: 'normal', ce: 30882.25, cite: 'fresh-m5' }],
+  });
+  try {
+    // default-off: the inverted h1 array wins → bullish (the current wrong read)
+    process.env.GOFNQ_HTF_INTRADAY_DRAW = '0';
+    const off = pickPrimaryDraw(htfByTf, { price: 30811.75, intradayByTf });
+    assert.equal(off.vote, 'bullish');
+    assert.equal(off.state, 'inverted');
+    // flag-on: the fresh opposing intraday array overrides → bearish
+    process.env.GOFNQ_HTF_INTRADAY_DRAW = '1';
+    const on = pickPrimaryDraw(htfByTf, { price: 30811.75, intradayByTf });
+    assert.equal(on.vote, 'bearish');
+    assert.equal(on.state, 'fresh');
+    assert.equal(on.cite, 'fresh-m15');
+  } finally { process.env.GOFNQ_HTF_INTRADAY_DRAW = prev; }
+});
+
+test('pickPrimaryDraw: the intraday override does NOT fire against a non-inverted winner (06-17 safety)', () => {
+  const prev = process.env.GOFNQ_HTF_INTRADAY_DRAW;
+  // a FRESH h1 array (not inverted) — the override must leave it alone even with a
+  // fresh opposing intraday array present (only an inverted winner is overridden).
+  const htfByTf = htf({ h4: [], daily: [],
+    h1: [{ dir: 'bear', state: 'fresh', took_liq: true, disp_score: 0.8, size_quality: 'normal', ce: 30855, cite: 'fresh-h1' }] });
+  const intradayByTf = htf({ m15: [], m5: [{ dir: 'bull', state: 'fresh', took_liq: true, disp_score: 0.9, size_quality: 'normal', ce: 30800, cite: 'fresh-m5-bull' }] });
+  try {
+    process.env.GOFNQ_HTF_INTRADAY_DRAW = '1';
+    const draw = pickPrimaryDraw(htfByTf, { price: 30820, intradayByTf });
+    assert.equal(draw.cite, 'fresh-h1');
+    assert.equal(draw.vote, 'bearish');
+  } finally { process.env.GOFNQ_HTF_INTRADAY_DRAW = prev; }
+});
+
 test('pickPrimaryDraw: 4H outranks 1H when both qualify (§2.1 prefers 4H PD arrays)', () => {
   const blocks = htf({
     h4: [{ dir: 'bull', state: 'fresh', took_liq: true, ce: 30490, cite: 'h4-zone' }],

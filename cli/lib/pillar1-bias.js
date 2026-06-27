@@ -107,6 +107,48 @@ function sigScore(zone) {
   return (Number.isFinite(ds) ? ds : 0) + sizeBoost;
 }
 
+// Build the primary-draw object from a winning candidate { z, ce, vote, voteReason }.
+function buildDraw(tf, { z, ce, vote, voteReason }, price) {
+  return {
+    tf,
+    kind: /ifvg|inv/i.test(z.kind || '') || z.state === 'inverted' ? 'ifvg' : z.kind || 'fvg',
+    dir: asDir(z.dir),
+    top: z.top,
+    bottom: z.bottom,
+    ce,
+    disp_score: Number.isFinite(z.disp_score) ? z.disp_score : 0,
+    size_quality: z.size_quality ?? null,
+    took_liq: true,
+    state: z.state || 'fresh',
+    distance_to_ce: Number.isFinite(price) ? price - ce : null,
+    // zone above/below current price — for the legacy biasFromDraw fallback
+    // (live-ltf-resolver) when htf_bias_dir is absent.
+    position: Number.isFinite(price) ? (ce > price ? 'above_price' : 'below_price') : null,
+    // observed-reaction passthrough (engine FVG fields) — the vote reads
+    // state, but downstream biasFromDraw + PREP still read these.
+    reacted: !!z.reacted,
+    ...(z.reaction_dir ? { reaction_dir: z.reaction_dir } : {}),
+    near: true,
+    significant: true,
+    vote,
+    vote_reason: voteReason,
+    cite: z.cite ?? null,
+  };
+}
+
+// The qualifying near-price significant voting candidates of one TF block, best
+// displacement first ("block out the noise"); nearest as the tiebreak.
+function qualifyingZones(block, price) {
+  return [...(block?.top_fvgs ?? []), ...(block?.top_bprs ?? [])]
+    .map((z) => {
+      const ce = Number.isFinite(z?.ce) ? z.ce : (Number(z?.top) + Number(z?.bottom)) / 2;
+      const v = arrayVote(z);
+      return { z, ce, vote: v.vote, voteReason: v.reason };
+    })
+    .filter((c) => c.vote !== 'none' && c.z?.took_liq === true && nearPrice(c.ce, price) && isSignificant(c.z))
+    .sort((a, b) => sigScore(b.z) - sigScore(a.z) || Math.abs(a.ce - price) - Math.abs(b.ce - price));
+}
+
 /**
  * Pick the ONE significant near-price PD array that sets HTF bias (daily-bias
  * §2: "pick one primary draw … read the reaction off it"). Walks TFs 4H→Daily→1H;
@@ -114,52 +156,36 @@ function sigScore(zone) {
  * liquidity in creation, (c) sit near price; picks the nearest. Returns null when
  * no significant near-price array exists (→ no HTF vote, e.g. 12-12 "no HTF").
  *
+ * FRESH-OPPOSING INTRADAY OVERRIDE (GOFNQ_HTF_INTRADAY_DRAW=1, default-off): when
+ * the HTF winner is an INVERTED array, a FRESH/ce_tapped near-price displacive
+ * took-liq array pointing the OPPOSITE way — even on m15/m5 — takes over as the
+ * draw. Lanto reads the fresh near-price gap as the bias array (ENTRY 05:38/06:35;
+ * daily-bias §2): a respected fresh gap outranks a failed (inverted) one. (06-16:
+ * an inverted h1 bear FVG votes bull and masks the fresh m5 bear FVG above price —
+ * the real bearish draw Lanto traded.) Fires ONLY against an inverted winner, so a
+ * day where the inverted vote AGREES with the fresh arrays (06-17) is untouched.
+ *
  * @param {object} htfByTf digest-shaped { daily, h4, h1 } each { top_fvgs[], top_bprs[] }
- * @param {{price:number|null}} opts current price for near-ness + distance
+ * @param {{price:number|null, intradayByTf?:object}} opts current price + optional
+ *   { m15, m5 } intraday blocks (same shape) for the fresh-opposing override.
  */
-export function pickPrimaryDraw(htfByTf, { price = null } = {}) {
+export function pickPrimaryDraw(htfByTf, { price = null, intradayByTf = null } = {}) {
+  let winner = null;
   for (const tf of TF_PRIORITY) {
-    const block = htfByTf?.[tf] ?? {};
-    const zones = [...(block.top_fvgs ?? []), ...(block.top_bprs ?? [])];
-    const qualifying = zones
-      .map((z) => {
-        const ce = Number.isFinite(z?.ce) ? z.ce : (Number(z?.top) + Number(z?.bottom)) / 2;
-        const v = arrayVote(z);
-        return { z, ce, vote: v.vote, voteReason: v.reason };
-      })
-      .filter((c) => c.vote !== 'none' && c.z?.took_liq === true && nearPrice(c.ce, price) && isSignificant(c.z))
-      // best displacement first ("block out the noise"); nearest as the tiebreak.
-      .sort((a, b) => sigScore(b.z) - sigScore(a.z) || Math.abs(a.ce - price) - Math.abs(b.ce - price));
-    if (qualifying.length) {
-      const { z, ce, vote, voteReason } = qualifying[0];
-      return {
-        tf,
-        kind: /ifvg|inv/i.test(z.kind || '') || z.state === 'inverted' ? 'ifvg' : z.kind || 'fvg',
-        dir: asDir(z.dir),
-        top: z.top,
-        bottom: z.bottom,
-        ce,
-        disp_score: Number.isFinite(z.disp_score) ? z.disp_score : 0,
-        size_quality: z.size_quality ?? null,
-        took_liq: true,
-        state: z.state || 'fresh',
-        distance_to_ce: Number.isFinite(price) ? price - ce : null,
-        // zone above/below current price — for the legacy biasFromDraw fallback
-        // (live-ltf-resolver) when htf_bias_dir is absent.
-        position: Number.isFinite(price) ? (ce > price ? 'above_price' : 'below_price') : null,
-        // observed-reaction passthrough (engine FVG fields) — the vote reads
-        // state, but downstream biasFromDraw + PREP still read these.
-        reacted: !!z.reacted,
-        ...(z.reaction_dir ? { reaction_dir: z.reaction_dir } : {}),
-        near: true,
-        significant: true,
-        vote,
-        vote_reason: voteReason,
-        cite: z.cite ?? null,
-      };
+    const qualifying = qualifyingZones(htfByTf?.[tf], price);
+    if (qualifying.length) { winner = { tf, c: qualifying[0] }; break; }
+  }
+
+  if (process.env.GOFNQ_HTF_INTRADAY_DRAW === '1' && intradayByTf
+      && winner && winner.c.z?.state === 'inverted') {
+    for (const tf of ['m15', 'm5']) {
+      const opposing = qualifyingZones(intradayByTf?.[tf], price).filter((c) =>
+        (c.z?.state === 'fresh' || c.z?.state === 'ce_tapped') && c.vote !== winner.c.vote);
+      if (opposing.length) { winner = { tf, c: opposing[0] }; break; }
     }
   }
-  return null;
+
+  return winner ? buildDraw(winner.tf, winner.c, price) : null;
 }
 
 /**
@@ -169,8 +195,8 @@ export function pickPrimaryDraw(htfByTf, { price = null } = {}) {
  *
  * @returns {{vote:'bullish'|'bearish'|'none', significant:boolean, draw:object|null, reason:string}}
  */
-export function htfVote(htfByTf, { price = null } = {}) {
-  const draw = pickPrimaryDraw(htfByTf, { price });
+export function htfVote(htfByTf, { price = null, intradayByTf = null } = {}) {
+  const draw = pickPrimaryDraw(htfByTf, { price, intradayByTf });
   if (!draw) return { vote: 'none', significant: false, draw: null, reason: 'no-significant-near-price-array' };
   return { vote: draw.vote, significant: true, draw, reason: draw.vote_reason };
 }

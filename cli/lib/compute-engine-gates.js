@@ -160,7 +160,14 @@ export function computeEngineGates({
     h4: { top_fvgs: engineByTf?.h4?.fvgs ?? [], top_bprs: engineByTf?.h4?.bprs ?? [] },
     h1: { top_fvgs: engineByTf?.h1?.fvgs ?? [], top_bprs: engineByTf?.h1?.bprs ?? [] },
   };
-  const htf_vote = htfVote(htfByTf, { price: px });
+  // Intraday blocks for the fresh-opposing override (pillar1-bias pickPrimaryDraw,
+  // GOFNQ_HTF_INTRADAY_DRAW): a fresh near-price m15/m5 array overrides an inverted
+  // HTF vote pointing the other way (06-16). Only consulted behind the flag.
+  const intradayByTf = {
+    m15: { top_fvgs: engineByTf?.m15?.fvgs ?? [], top_bprs: engineByTf?.m15?.bprs ?? [] },
+    m5: { top_fvgs: engineByTf?.m5?.fvgs ?? [], top_bprs: engineByTf?.m5?.bprs ?? [] },
+  };
+  const htf_vote = htfVote(htfByTf, { price: px, intradayByTf });
   const overnight_vote = overnightVote(engine.quality);
   const bias = { htf: htf_vote, overnight: overnight_vote, draw: htf_vote.draw };
 
