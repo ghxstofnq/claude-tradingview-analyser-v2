@@ -36,11 +36,11 @@ Each task carries **acceptance** (done = true when…) and **verify** (how to pr
 
 ## Phase B — UI fidelity (transparency mandate)  ◂ parallel to A
 
-- [~] **B1 — Field→source map** ([docs/ui-fidelity-audit.md](../docs/ui-fidelity-audit.md)). **LIVE done (2026-06-27):**
-      one violation found+fixed (`modelLabel` hardcoded the model family → now reads the bot's `model_class`, surfaced
-      via `deterministicPacketToSurfacePayload`); +4 tests, suite 1562/0. Rest of LIVE reads bot values or transparent
-      monitoring geometry. **PENDING:** PREP + REVIEW panels (REVIEW suspect: re-aggregates R/win-rate — check vs
-      `backtest-analytics.js`).
+- [x] **B1 — Field→source map DONE (2026-06-27)** ([docs/ui-fidelity-audit.md](../docs/ui-fidelity-audit.md)).
+      Audited PREP · LIVE · REVIEW. **One real violation** (LIVE `modelLabel` ignored the bot's `model_class`) —
+      found+fixed (now surfaced + read; +4 tests, suite 1562/0). PREP reads `brief.json` faithfully; REVIEW aggregates
+      the bot's per-trade outcomes faithfully. Remaining items are transparent monitoring geometry / bot-field
+      fallbacks, documented. (B2 re-point: only `modelLabel` needed it — already done in B1.)
 - [ ] **B2 — Re-point violators.** Make each flagged field read the bot's source of truth; delete UI-only computation.
       **Acceptance:** no panel field computes a number the bot doesn't also read. **Verify:** code review of the diff
       against the B1 table; each former violation now reads the cited source.
