@@ -42,6 +42,16 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
   const htfBias = brief?.htf_bias_dir ?? biasFromDraw(brief?.primary_draw) ?? null;
   if (!htfBias) return null;
 
+  // FRESH-DRAW backing (GOFNQ_FRESH_DRAW_HOLD): the lean is backed by a FRESH
+  // near-price PD array voting the lean direction — the reaction is still pending
+  // AT that array, so an early opposing grab doesn't flip the lean (06-16). The
+  // draw's vote already encodes its lifecycle (fresh/ce_tapped → own dir).
+  const pd = brief?.primary_draw ?? null;
+  const leanBackedByFreshDraw = !!pd
+    && (pd.state === 'fresh' || pd.state === 'ce_tapped')
+    && pd.near === true
+    && (pd.vote === htfBias);
+
   const gates = bundle?.gates?.engine ?? {};
   const swingStructs = swingStructuresForBias(bundle);          // open read → STRUCTURE_TF
   const swingStructsRealign = swingStructuresForRealign(bundle); // realignment → REALIGN_TF
@@ -73,6 +83,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
     // Strong-overnight gate for wait-for-reaction (BIAS 39:20): the |net| of the
     // overnight move. From the bundle's engine quality row, else the brief.
     overnight_net: bundle?.engine?.quality?.overnight_net ?? brief?.overnight_net ?? null,
+    lean_backed_by_fresh_draw: leanBackedByFreshDraw,
     // Post-window, freeze the open read like the backtest: ignore a `rejected`
     // flag that matured after minute 30 and rely on the window-confined closes.
     // ONLY when we actually have window-close coverage (windowClosesOverride);

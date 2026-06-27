@@ -82,6 +82,7 @@ export function resolveOpenReaction({
   window_closes = [],
   ignore_engine_rejected_flag = false,
   overnight_net = null,
+  lean_backed_by_fresh_draw = false,
 } = {}) {
   const targets = overnight_targets instanceof Set ? overnight_targets : new Set(overnight_targets);
   const { startMs = -Infinity, endMs = Infinity } = window;
@@ -146,7 +147,17 @@ export function resolveOpenReaction({
   // both bull, overnight +448 strong → the 09:30 LO.H grab shouldn't flip it; oracle = long.)
   const ovnBacksLean = Number.isFinite(overnight_net) && Math.abs(overnight_net) >= STRONG_OVN_NET
     && ((overnight_net > 0 && htf_bias === 'bullish') || (overnight_net < 0 && htf_bias === 'bearish'));
-  if (process.env.GOFNQ_WAIT_FOR_REACTION !== '0' && htf_bias && !aligned && interaction !== 'failed_break' && ovnBacksLean) {
+  // FRESH-DRAW backing (GOFNQ_FRESH_DRAW_HOLD=1, default-off): the lean is backed by
+  // a FRESH near-price PD array in the lean direction that price has NOT reacted to
+  // yet — the real reaction is still pending AT that array, so an early opposing grab
+  // (the liquidity before the array) does NOT flip the lean (BIAS 20:33 "it's the
+  // reaction"; 38:23 "wait for later displacement"). 06-16: bearish lean off the fresh
+  // m5/m15 bear FVG above price; the 09:30-34 low-sweep bounce is the grab, the 09:55
+  // rejection AT the bear FVG is the reaction. Complements the strong-overnight gate
+  // for chop-overnight days the overnight test can't cover.
+  const freshDrawBacks = process.env.GOFNQ_FRESH_DRAW_HOLD === '1' && lean_backed_by_fresh_draw === true;
+  if (process.env.GOFNQ_WAIT_FOR_REACTION !== '0' && htf_bias && !aligned && interaction !== 'failed_break' && (ovnBacksLean || freshDrawBacks)) {
+    const why = ovnBacksLean ? `strong overnight ${overnight_net} backs it` : 'a fresh near-price draw backs it';
     return {
       interaction: 'pending_reaction',
       level: last.target,
@@ -154,7 +165,7 @@ export function resolveOpenReaction({
       htf_ltf_alignment: 'unclear',
       is_retrace_day: false,
       grade_cap: 'B',
-      cite: `${cite} (raw grab diverges from HTF lean + strong overnight ${overnight_net} backs it → wait, BIAS 39:20)`,
+      cite: `${cite} (raw grab diverges from HTF lean + ${why} → wait, BIAS 39:20/20:33)`,
     };
   }
 

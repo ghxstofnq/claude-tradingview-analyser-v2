@@ -68,6 +68,38 @@ test('wait-for-reaction opt-out (=0): a strong overnight does not change the div
   } finally { process.env.GOFNQ_WAIT_FOR_REACTION = prev; }
 });
 
+// FRESH-DRAW HOLD (GOFNQ_FRESH_DRAW_HOLD=1, default-off) — 06-16: a weak/chop
+// overnight, so the strong-overnight gate can't hold the lean, but a FRESH near-
+// price array backs it → an early opposing grab doesn't flip it (the reaction is
+// pending AT the array). BIAS 20:33 / 38:23.
+test('fresh-draw hold: a fresh near-price draw holds the lean on a weak-overnight divergent grab', () => {
+  const prev = process.env.GOFNQ_FRESH_DRAW_HOLD;
+  process.env.GOFNQ_FRESH_DRAW_HOLD = '1';
+  try {
+    const r = resolveOpenReaction({
+      htf_bias: 'bearish',
+      sweeps: [sweep({ target: 'AS.L', rejected: true })], // low rejection → bullish grab, divergent
+      window: W,
+      overnight_net: -21, // chop, < STRONG_OVN_NET → ovnBacksLean false
+      lean_backed_by_fresh_draw: true,
+    });
+    assert.equal(r.interaction, 'pending_reaction');
+    assert.equal(r.ltf_bias, 'bearish');
+  } finally { process.env.GOFNQ_FRESH_DRAW_HOLD = prev; }
+});
+
+test('fresh-draw hold default-off: the weak-overnight divergent grab still flips the lean', () => {
+  const r = resolveOpenReaction({
+    htf_bias: 'bearish',
+    sweeps: [sweep({ target: 'AS.L', rejected: true })],
+    window: W,
+    overnight_net: -21,
+    lean_backed_by_fresh_draw: true, // present, but flag off → no hold
+  });
+  assert.equal(r.ltf_bias, 'bullish');
+  assert.equal(r.htf_ltf_alignment, 'divergent');
+});
+
 // §2.3: extension day — overnight extends the HTF move and NY continues
 // through the overnight low toward the draw. HTF and LTF point the same way
 // (§2.4 A+ definition), so alignment holds.
