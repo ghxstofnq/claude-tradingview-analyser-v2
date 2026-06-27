@@ -1398,6 +1398,10 @@ function deterministicPacketToSurfacePayload(packet, ev) {
   return {
     id: deterministicSetupId(packet, ev),
     model: packet.model,
+    // Lanto's model CLASS (Reversal/Continuation) — computed in execution-packet.js
+    // from leg direction, distinct from the lifecycle name. Surfaced so the UI
+    // shows the bot's own classification instead of guessing it (UI-fidelity mandate).
+    model_class: packet.model_class ?? null,
     side: packet.side,
     entry: packet.entry?.price,
     entry_cite: packet.entry?.evidenceRef ?? 'deterministic.entry',

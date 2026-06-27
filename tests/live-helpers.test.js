@@ -215,6 +215,19 @@ describe("modelLabel (Stage F — 2×2 entry-model framing)", () => {
     assert.equal(modelLabel({ model: "Custom" }), "Custom");
     assert.equal(modelLabel({}), "—");
   });
+  // Fidelity: read the bot's own model_class (Reversal/Continuation, computed in
+  // execution-packet.js from leg direction) instead of guessing it from the
+  // lifecycle name — they can diverge (a Trend lifecycle can be a Reversal class).
+  it("reads the bot's model_class over the lifecycle-name guess (divergent case)", () => {
+    assert.equal(modelLabel({ model: "Trend", model_class: "Reversal" }), "Reversal · Trend");
+    assert.equal(modelLabel({ model: "MSS", model_class: "Continuation" }), "Continuation · MSS");
+  });
+  it("surfaces model_class for inversions too (Reversal/Continuation · Inversion)", () => {
+    assert.equal(modelLabel({ model: "Inversion", model_class: "Continuation" }), "Continuation · Inversion");
+  });
+  it("agrees with the legacy guess when model_class matches the lifecycle", () => {
+    assert.equal(modelLabel({ model: "MSS", model_class: "Reversal" }), "Reversal · MSS");
+  });
 });
 
 describe("explainNoTradeReason", () => {

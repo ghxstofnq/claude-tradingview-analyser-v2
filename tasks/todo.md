@@ -36,10 +36,11 @@ Each task carries **acceptance** (done = true when…) and **verify** (how to pr
 
 ## Phase B — UI fidelity (transparency mandate)  ◂ parallel to A
 
-- [ ] **B1 — Field→source map.** For every PREP/LIVE/REVIEW panel field (+ topbar chrome), record which bot data
-      source feeds it (the analysis bundle / `state/session/<date>/<session>/*` files the chain reads). Flag any
-      UI-only, derived, or fabricated number. **Acceptance:** a field→source table committed under `docs/`. **Verify:**
-      every flagged field cites the exact bot source path or is marked "UI-only — violates mandate."
+- [~] **B1 — Field→source map** ([docs/ui-fidelity-audit.md](../docs/ui-fidelity-audit.md)). **LIVE done (2026-06-27):**
+      one violation found+fixed (`modelLabel` hardcoded the model family → now reads the bot's `model_class`, surfaced
+      via `deterministicPacketToSurfacePayload`); +4 tests, suite 1562/0. Rest of LIVE reads bot values or transparent
+      monitoring geometry. **PENDING:** PREP + REVIEW panels (REVIEW suspect: re-aggregates R/win-rate — check vs
+      `backtest-analytics.js`).
 - [ ] **B2 — Re-point violators.** Make each flagged field read the bot's source of truth; delete UI-only computation.
       **Acceptance:** no panel field computes a number the bot doesn't also read. **Verify:** code review of the diff
       against the B1 table; each former violation now reads the cited source.

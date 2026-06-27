@@ -139,6 +139,14 @@ export function liveGridFromTrade(trade, lastClose) {
 export function modelLabel(setup) {
   const m = String(setup?.model || "").trim();
   if (!m) return "—";
+  const mech = /^mss$/i.test(m) ? "MSS" : /^trend$/i.test(m) ? "Trend" : /^inversion$/i.test(m) ? "Inversion" : m;
+  // Prefer the bot's OWN model_class (Reversal/Continuation — execution-packet.js
+  // computes it from leg direction and warns it's distinct from the lifecycle
+  // name). The UI must show the bot's classification, not re-derive it.
+  const cls = String(setup?.model_class || "").trim().toLowerCase();
+  const family = cls === "reversal" ? "Reversal" : cls === "continuation" ? "Continuation" : null;
+  if (family) return `${family} · ${mech}`;
+  // Back-compat fallback when model_class isn't surfaced: the legacy guess.
   if (/^mss$/i.test(m)) return "Reversal · MSS";
   if (/^trend$/i.test(m)) return "Continuation · Trend";
   if (/^inversion$/i.test(m)) return "Inversion";
