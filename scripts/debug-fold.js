@@ -93,13 +93,37 @@ for (const entry of tape.entries) {
       grade_cap: openReaction.grade_cap,
     };
   }
+  // Mirror runBacktest's per-bar context re-injection (backtest-engine.js:428-452)
+  // EXACTLY, or this tracer diverges from the real fold. The recorder freezes the
+  // 09:30 pre-open grade as pillar1.status='fail'; without the override the walker
+  // stays blocked even after the draw resolves, so the trace shows no-trade while
+  // fold-bias books the win (2026-06-28: 06-09 traced 0 packets vs fold-bias +9.47).
+  if (context?.session_state?.pillar1) {
+    entry.inputs.session_state = {
+      ...(entry.inputs.session_state ?? {}),
+      pillar1: context.session_state.pillar1,
+    };
+  }
+  if (context?.untaken_targets) {
+    entry.inputs.untaken_targets = context.untaken_targets;
+  }
+  const htfDisp = context?.session_state?.pillar2?.htf_displacement;
+  if (htfDisp != null) {
+    entry.inputs.session_state = {
+      ...(entry.inputs.session_state ?? {}),
+      pillar2: { ...(entry.inputs.session_state?.pillar2 ?? {}), htf_displacement: htfDisp },
+    };
+  }
   const truth = await barCloseTruth.buildDeterministicPacketTruthFromInputs({
     inputs: entry.inputs, previousWalkers: walkers, event: entry.event, session,
   });
   walkers = truth?.walkers ?? walkers;
   if (!inRange(entry.event.ts)) continue;
   const ws = (truth.walkers ?? []).map((x) => `${x.model ?? x.kind ?? "?"}/${x.side ?? x.dir ?? "?"}@${x.stage ?? "?"}`).join(" ");
-  const pk = truth.bestPacket ? ` PACKET ${truth.bestPacket.model} ${truth.bestPacket.side} ${truth.bestPacket.grade ?? ""} e=${truth.bestPacket.entry}` : "";
+  // Numeric entry/stop/tp1 live on surfacePayload (bestPacket.entry is the audit
+  // object → prints [object Object]); mirror foldTape's field reads.
+  const sp = truth.surfacePayload ?? {};
+  const pk = truth.bestPacket ? ` PACKET ${sp.model ?? truth.bestPacket.model} ${sp.side ?? truth.bestPacket.side} ${sp.grade ?? truth.bestPacket.grade ?? ""} e=${sp.entry ?? "?"} s=${sp.stop ?? "?"} tp1=${sp.tp1 ?? "?"}` : "";
   const bl = (truth.blockers ?? []).slice(0, 4).join(",");
   console.log(`${et(entry.event.ts)} verdict=${truth.finalVerdict} walkers=[${ws}]${pk}${bl ? ` blocked:${bl}` : ""}`);
 }
