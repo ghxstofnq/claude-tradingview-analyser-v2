@@ -131,8 +131,9 @@ export function recomputeGate(bundle) {
 
 // Self-healing brief: recompute payloads from the recorded bundle with CURRENT
 // code (no stale baked targets); fall back to recorded payloads; null if a
-// tape-only run (re-record it first).
-function regen(runDir, session, symbol) {
+// tape-only run (re-record it first). Exported so diagnostics (scripts/debug-fold.js)
+// build the SAME recomputed context the fold uses, instead of stale baked payloads.
+export function regen(runDir, session, symbol) {
   let rec = null;
   try { rec = readJson(path.join(runDir, "brief-payloads.json")); } catch { /* regen */ }
   const bp = path.join(runDir, "brief-bundle.json");
