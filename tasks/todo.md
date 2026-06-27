@@ -1,82 +1,73 @@
-# Todo — Validated chain → next-London live demo, parity as the keystone
+# Todo — Faithful-Lanto deepening + backtest≡live parity (no live trading in scope)
 
 Branch: `feat/faithful-lanto-rebuild`. Plan: [tasks/plan.md](plan.md). Goal: [docs/intent/2026-06-27-end-goal.md](../docs/intent/2026-06-27-end-goal.md).
 Each task carries **acceptance** (done = true when…) and **verify** (how to prove it). Checkpoints are hard, user-reviewed gates.
+Tracks run in parallel; only the arrows in the plan's dependency graph are hard blockers.
 
-> **Already done (do not redo):** Stage A–E brain + Tradovate exec engine merged; **Stage G complete 2026-06-23**
-> — the deterministic chain is faithful to Lanto on the 5 recordable 2026 oracle sessions (right bias/grade/model/side,
-> stands aside on the no-trade day, valid winning entries). Detail in git + `docs/strategy/lanto-oracle.md` + the
-> superseded checklist in git history. Parity fixes shipped: pre-open anchor `1459970`, honest labels `fae8449`,
-> no-draw 2/3 days `c906e6b`.
+> **Scope (user, 2026-06-28):** NO live trading in this plan — live London demo, Tradovate arming, and the
+> real-money gate are **deferred to a later plan**. This plan = faithfulness deepening + parity + corpus + UI.
+>
+> **Already done (do not redo):** Stage A–E brain merged; **Stage G complete 2026-06-23** (chain faithful on
+> 5 oracle sessions). **3-vote grade (option 2) BUILT + default-on** (`pillar1-bias.js` + nested `deriveGrade`).
+> **Near-price draw (gap #4) BUILT.** **Leader/SMT (option 1) corpus-folded + signed off** — adopt displacement
+> leader behind `GOFNQ_FAITHFUL_LEADER` (off), demote divergence-SMT to confirmation overlay
+> ([spec](../docs/superpowers/specs/2026-06-25-faithful-pair-leader-design.md)). Parity gate standing+green (`npm run parity`).
 
 ---
 
-## Phase A — Parity gate (THE keystone)  ◂ build first; everything trusts it
+## TRACK 0 — Foundation: paired corpus + oracle (option 4)  ◂ binding constraint; start now
 
-- [x] **A1 — Audit DONE (2026-06-27).** Mapped the existing pieces (verify-live-parity = one-off htf_fallback; backtest-parity
-      = synthetic engine-invariant guards; day-tape = backtest-vs-oracle, the trustworthy current-code instrument). Key
-      finding: `walker-inputs.jsonl` BAKES the resolved context, so a raw current-brain fold over OLD recordings = stale
-      context, not a parity break (06-18 proof). Valid parity = SAME-CODE dual-runs only. Committed-fixture strategy: slim
-      both sides (strip brief-time blocks, verified lossless) into `tests/parity/*.parity.json`.
-- [x] **A2 — Standing parity gate DONE (2026-06-27).** `scripts/make-parity-fixture.mjs` folds live `walker-inputs` AND the
-      backtest tape, REFUSES to write unless they agree (so a fixture IS a proof), slims losslessly. `tests/parity-gate.test.js`
-      re-folds both committed sides and asserts identical packets + frozen expectation. Seeded with 06-25 (3 packets, live==bt,
-      17 MB slim). `npm run parity` green; `npm run parity:add <date>` builds more. **Mechanical live==bt agreement — no
-      grading needed** (faithfulness stays the day-tape gate's job).
-- [ ] **A3 — Expand `verified:true` tapes 6 → corpus** (NEEDS USER LANTO HAND-GRADE — gate prints "hand-grade and flip the flag").
-      Separately: grow the parity corpus with `npm run parity:add` from each FUTURE same-code live session (the demo onward).
-- [x] **A4 — Wired into CI DONE (2026-06-27).** `tests/parity-gate.test.js` matches the `npm test` glob (`tests/*.test.js`),
-      so a parity break fails the suite. Full suite **1564/0**. (Tamper-proof by construction: the builder refuses to create a
-      fixture whose sides disagree.)
-- [ ] **✅ CHECKPOINT P** — parity gate standing + green; backtest ≡ live on the corpus. **User reviews.** (keystone)
+- [ ] **T0.1 — Replay-record paired MNQ+MES sessions (off-session only).** Via `tv record-tape` (single-TF;
+      replay poisons live capture, so drive TV only off-session) → a paired tape on disk per session. Re-record
+      recordable 2026 NY-AM (+ London) dates (Stage-G method). **Acceptance:** ≥3-4 paired weeks of tapes exist.
+      **Verify:** `ls tests/tapes/` count grows; each has MNQ + MES; `npm run tapes` parses them.
+- [ ] **T0.2 — Hand-grade each vs Discord + lock the oracle.** Compare bias/grade/model/side/instrument to
+      Lanto's Discord call; record in `docs/strategy/lanto-oracle.md`; flip tape `verified:true` only after the
+      user confirms. **Acceptance:** oracle grows past 7 sessions, each with a Discord-cited expectation.
+      **Verify:** oracle diff reviewed; `npm run tapes` passes the newly-verified tapes.
 
-## Phase B — UI fidelity (transparency mandate)  ◂ parallel to A
+## A — Parity gate (keeps the folds trustworthy)  ◂ mostly done
 
-- [x] **B1 — Field→source map DONE (2026-06-27)** ([docs/ui-fidelity-audit.md](../docs/ui-fidelity-audit.md)).
-      Audited PREP · LIVE · REVIEW. **One real violation** (LIVE `modelLabel` ignored the bot's `model_class`) —
-      found+fixed (now surfaced + read; +4 tests, suite 1562/0). PREP reads `brief.json` faithfully; REVIEW aggregates
-      the bot's per-trade outcomes faithfully. Remaining items are transparent monitoring geometry / bot-field
-      fallbacks, documented. (B2 re-point: only `modelLabel` needed it — already done in B1.)
-- [ ] **B2 — Re-point violators.** Make each flagged field read the bot's source of truth; delete UI-only computation.
-      **Acceptance:** no panel field computes a number the bot doesn't also read. **Verify:** code review of the diff
-      against the B1 table; each former violation now reads the cited source.
-- [ ] **B3 — Probe panel == bot (no computer-use).** Via the design-harness (Playwright headless) / state-file reads,
-      assert the rendered panel value equals the bot's input value for the key fields (grade, bias, primary draw,
-      surfaced setup, stop/TP). **Acceptance:** an automated probe passes for those fields on a recorded session.
-      **Verify:** the probe script prints panel-value == bot-value per field; any mismatch fails.
+- [x] **A1 — Audit DONE (2026-06-27).** walker-inputs BAKE resolved context → valid parity = SAME-CODE dual-runs only.
+- [x] **A2 — Standing parity gate DONE.** `make-parity-fixture.mjs` refuses to write unless live==bt; `parity-gate.test.js` re-folds both. Seeded 06-25.
+- [ ] **A3 — Expand the parity corpus from EXISTING recordings.** Build fixtures with `npm run parity:add <date>`
+      from any past/replay-recorded session that has `walker-inputs.jsonl` on disk (no new live trading).
+      **Acceptance:** parity corpus > 1 session. **Verify:** `npm run parity` green on each added fixture.
+- [x] **A4 — Wired into CI DONE.** `tests/parity-gate.test.js` in the `npm test` glob; suite green.
+- [ ] **✅ CHECKPOINT P** — parity gate standing + green on the recorded corpus. **User reviews.**
+
+## TRACK 2 — Faithful levers (each default-OFF flag, folded old-vs-new, user-approved one at a time)
+
+- [ ] **G1 — Validate the 3-vote grade (option 2; already default-on).** Re-grade the Track-0 oracle under the live
+      grade; fold `scripts/fold-pillar1.mjs` (and `fold-live-corpus.mjs`); spot-check vs Discord bias labels.
+      **Acceptance:** grades match Lanto's actual calls on the checked sessions; no unexplained regressions; OR a
+      tuning need is identified with a fold table. **Verify:** `npm test` (tape+parity gates) + `npm run smoke:fixtures` + the fold report. **◇ user reviews.**
+- [ ] **G2a — MSS-significance spawn gate (gap #3).** A valid MSS/Inversion spawn needs significant liquidity +
+      matching displacement, not any rejected sweep. Reuse the `pillar1-bias.js` significance logic in the walker
+      spawn (`app/main/strategy/walkers/*-lifecycle.js`), behind `GOFNQ_MSS_SIGNIFICANCE=1`. **Acceptance:** premature
+      MSS/inversion spawns drop on the chop days without losing the verified A+ days. **Verify:** unit tests on the gate +
+      fold old-vs-new on the corpus; verified tapes still pass. **◇ user reviews fold.**
+- [ ] **G2b — `join_consecutive` FVG de-noise (option 3).** Merge stacked same-direction FVGs before walker spawn
+      (SMC `join_consecutive`), behind a flag. **Acceptance:** duplicate stacked-zone walkers collapse; no verified
+      tape regresses. **Verify:** unit test + fold. **◇ user reviews fold.**
+- [ ] **G3 — Faithful leader default-on + SMT overlay (option 1).** After ≥3-4 paired weeks (Track 0), fold
+      `scripts/fold-pair-leader.mjs` (always-MNQ vs displacement-leader); if it survives, flip `GOFNQ_FAITHFUL_LEADER`
+      on; expose divergence-SMT as an optional open-reaction direction confirmation (never the symbol/grade gate);
+      add a test asserting the leader pick never alters the Pillar-1 grade. **Acceptance:** leader beats/ties always-MNQ
+      across the paired weeks with no worse −3R profile; SMT is overlay-only. **Verify:** fold table + leader-pick unit tests. **◇ user reviews.**
+- [ ] **G4 — Pillar-3 MES coverage (the dominant edge limiter).** Audit why MES setups ≠ Lanto's on the MES-led days
+      (01-29/06-15/04-06/06-22 from spec §6b); close the entry-model gap so a correct leader converts. **Acceptance:**
+      the MES-led oracle days produce the right entry/grade in the fold. **Verify:** fold on the MES tapes + verified-tape gate. **◇ user reviews.**
+
+## TRACK 3 — UI fidelity (transparency mandate)  ◂ parallel
+- [x] **B1 — Field→source map DONE (2026-06-27)** ([docs/ui-fidelity-audit.md](../docs/ui-fidelity-audit.md)); one violation fixed (`modelLabel`).
+- [ ] **B2 — Re-point any remaining UI-only numbers.** **Acceptance:** no panel field computes a number the bot doesn't read. **Verify:** diff vs the B1 table.
+- [ ] **B3 — Probe panel == bot (no computer-use).** Via design-harness/state-file reads, assert rendered value == bot input for grade/bias/draw/setup/stop/TP. **Verify:** probe prints equality per field; mismatch fails.
 - [ ] **✅ CHECKPOINT U** — panels mirror the bot's analysis. **User reviews.**
 
-## Phase C — Live bring-up + Tradovate demo arming (GATE, no orders placed)
+---
 
-- [x] **C0 — deploy-parity arming guard (done 2026-06-27).** The supervisor refuses to cold-arm live when the running
-      process is behind its on-disk code (`version-status.restart_needed`) — loud notify, no mode flip, no detector.
-      Closes the #1 parity break (06-24 ran stale: 11 inversions live vs 6 backtest). `session-supervisor.js` +
-      `electron-main.js`; +4 tests; suite 1559/0.
-- [ ] **C1** TV Desktop CDP 9225 answers (`curl -s --max-time 4 http://127.0.0.1:9225/json/version`). *(green 06-24)*
-- [ ] **C2** Capture health all-fresh for London (Asia + ETH + 30m), MES + MNQ. **Verify:** `capture_health.ok` both symbols.
-- [ ] **C3** `node cli/index.js live-check --session london` clean / only known blockers. **Verify:** parseable, no hard blocks.
-- [ ] **C4** Supervisor auto-arms london; detector heartbeat < 120s; deterministic open-reaction resolver active. *(green 06-24)*
-- [ ] **C5** Tradovate **demo** connected + account confirmed (the 06-24 blocker — webview logged into Paper/Tradovate).
-- [ ] **C6** `automationMode=auto` + resume-auto; guardrails set (per-trade / daily-loss). **Verify:** state shows armed + limits.
-- [ ] **C7** Routing **dry-verify** (adapter own-host route resolves) — **NO order placed**. **Verify:** unit/inspection only.
-- [ ] **✅ CHECKPOINT R** — readiness green + demo armed. **User confirms the London target.**
-
-## Phase D — First live demo session (next London)
-
-- [ ] **D1** Pre-open green; symbol pinned (PAIR_PRIMARY); mode armed.
-- [ ] **D2** Background Monitor on bar-close + tail `setups`/`no-trades`/`fills`/logs.
-- [ ] **D3** Supervise the session; hot-fix **plumbing only** (the engine owns orders) — slim-file starvation /
-      unknown-session / missing-ltf-bias / symbol-mismatch / capture-wedge / exec-route.
-- [ ] **D4** Recap: per-trade (vs what the chain expected) + defects + fixes.
-- [ ] **✅ CHECKPOINT S** — traded correctly? triage defects. **User reviews.**
-
-## Phase E — Iterate to clean
-
-- [ ] **E1** Fix Phase-D defects (TDD + re-fold + re-probe); re-guard the parity gate; accumulate a few clean sessions.
-
-## Phase F — Real-money gate (separate, later; out of scope for the demo)
-
-- [ ] **F1** Define the trusted backtest window (representative; not the cherry-picked +138R weeks; regime-aware).
-- [ ] **F2** Run the faithful backtest over it; record faithful-rate + net R.
-- [ ] **F3** Present results; parity (Phase A) guarantees live reproduces them.
-- [ ] **✅ CHECKPOINT M** — money gate: **user's explicit call** to arm real capital.
+## Deferred to a later plan (out of scope here)
+Live London demo · Tradovate demo/real arming + order routing + live session supervision · real-money gate.
+The end-goal ([docs/intent/2026-06-27-end-goal.md](../docs/intent/2026-06-27-end-goal.md)) still stands —
+this plan is its prerequisite (make the chain trustworthy first).
