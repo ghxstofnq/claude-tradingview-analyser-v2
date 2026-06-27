@@ -176,10 +176,17 @@ export function pickPrimaryDraw(htfByTf, { price = null, intradayByTf = null } =
     if (qualifying.length) { winner = { tf, c: qualifying[0] }; break; }
   }
 
-  if (process.env.GOFNQ_HTF_INTRADAY_DRAW === '1' && intradayByTf
-      && winner && winner.c.z?.state === 'inverted') {
-    for (const tf of ['m15', 'm5']) {
-      const opposing = qualifyingZones(intradayByTf?.[tf], price).filter((c) =>
+  if (process.env.GOFNQ_HTF_INTRADAY_DRAW === '1' && winner && winner.c.z?.state === 'inverted') {
+    // Scan ALL TFs (HTF priority first, then intraday) for a FRESH/ce_tapped
+    // near-price opposing array — a respected fresh gap outranks a failed inverted
+    // one wherever it sits (06-16: m5/m15; 06-09: a fresh h1 bear shadowed by an
+    // inverted h4 bull purely by TF priority).
+    const blocks = [
+      ...TF_PRIORITY.map((tf) => [tf, htfByTf?.[tf]]),
+      ...(intradayByTf ? [['m15', intradayByTf.m15], ['m5', intradayByTf.m5]] : []),
+    ];
+    for (const [tf, block] of blocks) {
+      const opposing = qualifyingZones(block, price).filter((c) =>
         (c.z?.state === 'fresh' || c.z?.state === 'ce_tapped') && c.vote !== winner.c.vote);
       if (opposing.length) { winner = { tf, c: opposing[0] }; break; }
     }
