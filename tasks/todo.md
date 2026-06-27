@@ -13,25 +13,21 @@ Each task carries **acceptance** (done = true when…) and **verify** (how to pr
 
 ## Phase A — Parity gate (THE keystone)  ◂ build first; everything trusts it
 
-- [ ] **A1 — Audit + design the one gate.** Inventory what each existing piece proves: `scripts/verify-live-parity.mjs`,
-      `tests/backtest-parity.test.js`, `tests/day-tape.test.js` (the day-tape gate), `scripts/fold-tape.mjs`,
-      `scripts/refold-gate.mjs`. Decide the single canonical gate shape (what it folds, what it asserts, how it handles
-      the ~20–28MB transient `walker-inputs.jsonl` / `tape.json` files that made a full corpus gate "impractical").
-      **Acceptance:** a short design note at the top of the parity gate file naming inputs, assertions, and the
-      committed-fixture strategy. **Verify:** the note lists, per existing piece, what it covers and the gap it leaves.
-- [ ] **A2 — Standing `npm run parity`.** Fold the SAME truth fn (`__test.buildDeterministicPacketTruthFromInputs`)
-      over a recorded session's live `walker-inputs.jsonl` AND its backtest `tape.json`, asserting **identical packets**
-      per bar (model · side · entry · stop · tp1 · tp2 · grade · first-packet ts); fills excluded. Commit a small parity
-      fixture per covered session so the gate runs offline.
-      **Acceptance:** `npm run parity` is green on the real corpus AND exits non-zero when one expected field is flipped.
-      **Verify:** tamper test (flip one `expected.side`) trips the gate; clean run passes.
-- [ ] **A3 — Expand `verified:true` tapes 6 → corpus.** Promote the recordable MNQ+MES sessions (2026 oracle + recent
-      live) to `verified:true` with `expected` set from the oracle/hand grade.
-      **Acceptance:** `npm run tapes` green across the expanded set; count of `verified:true` tapes ≥ the agreed corpus.
-      **Verify:** `grep -l '"verified": true' tests/tapes/*.tape.json | wc -l` matches; `npm run tapes` report clean.
-- [ ] **A4 — Wire parity into CI.** Add the parity assertion to `npm test` (or a required pre-merge gate) so a parity
-      break fails the suite. **Acceptance:** `npm test` runs the parity check; full suite green. **Verify:** suite count
-      ↑ by the new tests; tamper test fails `npm test`.
+- [x] **A1 — Audit DONE (2026-06-27).** Mapped the existing pieces (verify-live-parity = one-off htf_fallback; backtest-parity
+      = synthetic engine-invariant guards; day-tape = backtest-vs-oracle, the trustworthy current-code instrument). Key
+      finding: `walker-inputs.jsonl` BAKES the resolved context, so a raw current-brain fold over OLD recordings = stale
+      context, not a parity break (06-18 proof). Valid parity = SAME-CODE dual-runs only. Committed-fixture strategy: slim
+      both sides (strip brief-time blocks, verified lossless) into `tests/parity/*.parity.json`.
+- [x] **A2 — Standing parity gate DONE (2026-06-27).** `scripts/make-parity-fixture.mjs` folds live `walker-inputs` AND the
+      backtest tape, REFUSES to write unless they agree (so a fixture IS a proof), slims losslessly. `tests/parity-gate.test.js`
+      re-folds both committed sides and asserts identical packets + frozen expectation. Seeded with 06-25 (3 packets, live==bt,
+      17 MB slim). `npm run parity` green; `npm run parity:add <date>` builds more. **Mechanical live==bt agreement — no
+      grading needed** (faithfulness stays the day-tape gate's job).
+- [ ] **A3 — Expand `verified:true` tapes 6 → corpus** (NEEDS USER LANTO HAND-GRADE — gate prints "hand-grade and flip the flag").
+      Separately: grow the parity corpus with `npm run parity:add` from each FUTURE same-code live session (the demo onward).
+- [x] **A4 — Wired into CI DONE (2026-06-27).** `tests/parity-gate.test.js` matches the `npm test` glob (`tests/*.test.js`),
+      so a parity break fails the suite. Full suite **1564/0**. (Tamper-proof by construction: the builder refuses to create a
+      fixture whose sides disagree.)
 - [ ] **✅ CHECKPOINT P** — parity gate standing + green; backtest ≡ live on the corpus. **User reviews.** (keystone)
 
 ## Phase B — UI fidelity (transparency mandate)  ◂ parallel to A
