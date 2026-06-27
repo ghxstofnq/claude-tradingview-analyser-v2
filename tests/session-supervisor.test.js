@@ -37,6 +37,23 @@ test("plan: a manual stop from a previous session does not block the next one", 
   assert.equal(plan.action, "arm");
 });
 
+test("plan: refuses to arm on stale code — running process is behind the on-disk code", () => {
+  const plan = planSupervisorAction({ session: "ny-am", mode: "prep", heartbeatAgeS: null, staleCode: true });
+  assert.equal(plan.action, "block_arm_stale");
+  assert.equal(plan.reason, "stale_code");
+});
+
+test("plan: current code arms normally (staleCode false)", () => {
+  const plan = planSupervisorAction({ session: "ny-am", mode: "prep", heartbeatAgeS: null, staleCode: false });
+  assert.equal(plan.action, "arm");
+});
+
+test("plan: stale code does not disturb an already-live healthy session", () => {
+  const plan = planSupervisorAction({ session: "ny-am", mode: "live", heartbeatAgeS: 5, staleCode: true });
+  assert.equal(plan.action, "none");
+  assert.equal(plan.reason, "healthy");
+});
+
 test("plan: fresh heartbeat in live mode needs no action", () => {
   const plan = planSupervisorAction({ session: "ny-am", mode: "live", heartbeatAgeS: 5 });
   assert.equal(plan.action, "none");
@@ -141,6 +158,17 @@ test("tick: arms on session open — sets mode live, starts detector, notifies",
   assert.equal(calls.startDetector, 1);
   assert.equal(calls.notify.length, 1);
   assert.match(calls.notify[0].body, /ny-am/);
+});
+
+test("tick: refuses to arm on stale code — no mode change, no detector, loud notify once", async () => {
+  const { deps, calls } = makeDeps({ isStaleCode: () => true });
+  const sup = createSessionSupervisor(deps);
+  await sup.tick();
+  await sup.tick(); // second tick in the same session must not re-notify
+  assert.deepEqual(calls.setMode, [], "must NOT flip to live on stale code");
+  assert.equal(calls.startDetector, 0, "must NOT start the detector on stale code");
+  assert.equal(calls.notify.length, 1, "notify exactly once per session");
+  assert.match(calls.notify[0].title, /stale code/i);
 });
 
 test("tick: stale heartbeat restarts the detector and counts toward the cap", async () => {

@@ -51,6 +51,10 @@ Each task carries **acceptance** (done = true when…) and **verify** (how to pr
 
 ## Phase C — Live bring-up + Tradovate demo arming (GATE, no orders placed)
 
+- [x] **C0 — deploy-parity arming guard (done 2026-06-27).** The supervisor refuses to cold-arm live when the running
+      process is behind its on-disk code (`version-status.restart_needed`) — loud notify, no mode flip, no detector.
+      Closes the #1 parity break (06-24 ran stale: 11 inversions live vs 6 backtest). `session-supervisor.js` +
+      `electron-main.js`; +4 tests; suite 1559/0.
 - [ ] **C1** TV Desktop CDP 9225 answers (`curl -s --max-time 4 http://127.0.0.1:9225/json/version`). *(green 06-24)*
 - [ ] **C2** Capture health all-fresh for London (Asia + ETH + 30m), MES + MNQ. **Verify:** `capture_health.ok` both symbols.
 - [ ] **C3** `node cli/index.js live-check --session london` clean / only known blockers. **Verify:** parseable, no hard blocks.

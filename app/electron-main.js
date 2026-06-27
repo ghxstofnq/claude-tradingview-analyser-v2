@@ -109,11 +109,23 @@ app.whenReady().then(async () => {
   }
   // Send the renderer the current mode so its tab UI matches.
   ipc.send("mode:current", { mode: getMode() });
+  // Version visibility: poll git for "code on disk moved past what this
+  // process booted with" (restart needed) and "origin/main is ahead of the
+  // local checkout" (pull needed). June 2026: six merged PRs never ran
+  // because nothing surfaced that the app was on week-old code. Created
+  // BEFORE the supervisor so arming can refuse to run live on stale code.
+  const versionPoll = createVersionPoll({ send: ipc.send }).start();
+  ipcMain.handle("version:get", () => versionPoll.get());
   // Session supervisor: auto-arms the live loop during session windows,
   // watchdogs the detector heartbeat, and runs the pre-open readiness
   // check. June 2026: with the mode tabs gone, nothing flipped mode to
   // live and the detector sat dead for days while briefs kept writing.
-  startSessionSupervisor({ send: ipc.send }).catch((err) => {
+  // isStaleCode gates the cold-arm: never run live on code the process
+  // didn't boot — that's the backtest≡live parity keystone.
+  startSessionSupervisor({
+    send: ipc.send,
+    isStaleCode: () => versionPoll.get()?.restart_needed === true,
+  }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[supervisor] failed to start", err);
   });
@@ -140,13 +152,6 @@ app.whenReady().then(async () => {
     // eslint-disable-next-line no-console
     console.error("[calendar] bootstrap failed", err);
   });
-
-  // Version visibility: poll git for "code on disk moved past what this
-  // process booted with" (restart needed) and "origin/main is ahead of the
-  // local checkout" (pull needed). June 2026: six merged PRs never ran
-  // because nothing surfaced that the app was on week-old code.
-  const versionPoll = createVersionPoll({ send: ipc.send }).start();
-  ipcMain.handle("version:get", () => versionPoll.get());
 
   // Retention sweep: delete state/session/<date>/ folders older than 30
   // days. Runs once on boot AND every 24h afterward — long-running apps
