@@ -28,6 +28,7 @@ import { __test as bc } from "./bar-close.js";
 import { buildBriefDigest } from "../../cli/lib/brief-digest.js";
 import { buildDirectSessionBriefPayloads } from "./direct-session-brief.js";
 import { tradesFromSetups } from "../../cli/lib/backtest-analytics.js";
+import { computeEngineGates } from "../../cli/lib/compute-engine-gates.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -107,6 +108,27 @@ function findRun(BT, symbol, date, session) {
   return null;
 }
 
+// Re-derive gates.engine.pillar1 from engine_by_tf with the CURRENT code/flags.
+// The recorded brief-bundle bakes the CAPTURE-TIME pillar1, and buildBriefDigest
+// forwards it (bias: p1.bias) — so a refold over old recordings would fold the
+// STALE bias and silently drop the current faithfulness levers (notably
+// GOFNQ_HTF_INTRADAY_DRAW, which lives in pillar1-bias). The per-bar
+// open-reaction levers already re-run inside runBacktest; this restores the
+// HTF-draw lever the digest path was missing. Mirrors scripts/fold-bias.mjs.
+// Mutates and returns the bundle; keeps the baked gate if the recompute throws.
+export function recomputeGate(bundle) {
+  try {
+    const c = bundle?.gates?.engine?.confirmation ?? {};
+    const g = computeEngineGates({
+      engine: bundle.engine, engineByTf: bundle.engine_by_tf, last: bundle?.quote?.last,
+      lastBar: c.last_bar ?? null, lastBarAgeSeconds: c.last_bar_age_seconds ?? 0,
+      m5LastBar: c.m5_last_bar ?? null, m15LastBar: c.m15_last_bar ?? null, quoteTimeMs: Date.now(),
+    });
+    if (g?.pillar1) bundle.gates = { ...bundle.gates, engine: { ...(bundle.gates?.engine || {}), pillar1: g.pillar1 } };
+  } catch { /* keep the baked gate if recompute throws */ }
+  return bundle;
+}
+
 // Self-healing brief: recompute payloads from the recorded bundle with CURRENT
 // code (no stale baked targets); fall back to recorded payloads; null if a
 // tape-only run (re-record it first).
@@ -115,7 +137,7 @@ function regen(runDir, session, symbol) {
   try { rec = readJson(path.join(runDir, "brief-payloads.json")); } catch { /* regen */ }
   const bp = path.join(runDir, "brief-bundle.json");
   if (!fs.existsSync(bp)) return rec;
-  const bundle = readJson(bp);
+  const bundle = recomputeGate(readJson(bp));
   const leader = rec?.[0]?.symbol || symbol;
   const digest = buildBriefDigest({ pair: { symbols: { [leader]: bundle } } });
   return buildDirectSessionBriefPayloads({ session, bundle: { ...bundle, brief_digest: digest }, symbols: [leader] });

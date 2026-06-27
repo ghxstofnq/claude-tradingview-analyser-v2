@@ -7,13 +7,41 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   symbolSlug, buildSetupRows, shouldSnapshot, diffPerDay, round2,
   refoldBaseline, readBaseline, readHistory, applyRunResultsToIndex,
   writeBaseline, buildTestArtifact, writeTestVerdict, readTest, listTests, deleteTest,
+  recomputeGate,
 } from "../app/main/backtest-baseline.js";
 import { buildAnalytics } from "../cli/lib/backtest-analytics.js";
+
+// The refold path folds RECORDED brief-bundles, which bake the capture-time
+// gates.engine.pillar1. recomputeGate must re-derive pillar1 with the current
+// code so the faithfulness levers fire. 2026-06-09 is the canonical case: the
+// baked HTF vote is the stale bullish (h4 inverted ifvg); the current
+// GOFNQ_HTF_INTRADAY_DRAW lever picks the fresh near-price h1 bear FVG and
+// votes bearish — the faithful side that carries the day's +9.47R shorts.
+const BACKTEST_DIR = fileURLToPath(new URL("../state/backtest/", import.meta.url));
+function find0609MnqBundle() {
+  try {
+    const idx = JSON.parse(fs.readFileSync(path.join(BACKTEST_DIR, "index.json"), "utf8"));
+    const r = idx.runs.find((x) => x.symbol === "MNQ1!" && x.date === "2026-06-09" && x.session === "ny-am");
+    if (!r) return null;
+    const bp = path.join(BACKTEST_DIR, r.run_id, r.session, "brief-bundle.json");
+    return fs.existsSync(bp) ? bp : null;
+  } catch { return null; }
+}
+
+test("recomputeGate re-derives pillar1 with current levers (06-09 HTF vote: bullish baked -> bearish)", (t) => {
+  const bp = find0609MnqBundle();
+  if (!bp) { t.skip("06-09 MNQ corpus bundle not present (gitignored state/) — covered by the foldSymbol integration check"); return; }
+  const bundle = JSON.parse(fs.readFileSync(bp, "utf8"));
+  assert.equal(bundle.gates.engine.pillar1.bias.htf.vote, "bullish", "precondition: baked bundle carries the stale bullish vote");
+  recomputeGate(bundle);
+  assert.equal(bundle.gates.engine.pillar1.bias.htf.vote, "bearish", "recompute applies GOFNQ_HTF_INTRADAY_DRAW -> faithful bearish");
+});
 
 test("symbolSlug strips non-alphanumerics", () => {
   assert.equal(symbolSlug("MNQ1!"), "MNQ1");
