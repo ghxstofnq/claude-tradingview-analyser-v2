@@ -133,7 +133,7 @@ export function resolveOpenReaction({
 
   const aligned = htf_bias === dir;
 
-  // WAIT FOR REACTION (default-off, GOFNQ_WAIT_FOR_REACTION=1) — transcript fix
+  // WAIT FOR REACTION (default-ON 2026-06-27, opt out GOFNQ_WAIT_FOR_REACTION=0) — transcript fix
   // (BIAS 20:33 "it's not the initial liquidity we take — it's the reaction"; 38:23
   // "wait for later displacement"; 39:20 "just because we had a five-minute candle
   // showcase another direction does not mean we were going to seek reversal… overnight
@@ -146,7 +146,7 @@ export function resolveOpenReaction({
   // both bull, overnight +448 strong → the 09:30 LO.H grab shouldn't flip it; oracle = long.)
   const ovnBacksLean = Number.isFinite(overnight_net) && Math.abs(overnight_net) >= STRONG_OVN_NET
     && ((overnight_net > 0 && htf_bias === 'bullish') || (overnight_net < 0 && htf_bias === 'bearish'));
-  if (process.env.GOFNQ_WAIT_FOR_REACTION === '1' && htf_bias && !aligned && interaction !== 'failed_break' && ovnBacksLean) {
+  if (process.env.GOFNQ_WAIT_FOR_REACTION !== '0' && htf_bias && !aligned && interaction !== 'failed_break' && ovnBacksLean) {
     return {
       interaction: 'pending_reaction',
       level: last.target,
