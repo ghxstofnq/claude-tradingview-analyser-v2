@@ -4,9 +4,18 @@
 //   A) LIVE  — truthFn over the recorded live walker-inputs.jsonl (exact live inputs).
 //   B) BACKTEST — the real runBacktest over the tape + contextFromBriefPayloads
 //                 (= production backtest behavior, incl. per-bar context injection).
-// Compare the distinct surfaced packets (model·side·grade·entry·stop·tp1). MATCH ⇒
-// backtest ≡ live on that session; DIVERGE ⇒ a parity gap to close. Read-only
+// Compare the distinct surfaced packets (model·side·grade·entry·stop·tp1). Read-only
 // (backtest folds to a tmp stateDir). Fills are excluded by construction.
+//
+// READ THIS BEFORE TRUSTING A "DIVERGE": walker-inputs.jsonl BAKES the resolved
+// context (ltf_bias_context: bias/grade_cap/htf_ltf_alignment). Side A folds the
+// CURRENT brain over that BAKED context; side B reconstructs context with current
+// code. So on recordings made BEFORE the current code, a DIVERGE means the live
+// recording's context is STALE — NOT a parity break. Proven 2026-06-27: 06-18 live
+// baked grade_cap:"A+" → A+; current code grades B (faithful — oracle + verified
+// tape agree). Only recordings made under the CURRENT code (post deploy-parity
+// guard 3434ce9, e.g. 06-25 which MATCHES) are valid parity datapoints. The
+// trustworthy current-code instrument is the day-tape gate (`npm run tapes`).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
