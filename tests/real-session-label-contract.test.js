@@ -48,7 +48,16 @@ test('real-session labels are strict enough to prevent ambiguous tradable fixtur
   for (const file of readdirSync(REAL_SESSION_LABEL_DIR).filter((f) => f.endsWith('.label.json'))) {
     const label = readLabel(file);
     assert.equal(label.schema, 'gxofnq.real-session-label.v1', `${file}: schema`);
-    assert.equal(label.fixtureSource, 'real', `${file}: fixtureSource`);
+
+    // Non-graded helper fixtures (e.g. pm-carry bars-only PM bars for AM-trade carry
+    // resolution) are not real-session labels. They must declare themselves bars-only
+    // and carry no tradable expectation, so they can never be scored as a real setup.
+    if (label.fixtureSource !== 'real') {
+      assert.equal(label.label_status, 'bars-only', `${file}: non-real fixtures must be bars-only`);
+      assert.equal(label.expected, undefined, `${file}: non-real fixtures must not declare a tradable expectation`);
+      continue;
+    }
+
     assert.ok(label.fixture, `${file}: fixture`);
     assert.ok(label.reviewer, `${file}: reviewer`);
     assert.ok(label.trade_date, `${file}: trade_date`);
