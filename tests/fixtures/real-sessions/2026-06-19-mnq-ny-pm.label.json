@@ -1,0 +1,11 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-06-19-mnq-ny-pm-carry",
+  "fixtureSource": "pm-carry",
+  "label_status": "bars-only",
+  "note": "PM bars for AM-trade carry resolution. Not hand-graded.",
+  "trade_date": "2026-06-19",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY PM"
+}

@@ -203,7 +203,24 @@ export const PROD_DEPS = {
     bundle.brief_digest = buildBriefDigest({ pair: { symbols: { [leader]: bundle } } });
     const payloads = buildDirectSessionBriefPayloads({ session, bundle, symbols: [leader] });
     fs.writeFileSync(path.join(runDir, "brief-payloads.json"), JSON.stringify(payloads, null, 2));
-    return contextFromBriefPayloads({ session, payloads });
+    const ctx = contextFromBriefPayloads({ session, payloads });
+    if (ctx) return ctx;
+    // GOFNQ_RECORD_BARS_ON_NULL (opt-in, corpus PM-carry capture only): a
+    // no-trade brief (pillar2_poor / no-draw) returns a null context, which makes
+    // runBacktest early-return WITHOUT recording — so PM sessions never get bars
+    // for an AM trade to carry into. When set, return a minimal record-only
+    // context (pillar1/pillar2 = fail → the fold spawns nothing) so the bars ARE
+    // recorded; we only need the OHLC for the carry, not a tradeable PM context.
+    if (process.env.GOFNQ_RECORD_BARS_ON_NULL === "1") {
+      return {
+        session,
+        leader,
+        ltf_bias_context: { bias: null, htf_ltf_alignment: "unclear", is_retrace_day: false, entry_model_priority: "undecided", grade_cap: "no-trade" },
+        session_state: { pillar1: { status: "fail" }, pillar2: { status: "fail", verdict: "poor", htf_displacement: null } },
+        untaken_targets: { untaken_above: [], untaken_below: [] },
+      };
+    }
+    return ctx;
   },
 
   async recordEntries({ context, date, fromEt, toEt, onBar, isStopped }) {
