@@ -72,25 +72,25 @@ function withFlag(value, fn) {
   }
 }
 
-test('PM carry-only OFF (default): ny-pm still spawns a fresh setup', () => {
+test('PM carry-only ON (default): ny-pm fresh spawn is suppressed with pm_carry_only blocker', () => {
   withFlag(undefined, () => {
     const truth = fold('ny-pm');
-    assert.ok(truth.bestPacket, 'expected a surfaced packet with the lever off');
-    assert.equal(truth.surfacePayload.entry, 21000);
-  });
-});
-
-test('PM carry-only ON: ny-pm fresh spawn is suppressed with pm_carry_only blocker', () => {
-  withFlag('1', () => {
-    const truth = fold('ny-pm');
-    assert.equal(truth.bestPacket, null, 'fresh PM spawn must be suppressed');
+    assert.equal(truth.bestPacket, null, 'fresh PM spawn must be suppressed by default');
     assert.equal(truth.finalVerdict, 'no_trade');
     assert.ok(truth.blockers.includes('pm_carry_only'), `expected pm_carry_only blocker, got ${truth.blockers.join(',')}`);
   });
 });
 
-test('PM carry-only ON: ny-am is unaffected (gate is PM-only)', () => {
-  withFlag('1', () => {
+test('PM carry-only opt-out (=0): ny-pm spawns a fresh setup again', () => {
+  withFlag('0', () => {
+    const truth = fold('ny-pm');
+    assert.ok(truth.bestPacket, 'expected a surfaced packet with the lever opted out');
+    assert.equal(truth.surfacePayload.entry, 21000);
+  });
+});
+
+test('PM carry-only ON (default): ny-am is unaffected (gate is PM-only)', () => {
+  withFlag(undefined, () => {
     const truth = fold('ny-am');
     assert.ok(truth.bestPacket, 'AM spawns must be untouched by the PM gate');
     assert.equal(truth.surfacePayload.entry, 21000);
