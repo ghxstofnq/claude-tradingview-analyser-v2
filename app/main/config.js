@@ -48,3 +48,16 @@ export function realignTf() {
 export function pillar2EntryGate() {
   return process.env.GOFNQ_P2_ENTRY !== "0";
 }
+
+// PM carry-only lever (2026-06-28, default-OFF). Lanto trades ONE New York
+// session anchored to the single 9:30 opening range move (BIAS 12:11, 23:21)
+// and is hands-off after — he has no separate afternoon session. The runnable
+// code splits NY into ny-am + ny-pm with a noon dead-gap, so the chain
+// manufactures a fake 13:00 "open reaction" and spawns fresh PM setups Lanto's
+// method never takes. Fold (2026-06-28): those PM setups are net-negative under
+// every trading model (own-session -6.21R, continuation -5.42R) vs +0R / +25.65R
+// when suppressed. When ON, ny-pm cannot SPAWN a new setup; an open AM trade
+// still carries/manages into the afternoon (carry runs on the AM side). Opt in: =1.
+export function pmCarryOnly() {
+  return process.env.GOFNQ_PM_CARRY_ONLY === "1";
+}
