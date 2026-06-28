@@ -27,7 +27,7 @@ function llmTurnAuthBlocked({ providerName, claudeBlocked }) {
 import { currentSession } from "./sessions.js";
 import { tvAnalyzeFull, tvAnalyzeFast } from "./tools/tv-analyze.js";
 import { ensureChartState } from "./tools/tv-chart.js";
-import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor, structureTf, stopTf, pillar2EntryGate } from "./config.js";
+import { PAIR_DEFAULT, PAIR_PRIMARY, PAIR_SECONDARY, baselinePathFor, structureTf, stopTf, pillar2EntryGate, pmCarryOnly } from "./config.js";
 import { computeEngineGates } from "../../cli/lib/compute-engine-gates.js";
 import { deriveLtfBiasContext } from "./live-ltf-resolver.js";
 import { finalizeOpenReactionDeterministic } from "./live-open-reaction-finalizer.js";
@@ -1009,11 +1009,23 @@ function buildDeterministicPacketTruthFromInputs({ inputs, previousWalkers = [],
     finalVerdict = 'no_trade';
     p2EntryBlocked = true;
   }
+  // PM carry-only gate: Lanto runs one 9:30-anchored NY session and is hands-off
+  // after — he never opens a fresh afternoon setup. Suppress NEW ny-pm spawns;
+  // an open AM trade still carries/manages into the afternoon (carry runs on the
+  // AM side, untouched here). Default-OFF lever — see config.pmCarryOnly.
+  let pmCarryBlocked = false;
+  if (bestPacket && pmCarryOnly() && session === 'ny-pm') {
+    bestPacket = null;
+    finalVerdict = 'no_trade';
+    pmCarryBlocked = true;
+  }
   const blockers = bestPacket
     ? []
-    : (p2EntryBlocked
-      ? ['pillar2_poor_at_entry']
-      : (result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet']));
+    : (pmCarryBlocked
+      ? ['pm_carry_only']
+      : (p2EntryBlocked
+        ? ['pillar2_poor_at_entry']
+        : (result.packets?.flatMap((packet) => packet.blockers ?? []).slice(0, 10) ?? context.blockers ?? ['no_confirmed_packet'])));
   const noTradeReason = bestPacket ? null : `${availability.reasonPrefix}: ${(blockers.length ? blockers : ['no_confirmed_packet']).join(', ')}`;
   return {
     schemaVersion: 1,

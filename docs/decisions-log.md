@@ -368,3 +368,34 @@ Step 7). **Verified live:** place 1c → add 1c → qty 2 with bracket intact;
 wrong-side + no-position adds rejected; flatten clean; fill recorded qty 2 +
 averaged entry. Deferred: auto-surfacing from a live producer (mirrors the
 backtest's canScaleInto); real-broker LIVE arming.
+
+## 2026-06-28 — Strategy: PM carry-only lever (GOFNQ_PM_CARRY_ONLY, SHIPPED default-ON)
+
+**Lanto has no afternoon session.** The transcripts define New York as ONE
+session, 9:30–4:00 PM ET, anchored to a single 9:30 opening range move
+(BIAS 12:11, 23:21: *"I start lives at 9:45 because we typically get our opening
+range move by then"*); after that he is hands-off (BIAS 18:42: *"if our timing
+is not there yet, we simply are hands off"*) and runs a near one-and-done
+mindset (BIAS 25:11). The runnable code splits NY into ny-am (09:30–12:00) +
+ny-pm (13:00–16:00) with a noon dead-gap — a bot construction
+([lanto-source-of-truth.md §1.7](strategy/lanto-source-of-truth.md)) — so the
+chain manufactures a fake 13:00 "open reaction" and spawns fresh PM setups the
+method never takes.
+
+**Fold evidence (2026-06-28, 30 recorded PM sessions, MNQ).** Pre-session read
+grades EVERY PM session no-trade; the chain still fires on 9 of them off the
+fake 13:00 reaction. Those PM setups are net-negative under every trading model:
+own-session **−6.21R** (3W/9L), continuation-of-morning-bias **−5.42R**
+(7W/17L). Suppressing them entirely (carry-only) is best — and matches Lanto
+literally: the morning trade carries into the afternoon, no new afternoon hunts.
+
+**Lever.** `config.pmCarryOnly()` (`GOFNQ_PM_CARRY_ONLY`, **default-ON; opt out
+=0**, user-approved 2026-06-28). Gated in the shared brain
+`buildDeterministicPacketTruthFromInputs` (mirrors the `pillar2EntryGate`
+pattern): when ON and `session === 'ny-pm'`, a fresh `bestPacket` is nulled with
+blocker `pm_carry_only`. Open-trade management/carry is unaffected — carry runs
+on the AM side (carryEntries reads the ny-pm tape's bars, not the PM context).
+**Fold (default-on no flags = +25.65R; opt-out =0 = +19.44R; delta +6.21R,
+exactly the removed PM trades); 45→32 trades; win% 40.9→46.9; the one −3R day
+(06-17) eliminated; AM side untouched.** Tests: +3 unit (gate on/off/AM-safe);
+full suite 1576/0; day-tapes 6/6 (parity holds); smoke 22/22.
