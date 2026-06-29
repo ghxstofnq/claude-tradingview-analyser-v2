@@ -56,7 +56,7 @@ export function pillar2EntryGate() {
 // fake 13:00 "open reaction" and spawns fresh PM setups Lanto's method never
 // takes. Fold (2026-06-28): those PM setups are net-negative under every trading
 // model (own-session -6.21R, continuation -5.42R); suppressing them is +6.21R and
-// matches Lanto literally (fold +19.44R -> +25.65R). When ON, ny-pm cannot SPAWN
+// matches the documented method (fold +19.44R -> +25.65R). When ON, ny-pm cannot SPAWN
 // a new setup; an open AM trade still carries/manages into the afternoon (carry
 // runs on the AM side). Opt out: =0.
 export function pmCarryOnly() {

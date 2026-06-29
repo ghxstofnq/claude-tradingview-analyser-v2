@@ -4,7 +4,7 @@
   "fixtureSource": "real",
   "label_status": "unlabeled",
   "reviewer": "smt-pair-2026-06-25",
-  "source_message": "MES counterpart of the 06-16 NY-AM Stage-G session, recorded to PAIR with the existing MNQ tape (2026-06-16-ny-am-replay) for the pair-leader fold (docs/superpowers/specs/2026-06-25-faithful-pair-leader-design.md). expected is a PLACEHOLDER — the leader ground truth is Lanto's actual Discord instrument pick, graded separately; this tape supplies MES's open-window engine + chain outcome for the SMT/relative-strength fold. verified stays false.",
+  "source_message": "MES counterpart of the 06-16 NY-AM Stage-G session, recorded to pair with the existing MNQ tape for pair-leader research. No MES strategy expectation is assigned; re-grade from docs/strategy, transcripts, chart evidence, and user approval before scoring.",
   "trade_date": "2026-06-16",
   "symbol": "MES",
   "contract_hint": "CME_MINI:MES1!",

@@ -21,9 +21,9 @@ Tracks run in parallel; only the arrows in the plan's dependency graph are hard 
       replay poisons live capture, so drive TV only off-session) → a paired tape on disk per session. Re-record
       recordable 2026 NY-AM (+ London) dates (Stage-G method). **Acceptance:** ≥3-4 paired weeks of tapes exist.
       **Verify:** `ls tests/tapes/` count grows; each has MNQ + MES; `npm run tapes` parses them.
-- [ ] **T0.2 — Hand-grade each vs Discord + lock the oracle.** Compare bias/grade/model/side/instrument to
-      Lanto's Discord call; record in `docs/strategy/lanto-oracle.md`; flip tape `verified:true` only after the
-      user confirms. **Acceptance:** oracle grows past 7 sessions, each with a Discord-cited expectation.
+- [ ] **T0.2 — Hand-grade each from strategy docs/transcripts + lock the oracle.** Compare bias/grade/model/side/instrument to
+      the canonical strategy docs, source transcripts, and chart evidence; record in `docs/strategy/lanto-oracle.md`; flip tape `verified:true` only after the
+      user confirms. **Acceptance:** oracle grows past 7 sessions, each with a docs/transcripts-backed expectation.
       **Verify:** oracle diff reviewed; `npm run tapes` passes the newly-verified tapes.
 
 ## A — Parity gate (keeps the folds trustworthy)  ◂ mostly done
@@ -39,8 +39,8 @@ Tracks run in parallel; only the arrows in the plan's dependency graph are hard 
 ## TRACK 2 — Faithful levers (each default-OFF flag, folded old-vs-new, user-approved one at a time)
 
 - [ ] **G1 — Validate the 3-vote grade (option 2; already default-on).** Re-grade the Track-0 oracle under the live
-      grade; fold `scripts/fold-pillar1.mjs` (and `fold-live-corpus.mjs`); spot-check vs Discord bias labels.
-      **Acceptance:** grades match Lanto's actual calls on the checked sessions; no unexplained regressions; OR a
+      grade; fold `scripts/fold-pillar1.mjs` (and `fold-live-corpus.mjs`); compare against docs/transcripts-backed expectations.
+      **Acceptance:** grades match the user-approved oracle on the checked sessions; no unexplained regressions; OR a
       tuning need is identified with a fold table. **Verify:** `npm test` (tape+parity gates) + `npm run smoke:fixtures` + the fold report. **◇ user reviews.**
 - [ ] **G2a — MSS-significance spawn gate (gap #3).** A valid MSS/Inversion spawn needs significant liquidity +
       matching displacement, not any rejected sweep. Reuse the `pillar1-bias.js` significance logic in the walker

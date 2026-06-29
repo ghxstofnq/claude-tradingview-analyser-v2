@@ -106,7 +106,8 @@ This project implements the user's documented trading methodology — **Lanto's 
 
 ## Workflow rules for Claude
 
-- **Re-read before each step.** Before starting any step in the "Pending implementation" sequence below (or any non-trivial behavioral / strategy change to `/analyze`, `tv analyze`, or the gates), re-read: `docs/research/ai-consistency.md`, `docs/research/ai-trading-analysis.md`, and the strategy spec under `docs/strategy/` (start at `README.md`; entry detail in `entry-models.md`). Confirm the planned approach against the documents and call out any tensions before writing code. *User-imposed standing rule, 2026-05-17.*
+- **Re-read before strategy/behavior changes.** Before any non-trivial behavioral or strategy change to `/analyze`, `tv analyze`, the live walker chain, or the gates, re-read: `docs/research/ai-consistency.md`, `docs/research/ai-trading-analysis.md`, and the strategy spec under `docs/strategy/` (start at `README.md`; entry detail in `entry-models.md`). Confirm the planned approach against the documents and call out any tensions before writing code. *User-imposed standing rule, 2026-05-17; wording refreshed 2026-06-29.*
+- **Strategy authority (updated 2026-06-29).** Do **not** use or reference Lanto callout / alerted-trade-derived files as strategy authority. They are retired because they are easy to misunderstand. Use only the canonical strategy docs in `docs/strategy/` plus the vendored class transcripts in `docs/strategy/transcripts/`; any session expectation that was imported from those files must be re-derived from the allowed sources and/or explicitly user-approved before it is treated as oracle truth.
 - **Run the harness before claiming a step is done.** `npm run smoke:fixtures` must pass before committing any change to `cli/commands/analyze.js`, `.claude/commands/analyze.md`, or `scripts/verify-citations.js`. If a change invalidates an existing fixture (e.g. by adding a required field), update the fixture and the schema check together — do not weaken the schema.
 - **Cite every research / strategy claim.** When proposing a behavioral change, point at the exact section (file + heading) that supports it. "The research says…" without a citation is not acceptable.
 
@@ -220,7 +221,7 @@ Gates are pre-computed: `computeSessionGate` in `cli/commands/analyze.js` (clock
 
 **Polling mode (`--pillar3-only`).** Lightweight bundle for live bar-close polling (strategy §5: "1m/5m candle close"). Skips the multi-TF chart-switching sweep; still captures the current-TF `engine` table, `bars`, `quote`, indicator values, and the full `gates` (`session` + `engine`). Returns in ~0.2s vs ~13s for a full sweep. `engine_by_tf` and `bars_by_tf` are `null` in this mode, so `gates.engine.pillar2.m5/m15` and `gates.engine.confirmation.m5_last_bar/m15_last_bar` are `null` too — the polling consumer relies on `gates.engine.*` (current TF) and `gates.session.*`.
 
-**Baseline reuse (`--baseline <path>`).** Loads a previously-captured full bundle and uses its `bars_by_tf` + `engine_by_tf` instead of re-running the multi-TF chart sweep. Strategy §2.4 explicitly allows reusing HTF context intraday ("HTF gives a macro direction, but immediate trades are decided by how NY reacts to overnight levels"); HTF bias doesn't change minute-to-minute. Pairs with `--pillar3-only` for the watchman pattern:
+**Baseline reuse (`--baseline <path>`).** Loads a previously-captured full bundle and uses its `bars_by_tf` + `engine_by_tf` instead of re-running the multi-TF chart sweep. Strategy §2.4 explicitly allows reusing HTF context intraday ("HTF gives a macro direction, but immediate trades are decided by how NY reacts to overnight levels"); HTF bias doesn't change minute-to-minute. Pair it with `--pillar3-only` for live bar-close polling or diagnostic/manual captures:
 
 ```
 # Slow cadence (every 5–15 min, or session boundary):
@@ -231,7 +232,7 @@ Gates are pre-computed: `computeSessionGate` in `cli/commands/analyze.js` (clock
                  --baseline state/baseline.json \
                  --out state/last-scan.json               # ~0.2s, fresh LTF + cached HTF
 
-# Candidate escalation (when watchman detects something):
+# Full diagnostic capture when a manual/LLM read needs the complete bundle shape:
 ./bin/tv analyze --baseline state/baseline.json \
                  --out state/last-analyze.json            # ~0.2s, full bundle shape for LLM
 ```
@@ -240,22 +241,22 @@ The merged bundle has the same shape as a full `tv analyze` plus an additional `
 
 The slash command body (`.claude/commands/analyze.md`) contains the ICT vocabulary, the behavioral rules (cite-or-reject, no arithmetic, prose-first, confidence enum), and the trailing JSON template. Read that file when invoked, not this one.
 
-## The session recipe (LLM-driven, runs on every bar close)
+## The live session recipe (walker-first, LLM narrates)
 
-**Architecture (decided 2026-05-19):** the LLM (Claude in your Claude Code session) is the engine. It runs Lanto's 3-pillar checklist from a to z, on every 1m and 5m candle close, building up `state/session/<today>/<session>/*` notes as the day goes on.
+**Current architecture (updated 2026-06-29):** the deterministic walker chain is the single setup brain for live trading and production backtests. The LLM does **not** decide whether a live setup exists; it narrates the walker verdict, explains context, writes briefs/wraps, and can still answer manual `/analyze` questions.
 
-The plan is in [docs/plans/llm-driven-session.md](docs/plans/llm-driven-session.md) and is being implemented on a feature branch. The flow:
+The flow:
 
-1. **Detector** (cheap, deterministic): `./bin/tv stream bar-close` prints one JSON line per closed 1m bar; one extra line per closed 5m bar. Time-aligned polling (sleeps to next 60s boundary, polls fast post-close).
-2. **Monitor in Claude Code:** `Monitor("./bin/tv stream bar-close")` streams those lines into the session. Each line is an event Claude reacts to.
-3. **Phase-aware `/analyze`:** reads the ET clock + `state/session/<today>/<session>/*` + the current bundle. Does the right thing per phase (pre-session → grade Pillar 1+2; 09:30-09:45 → open reaction; 09:45-12:00 → entry hunt; etc.). Writes updates.
-4. **Session memory** in per-session folders `state/session/<YYYY-MM-DD>/<session>/` (`<session>` = `ny-am` / `ny-pm` / `london`): `pillar1.md`, `pillar2.md`, `open-reaction.md`, `ltf-bias.md`, `bars.jsonl`, `bars-5m.jsonl`, `setups.jsonl`, `summary.md`. Each session folder is self-contained — sessions never overwrite each other. The detector's `bar-close-events.jsonl` stays at the day level.
+1. **Session supervisor:** `app/main/session-supervisor.js` auto-arms during London / NY AM / NY PM windows, performs readiness checks, and restarts stale bar-close detection. Manual detector stops suppress re-arm for the remainder of that session.
+2. **Bar-close capture:** `./bin/tv analyze --pillar3-only --baseline ...` captures fresh LTF state against the TV Desktop CDP backend. The full multi-TF baseline is refreshed on a slower cadence / session boundary.
+3. **Evidence bridge + walker chain:** `app/main/bar-close.js` builds detector inputs, bridges ICT Engine evidence into walker-ready shapes, then folds `buildDeterministicPacketTruthFromInputs` over persistent walker state. This is the only production setup producer.
+4. **Narration / surfaces:** the per-bar LLM turn receives compact walker truth and writes narration only on packet, stage change, or 5m close. Session folders under `state/session/<YYYY-MM-DD>/<session>/` remain the durable live record: `pillar1.md`, `pillar2.md`, `open-reaction.md`, `ltf-bias.md`, `bars.jsonl`, `bars-5m.jsonl`, `setups.jsonl`, `summary.md`, plus walker inputs/state.
 
-Until the redesign lands, the existing `analyze` command + slash command still work for one-shot grading.
+Manual `/analyze` remains useful for one-shot grading and diagnostic reads, but `bundle.candidates` from `cli/lib/setup-detector.js` is diagnostic-only and must not be treated as a live signal.
 
 ## The `dash` recipe (live oversight TUI)
 
-`./bin/tv dash` is a terminal UI that gives you live visibility into everything the system is doing. Run it in a separate terminal alongside the detector + Claude Code session.
+`./bin/tv dash` is a terminal UI that gives you live visibility into everything the system is doing. Run it in a separate terminal alongside the running app / session supervisor when you want disk-level live oversight.
 
 What it shows, refreshing every 2s:
 - **Detector status** — running/stale/not-running, pid, last heartbeat age, current state (`sleeping_to_boundary` / `polling_for_close` / `emitted`), bar being tracked, last emit time.
@@ -278,64 +279,18 @@ The detector (`./bin/tv stream bar-close`) writes a heartbeat to `state/session/
 
 ## The `/judge` recipe (semantic regression)
 
-`/judge <id|all>` is the semantic half of fixture regression testing — `npm run smoke:fixtures` checks bundle schema + citations deterministically; `/judge` checks whether a fresh read of a bundle still reaches the same verdict as the hand-graded `expected.md`. It is a **slash command, not a script** (CLAUDE.md bans the Anthropic API in scripts): the LLM re-grades the bundle blind, then emits categorical per-dimension verdicts (`agree` / `partial` / `disagree`) to `tests/fixtures/NNN-label.judge.json` (gitignored — regenerated each run); `npm run judge:report` tallies them into agreement percentages (constraint #7 — the LLM never produces the score). Built 2026-05-20; becomes a real regression gate once the corpus reaches ~10 fixtures. See `.claude/commands/judge.md`.
+`/judge <id|all>` is the semantic half of fixture regression testing — `npm run smoke:fixtures` checks bundle schema + citations deterministically; `/judge` checks whether a fresh read of a bundle still reaches the same verdict as the hand-graded `expected.md`. It is a **slash command, not a script** (CLAUDE.md bans the Anthropic API in scripts): the LLM re-grades the bundle blind, then emits categorical per-dimension verdicts (`agree` / `partial` / `disagree`) to `tests/fixtures/NNN-label.judge.json` (gitignored — regenerated each run); `npm run judge:report` tallies them into agreement percentages (constraint #7 — the LLM never produces the score). Treat `/judge` as an interpretive adjunct to deterministic gates (`npm run test`, `npm run smoke:fixtures`, replay/tape tests), not as the live setup source. See `.claude/commands/judge.md`.
 
-## Status
+## Current status
 
-- **Scaffolding pushed.** README + .gitignore on `main`. CLI vendored, port locked, `analyze` command in place, slash command in place, research and strategy saved.
-- **Research bound.** Hard constraints 5–10 cite the research files as authority. Future design changes must do the same.
-- **Strategy bound.** Hard constraint #11 makes `docs/strategy/*.md` the authoritative spec for trade framing. `/analyze` mirrors the 7-step checklist. A+ examples for all three entry models are embedded.
-- **Harness operational.** `npm run smoke:fixtures` runs schema + citation checks across every fixture. Verifier mechanically enforces constraint #6.
-- **Gates emitting (richer).** `tv analyze` now returns a `gates` object covering: clock-based session, price-in-box checks, **full session liquidity map (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L with taken/untaken)**, **most-recent ICT swing structure points (ST/IT/LT × HH/HL/LH/LL) ordered by Pine x-index**, **FVG counts classified by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) via bgColor**, **bias-label scan** (auto-populates if any indicator publishes /bias/i text), **single-bar last_bar confirmation facts**, plus the original range / candle-quality stats. LLM no longer has to compute any of these.
-- **Multi-TF bundle.** `bars_by_tf` and `pine_by_tf` provide Daily/4H/1H/15m/5m/1m bar summaries and trimmed Pine surfaces (boxes + labels for tracked studies). Captured via chart-switching with original-TF restore.
-- **File output.** `./bin/tv analyze --out <path>` for bundles too large to pipe via stdout.
-- **Watchman removed (2026-05-19).** The deterministic `tv watch` (state machine, briefing files, preflight mode, PD-array alerts) was replaced by LLM-driven session analysis. Strategy §7 is sequential — the LLM walking the checklist on every bar close fits that better than a separate trigger layer. Plan in [docs/plans/llm-driven-session.md](docs/plans/llm-driven-session.md). Build in progress on `feat/llm-driven-session`.
+- **Source of truth:** strategy docs + transcripts only; Lanto callout / alerted-trade-derived files are retired as authority.
+- **Backend:** TV Desktop on CDP 9225 is the analysis/replay/Pine/tape backend. The embedded webview is a personal display surface except for the guarded paper-execution engine path.
+- **Setup brain:** deterministic walker chain is the only live + production-backtest setup producer. Manual `/analyze` detector candidates are diagnostic-only.
+- **Prompting:** LLM turns consume deterministic evidence, cite JSON paths, do no arithmetic, and use `A+ | B | no-trade` only.
+- **Verification:** use `npm run test` as the broad gate and targeted commands (`npm run smoke:fixtures`, replay/tape tests, `node --test <files>`) for touched areas.
 
-## Pending implementation
+## Known active gaps / cautions
 
-### Done so far
-
-- Restructure `/analyze` around the 3-pillar framework, mirroring the 7-step checklist (`docs/strategy/README.md`).
-- Three A+ canonical examples (MSS / Trend / Inversion) embedded as `<example>` blocks in the slash command. *Source: [docs/research/ai-consistency.md](docs/research/ai-consistency.md) — 72%→90% accuracy lift from Tool Use Examples.*
-- Citation verifier (`scripts/verify-citations.js`) enforces constraint #6 mechanically against any paired `(analysis, bundle)` input.
-- Minimal verification harness (`scripts/smoke-fixtures.js`, `npm run smoke:fixtures`) — schema + citation regression across every fixture in `tests/fixtures/`.
-- Seed fixture (`tests/fixtures/001-current.*`) with hand-graded expected analysis from a 2026-05-15 NY-PM MNQ snapshot.
-- **Watchman scaffolding deleted (2026-05-19).** Replaced by LLM-driven session analysis. The watchman as a deterministic state-machine layer was archived; the bar-close detector + phase-aware `/analyze` + session-memory pattern is being built on `feat/llm-driven-session`. The gates and `--scan-tf` flag survive — they're consumed by the new `/analyze`.
-- **Deterministic gates in `tv analyze` (extended).** Top-level `gates` object emitted by `cli/commands/analyze.js`. Coverage:
-  - `gates.session.*` — clock-based session label + booleans (NY open window, killzone status, weekend, market-closed including the Fri 17:00 ET → Sun 18:00 ET CME pause and the daily 17:00–18:00 ET settlement break) + replay state at the moment of capture.
-  - `gates.price_context.*` — which Pine boxes contain current price.
-  - `gates.pillar1.session_levels.*` — full session liquidity (PDH/PDL/AS_H/AS_L/LO_H/LO_L/NYAM_H/NYAM_L plus PWH/PWL/NYPM_H/NYPM_L when set) with `taken / untaken` derived from bars.high/low.
-  - `gates.pillar1.untaken_sell_side_below[]` + `untaken_buy_side_above[]` — sorted draw targets.
-  - `gates.pillar1.bias_labels[]` — any Pine label matching /bias/i across all studies; empty when no indicator publishes them.
-  - `gates.pillar2.*` — range + candle-quality stats. Includes nested `current_tf`, `m5`, `m15` objects each with body_ratios array, avg body ratio, candle-quality heuristic, engulfing count, and doji count over the last 5 bars at that TF. **Strategy §7 step 3 asks for 5m/15m anatomy specifically**, so `m5` and `m15` are the authoritative gate values; the chart's current TF stats are a live LTF gauge.
-  - `gates.pillar3.most_recent_structure.*` — ST/IT/LT × HH/HL/LH/LL latest by Pine x-index.
-  - `gates.pillar3.fvg_by_type{,_above,_below}` — FVG counts by direction (bullish_fvg / bullish_ifvg / bearish_fvg / bearish_ifvg) decoded from Nephew_Sam_'s bgColor.
-  - `gates.pillar3.last_bar` — single most-recent bar facts (body_ratio, direction, close_position_in_range, etc.) for the strategy's confirmation discipline.
-  - `gates.pillar3.last_bar_age_seconds` — staleness check.
-  - The slash command is wired to consume all of these directly, not recompute them.
-
-### Next (do in order)
-
-- **Grow the fixture corpus organically.** The current corpus has one fixture, captured post-NY-close (Inter-session). The gate logic that doesn't get exercised by this fixture — `in_ny_open_window = true`, `in_killzone = true`, weekend handling, different `candle_quality_heuristic` verdicts — is **untested**. Add fixtures over the coming weeks as varied chart states surface: NY-open A+, NY-open B, NY-open no-trade, London-open, A+ per entry model. Target ~10 by month-end. *Source: [docs/research/ai-trading-analysis.md](docs/research/ai-trading-analysis.md) rec #7.*
-- ~~**Decide on heuristic thresholds per symbol/timeframe.**~~ Done 2026-05-20. The Pillar 2 range threshold is now per-symbol (`cli/lib/pillar2-thresholds.js`); `MNQ` is calibrated (range ≥ 40), other symbols emit `range_acceptable: null` until a fixture calibrates them. Body-ratio thresholds (≥ 0.6 = good) stay fixed — a normalised 0..1 ratio is symbol-independent. Per-timeframe calibration remains a possible future refinement.
-- ~~**LLM-as-judge for semantic regression.**~~ Tooling built 2026-05-20 — the `/judge` command + `npm run judge:report`. Becomes a real regression gate once the corpus exceeds ~10 fixtures; until then its report is directional, not conclusive.
-
-### Known gaps (deferred, by design)
-
-Remaining LLM-interpretive territory:
-
-- `pillar3.entry_model_candidate` — *which* of MSS / Trend / Inversion is in play remains interpretive. Mechanical detection would need an ICT-detector Pine script (smart-money-concepts on GitHub is the closest reference). Out of scope right now.
-- `pillar3.confirmation_status` (the verdict, not the underlying facts) — `gates.pillar3.last_bar.*` provides single-bar discipline (body_ratio, direction, close_position_in_range); judging "confirmed vs candidate vs invalidated" still requires the LLM to combine those facts with setup context.
-
-**No longer deferred (resolved in earlier commits):**
-- ~~Overnight liquidity~~ — `gates.pillar1.session_levels.*` (mechanical from ICT Killzones labels).
-- ~~Structure points~~ — `gates.pillar3.most_recent_structure.*` (mechanical from Anchored Structures verbose labels).
-- ~~FVG direction~~ — `gates.pillar3.fvg_by_type_*` (mechanical from Nephew_Sam_'s bgColor mapping).
-- ~~Multi-timeframe bar data~~ — `bars_by_tf.{daily,h4,h1,m15,m5,m1}` (chart switches through each TF, restores original).
-- ~~HTF Pine surfaces~~ — `pine_by_tf.{daily,h4,h1,m15,m5,m1}.{boxes,labels}` (verbose, trimmed to tracked studies, ~30 most-recent entries per study per TF). HTF FVGs and HTF structure points now in-bundle.
-- ~~Explicit Bias label scan~~ — `gates.pillar1.bias_labels[]` (auto-populates if any indicator publishes a label matching /bias/i).
-- ~~Last-bar confirmation facts~~ — `gates.pillar3.last_bar.{body_ratio, direction, close_position_in_range, ...}` + `gates.pillar3.last_bar_age_seconds`.
-
-## Open questions for the user
-
-(To be answered after the scaffold PR is reviewed.)
+- Some historical fixtures and plans may still encode retired callout-derived expectations. Treat those as `needs_gxofnq_review` unless the expectation has been re-derived from allowed docs/transcripts/chart evidence or explicitly user-approved.
+- Historical Architecture Decisions above are a changelog. If a later row or hard constraint supersedes an older row, follow the latest active constraint.
+- Keep `CLAUDE.md` as active operating guidance plus high-signal changelog only; move long completed-plan detail into dated docs when it starts to conflict with current behavior.

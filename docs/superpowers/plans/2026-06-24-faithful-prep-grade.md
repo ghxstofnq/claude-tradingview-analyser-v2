@@ -149,14 +149,14 @@ the running app, confirm via the app log (no console errors).
 
 ## Phase 4 — Validate
 
-### Task 11 — Re-grade oracle + fold + Discord spot-check
+### Task 11 — Re-grade oracle + fold
 **Files:** the oracle tapes/fixtures; `docs/strategy/lanto-oracle.md`.
 - Re-grade the locked oracle sessions under the faithful grade; fold the corpus;
-  spot-check vs Discord bias labels (Long/Short/Mixed/Unclear → count). Any oracle
-  expectation the faithful grade changes needs **user sign-off** before the tape
-  is re-promoted (oracle process).
-**Acceptance:** no unexplained regressions; grade changes match Lanto's actual
-calls on the checked sessions.
+  compare against the canonical strategy docs, transcripts, chart evidence, and
+  user-approved expectations. Any oracle expectation the faithful grade changes
+  needs **user sign-off** before the tape is re-promoted (oracle process).
+**Acceptance:** no unexplained regressions; grade changes match the docs/transcripts-backed,
+user-approved oracle on the checked sessions.
 **Verify:** `npm test` (replay + tape gates); `npm run smoke:fixtures`; the fold
 report.
 

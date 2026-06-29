@@ -53,11 +53,11 @@ other two: bad price into confirmation ⇒ the entry model and the draw are unre
 
 **Risk/management (filter):**
 - [ ] Stop structural — just beyond the **entry array** (FVG edge / inversion level), tight, **NOT**
-  above the session swing (12-12: a 6.25-handle MES stop at the 1H gap). ⚠️ A tight stop only works on
-  **clean/displacing** price — **a tight stop in chop gets wicked out** (PRICE 26:29: that trade lost
-  because the stop was tight relative to how consolidative price was). So the tight stop pairs with the
-  Pillar-2 clean-price filter (don't take the entry if price is consolidative). TP1 ≈ his stated 1–1.5R
-  but can be far higher off a tight stop (12-12 TP1 = 4.44R); ultimate ≈ 2R+ HTF draw. Mgmt = trail / BE.
+  automatically above the whole session swing. ⚠️ A tight stop only works on **clean/displacing** price —
+  **a tight stop in chop gets wicked out** (PRICE 26:29: that trade lost because the stop was tight
+  relative to how consolidative price was). So the tight stop pairs with the Pillar-2 clean-price filter
+  (don't take the entry if price is consolidative). TP1 ≈ his stated 1–1.5R; ultimate ≈ 2R+ HTF draw.
+  Mgmt = trail / BE.
 
 ---
 
@@ -91,7 +91,7 @@ rebuilt logic must get right.
 ### Multi-alignment (advanced A+) — the cleanest dated case
 | # | Source | Setup | Lanto's call | Discriminator |
 |---|---|---|---|---|
-| X1 | ENTRY ~25:13 (**2026-02-09**, real Discord trade) | **5m bullish FVG rebalance** + **1m bearish FVG go bullish-invert**, in one | A+ long | Two imbalances confirming one move |
+| X1 | ENTRY ~25:13 (**2026-02-09**, dated class example) | **5m bullish FVG rebalance** + **1m bearish FVG go bullish-invert**, in one | A+ long | Two imbalances confirming one move |
 
 ### Bias / price-quality (whole-session reads)
 | # | Source | Setup | Lanto's call | Discriminator |
@@ -103,9 +103,8 @@ rebuilt logic must get right.
 | P2 bad | PRICE ~24:37 | PPI 1m gap, consolidation, **fought >15 min** | Should not have taken | Tight/choppy delivery, fight-timeout |
 | R1 | RISK (**2025-10-02**) | bullish HTF; long off hourly gap + 4H FVG + overnight lows; later **hourly inverts** → short | Long then flip short | Confluence stack; flip on gap inversion |
 
-> Note on dates: transcript timestamps are class times; the *trade* dates are as labelled
-> by Lanto (he marks real Discord trades with a date). Verify each against the chart when
-> reconstructing.
+> Note on dates: transcript timestamps are class times; dated examples identify the trading
+> day separately. Verify each against the chart when reconstructing.
 
 ---
 
@@ -184,7 +183,7 @@ not a fabricated tick.
   **TP2 "28779 PWL"** is wrong — actual **PWL is 29071.25**; logged entry time **09:50** is ~40 min
   early (actual ~10:30).
 
-### D3 · 2025-12-12 NY-AM — 2/3-B short on **MES** (the documented B1)  ·  status: graded (transcript + Lanto's actual Discord call; instrument-corrected 2026-06-23) — engine HTF over-read flagged
+### D3 · 2025-12-12 NY-AM — 2/3-B bearish day (the documented B1)  ·  status: transcript-grounded bias; exact trade levels retired pending re-derive — engine HTF over-read flagged
 - **Lanto's own words (BIAS class, THIS day):** *"we didn't end up using higher time frame today…
   there wasn't anything massive… we ended up utilizing overnight price **two out of the three
   components** — overnight price and the opening range move"* (25:44/27:42); *"the whole week we
@@ -195,24 +194,14 @@ not a fabricated tick.
 - **No reversal long:** Lanto passed the long when the London lows were swept + price bounced —
   *"we didn't see major displacement… overnight was bearish"* (26:46). A sweep without mass
   displacement is not a reversal.
-- **Trade (Lanto's ACTUAL call, from his Discord — instrument-corrected 2026-06-23): MES (S&P 500),
-  NOT MNQ.** He traded the **S&P**, not the Nasdaq — the SMT vehicle pick (§6). Bearish **continuation
-  short**: **entry 6,888.25** (the 1H gap / equilibrium), **SL 6,894.50** (just above the gap — **risk
-  only 6.25 pts**), **TP1 6,860.50 = the Hourly Wick Low (4.44R), TP2 6,817.50 (11.32R)** — the deeper
-  draw. Levels verified to the tick against his on-chart position tool (orange box top 6,894.50 = SL,
-  boundary 6,888.25 = entry). Grade unchanged (**2/3-B**, continuation short — the *levels* were wrong
-  instrument before, the grade/bias was not).
-- **Two lessons from the real call:** (1) **INSTRUMENT** — I graded the whole oracle on MNQ1!, but
-  Lanto picks **ES-or-NQ per day** (here ES); the traded instrument per session must be **confirmed,
-  not assumed**. (2) **STOP ANCHORS ON THE ENTRY ARRAY, not the swing high** — his SL sat just beyond
-  the 1H entry gap (entry 6,888.25 / SL 6,894.50), giving **TP1 = 4.44R**; my engine anchored "above the
-  swing high." This is a *placement* rule, **not a point count**. ⚠️ **MES handles ≠ MNQ points** (S&P
-  ~$5/pt, Nasdaq ~$2/pt; index scales differ ~4×) — so the raw "6.25 vs 65" is **NOT** a valid
-  comparison. To judge whether my stop is genuinely looser, compare on **one** instrument or normalize
-  (% of price / R), not raw points. [[lanto-discord-actual-calls]]
-- **(Superseded MNQ reconstruction, kept for the record):** on MNQ the same move read entry ~26,300–
-  26,316, stop ~26,375, TP1 PDL 26,139, TP2 PWL 25,951 (low 25,930) — directionally right, wrong
-  instrument + far too loose a stop.
+- **Trade expectation:** retired until re-derived. Older versions of this oracle pinned exact
+  instrument/entry/SL/TP from ambiguous callout-derived material; those levels must not be used as
+  authority. Keep only the transcript-backed bias/grade facts above until the trade vehicle and price
+  levels are reconstructed from chart evidence and explicitly user-approved.
+- **Working lessons that remain valid from the transcripts/spec:** (1) the traded vehicle must be
+  confirmed per session, not assumed; (2) stops anchor structurally to the entry array / invalidation
+  level, not by a generic swing-high rule; (3) compare stop tightness on the same instrument or normalized
+  by risk/price, never by raw points across index products.
 - **ENGINE HTF OVER-READ (key fidelity finding):** my engine read graded this **3/3** (daily bear
   MSS **dp 837** + 4H/1H bear MSS = "strong HTF bearish"), but Lanto says **2/3 / no HTF**. The daily
   break (level 25168) is **~1150 pts BELOW** the open (26317) — a stale/distant/reclaimed structure,
@@ -378,7 +367,7 @@ lesson below.
 
 ## Pass bar
 
-A reconstructed session **passes** if the deterministic chain matches Lanto on **bias
-direction, grade tier, entry model, and side**, with entry / stop / TP1 within tolerance
-(same FVG/level, or ±~2–3 MNQ pts). A miss on any of bias / grade / model / side is a
-**fail** — those are the load-bearing decisions, not the exact tick.
+A reconstructed session **passes** if the deterministic chain matches the docs/transcripts-backed,
+user-approved oracle on **bias direction, grade tier, entry model, and side**, with entry / stop /
+TP1 within tolerance (same FVG/level, or ±~2–3 MNQ pts). A miss on any of bias / grade / model /
+side is a **fail** — those are the load-bearing decisions, not the exact tick.

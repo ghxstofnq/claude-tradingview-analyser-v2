@@ -4,7 +4,7 @@
   "fixtureSource": "real",
   "label_status": "unlabeled",
   "reviewer": "smt-pair-2026-06-25",
-  "source_message": "Lanto NY-AM: LONG, ES slightly leading @10:02 (5m FVG rebalance on ES), ES targets 7641/7649. Won +2R after a -0.5R first attempt. Leader SHOULD pick MES. expected is a PLACEHOLDER; leader ground truth = the Discord pick. verified stays false.",
+  "source_message": "Paired MES candidate tape retained for pair-leader research only. No strategy expectation is assigned; re-grade from docs/strategy, transcripts, chart evidence, and user approval before scoring.",
   "trade_date": "2026-06-15",
   "symbol": "MES",
   "contract_hint": "CME_MINI:MES1!",

@@ -31,7 +31,8 @@
   produced on recorded sessions — so the folds Track 2 uses to validate levers are trustworthy. It grows
   from **already-recorded** live walker-inputs (no new live sessions needed).
 - 🔧 **Oracle / corpus** — only **7 tapes**, **7 oracle sessions**. This is the binding constraint on
-  every fold below (research option 4). Discord ground truth: `~/.../Lantos Alerted Trades - Organized.md`.
+  every fold below (research option 4). Ground truth must come from `docs/strategy/`, the vendored
+  transcripts, chart evidence, and user-approved oracle expectations — not retired callout files.
 - 🔧 **UI fidelity** — one violation fixed (B1); re-point + probe pending (B2/B3).
 
 ## Out of scope (deferred to a later plan — NOT abandoned; the north-star still stands)
@@ -70,7 +71,8 @@ Track 3 (UI) is parallel and surfaces all of it faithfully.
 
 **TRACK 0 — Foundation (corpus + oracle).** Replay-record paired MNQ+MES NY-AM (and London) sessions
 via `tv record-tape` (single-TF, off-session only — replay poisons live capture); hand-grade each
-against Lanto's Discord; lock into the oracle. Target ≥3-4 paired weeks. Unblocks A3 + every Track-2 fold.
+against the strategy docs, transcripts, and chart evidence; lock into the user-approved oracle.
+Target ≥3-4 paired weeks. Unblocks A3 + every Track-2 fold.
 
 **A — Parity gate (keystone for fold-trust).** Maintain the standing gate (`npm run parity`); expand the
 `verified:true` + parity corpus from **already-recorded** live walker-inputs (replay-recorded / past
@@ -79,7 +81,7 @@ sessions) — no new live trading. Keeps Track-2's folds honest.
 **TRACK 2 — Faithful levers (options 1-3 + the edge limiter).** Each default-OFF, folded old-vs-new on
 the Track-0 corpus, user approves one at a time before default-on.
 - **G1 — Validate the 3-vote grade (option 2).** It's already on; re-grade the extended oracle under it,
-  fold, spot-check vs Discord. Confirm or tune; no rebuild.
+  fold, compare against the strategy docs/transcripts-backed oracle. Confirm or tune; no rebuild.
 - **G2 — Small refinements (option 3).** (a) MSS-significance spawn gate (gap #3): a valid MSS needs
   significant liquidity + matching displacement, not any rejected sweep — port the significance gate to
   the walker MSS/Inversion spawn. (b) `join_consecutive` FVG de-noise on walker spawns (SMC idea). Fold each.
@@ -101,7 +103,7 @@ panel-value == bot-input via the design-harness (no computer-use).
 ## Standing rules (CLAUDE.md + memory)
 
 - Zero LLM in the trade path; the deterministic chain is the only setup producer.
-- **Faithful-to-Lanto first**, derived from his transcripts/Discord/oracle — never "fix" a faithful
+- **Faithful-to-Lanto first**, derived from `docs/strategy/`, the transcripts, and the user-approved oracle — never "fix" a faithful
   behavior to protect P&L. Every lever is **default-OFF + folded old-vs-new** before it ships, one at a time.
 - CLI only (`./bin/tv`), TV Desktop CDP 9225; no MCP TV tools; no computer-use; recording off-session only.
 - **No live trading / no order placement in this plan** — verify by unit test / read-only inspection / fold.

@@ -77,6 +77,19 @@ Analysis output cites strategy authority with `(strategy.<doc>)` tokens — e.g.
 [`risk-and-management.md`](risk-and-management.md)). Numeric prices are cited
 separately with JSON paths (see CLAUDE.md constraint #6).
 
+## Authority policy
+
+Use this folder and the vendored transcripts as the strategy authority:
+
+- `docs/strategy/*.md` — the canonical, reviewed strategy spec.
+- `docs/strategy/transcripts/` — the source class transcripts used to derive it.
+
+Do **not** use or cite Lanto callout / alerted-trade-derived files as
+strategy authority. Those materials are retired because they are easy to
+misunderstand. If an older doc, fixture, or script mentions an expectation from those files,
+treat it as stale until the expectation is re-derived from this spec,
+the transcripts, chart evidence, and/or explicit user approval.
+
 ## Legacy section-citation map
 
 The codebase has many comments citing the old single-file spec by section number

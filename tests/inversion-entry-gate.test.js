@@ -154,8 +154,8 @@ test('GOFNQ_INV_GATE=0 disables the gate', () => {
 // Trend-aware override (2026-06-25), DEFAULT-OFF behind GOFNQ_INV_TREND_OVERRIDE.
 // "Deep = reversal" is backwards in a trending leg: a DEEP entry with no reversal
 // grab but an established CLEAN same-direction swing trend is a CONTINUATION (01-29
-// 10:28 MES: deep short 0.93, coherence 1.0, 5 bear breaks, no session-tier buy grab
-// — Lanto's actual winning trade). Strictly additive on `valid` — it only rescues
+// 10:28 MES candidate: deep short 0.93, coherence 1.0, 5 bear breaks, no session-tier buy grab).
+// Strictly additive on `valid` — it only rescues
 // deep-no-grab entries the reversal branch would block, never removes a valid
 // reversal. Gated off because it regresses the 06-16 oracle day (see lifecycle note).
 function withOverride(fn) {

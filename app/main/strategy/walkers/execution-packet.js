@@ -295,7 +295,7 @@ function inversionStructuralStop(walker, side, entry, context) {
   // chop, replacing the old fixed 95-pt cap (which equalled ~5×ATR at a normal
   // ~19-pt ATR). atr_14 unavailable → the leg anchor stands (no volatility read →
   // cannot judge "too wide"). The 5× multiple is the lone calibration knob,
-  // refined in the verification pass against the Discord-call stops.
+  // refined against docs/transcripts-backed, user-approved oracle stops.
   const atr14 = numberOrNull(context?.pillar2?.atr14);
   const WIDE_LEG_ATR_MULT = 5;
   const wideLegBudget = atr14 != null && atr14 > 0 ? WIDE_LEG_ATR_MULT * atr14 : Infinity;

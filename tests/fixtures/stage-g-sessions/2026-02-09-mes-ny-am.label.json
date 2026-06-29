@@ -4,7 +4,7 @@
   "fixtureSource": "real",
   "label_status": "unlabeled",
   "reviewer": "smt-pair-2026-06-25",
-  "source_message": "MES counterpart of the 2026-02-09 NY-AM Stage-G session, recorded to PAIR with the MNQ tape for the pair-leader fold. expected is a PLACEHOLDER (leader ground truth = Lanto Discord pick, graded separately). verified stays false.",
+  "source_message": "MES counterpart of the 2026-02-09 NY-AM Stage-G session, recorded to pair with the MNQ tape for research. No MES strategy expectation is assigned; re-grade from docs/strategy, transcripts, chart evidence, and user approval before scoring.",
   "trade_date": "2026-02-09",
   "symbol": "MES",
   "contract_hint": "CME_MINI:MES1!",

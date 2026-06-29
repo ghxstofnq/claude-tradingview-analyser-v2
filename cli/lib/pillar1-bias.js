@@ -39,8 +39,8 @@ export const INVERSION_DISP_MIN = 0.5;
 // clearly shows the BEST displacement… block out the noise" (ENTRY 06:35). A
 // small, low-displacement gap is "nothing crazy" → no HTF vote, the day is 2/3
 // (BIAS 27:42). Disp-based, NOT a raw size veto ("it doesn't have to be entirely
-// large", ENTRY 05:38) — calibrated so 06-16's ds 0.74 array still counts (you
-// traded it). Tune with the Discord calls.
+// large", ENTRY 05:38) — calibrated so 06-16's ds 0.74 array still counts. Tune with
+// docs/transcripts-backed, user-approved oracle sessions.
 export const SIG_DISP_MIN = 0.5;
 
 // "Near price" = a realistic intraday destination today (daily-bias §2). Scale-
@@ -344,7 +344,7 @@ export const smtBiasOf = (biasDir) =>
  * (neutral on the validated week), so an opposing leader is held warning-only
  * (cap A+ -> B + flag `conflict`) and never blocks or flips a trade on its own;
  * no-divergence (smt_bias=null) is a no-op. PROMOTE `conflict` to a hands-off
- * no-trade once SMT proves out on more paired sessions (the Discord calls).
+ * no-trade once SMT proves out on more docs/transcripts-backed paired sessions.
  */
 function applySmt(result, smtBias) {
   if (!smtBias) return { ...result, smt: null, smt_bias: null };
@@ -368,7 +368,7 @@ function applySmt(result, smtBias) {
 
 /**
  * Combine the three components into the draw-bias pillar grade (daily-bias §1, §4,
- * §5). NOT a naive vote count — Lanto's actual mechanism: HTF + overnight set a
+ * §5). NOT a naive vote count — the documented mechanism: HTF + overnight set a
  * PRE-OPEN LEAN, then the NY-open reaction CONFIRMS or REVERSES it.
  *
  *   - CONFIRM (open agrees with the lean, or sets it when there's no lean): count
@@ -432,7 +432,7 @@ export function combineBias({ htf, overnight, nyopen, pillar2 = null, smt_bias =
   // component. §1 "one out of three → you do not take a trade" (BIAS 22:25). A
   // reversal not backed by a 2nd component is a lower-timeframe scalp at most
   // (BIAS 25:44) — this pillar does not green-light it on its own, even a
-  // swing-tier one. (Open question for the Discord calls: does a strong reversal
+  // swing-tier one. (Open question for the user-approved oracle: does a strong reversal
   // off a significant grab override "1/3"? Conservative default = stand aside.)
   if (!lean) {
     return out({ bias: n, reason: 'open_only_one_of_three', no_trade_reason: 'one_of_three' });

@@ -2,11 +2,14 @@
 
 **Status: DRAFT for sign-off. No code until approved.**
 
-Grounded in Lanto's own words, per the standing rule (transcripts + Discord,
-never the derived specs). Sources, with timestamps used as citations below:
+Grounded in the canonical strategy docs and Lanto's own class transcripts. Sources,
+with timestamps used as citations below:
 - **DB** = *How I Develop Daily Bias* (12/12/2025) — `docs/strategy/transcripts/How-I-Develop-Daily-Bias-...md`
 - **EM** = *How I Enter The Market (Entry Models)* (2/9/2026) — `...How-I-Enter-The-Market-Entry-Models-...md`
-- **Discord** = *Lantos Alerted Trades - Organized.pdf* (spot-checked 2025-09-26, 2026-01-06)
+
+Retired sources: do not use Lanto callout / alerted-trade-derived files
+for this rubric. Re-derive any disputed session expectation from the docs above,
+the transcripts, chart evidence, and/or explicit user approval.
 
 This rubric governs the PREP **draw-bias grade** only (Pillar 1). Price action
 (Pillar 2) and entry model (Pillar 3) are separate components.
@@ -176,9 +179,9 @@ array does vote). Fixed by the grade change (#1), not by a significance veto.
 
 ## 10. Validation (Phase 4, after the build)
 
-Re-grade the oracle sessions and spot-check against Discord bias labels
-(`Long/Short/Mixed/Unclear`): mixed/unclear = low count → no-trade/cautious. No
-regressions on the locked oracle.
+Re-grade the oracle sessions against the canonical strategy docs, transcripts,
+and chart evidence. Mixed/unclear reads remain low-count → no-trade/cautious. No
+regressions on the locked, user-approved oracle.
 
 ---
 
