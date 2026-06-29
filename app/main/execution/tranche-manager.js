@@ -79,9 +79,11 @@ export async function runTrancheManager(ctx = {}, deps) {
 
   if (decision.action === "open_anchor") {
     const sizing = d.sizePacket(bestPacket, cfg);
+    const openLossUsd = d.openLossUsd ? await d.openLossUsd() : 0;
     const gate = d.checkOrder({
       hasStop: Number.isFinite(Number(bestPacket.stop)) && Number(bestPacket.stop) !== Number(bestPacket.entry),
-      sizing, guards: cfg.guards, dayState: { realizedLossUsd: d.dayRealizedLossUsd(events) },
+      sizing, guards: cfg.guards,
+      dayState: { realizedLossUsd: d.dayRealizedLossUsd(events), openLossUsd },
     });
     if (!gate.ok) { await d.recordSkip(`blocked:${gate.code}`); return { action: `blocked:${gate.code}`, gate }; }
     const accepted = await d.accept({ ...bestPacket, tranche_role: "anchor" });
@@ -97,10 +99,10 @@ export async function runTrancheManager(ctx = {}, deps) {
 // Production deps. Heavy modules (CDP/adapter/journal) imported lazily so the
 // unit test (which injects fakes) never loads electron/ws.
 async function buildRealDeps() {
-  const [{ readExecConfig, TRADES_DIR }, sessions, outcomes, { checkOrder }, fills, exec, gate, active, autoResume] = await Promise.all([
+  const [{ readExecConfig, TRADES_DIR }, sessions, outcomes, { checkOrder, openLossFromUpnl }, fills, exec, gate, active, autoResume, tradingFeed] = await Promise.all([
     import("./config.js"), import("../sessions.js"), import("../../../cli/lib/trade-outcomes.js"),
     import("./guardrails.js"), import("./fills.js"), import("./tranche-exec.js"),
-    import("./account-gate.js"), import("./active-account.js"), import("./auto-resume.js"),
+    import("./account-gate.js"), import("./active-account.js"), import("./auto-resume.js"), import("./trading-feed.js"),
   ]);
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
@@ -128,6 +130,23 @@ async function buildRealDeps() {
     // TRADES_DIR (config), not the non-existent fills.TRADES_DIR which silently
     // read nothing — so auto mode previously had no daily halt at all.
     dayRealizedLossUsd: () => { try { const acct = active.getActiveAccount()?.id ?? null; return fills.dayRealizedLossUsd(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), acct); } catch { return 0; } },
+    // Best-effort open drawdown for the predictive daily-loss gate. Same
+    // read-only sources as the IPC fire path: Tradovate REST position if active,
+    // otherwise the paper/webview position. Any read failure degrades to 0 so
+    // auto-fire still keeps the realized + new-risk protection.
+    openLossUsd: async () => {
+      try {
+        let pos = tradingFeed.getTradingState().position ?? null;
+        if (active.getActiveAccount()?.broker === "tradovate") {
+          const { readTradovatePosition } = await import("./tradovate-adapter.js");
+          pos = (await readTradovatePosition()) ?? pos;
+        } else if (pos?.uPnlUsd == null) {
+          const { tvAdapter } = await import("./tv-adapter.js");
+          pos = (await tvAdapter.readState())?.position ?? pos;
+        }
+        return openLossFromUpnl(pos?.uPnlUsd);
+      } catch { return 0; }
+    },
     checkOrder,
     accept: async (payload) => {
       const { acceptSetup } = await import("../trades.js");

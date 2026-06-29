@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { planTrancheAction, tradovateOrderFromPacket } from "../app/main/execution/tranche-manager.js";
+import { checkOrder } from "../app/main/execution/guardrails.js";
+import { planTrancheAction, runTrancheManager, tradovateOrderFromPacket } from "../app/main/execution/tranche-manager.js";
 
 describe("tradovateOrderFromPacket (auto → Tradovate bracket routing)", () => {
   it("maps a long packet → buy market order with stop/target bracket + chart symbol", () => {
@@ -51,5 +52,29 @@ describe("planTrancheAction", () => {
   });
   it("manual, a position already open → skip:active", () => {
     assert.equal(planTrancheAction({ ...base, mode: "manual", openTranches: openAnchor }).action, "skip:active");
+  });
+});
+
+describe("runTrancheManager guardrail integration", () => {
+  it("auto-fire includes open drawdown in the predictive daily-loss gate", async () => {
+    const skips = [];
+    const result = await runTrancheManager({ bestPacket: { ...anchorPacket, symbol: "MNQ1!" } }, {
+      readExecConfig: () => ({ automationMode: "auto", guards: { perTradeMax: 1000, dailyLimit: 600, defaultRisk: 250 } }),
+      accountRoutable: () => ({ route: true }),
+      autoAllowed: () => true,
+      readJournal: async () => ({ events: [], open: [] }),
+      consecutiveLossStreak: () => 0,
+      sizePacket: () => ({ contracts: 1, riskUsd: 250, withinTolerance: true }),
+      dayRealizedLossUsd: () => 300,
+      openLossUsd: async () => 50,
+      checkOrder,
+      recordSkip: async (reason) => { skips.push(reason); },
+      accept: async () => { throw new Error("accept should not run when daily halt blocks"); },
+      openTrancheOrders: async () => { throw new Error("orders should not open when daily halt blocks"); },
+    });
+
+    assert.equal(result.action, "blocked:DAILY_HALT");
+    assert.equal(result.gate.code, "DAILY_HALT");
+    assert.deepEqual(skips, ["blocked:DAILY_HALT"]);
   });
 });

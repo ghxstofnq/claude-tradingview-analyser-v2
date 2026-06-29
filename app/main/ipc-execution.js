@@ -5,7 +5,7 @@
 // rather than throwing across IPC.
 import { ipcMain } from "electron";
 import { tvAdapter } from "./execution/tv-adapter.js";
-import { checkOrder } from "./execution/guardrails.js";
+import { checkOrder, openLossFromUpnl } from "./execution/guardrails.js";
 import { readFills, dayRealizedLossUsd, readAllFills } from "./execution/fills.js";
 import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
@@ -23,6 +23,24 @@ function accountState() {
   return { active, confirmed, gate: resolveAccountGate({ active, confirmed }), autoResumed: getAutoResumed() };
 }
 
+// Current open drawdown ($, positive) for the predictive daily-loss gate.
+// Best-effort: reads existing position sources only (no broker writes) and any
+// failure degrades to 0, so the gate falls back to realized + risk rather than
+// throwing on the fire path. Tradovate position carries uPnlUsd via its REST
+// read; TV paper carries it on the DOM/feed position. (audit Phase 3)
+async function openLossUsdNow() {
+  try {
+    let pos = getTradingState().position ?? null;
+    if (getActiveAccount()?.broker === "tradovate") {
+      const { readTradovatePosition } = await import("./execution/tradovate-adapter.js");
+      pos = (await readTradovatePosition()) ?? pos;
+    } else if (pos?.uPnlUsd == null) {
+      pos = (await tvAdapter.readState())?.position ?? pos;
+    }
+    return openLossFromUpnl(pos?.uPnlUsd);
+  } catch { return 0; }
+}
+
 async function guarded(payload) {
   const fills = readFills(tradesDir(), today());
   // Scope the daily-loss halt to the SPECIFIC account we'd route to — one
@@ -30,7 +48,9 @@ async function guarded(payload) {
   // label) so two different Tradovate accounts don't share one tally. Falls back
   // to all-accounts when the active account is unknown.
   const account = getActiveAccount()?.id ?? null;
-  const dayState = { realizedLossUsd: dayRealizedLossUsd(fills, account) };
+  // Fold current open drawdown into the gate so a new order can't be sized into
+  // a worst-case day that breaches the daily limit (audit Phase 3).
+  const dayState = { realizedLossUsd: dayRealizedLossUsd(fills, account), openLossUsd: await openLossUsdNow() };
   return checkOrder({ hasStop: payload?.hasStop, sizing: payload?.sizing, guards: payload?.guards, dayState });
 }
 

@@ -21,8 +21,44 @@ export function checkOrder({ hasStop, sizing, guards, dayState } = {}) {
   if (G.perTradeMax != null && risk > G.perTradeMax) {
     return { ok: false, code: "OVER_MAX", message: `Computed risk $${risk} exceeds the $${G.perTradeMax} per-trade ceiling.` };
   }
-  if (G.dailyLimit != null && (dayState?.realizedLossUsd ?? 0) >= G.dailyLimit) {
-    return { ok: false, code: "DAILY_HALT", message: `Daily loss limit $${G.dailyLimit} reached — new entries locked until next session.` };
+  if (G.dailyLimit != null) {
+    const realized = Number(dayState?.realizedLossUsd ?? 0);
+    // Already at/over the limit on realized losses alone — hard halt.
+    if (realized >= G.dailyLimit) {
+      return { ok: false, code: "DAILY_HALT", message: `Daily loss limit $${G.dailyLimit} reached — new entries locked until next session.` };
+    }
+    // Predictive gate (audit Phase 3): would THIS order's worst-case loss,
+    // stacked on realized loss + current open drawdown, breach the daily limit?
+    // Positive drawdown fields count directly; signed PnL aliases convert via
+    // openLossFromUpnl so an open loss (negative PnL) increases the projection
+    // while open profit does not shrink it.
+    const openLoss = openLossFromDayState(dayState);
+    const projectedDailyLoss = realized + openLoss + risk;
+    if (projectedDailyLoss >= G.dailyLimit) {
+      return { ok: false, code: "DAILY_HALT", message: `Order blocked — projected day loss $${projectedDailyLoss} would reach the $${G.dailyLimit} daily limit (realized $${realized} + open $${openLoss} + risk $${risk}).` };
+    }
   }
   return { ok: true };
+}
+
+// Open drawdown ($, positive) from a signed unrealized PnL. Profit → 0 so it
+// never shrinks the daily-loss projection; non-finite/missing → 0 (fail-safe).
+// Used by the IPC pre-fire path to fill dayState.openLossUsd. (audit Phase 3)
+export function openLossFromUpnl(uPnlUsd) {
+  const u = Number(uPnlUsd);
+  return Number.isFinite(u) ? Math.max(0, -u) : 0;
+}
+
+function positiveLossUsd(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+export function openLossFromDayState(dayState = {}) {
+  if (dayState?.openLossUsd != null) return positiveLossUsd(dayState.openLossUsd);
+  if (dayState?.openDrawdownUsd != null) return positiveLossUsd(dayState.openDrawdownUsd);
+  if (dayState?.uPnlUsd != null) return openLossFromUpnl(dayState.uPnlUsd);
+  if (dayState?.unrealizedPnlUsd != null) return openLossFromUpnl(dayState.unrealizedPnlUsd);
+  if (dayState?.unrealizedLossUsd != null) return positiveLossUsd(dayState.unrealizedLossUsd);
+  return 0;
 }
