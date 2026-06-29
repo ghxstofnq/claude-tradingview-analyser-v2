@@ -62,8 +62,8 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   assert.equal(summary.cost_usd, 0);
   // Stage-G (2026-06-24): the continuation-trend fix (an inversion continuation
   // must run WITH the most-recent swing-tier break) suppresses June 9's premature
-  // early short and surfaces the real reversal — entry 29964.75, grade A+, which
-  // matches Lanto's A+ hand-grade. As an A+ it arms a runner to the deeper draw
+  // early short and surfaces the verified A+ reversal — entry 29964.75, grade A+.
+  // As an A+ it arms a runner to the deeper draw
   // rather than banking at TP1; the recorded tape window ends before that deeper
   // target, so the trade stays OPEN (no loss, no in-window resolution). TP
   // targeting to the major-liquidity draw (AS.L 29595.25) is the separate open

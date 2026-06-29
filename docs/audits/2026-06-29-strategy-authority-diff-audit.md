@@ -19,9 +19,9 @@ Scope: the remaining uncommitted 35-file strategy/fixture diff after script clea
 
 - Added an explicit authority policy: strategy docs + vendored transcripts are allowed; Lanto callout / alerted-trade-derived files are retired as authority.
 - Demoted the 2025-12-12 MES exact trade expectation to `needs_gxofnq_review` because its exact instrument/entry/SL/TP levels came from retired material and must be re-derived before scoring.
-- Reworded paired MNQ/MES candidate fixture source messages so they remain useful market-data tapes but do not claim leader ground truth.
+- Reworded paired MNQ/MES candidate fixture source messages so they remain useful market-data tapes but do not claim authoritative leader labels.
 - Updated `scripts/fold-pair-leader.mjs` so only docs/transcripts-backed, user-approved rows are scored against `oracle_pick`; retired candidate rows print `pending_review` / not-scored.
-- Cleaned code/test comments that referred to Discord calls or old actual-call language. No runtime logic was intentionally changed.
+- Cleaned code/test comments that referred to retired-source trade labels or old actual-call language. No runtime logic was intentionally changed.
 - Left raw/allowed transcript mentions alone; retiring a derived source is not a ban on the person/name in canonical transcripts or strategy method language.
 
 ## Verification

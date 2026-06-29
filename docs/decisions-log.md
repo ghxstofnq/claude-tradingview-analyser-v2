@@ -386,8 +386,8 @@ method never takes.
 grades EVERY PM session no-trade; the chain still fires on 9 of them off the
 fake 13:00 reaction. Those PM setups are net-negative under every trading model:
 own-session **−6.21R** (3W/9L), continuation-of-morning-bias **−5.42R**
-(7W/17L). Suppressing them entirely (carry-only) is best — and matches Lanto
-literally: the morning trade carries into the afternoon, no new afternoon hunts.
+(7W/17L). Suppressing them entirely (carry-only) is best — and matches the
+documented method: the morning trade carries into the afternoon, no new afternoon hunts.
 
 **Lever.** `config.pmCarryOnly()` (`GOFNQ_PM_CARRY_ONLY`, **default-ON; opt out
 =0**, user-approved 2026-06-28). Gated in the shared brain
