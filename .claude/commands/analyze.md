@@ -554,7 +554,7 @@ If any check fails, rewrite the section, then emit chat output.
 
 <phase name="other">
 
-**London Open** — optional context-build window. The system is session-focused (NY AM + NY PM), but if you want a London read, treat it as a one-shot grade. Here `<session>` is `london`, so `<sdir>` resolves to `state/session/<date>/london/`. Write `<sdir>/pillar1.md` and `<sdir>/pillar2.md` exactly as in the Pre-session phase (`phase: london_open` in the frontmatter), then a brief `<sdir>/summary.md` wrap as in the Post-session phase. The `london/` folder is independent — NY AM and NY PM never touch it, so the London grade persists for later review. Skip the grade if `<sdir>/pillar1.md` already exists.
+**London Open** — handled by the brief workflow. If `gates.session.phase` is `london_open`, follow `<phase name="brief">` for the London session; do not author pillar files manually from this fallback phase.
 
 **Inter-session, Closed** — idle. Say "Outside NY sessions — no work" plus current phase + countdown. No state writes.
 

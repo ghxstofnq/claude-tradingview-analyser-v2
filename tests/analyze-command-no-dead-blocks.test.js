@@ -15,3 +15,7 @@ test("/analyze command has no dead phase blocks", () => {
   assert.doesNotMatch(cmd, /<phase name="pre_session">/, "ships dead pre_session block");
   assert.doesNotMatch(cmd, /<phase name="entry_hunt_legacy_DISABLED">/, "ships dead entry_hunt_legacy_DISABLED block");
 });
+
+test("/analyze command has no orphaned references to removed pre-session flow", () => {
+  assert.doesNotMatch(cmd, /Pre-session phase/i, "references removed pre_session workflow");
+});

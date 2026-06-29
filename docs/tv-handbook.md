@@ -2,7 +2,7 @@
 
 Quick reference for every `./bin/tv` command. The CLI talks to TradingView Desktop over CDP on port 9225 (`packages/core/connection.js` `CDP_PORT = 9225`).
 
-Prerequisites: Electron app running. Signed in to TradingView Web in the webview. Chart loaded with desired symbol + indicators (ICT Engine V1 for analysis).
+Prerequisites: TradingView Desktop running with remote debugging exposed on port 9225. Signed in to TradingView Web inside that TradingView Desktop instance. Chart loaded with desired symbol + indicators (ICT Engine V1 for analysis).
 
 All commands return JSON to stdout. `success: false` ⇒ stderr + exit 1.
 
