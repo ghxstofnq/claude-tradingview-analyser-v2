@@ -35,6 +35,7 @@ import { closeAtMarket, gradeRunner } from "./backtest-grader.js";
 import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.js";
 import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
 import { canonicalSymbol } from "../../cli/lib/run-symbol.js";
+import { writeEnvSnapshotFile } from "./env-snapshot.js";
 // The fold's open-reaction read is the SAME resolver the live chain uses — one
 // source of truth (no parallel copy to drift). Circular with live-ltf-resolver
 // (it imports openReactionWindowMs/biasFromDraw from here) but both usages are
@@ -129,6 +130,9 @@ export async function runBacktest({
   const runId = generateRunId({ session, date });
   const sessionDir = resolveRunDir({ stateDir, runId });
   fs.mkdirSync(sessionDir, { recursive: true });
+  // Effective GOFNQ_* config snapshot for this run — a read-only parity artifact
+  // beside setups.jsonl / summary.json, diffable against the live boot snapshot.
+  writeEnvSnapshotFile({ dir: sessionDir, source: `backtest:${runId}` });
   // The instrument this run traded — tags the summary + index so analytics can
   // be read per symbol (MNQ vs MES). Truthful source: the symbol the popover
   // sent for this job (BOTH expands to separate per-symbol jobs). Headless runs

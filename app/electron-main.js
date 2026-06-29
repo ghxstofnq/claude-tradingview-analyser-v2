@@ -21,6 +21,8 @@ import { startDetector } from "./main/bar-close.js";
 import { startTradeTickerWatchdog } from "./main/trade-ticker-watchdog.js";
 import { startSessionSupervisor } from "./main/session-supervisor.js";
 import { createVersionPoll } from "./main/version-status.js";
+import { stateRoot } from "./main/sessions.js";
+import { writeEnvSnapshotFile } from "./main/env-snapshot.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -82,6 +84,12 @@ if (!gotLock) {
 app.whenReady().then(async () => {
   const win = createWindow();
   const ipc = registerIpc(win);
+  // Effective GOFNQ_* config snapshot — one-shot, read-only. Records the live
+  // levers in effect at boot so a live run can be diffed against a backtest run
+  // (which writes the same file into its run folder) for parity auditing.
+  const cfgSnap = writeEnvSnapshotFile({ dir: stateRoot(), source: "live" });
+  // eslint-disable-next-line no-console
+  console.log(`[config] effective GOFNQ_* snapshot → ${cfgSnap.file} (${cfgSnap.ok ? "ok" : cfgSnap.error?.message})`);
   registerExecutionIpc();
   startTradingFeed();
   startTradovateFillPoller({ send: ipc.send });
