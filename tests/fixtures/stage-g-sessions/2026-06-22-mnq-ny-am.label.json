@@ -4,7 +4,7 @@
   "fixtureSource": "real",
   "label_status": "unlabeled",
   "reviewer": "smt-pair-2026-06-25",
-  "source_message": "MNQ counterpart of the 06-22 day. Pairs with MES for the switch test. expected is a PLACEHOLDER; leader ground truth = the Discord pick. verified stays false.",
+  "source_message": "Paired MNQ candidate tape retained for pair-leader research only. No strategy expectation is assigned; re-grade from docs/strategy, transcripts, chart evidence, and user approval before scoring.",
   "trade_date": "2026-06-22",
   "symbol": "MNQ",
   "contract_hint": "CME_MINI:MNQ1!",
