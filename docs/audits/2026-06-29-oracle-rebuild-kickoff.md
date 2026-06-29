@@ -67,6 +67,47 @@ Temporary local-only recovery of that tape produced one scored row:
 
 The recovered 64.8 MB MES tape was deleted after the fold and is not part of this branch.
 
+### Tape recovery slice 1 — 2026-06-29
+
+History search across the approved pair rows found only one MES counterpart in git history:
+
+| MES tape path | Git history result | Action |
+|---|---|---|
+| `tests/tapes/2026-02-09-mes-ny-am-replay.tape.json` | no history | record fresh MES tape |
+| `tests/tapes/2026-06-09-mes-ny-am-replay.tape.json` | no history | record fresh MES tape |
+| `tests/tapes/2026-06-16-mes-ny-am-replay.tape.json` | recoverable from `77e45c3`; deleted by `40aa7ed`; blob size `64,750,344` bytes | local-only recovery for fold evidence; do not recommit |
+| `tests/tapes/2026-06-17-mes-ny-am-replay.tape.json` | no history | record fresh MES tape |
+| `tests/tapes/2026-06-18-mes-ny-am-replay.tape.json` | no history | record fresh MES tape |
+
+The local-only 2026-06-16 recovery was repeated after this audit commit point and produced the same single scored row:
+
+```text
+=== PAIR-LEADER FOLD ===
+
+2026-06-16  ·  oracle: MNQ short
+  MNQ: Trend short B → 4.59R (tp1)
+  MES: Inversion long B → -1R (stopped)
+  disp-leader → MNQ (primary_higher_disp_score)  ✓ matches oracle
+  smt-leader  → MES (smt_divergence)
+
+2026-06-09: MISSING tape (record MES)
+2026-06-17: MISSING tape (record MES)
+2026-06-18: MISSING tape (record MES)
+2026-02-09: MISSING tape (record MES)
+2026-01-29: MISSING tape (record MES)
+2026-06-15: MISSING tape (record MES)
+2026-04-06: MISSING tape (record MES)
+2026-06-22: MISSING tape (record MES)
+=== ARM TOTALS (1 paired session) ===
+  always-MNQ      : 4.59R
+  displacement    : 4.59R
+  divergence-SMT  : -1R
+
+  (anecdotal until ≥5 paired sessions — read the trend, not one row)
+```
+
+The recovered MES blob was deleted again after the fold. `git status --short --untracked-files=no` was clean immediately afterward.
+
 ## Evidence inventory
 
 | Date | Current paired use | Fixture status | Allowed docs/transcript evidence found | Current action |
@@ -84,25 +125,28 @@ The recovered 64.8 MB MES tape was deleted after the fold and is not part of thi
 
 ## Recommended next work order
 
-1. **Recover or re-record MES counterpart tapes** for the five already-approved MNQ/no-trade oracle rows:
+1. **Record fresh MES counterpart tapes** for the remaining approved MNQ/no-trade oracle rows that have no recoverable MES history:
    - `2026-02-09`
    - `2026-06-09`
-   - `2026-06-16`
    - `2026-06-17`
    - `2026-06-18`
 
-   This makes the existing `oracle_pick` rows runnable without inventing new expectations.
+   `2026-06-16` has local-only fold evidence from the recoverable historical MES blob; do not recommit that 64.8 MB tape unless a separate storage policy is approved.
 
-2. **Re-grade 2025-12-12 first** because it has strong transcript support for the bias/grade but intentionally lacks allowed exact trade levels.
+2. **Re-run `node scripts/fold-pair-leader.mjs` after each new MES recording** and append row-level output here.
+   - A clean paired corpus target is at least the five approved rows above.
+   - Treat interim arm totals as anecdotal until the corpus has enough paired weeks.
+
+3. **Re-grade 2025-12-12 after the approved rows are foldable** because it has strong transcript support for the bias/grade but intentionally lacks allowed exact trade levels.
    - Preserve: 2/3-B bearish, no HTF vote.
    - Reconstruct from chart/tape: traded vehicle, model, side, entry array, stop invalidation level, TP1/TP2 draw.
    - Promote only after user approval.
 
-3. **Only after that**, re-grade the retired candidate pair dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) from chart/tape + strategy rubric.
+4. **Only after that**, re-grade the retired candidate pair dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) from chart/tape + strategy rubric.
    - No old instrument/entry/SL/TP labels can be reused as truth.
    - If evidence is insufficient, keep `pending_review`.
 
-4. **Do not wire or default-on any pair-leader behavior** until `scripts/fold-pair-leader.mjs` has a clean, scored corpus with paired tapes and approved oracle rows.
+5. **Do not wire or default-on any pair-leader behavior** until `scripts/fold-pair-leader.mjs` has a clean, scored corpus with paired tapes and approved oracle rows.
 
 ## Verification run for this kickoff
 
@@ -123,9 +167,13 @@ Result:
 - Branch created: `docs/rebuild-oracle-from-authority`
 - Pair fold executed successfully but found `0` paired sessions because MES/candidate tapes are absent in this workspace.
 
-## Open decision for the user
+## Current next recording target
 
-Before recording/recovering tapes, decide whether the next slice should be:
+Record fresh MES counterpart tapes for the four approved rows with no recoverable MES history:
 
-1. **Tape recovery/recording slice** — make existing approved rows foldable by adding MES counterpart tapes; or
-2. **2025-12-12 re-grade slice** — reconstruct the first demoted exact expectation from allowed evidence.
+1. `2026-02-09-mes-ny-am-replay.tape.json`
+2. `2026-06-09-mes-ny-am-replay.tape.json`
+3. `2026-06-17-mes-ny-am-replay.tape.json`
+4. `2026-06-18-mes-ny-am-replay.tape.json`
+
+After each recording, run `node scripts/fold-pair-leader.mjs`, append the new row-level output above, and keep any unapproved expectations `pending_review`.
