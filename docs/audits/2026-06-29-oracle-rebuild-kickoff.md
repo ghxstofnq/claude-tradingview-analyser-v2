@@ -298,12 +298,51 @@ Decision for this slice: **NOT READY to promote exact oracle levels.**
 
 Keep `tests/fixtures/stage-g-sessions/2025-12-12-mes-ny-am-trend-short.label.json` as `needs_gxofnq_review` with exact `model`, `side`, `entry`, `stop`, `tp1`, and `tp2` unpromoted. The transcript supports the day-level read — bearish 2/3-B, no HTF vote, no long reversal — but the exact execution packet still needs chart/tape evidence or explicit user approval.
 
-## Current next target
+## Recent-date oracle rebuild pivot — 2026-06-29
 
-Acquire usable chart/tape evidence for **2025-12-12** before promoting exact oracle truth:
+User approved pivoting the exact oracle rebuild away from unavailable historical MES replay and toward recent sessions from the last two months. `2025-12-12` remains a **transcript-only calibration case** unless a usable intraday chart/tape source appears.
 
-1. Find a TradingView symbol/contract or saved chart source whose intraday replay/history includes 2025-12-12 NY AM.
-2. Reconstruct the exact short candidate around the transcript’s ~9:59/10:00 confirmation clue.
-3. Derive entry, structural stop, TP1, and TP2 from chart evidence.
-4. Ask for user approval before flipping any fixture expectation out of `needs_gxofnq_review`.
-5. Keep retired candidate dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) as `pending_review` until 2025-12-12 exact levels are resolved.
+Promotion policy for any exact oracle row:
+
+1. **Allowed authority only:** `docs/strategy/*.md`, `docs/strategy/transcripts/*.md`, chart/tape evidence, and/or explicit user approval. Retired callout / alerted-trade-derived material cannot assign exact truth.
+2. **Paired evidence preferred:** MNQ and MES tapes must exist for the same session/window, or the row must be explicitly documented as single-instrument-only.
+3. **Exact packet required:** model, side, entry, stop, TP1/TP2, grade, first-packet timestamp, and outcome must be tied to chart/tape evidence or an approved strategy-oracle doc row.
+4. **Approval before mutation:** do not flip labels/tape expectations out of `unlabeled`, `needs_gxofnq_review`, or stale expectation states until the exact packet is shown to the user and approved.
+5. **Verification gate:** after any approved promotion, run `npm run tapes`, `node scripts/fold-pair-leader.mjs`, and `npm run test`.
+
+Phase-1 candidate deck:
+
+| Batch | Date | Session | Current state | Action |
+|---|---|---|---|---|
+| A | `2026-06-09` | NY-AM | paired tapes exist; tracked MNQ tape expectation conflicts with corrected `lanto-oracle.md` exact row | prepare correction packet; do not promote stale tape expectation |
+| A | `2026-06-16` | NY-AM | paired tapes exist; fixture aligns better with `lanto-oracle.md` than tracked tape expectation | prepare correction packet |
+| A | `2026-06-17` | NY-AM | paired tapes exist; no-trade row aligns with `lanto-oracle.md` | keep as seed no-trade candidate pending final approval |
+| A | `2026-06-18` | NY-AM | paired tapes exist; fixture aligns better with `lanto-oracle.md` than tracked tape expectation | prepare correction packet |
+| B | `2026-06-12` | NY-AM | persisted recent long candidate in `state/session` | record/complete paired tapes, then hand-grade |
+| B | `2026-06-22` | NY-AM | recent no-setup/no-trade candidate | record paired tapes, then hand-grade no-trade or reject |
+| B | `2026-06-23` | NY-AM | recent no-setup/no-trade candidate | record paired tapes, then hand-grade no-trade or reject |
+| C | `2026-06-19` | NY-AM | ambiguous/multiple setup candidates in `state/session` | stress-day review; likely review-only until clarified |
+| C | `2026-06-24` | NY-AM | unverified MNQ long tape candidate; MES missing | record MES counterpart and hand-grade |
+| C | `2026-06-29` | NY-AM | very recent bearish/no-setup context | use after session completeness/replay stability is verified |
+
+Phase-1 target is **6–8 high-confidence rows**, not all candidates. Desired balance: 2–3 longs, 2–3 shorts, 2 no-trades, at least one A+, at least two B-grade rows, and at least one MNQ/MES disagreement row if evidence supports it.
+
+### Batch A seed sanity result
+
+Batch A review packets were written under `docs/audits/recent-oracle-packets/` for:
+
+- `2026-06-09-ny-am.md`
+- `2026-06-16-ny-am.md`
+- `2026-06-17-ny-am.md`
+- `2026-06-18-ny-am.md`
+
+Key finding: the existing fold is mechanically runnable, but three tracked MNQ tape expectations are **not safe as final oracle truth** without correction/approval because they conflict with the corrected strategy-oracle rows:
+
+| Date | Existing tape expectation | Corrected oracle row in `docs/strategy/lanto-oracle.md` | Batch A recommendation |
+|---|---|---|---|
+| `2026-06-09` | Inversion short A+ at `29964.75 / 30027.75 / 29751.25` | Inversion short A+ at `29731.25 / 29851.50 / 29595.25`, TP2 `29113.75`, first valid window ~10:29–10:34 ET | **Correct before promotion** |
+| `2026-06-16` | Trend short B at `30864.25 / 30889 / 30750.75` | Reversal/MSS-leg FVG short B at `30864.25 / 30896 / 30783`, TP2 `30561.75` | **Correct before promotion** |
+| `2026-06-17` | no-trade | no-trade on price-quality veto despite bearish directional read | **Seed candidate** |
+| `2026-06-18` | Inversion long B at `30470.25 / 30411 / 30615` | Continuation/Trend long B at `30452.75 / 30400 / 30615` | **Correct before promotion** |
+
+Decision: **do not treat current Batch A fold totals as final performance evidence yet.** The fold currently scores stale tape expectations for 06-09/06-16/06-18. Next step is to get explicit user approval for the corrected Batch A packets, then update labels/tape expectations and re-run the fold/tests.
