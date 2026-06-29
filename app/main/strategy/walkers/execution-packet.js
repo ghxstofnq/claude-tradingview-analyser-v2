@@ -3,6 +3,13 @@ import { psychLevelsAbove, psychLevelsBelow } from './psych-levels.js';
 
 const TICK_SIZE = 0.25;
 
+// Structural cushion above/below an MSS reversal FVG's far edge (entry-models.md
+// MSS §6: "below the FVG low ... structural invalidation"; A+ ex.: "a few ticks
+// below the MSS low"). 7 ticks (both instruments share the 0.25 tick). The lone
+// calibration knob for the took-liq far-edge stop, fixed to the user-approved
+// 2026-06-16 oracle (FVG top 30894.25 → stop 30896).
+const MSS_FVG_STOP_BUFFER = 1.75;
+
 function roundTick(value) {
   return Math.round(value / TICK_SIZE) * TICK_SIZE;
 }
@@ -41,13 +48,32 @@ function targetPool(context, side) {
   const levels = (targets[dirKey] ?? [])
     .map((t) => ({ ...t, target_class: t.source === 'session_draw' ? 'htf' : 'level' }));
   const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
+  const stops = context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [];
+  // The CURRENT leg's running extreme (engine leg_high/leg_low — the active
+  // leg's frontier, reset per external structure break) is where price IS, not
+  // resting liquidity ahead — §7 Step 7 TP1 is the nearest resting intraday
+  // pool. An intraday swing pivot that merely re-prints that running extreme is
+  // not a forward target (June 16 short: the running NYAM.L 30750.75 == leg_low
+  // shadowed the resting LO.L 30783 draw as TP1). Drop it unless the brief
+  // explicitly tracks that price in untakenTargets. Keyed on the leg extreme,
+  // NOT the session high/low name: a session extreme formed earlier and left
+  // behind IS resting liquidity (June 25 long: NYAM.H 30198.5 ≠ leg_high 30127,
+  // a real overhead draw — must not be filtered).
+  const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.26;
+  const legExtreme = side === 'long'
+    ? numberOrNull(context?.pillar2?.legHigh)
+    : numberOrNull(context?.pillar2?.legLow);
+  const explicitLevelPrices = levels.map((t) => Number(t.price ?? t.level)).filter(Number.isFinite);
+  const isRunningLegExtreme = (price) =>
+    legExtreme != null && near(price, legExtreme) && !explicitLevelPrices.some((lp) => near(price, lp));
   // UNSWEPT swings only — a swept swing holds no resting liquidity and is
   // not a target (user ruling 2026-06-12; same rule the untaken-levels
   // injection already enforces for session levels). Leg extremes carry no
   // swept flag, so they stay out of the target pool entirely.
-  const pivots = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
+  const pivots = stops
     .filter((s) => kinds.has(String(s?.kind ?? '')) && s?.swept !== true)
-    .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday' }));
+    .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday', price: Number(s?.price ?? s?.level) }))
+    .filter((s) => Number.isFinite(s.price) && !isRunningLegExtreme(s.price));
   return [...levels, ...pivots];
 }
 
@@ -242,6 +268,21 @@ function mssStructuralStop(walker, side, entry, context) {
   const explicit = pool.find((s) => String(s.kind ?? '') === (side === 'long' ? 'mss_swing_low' : 'mss_swing_high'));
   if (explicit) {
     return { kind: 'mss_structural_swing', price: explicit.price, evidenceRef: refOf(explicit) };
+  }
+
+  // EM MSS §6: with no explicit MSS pivot, a liquidity-taking reversal FVG's
+  // structural invalidation IS its far edge — a close beyond it unwinds the
+  // reversal. Prefer the buffered far edge over a farther session-level/swing
+  // in the pool (June 16: the beyond-zone pool offered PDH 30918.5 ~24pt away;
+  // the real stop is a few ticks above the FVG high 30894.25 → 30896). Gated on
+  // took_liq so plain continuation FVGs keep the structural-swing anchor below.
+  const tookLiq = pd.took_liq === true || pd.took_liq === 1;
+  const farEdge = side === 'long' ? zoneBottom : zoneTop;
+  if (tookLiq && farEdge != null) {
+    const buffered = side === 'long' ? farEdge - MSS_FVG_STOP_BUFFER : farEdge + MSS_FVG_STOP_BUFFER;
+    if (correctSide(buffered)) {
+      return { kind: 'mss_fvg_far_edge', price: buffered, evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray') };
+    }
   }
 
   const beyondZone = pool

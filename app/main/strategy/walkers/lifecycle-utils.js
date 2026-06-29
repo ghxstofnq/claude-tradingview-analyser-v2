@@ -109,3 +109,52 @@ export function rowTop(row) {
 export function rowBottom(row) {
   return numberOrNull(row?.bottom ?? row?.low);
 }
+
+// FVG-retrace confirmation from the bar itself (shared by Trend continuation
+// and MSS reversal — both enter on "a quick tap and then a full-body candle
+// closes away from the zone", entry-models.md). The strategy's tap is WICK-
+// based (verified 2026-05-18) but the engine's entry-state tracker is close-
+// based, so a candle that wicks into a held FVG and closes away with a good
+// body is never stamped (June 9 trade 7: a 6.75pt wick, 0.68 body, no engine
+// confirm). Derived deterministically from the confirmation bar instead.
+export function wickTapConfirm(walker, context) {
+  const bar = (context?.pillar3?.confirmationRows ?? [])
+    .map((row) => row?.last_bar)
+    .find((b) => b && Number.isFinite(Number(b.close)));
+  if (!bar) return null;
+  const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+  const top = Number(pd.top);
+  const bottom = Number(pd.bottom);
+  if (!Number.isFinite(top) || !Number.isFinite(bottom)) return null;
+  // The zone must still be ALIVE as an in-direction fvg right now — the walker
+  // holds its spawn-time snapshot, but a zone that has since inverted or
+  // invalidated is dead (June 9: a flipped 0.25-pt zone wick-"confirmed" at
+  // 11:11 and front-ran the real 11:12 inversion). No current row → dead.
+  const near = (a, b) => Number.isFinite(a) && Math.abs(a - b) < 0.26;
+  const current = allPdArrays(context)
+    .map((row) => row?.rawPayload ?? row)
+    .find((row) => near(Number(row?.top), top) && near(Number(row?.bottom), bottom));
+  if (!current || kindOf(current) !== 'fvg' || !stateIsTradable(current)) return null;
+  // The zone-creating displacement candle touches the boundary by
+  // construction — only bars AFTER creation can be the retrace tap.
+  const createdMs = Number(pd.created_ms);
+  const barMs = Number(bar.time) * 1000;
+  if (Number.isFinite(createdMs) && Number.isFinite(barMs) && barMs <= createdMs) return null;
+  // Body discipline: the confirming candle must carry a §3 "good" body
+  // (GXNQ June 9 re-grade: the 0.51-body 11:01 candle was NOT the entry; the
+  // 0.89-body 11:04 candle was).
+  const body = Number(bar.body_ratio);
+  if (!Number.isFinite(body) || body < CONFIRM_BODY_MIN) return null;
+  const close = Number(bar.close);
+  // "A quick tap" stays inside the zone — a wick through the far edge is a
+  // violation (the engine inverts those), not a retrace entry.
+  if (walker.side === 'short') {
+    const wickIn = Number(bar.high) > bottom && Number(bar.high) <= top;
+    return wickIn && bar.direction === 'bearish' && close < bottom ? bar : null;
+  }
+  if (walker.side === 'long') {
+    const wickIn = Number(bar.low) < top && Number(bar.low) >= bottom;
+    return wickIn && bar.direction === 'bullish' && close > top ? bar : null;
+  }
+  return null;
+}

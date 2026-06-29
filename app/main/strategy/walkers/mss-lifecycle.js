@@ -1,6 +1,6 @@
 import { runWalkerEngine } from './walker-engine.js';
 import { isActiveWalker } from './walker-state.js';
-import { isValidConfirmationForSide } from './lifecycle-utils.js';
+import { isValidConfirmationForSide, wickTapConfirm } from './lifecycle-utils.js';
 
 function directionForSide(side) {
   if (side === 'long') return { pd: ['bull', 'bullish'], swing: ['bull', 'bullish'], sweepSide: 'sell', confirm: ['bull', 'bullish'] };
@@ -105,11 +105,20 @@ function findSwingGrab(context, side) {
   }) ?? null;
 }
 
-function findReversalPdArray(context, side) {
+// EM MSS §4: the reversal entry is the retrace into the MSS-leg FVG/BPR. A
+// session leaves several qualifying reversal arrays (June 16: a tiny stale
+// 30942.75 zone AND the real took-liq 30883.75-30894.25 MSS-leg FVG) — spawn
+// a walker on EACH (mirrors Trend's findContinuationPdArrays) and let the
+// tap+confirm+kill lifecycle pick the one price actually retraces into. The
+// old first-match `.find()` locked onto the stale tiny zone and never reached
+// the real entry FVG. Tiny zones are noise for a real reversal (GXNQ June 9
+// trade-5: "the fvg it tapped into was too small") — same size filter as Trend.
+function findReversalPdArrays(context, side) {
   const wanted = directionForSide(side);
-  return (context?.pillar3?.pdArrays ?? context?.pillar3?.fvgs ?? []).find((pdArray) => {
+  return (context?.pillar3?.pdArrays ?? context?.pillar3?.fvgs ?? []).filter((pdArray) => {
     const kind = String(pdArray?.kind ?? pdArray?.type ?? '').toLowerCase();
     const state = String(pdArray?.state ?? 'fresh').toLowerCase();
+    if (String(pdArray?.size_quality ?? '') === 'tiny') return false;
     return ['fvg', 'bpr'].includes(kind)
       && wanted.pd.includes(rowDirection(pdArray))
       && !['invalidated', 'taken', 'filled'].includes(state);
@@ -163,17 +172,15 @@ export function buildMssWalkerSpawnRequests(context) {
         };
       }
     }
-    const pdArray = findReversalPdArray(context, side);
-    if (!sweep || !displacement || !pdArray) continue;
-    requests.push({
-      model: 'MSS',
-      side,
-      pdArray,
-      setupEvidence: {
-        sweep: { evidenceRef: refOf(sweep, `pillar3.sweeps.${side}`), rawPayload: sweep },
-        displacement: { evidenceRef: refOf(displacement, `pillar3.failureSwings.${side}`), rawPayload: displacement },
-      },
-    });
+    const pdArrays = findReversalPdArrays(context, side);
+    if (!sweep || !displacement || pdArrays.length === 0) continue;
+    const setupEvidence = {
+      sweep: { evidenceRef: refOf(sweep, `pillar3.sweeps.${side}`), rawPayload: sweep },
+      displacement: { evidenceRef: refOf(displacement, `pillar3.failureSwings.${side}`), rawPayload: displacement },
+    };
+    for (const pdArray of pdArrays) {
+      requests.push({ model: 'MSS', side, pdArray, setupEvidence });
+    }
   }
   return requests;
 }
@@ -246,6 +253,25 @@ export function buildMssWalkerAdvanceRequests(context, walkers = []) {
         evidenceRef: refOf(confirmed, 'pillar3.confirmationRows.confirmed'),
         evidenceKey: 'confirmation',
         rawPayload: confirmed,
+      });
+      continue;
+    }
+
+    // EM MSS §4 retrace entry: the same wick-tap-and-close-away the Trend model
+    // uses. The reversal FVG is often tapped by a wick that the engine's close-
+    // based entry-state tracker never stamps (June 16: the 09:56 candle wicked
+    // into the 30883.75-30894.25 zone and closed bearish below it). Derive it
+    // from the confirmation bar; the helper checks the zone is still alive and
+    // matches the walker's bounds, so it can fire the same bar the walker spawns.
+    const wickBar = wickTapConfirm(walker, context);
+    if ((walker.stage === 'pd_identified' || walker.stage === 'tap_seen' || walker.stage === 'confirmation_pending') && wickBar) {
+      requests.push({
+        id: walker.id,
+        eventTimeUtc: context?.eventTimeUtc,
+        stage: 'confirmed',
+        evidenceRef: refOf(walker?.evidence?.pdArray, walker.pdArrayRef),
+        evidenceKey: 'confirmation',
+        rawPayload: { source: 'mss_wick_tap_confirm', last_bar: wickBar, close: Number(wickBar.close) },
       });
     }
   }
