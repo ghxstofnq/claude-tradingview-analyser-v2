@@ -60,14 +60,11 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   });
 
   assert.equal(summary.cost_usd, 0);
-  // Stage-G (2026-06-24): the continuation-trend fix (an inversion continuation
-  // must run WITH the most-recent swing-tier break) suppresses June 9's premature
-  // early short and surfaces the verified A+ reversal — entry 29964.75, grade A+.
-  // As an A+ it arms a runner to the deeper draw
-  // rather than banking at TP1; the recorded tape window ends before that deeper
-  // target, so the trade stays OPEN (no loss, no in-window resolution). TP
-  // targeting to the major-liquidity draw (AS.L 29595.25) is the separate open
-  // Stage-G item — see scripts/fold-tape.mjs on the 06-09 tape.
+  // Batch-A oracle rebuild (2026-06-29): the June 9 tape is now demoted from
+  // verified:true because the approved oracle entry is the later 10:29–10:34 ET
+  // Inversion short. This backtest still proves the engine can run the recorded
+  // day end-to-end and surface one short opportunity; exact oracle alignment is
+  // covered by the day-tape gate once the deterministic chain is corrected.
   assert.equal(summary.losses, 0, "the A+ short must not hit its stop on the recorded bars");
   assert.equal(summary.chain_status, "clean");
 

@@ -346,3 +346,26 @@ Key finding: the existing fold is mechanically runnable, but three tracked MNQ t
 | `2026-06-18` | Inversion long B at `30470.25 / 30411 / 30615` | Continuation/Trend long B at `30452.75 / 30400 / 30615` | **Correct before promotion** |
 
 Decision: **do not treat current Batch A fold totals as final performance evidence yet.** The fold currently scores stale tape expectations for 06-09/06-16/06-18. Next step is to get explicit user approval for the corrected Batch A packets, then update labels/tape expectations and re-run the fold/tests.
+
+### Batch A approval application — 2026-06-29
+
+User approved all four Batch A packets. Applied the approval conservatively:
+
+| Date | Applied change | Verification state |
+|---|---|---|
+| `2026-06-09` | Updated tracked MNQ tape expectation to approved `Inversion short A+` packet: entry `29731.25`, stop `29851.50`, TP1 `29595.25`, TP2 `29113.75` | `verified:false` because the current deterministic chain still first emits the stale 10:00 ET packet at `29964.75` |
+| `2026-06-16` | Updated tracked MNQ tape expectation to approved `MSS`/reversal short B packet: entry `30864.25`, stop `30896`, TP1 `30783`, TP2 `30561.75` | `verified:false` because the current deterministic chain still emits `Trend` with stop `30889` / TP1 `30750.75` |
+| `2026-06-17` | Added approval metadata to the no-trade tape expectation | Remains `verified:true`; chain emits no packet |
+| `2026-06-18` | Updated tracked MNQ tape expectation to approved `Trend` long B packet: entry `30452.75`, stop `30400`, TP1 `30615` | `verified:false` because the current deterministic chain still emits a later `Inversion` long at `30470.25` |
+
+`verified:false` here is intentional: it means the oracle truth is approved, but the current deterministic chain has not yet earned a green regression on those rows. The next implementation slice should align the walker with the approved packets, then flip the relevant tapes back to `verified:true` only after `npm run tapes` passes against the approved expectations.
+
+`node scripts/fold-pair-leader.mjs` was updated so primary MNQ tapes with `verified:false` are skipped as `PRIMARY tape unverified (approved oracle pending chain alignment)`, rather than scoring stale first-packet output as if it were final performance evidence.
+
+Verification after applying approval:
+
+```text
+node scripts/fold-pair-leader.mjs → ARM TOTALS (2 paired sessions); 06-09/06-16/06-18 skipped as primary-unverified, 06-17 no-trade + 02-09 long remain foldable.
+npm run tapes → 3 PASS, 9 unverified skipped.
+npm run test → root 1607 pass / 0 fail; app 9 pass / 0 fail.
+```
