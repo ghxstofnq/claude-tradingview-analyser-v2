@@ -15,8 +15,9 @@
     "replay": "node ./scripts/replay-runner.js",
     "review:real": "node ./scripts/real-review.js",
     "verify:grading": "node ./scripts/real-review.js --verify-grading",
-    "test": "npm run test:unit",
-    "test:unit": "GOFNQ_STATE_DIR=\"${GOFNQ_STATE_DIR:-$(mktemp -d)}\" node --test tests/*.test.js tests/strategy/context/*.test.js tests/strategy/walkers/*.test.js",
+    "test": "npm run test:unit && npm run test:app",
+    "test:unit": "node ./scripts/run-root-tests.mjs",
+    "test:app": "npm --prefix app test",
     "tapes": "node ./scripts/tape-runner.js",
     "parity": "GOFNQ_STATE_DIR=\"${GOFNQ_STATE_DIR:-$(mktemp -d)}\" node --test tests/parity-gate.test.js",
     "parity:add": "node ./scripts/make-parity-fixture.mjs"
