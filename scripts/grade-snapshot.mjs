@@ -1,10 +1,10 @@
 // scripts/grade-snapshot.mjs <date> [leader=MNQ1!] [endTime=12:00] [tf=1]
-// One-shot session snapshot for hand-grading: replays to endTime and dumps the
-// full engine evidence (quality / levels / structures / fvgs / sweeps) + the
-// 08:00-12:00 OHLC, so a Lanto-style grade (bias / price quality / entry) can be
-// reconstructed without stepping bar-by-bar. Note: quality.coherence here is at
-// the CAPTURE TF (1m by default, lower-scale); the price-quality verdict uses
-// the 15m coherence from validate-coherence.mjs.
+// One-shot session snapshot for hand-grading / fixture-oracle provenance:
+// replays to endTime and dumps the full engine evidence (quality / levels /
+// structures / fvgs / sweeps) + the 08:00-12:00 OHLC, so a manual strategy
+// review can be reconstructed without stepping bar-by-bar. Note:
+// quality.coherence here is at the CAPTURE TF (1m by default, lower-scale); the
+// price-quality verdict uses the 15m coherence from validate-coherence.mjs.
 import * as chart from "../packages/core/chart.js";
 import * as data from "../packages/core/data.js";
 import * as replay from "../packages/core/replay.js";

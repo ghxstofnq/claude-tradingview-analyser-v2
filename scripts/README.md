@@ -1,11 +1,12 @@
 # Scripts guide
 
-This directory contains supported operator/test scripts plus a small number of documented diagnostics. Treat this file as the first stop before running or pruning anything here.
+This directory contains supported operator/test scripts plus a small number of documented diagnostics and manual-validation helpers. Treat this file as the first stop before running or pruning anything here.
 
 Generated from:
 
 - `docs/audits/2026-06-29-cleanup-hygiene-audit.md`
 - `docs/audits/2026-06-29-script-prune-review.md`
+- `docs/audits/2026-06-29-experimental-script-prune-review.md`
 
 ## Rules
 
@@ -13,6 +14,7 @@ Generated from:
 - Do not delete strategy/replay/backtest scripts without checking current branch work and fixture provenance.
 - Prefer documenting a useful script over leaving it as an unexplained one-off.
 - If a script is only a spent investigation, preserve any enduring finding in `docs/research/` or `docs/audits/` before pruning.
+- Retained diagnostic/manual-validation scripts are evidence tools only; they are not setup authorities and must not replace the deterministic walker chain.
 
 ## Supported package entrypoints
 
@@ -55,26 +57,18 @@ These are not package entrypoints, but they were retained because they are gener
 | `trace-inv-gate.mjs` | General inversion-gate diagnostic for any tape. |
 | `trace-mss.mjs` | MSS walker/packet trace over the pinned corpus. |
 
+## Retained manual-validation helpers
+
+These are evidence-capture helpers, not trading/setup authorities.
+
+| Script | Purpose |
+|---|---|
+| `grade-snapshot.mjs` | One-shot replay snapshot for hand-grading / fixture-oracle evidence capture. Dumps engine evidence + OHLC. |
+| `validate-coherence.mjs` | Wedge-resistant Pillar-2 coherence validator using 15m closes. |
+
 ## Remaining scripts needing owner classification
 
-These are still candidates for a later cleanup pass. They were not touched in the first prune batch because they may encode operator/backtest workflows or experimental folds.
-
-### Experimental fold/grade/calibration scripts
-
-- `add-5m-track.mjs`
-- `backtag-run-symbols.mjs`
-- `calib-pillar2.mjs`
-- `fold-near-band.mjs`
-- `fold-trend-fvgstop.mjs`
-- `grade-1002.mjs`
-- `grade-1m.mjs`
-- `grade-htf.mjs`
-- `grade-session.mjs`
-- `grade-snapshot.mjs`
-- `pm-grade-test.mjs`
-- `validate-pillar1.mjs`
-- `validate-coherence.mjs`
-- `tune-leader-metric.mjs`
+These are still candidates for a later cleanup pass. They were not touched in the first two prune batches because they may encode operator/backtest workflows or current branch work.
 
 ### Operator/backtest/corpus scripts needing owner classification
 
