@@ -108,6 +108,71 @@ The local-only 2026-06-16 recovery was repeated after this audit commit point an
 
 The recovered MES blob was deleted again after the fold. `git status --short --untracked-files=no` was clean immediately afterward.
 
+### Tape recording slice 2 — approved pair corpus materialized locally
+
+Recorded the four missing approved-row MES counterparts through `./bin/tv record-tape` against TradingView Desktop / bar replay. These files are intentionally **local-only** and ignored by `.gitignore` (`tests/tapes/*-mes-ny-am-replay.tape.json`) because they are too large for normal git history.
+
+| MES tape | Source | Entries | First event | Last event | Size | Verification status |
+|---|---|---:|---|---|---:|---|
+| `tests/tapes/2026-02-09-mes-ny-am-replay.tape.json` | fresh `record-tape` | 92 | `2026-02-09T14:29:00.000Z` | `2026-02-09T16:00:00.000Z` | `39,525,026` bytes | `verified:false`; no MES expectation assigned |
+| `tests/tapes/2026-06-09-mes-ny-am-replay.tape.json` | fresh `record-tape` | 92 | `2026-06-09T13:29:00.000Z` | `2026-06-09T15:00:00.000Z` | `39,811,047` bytes | `verified:false`; no MES expectation assigned |
+| `tests/tapes/2026-06-16-mes-ny-am-replay.tape.json` | local-only recovery from `77e45c3` | 152 | `2026-06-16T13:29:00.000Z` | `2026-06-16T16:00:00.000Z` | `64,750,344` bytes | `verified:false`; no MES expectation assigned |
+| `tests/tapes/2026-06-17-mes-ny-am-replay.tape.json` | fresh `record-tape` | 107 | `2026-06-17T13:29:00.000Z` | `2026-06-17T15:15:00.000Z` | `46,461,318` bytes | `verified:false`; no MES expectation assigned |
+| `tests/tapes/2026-06-18-mes-ny-am-replay.tape.json` | fresh `record-tape` | 92 | `2026-06-18T13:29:00.000Z` | `2026-06-18T15:00:00.000Z` | `39,749,447` bytes | `verified:false`; no MES expectation assigned |
+
+With those local-only tapes present, `node scripts/fold-pair-leader.mjs` now has the five approved oracle rows foldable:
+
+```text
+=== PAIR-LEADER FOLD ===
+
+2026-06-16  ·  oracle: MNQ short
+  MNQ: Trend short B → 4.59R (tp1)
+  MES: Inversion long B → -1R (stopped)
+  disp-leader → MNQ (primary_higher_disp_score)  ✓ matches oracle
+  smt-leader  → MES (smt_divergence)
+
+2026-06-09  ·  oracle: MNQ short
+  MNQ: Inversion short A+ → 3.39R (tp1)
+  MES: Inversion long B → -1R (stopped)
+  disp-leader → MNQ (inconclusive_margin_below_threshold)  ✓ matches oracle
+  smt-leader  → MNQ (no_divergence_measured)
+
+2026-06-17  ·  oracle: no-trade
+  MNQ: no_trade
+  MES: Inversion long A+ → -1R (stopped)
+  disp-leader → MNQ (inconclusive_margin_below_threshold)  (not scored vs oracle)
+  smt-leader  → MNQ (no_divergence_measured)
+
+2026-06-18  ·  oracle: MNQ long
+  MNQ: Inversion long B → -1R (stopped)
+  MES: no_trade
+  disp-leader → MNQ (inconclusive_margin_below_threshold)  ✓ matches oracle
+  smt-leader  → MNQ (no_divergence_measured)
+
+2026-02-09  ·  oracle: MNQ long
+  MNQ: Inversion long A+ → 2.3R (tp1)
+  MES: Trend long B → -1R (stopped)
+  disp-leader → MNQ (inconclusive_margin_below_threshold)  ✓ matches oracle
+  smt-leader  → MNQ (no_divergence_measured)
+
+2026-01-29: MISSING tape (record MES)
+2026-06-15: MISSING tape (record MES)
+2026-04-06: MISSING tape (record MES)
+2026-06-22: MISSING tape (record MES)
+=== ARM TOTALS (5 paired sessions) ===
+  always-MNQ      : 9.28R
+  displacement    : 9.28R
+  divergence-SMT  : 3.69R
+
+  (anecdotal until ≥5 paired sessions — read the trend, not one row)
+```
+
+Interpretation discipline:
+
+- This makes the approved pair rows mechanically foldable; it does **not** assign MES oracle truth.
+- The 2026-06-17 oracle is `no-trade`, so leader-pick matching is intentionally not scored against an instrument pick.
+- Arm totals over five rows are now useful audit evidence but still not a license to wire/default-on pair-leader behavior.
+
 ## Evidence inventory
 
 | Date | Current paired use | Fixture status | Allowed docs/transcript evidence found | Current action |
@@ -125,28 +190,20 @@ The recovered MES blob was deleted again after the fold. `git status --short --u
 
 ## Recommended next work order
 
-1. **Record fresh MES counterpart tapes** for the remaining approved MNQ/no-trade oracle rows that have no recoverable MES history:
-   - `2026-02-09`
-   - `2026-06-09`
-   - `2026-06-17`
-   - `2026-06-18`
+1. **Keep the approved pair-row MES tapes local-only** under `.gitignore` unless a separate large-artifact storage policy is approved.
+   - The five approved rows are now mechanically foldable in this workspace.
+   - The MES labels remain `verified:false` / unlabeled; do not promote MES expectations without allowed evidence and user approval.
 
-   `2026-06-16` has local-only fold evidence from the recoverable historical MES blob; do not recommit that 64.8 MB tape unless a separate storage policy is approved.
-
-2. **Re-run `node scripts/fold-pair-leader.mjs` after each new MES recording** and append row-level output here.
-   - A clean paired corpus target is at least the five approved rows above.
-   - Treat interim arm totals as anecdotal until the corpus has enough paired weeks.
-
-3. **Re-grade 2025-12-12 after the approved rows are foldable** because it has strong transcript support for the bias/grade but intentionally lacks allowed exact trade levels.
+2. **Re-grade 2025-12-12 next** because it has strong transcript support for the bias/grade but intentionally lacks allowed exact trade levels.
    - Preserve: 2/3-B bearish, no HTF vote.
    - Reconstruct from chart/tape: traded vehicle, model, side, entry array, stop invalidation level, TP1/TP2 draw.
    - Promote only after user approval.
 
-4. **Only after that**, re-grade the retired candidate pair dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) from chart/tape + strategy rubric.
+3. **Only after that**, re-grade / record the retired candidate pair dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) from chart/tape + strategy rubric.
    - No old instrument/entry/SL/TP labels can be reused as truth.
    - If evidence is insufficient, keep `pending_review`.
 
-5. **Do not wire or default-on any pair-leader behavior** until `scripts/fold-pair-leader.mjs` has a clean, scored corpus with paired tapes and approved oracle rows.
+4. **Do not wire or default-on any pair-leader behavior** until `scripts/fold-pair-leader.mjs` has a clean, scored corpus with paired tapes and approved oracle rows, plus an explicit implementation decision.
 
 ## Verification run for this kickoff
 
@@ -167,13 +224,36 @@ Result:
 - Branch created: `docs/rebuild-oracle-from-authority`
 - Pair fold executed successfully but found `0` paired sessions because MES/candidate tapes are absent in this workspace.
 
-## Current next recording target
+## Verification run after local MES recording
 
-Record fresh MES counterpart tapes for the four approved rows with no recoverable MES history:
+Commands run:
 
-1. `2026-02-09-mes-ny-am-replay.tape.json`
-2. `2026-06-09-mes-ny-am-replay.tape.json`
-3. `2026-06-17-mes-ny-am-replay.tape.json`
-4. `2026-06-18-mes-ny-am-replay.tape.json`
+```bash
+./bin/tv record-tape --label tests/fixtures/stage-g-sessions/2026-06-09-mes-ny-am.label.json --from 09:30 --to 11:00 --fixture 2026-06-09-mes-ny-am-replay --out tests/tapes/2026-06-09-mes-ny-am-replay.tape.json
+./bin/tv record-tape --label tests/fixtures/stage-g-sessions/2026-02-09-mes-ny-am.label.json --from 09:30 --to 11:00 --fixture 2026-02-09-mes-ny-am-replay --out tests/tapes/2026-02-09-mes-ny-am-replay.tape.json
+./bin/tv record-tape --label tests/fixtures/stage-g-sessions/2026-06-17-mes-ny-am.label.json --from 09:30 --to 11:15 --fixture 2026-06-17-mes-ny-am-replay --out tests/tapes/2026-06-17-mes-ny-am-replay.tape.json
+./bin/tv record-tape --label tests/fixtures/stage-g-sessions/2026-06-18-mes-ny-am.label.json --from 09:30 --to 11:00 --fixture 2026-06-18-mes-ny-am-replay --out tests/tapes/2026-06-18-mes-ny-am-replay.tape.json
+git show 77e45c3:tests/tapes/2026-06-16-mes-ny-am-replay.tape.json > tests/tapes/2026-06-16-mes-ny-am-replay.tape.json
+git diff --check
+node scripts/fold-pair-leader.mjs
+npm run tapes
+npm run test
+git status --ignored --short -- tests/tapes/*-mes-ny-am-replay.tape.json
+```
 
-After each recording, run `node scripts/fold-pair-leader.mjs`, append the new row-level output above, and keep any unapproved expectations `pending_review`.
+Results:
+
+- All four fresh MES recordings returned `success: true`, expected bar counts, and empty `warnings: []`.
+- `node scripts/fold-pair-leader.mjs` exited 0 with `=== ARM TOTALS (5 paired sessions) ===`.
+- `npm run tapes` exited 0: six tracked verified tapes passed; the five local MES tapes skipped as `verified:false` as intended.
+- `npm run test` exited 0: root tests `1607 pass / 0 fail`; app tests `9 pass / 0 fail`.
+- The MES tapes show as ignored local files (`!!`) and are not part of the commit.
+
+## Current next target
+
+The approved pair rows are now foldable locally. The next oracle-rebuild slice should be **2025-12-12 re-grade**:
+
+1. Use allowed transcript/strategy evidence to preserve only the supported bias/grade facts.
+2. Reconstruct instrument, side, entry, stop, and TP levels from chart/tape evidence.
+3. Ask for user approval before promoting any exact oracle expectation.
+4. Keep retired candidate dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) as `pending_review` until after 2025-12-12 is resolved.
