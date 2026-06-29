@@ -35,9 +35,11 @@ consumes. Spec: [docs/strategy/](../strategy/README.md). Audit / gap list:
   −23R lesson (the half-built honest-bias lever folded worse because it flipped direction
   without near-price, SMT, MSS-significance, the real grade count, etc.). Do not ship
   isolated faithful pieces against the dead baseline.
-- **Ground truth = Lanto.** Hand-grade specific sessions: does the bot pick the bias, the
-  grade (1/3 no-trade · 2/3 B · 3/3 A+), the entries, stops, and targets Lanto would? Use
-  the dated examples he walks in the classes.
+- **Ground truth = the allowed Lanto sources.** Hand-grade specific sessions from the canonical
+  strategy docs, the vendored class transcripts, chart evidence, and user-approved oracle entries:
+  does the bot pick the bias, grade (1/3 no-trade · 2/3 B · 3/3 A+), entries, stops, and targets
+  the method requires? Use the dated examples he walks in the classes; do not use retired
+  callout / alerted-trade-derived files as authority.
 - **Data:** After building, salvage what's still usable from the current backtest data
   (likely the recorded price/engine tapes), then re-record the parts we need — or the whole
   corpus from scratch — for a fresh clean baseline. The new corpus is for

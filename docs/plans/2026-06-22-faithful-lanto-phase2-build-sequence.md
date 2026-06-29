@@ -24,10 +24,10 @@ Stage G (the oracle **and** the validation) is **Claude's**, confirmed via inter
   the data layer just precedes the oracle.) The Feb-09 *qualitative* anchor is
   engine-independent (Lanto's stated call); its exact levels + the fresh grades wait for
   Stage A.
-- **Ground truth = Lanto.** Documented sessions: truth = his stated call. Fresh sessions:
-  truth = Claude applying the confirmed rules, **user-approved**. Grade only **post-cutoff /
-  OOS** sessions (apply rules, don't recall outcomes); the user's approval of the oracle is
-  the independence check.
+- **Ground truth = allowed Lanto sources + user approval.** Documented sessions are grounded in
+  `docs/strategy/`, the vendored transcripts, and chart evidence. Fresh sessions: truth = Claude
+  applying the confirmed rules, **user-approved**. Grade only **post-cutoff / OOS** sessions
+  (apply rules, don't recall outcomes); the user's approval of the oracle is the independence check.
 - **Sessions (~6–8):** documented + post-cutoff anchors — **2026-02-09** (multi-alignment
   A+), **2026-06-09** (Reversal-Inversion) — plus fresh OOS covering **Reversal-MSS**,
   **Continuation**, a **no-trade/chop** day, and a **2/3-B** day. No fresh grading of
@@ -47,21 +47,21 @@ The oracle + a final 5-transcript audit corrected several things this plan preda
 - **Grade elevation = MULTI-ALIGNMENT ONLY.** A+ = 3/3 bias **OR** a multi-alignment (*"two-and-one"*)
   entry on an aligned 2/3 day; a **single clean/displaced entry caps at B** (ENTRY 27:05/31:25). → C6 +
   D5/D6: encode the grade *consequence*, not just multi-alignment detection.
-- **Stop anchors on the ENTRY ARRAY (FVG edge / inversion level), tight — NOT the swing high**
-  (12-12 MES: a 6.25-handle stop at the 1H gap). A tight stop **only works on clean/displacing price**;
-  in chop it gets wicked (PRICE 26:29) → pair it with the Pillar-2 clean-price gate. → D6.
+- **Stop anchors on the ENTRY ARRAY (FVG edge / inversion level), tight — NOT automatically the
+  whole-session swing high.** A tight stop **only works on clean/displacing price**; in chop it gets
+  wicked (PRICE 26:29) → pair it with the Pillar-2 clean-price gate. → D6.
 - **Carry FVGs alive across the whole session, incl. pre-open/London MSS-leg gaps.** The entry is the
   **retrace into a held array** (often formed an hour+ earlier) + 1m confirm — NOT the impulse break.
   When price is too strong to retrace, the **Inversion off the break** is the entry (TRADE24 19:57). →
   D1/D4 + the walker shell.
-- **Instrument is per-day SMT.** Lanto trades **ES *or* NQ** by the leader (12-12 = MES, 10-02 = MNQ) —
-  the chain must **select the traded vehicle**, not assume one. → C4: SMT picks the instrument, not just
-  confirms bias.
+- **Instrument is per-day / per-entry.** The chain must **confirm the traded vehicle**, not assume one.
+  → C4: the pair read selects the instrument; it must not become a bias-grade vote.
 - **Price quality is the master gate: *"you can never outrade bad price"* (PRICE 27:25).** Bad price into
   confirmation ⇒ entry model + draw unreliable. → reinforces Stage B's gating role over C and D.
-- **Ground truth = Lanto's actual calls** (Discord: instrument + entry/SL/TP) + the oracle. Most oracle
-  *levels* are engine reconstruction (only 12-12 is Discord-pinned) — validate against the anchors **and**
-  live Discord calls. → Stage G.
+- **Ground truth = the canonical strategy docs, source transcripts, chart evidence, and the user-approved
+  oracle.** Retired callout / alerted-trade material must not be used for instrument, entry, stop, target,
+  or grade authority. Any older call-derived expectation must be re-derived before it can return to the
+  oracle. → Stage G.
 
 ## Dependency-ordered stages
 

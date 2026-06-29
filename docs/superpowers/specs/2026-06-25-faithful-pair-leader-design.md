@@ -2,11 +2,12 @@
 
 **Status: DRAFT for sign-off. No live wiring change until the corpus gate passes.**
 
-Branch: `feat/faithful-lanto-rebuild`. Standing rule: ground in Lanto's own words
-(`docs/strategy/transcripts/` + Discord), never the derived `docs/strategy/*.md`
-([[ground-in-lanto-transcripts-not-docs]]). Constraints carried verbatim: no LLM
-arithmetic (#7), cite-or-reject (#6), CLI-only, never auto-arm trading, run
-folds/tests in this worktree, **never let the leader pick gate the bias grade**.
+Branch: `feat/faithful-lanto-rebuild`. Standing rule: ground strategy behavior in the
+canonical docs under `docs/strategy/`, the vendored transcripts, chart evidence, and
+user-approved oracle entries. Retired callout / alerted-trade material is not authority.
+Constraints carried verbatim: no LLM arithmetic (#7), cite-or-reject (#6), CLI-only,
+never auto-arm trading, run folds/tests in this worktree, **never let the leader pick gate
+the bias grade**.
 
 ---
 
@@ -83,7 +84,7 @@ proposal — "just the stronger / leading pair at the open reaction" — is ther
 
 The leader is **symbol-selection only** — it picks the vehicle, never the grade.
 `cli/lib/pillar1-bias.js` grades on **three votes** (HTF + overnight + open-reaction); the
-pair pick is not one of them. This matches Lanto (pick the vehicle, then grade it).
+pair pick is not one of them. This matches the documented method: pick the vehicle, then grade it.
 
 | # | Component | Role today |
 |---|---|---|
@@ -185,65 +186,33 @@ more weeks ([[fold-before-trusting-a-separator]], [[filters-dont-separate]]).
 
 ---
 
-## 6b. Validation results (2026-06-25, 9 paired NY-AM sessions)
+## 6b. Validation status (updated 2026-06-29)
 
-Corpus: 5 Stage-G MNQ-led days (06-16/09/17/18, 02-09) + 4 ES-led days from Lanto's Discord
-(01-29 ES short won; 06-15 ES "slightly leading" long won; 04-06 ES long b/e; 06-22 "ES
-confirmed 4 min before NQ — leading"). Each symbol recorded via `tv record-tape`, folded
-through the same chain, packet forward-simmed to R. Harness: `scripts/fold-pair-leader.mjs`
-(tapes local — gitignored).
+The old 2026-06-25 validation mixed docs/transcripts-backed Stage-G sessions with four
+historical paired candidate days whose labels came from retired callout-derived material.
+Those candidate-day labels are no longer strategy authority. Keep the recorded MNQ/MES tapes
+as paired market data, but do **not** score a leader method as "faithful" against those retired
+labels.
 
-**Leader-pick faithfulness (vs Lanto's actual instrument, 8 decision days):**
-- **Displacement-leader: 5/8** — perfect on the 4 MNQ days + caught 01-29 (MES, clear lead).
-  Missed all 3 MES-*long* days: 06-15 ("slight" lead), 04-06 (lead emerged 10:12, after the
-  window), 06-22 (a *clear* in-window lead — "ES confirmed 4 min before NQ" — yet the metric
-  read inconclusive). Never wrongly leaves MNQ.
-- **Divergence-SMT: 4/8** — wrong on 06-16 (picked MES, the loser, −R); caught 04-06; missed
-  01-29/06-15/06-22.
+Current valid use of `scripts/fold-pair-leader.mjs`:
+- fold each arm mechanically for realized R on the paired tapes;
+- compare only against expectations that are backed by `docs/strategy/`, transcripts, chart
+  evidence, and explicit user approval;
+- leave candidate days as `pending_review` until re-graded.
 
-**R-totals:** always-MNQ **+7.72R** · displacement **+7.72R** · divergence-SMT **+2.13R**.
+**Open (next):** rebuild the validation table after the paired candidate days are re-graded from
+the allowed sources. Until then, no live wiring change should rely on the retired labels.
 
-**Conclusions (report — user concludes):**
-1. **Demote divergence-SMT — clear.** 4/8, R-negative (−5.59R drag, the 06-16 wrong pick).
-   Reproduces the live 2026-06-24 "completely wrong" call.
-2. **Displacement is the better, MNQ-safe default** (5/8, never picks a worse symbol than MNQ,
-   R = baseline) — adopt it over divergence. BUT its current metric (max FVG disp_score, 0.10
-   margin) is **not sensitive enough to reliably detect Lanto's leads** — it catches obvious
-   ones (01-29) and misses subtle/late ones. 06-22 is the proof: a clear in-window ES lead read
-   "inconclusive" while MES (chain) won +0.21R vs MNQ −1R. **Metric/threshold tuning is required,
-   not optional**, before the switch is useful. A/B open-range disp ÷ ATR and a lower margin —
-   only if it does not break the 4 MNQ days.
-3. **Edge is double-gated.** Even when the leader is right, Pillar-3 mostly didn't convert the
-   MES trade (no-trade 01-29; stops 06-15/04-06; only 06-22 MES eked +0.21R). The chain's MES
-   setups ≠ Lanto's. The real edge work is **Pillar-3 MES coverage**, on top of the metric fix.
+## 6c. Metric tuning status (updated 2026-06-29)
 
-**Open (next):** (a) A/B the leader metric/threshold against this 9-session corpus; (b) the
-Pillar-3 entry-models audit (the dominant edge limiter); (c) consider per-entry (not session-
-pinned) leader re-evaluation for late leads like 04-06.
+The earlier metric-tuning conclusion is not a faithfulness proof because part of its comparison
+set used retired labels. The mechanical observation that alternative magnitude metrics flipped
+known MNQ oracle days is still useful as a caution, but any claim about MES-led candidate days
+must be re-established after those sessions are re-graded from allowed sources.
 
-## 6c. Metric tuning result (2026-06-25) — alt metrics REJECTED
-
-A/B'd the alternatives against the 9-session corpus (`scripts/tune-leader-metric.mjs`,
-relative-margin sweep). **The current metric (max fresh-FVG disp_score, ~0.10–0.15 margin)
-is already the best available — 5/8 match, 0 MNQ-day flips. Every alternative is worse**
-because they flip MNQ-led days to MES:
-- **range/ATR:** 4/8, flips 02-09 (Lanto MNQ — MES had a 2.3× bigger open range that day).
-- **net/ATR** (open-range displacement ÷ ATR): 4/8, flips 02-09 + 06-09 (both MNQ days).
-- **leg/ATR:** ≤2/8, flips 2–3 MNQ days. Worst.
-
-**Root cause — Lanto's "leading" is a confirmation-TIMING read, not open-window magnitude.**
-06-22: he wrote "ES confirmed 4 min before NQ — leading," yet in the window MNQ's range was
-12.93 ATR vs MES's 5.61 — *every* magnitude metric says MNQ. 02-09 (he traded MNQ): MES 16.75
-ATR vs MNQ 7.34 — magnitude says MES, loudly. Bigger open move ≠ his pick, so **no open-window
-magnitude metric separates his MES-long days** — the signal he uses (which instrument confirms
-the entry first) isn't in a window snapshot.
-
-**Implication:** keep the current metric (it IS the best; ~5/8 ceiling, MNQ-safe + clear
-switches). Lowering the margin only flips MNQ days; raising it loses 01-29. The MES-long days
-are reachable only via **per-entry confirmation-timing** (the deferred §5.2 re-eval), not a
-session-pinned magnitude — or pair selection isn't fully mechanizable, and "MNQ-safe + catches
-clear leads" is the honest ceiling (still better than divergence). This mirrors the
-project's recurring [[filters-dont-separate]] pattern: the candidate lever doesn't separate.
+**Implication:** keep leader selection gated/off until a rebuilt fold separates on a clean,
+user-approved corpus. If it does not separate, keep always-MNQ or treat pair selection as a
+manual/user-reviewed layer rather than forcing a mechanized edge.
 
 ## 7. Component changes (only if §6 passes)
 

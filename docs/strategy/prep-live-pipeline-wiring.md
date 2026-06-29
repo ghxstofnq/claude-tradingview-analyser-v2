@@ -96,8 +96,8 @@ chain stood aside (`ltf_bias: null`).
 
 ## Where the Lanto faithfulness audit lands (Phase 0 → Phase 1)
 
-Audit each against his own words (transcripts + Discord), never the derived
-specs (standing rule):
+Audit each against the canonical strategy docs plus the source transcripts; do
+not use retired callout / alerted-trade material as authority:
 
 | Target | File:line | Today | Faithful |
 |---|---|---|---|
