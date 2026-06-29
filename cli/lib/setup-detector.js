@@ -1,3 +1,26 @@
+// ============================================================================
+// SETUP-DETECTOR: OFFLINE / DIAGNOSTIC ONLY  — NOT a live setup producer.
+//
+// The CANONICAL setup producer for live trading and production backtests is the
+// walker chain: `buildDeterministicPacketTruthFromInputs` (app/main/bar-close.js),
+// folded by the live bar-close loop, the backtest engine (app/main/backtest-*.js),
+// and the tape recorder (cli/lib/tape-recorder.js). That single brain decides
+// every trade; the per-bar LLM turn only narrates its verdict.
+//
+// This module is a separate, older rule engine. Since the 2026-06-12 single-brain
+// rebuild it is permitted ONLY in offline / diagnostic surfaces:
+//   - manual `/analyze` CLI ........ cli/commands/analyze.js (writes bundle.candidates)
+//   - offline replay ............... scripts/replay-runner.js
+//   - unit tests ................... tests/setup-detector*.test.js
+//
+// Do NOT import it (or its `-stops` / `-schema` siblings) from `app/main/**` —
+// the autonomous live + production-backtest runtime. Two engines surfacing into
+// the same UI fought each other (see docs/lessons/live-session-analysis.md and
+// the bar-close.js "single brain" comment). Re-wiring it into a live path is the
+// drift this file is fenced against; `tests/single-setup-brain.test.js` fails if
+// it ever happens. If you genuinely want the detector live, rewrite it to delegate
+// to the canonical truth path first — don't add a second producer.
+// ============================================================================
 import { disambiguateFvg, disambiguateSessionLevel, disambiguateStructureEvent } from './setup-detector-schema.js';
 import { stopOptionsForFvgEntry, stopOptionsForInversionEntry, stopOptionsForStructureEntry } from './setup-detector-stops.js';
 

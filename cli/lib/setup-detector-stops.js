@@ -1,3 +1,5 @@
+// OFFLINE / DIAGNOSTIC ONLY — sibling of cli/lib/setup-detector.js (see its
+// header banner). Not for app/main/**; live + backtest use the walker chain.
 import { deriveFvgFormationCandles } from './setup-detector-schema.js';
 
 // Returns the pivot with minimum absolute distance from `entry` that's on the correct

@@ -381,6 +381,8 @@ If any check fails, fix the payload, then call `surface_leader_decision` + `surf
 
 <phase name="entry_hunt">
 
+> **Source of truth.** This is the **manual `/analyze` diagnostic** surface. The detector (`cli/lib/setup-detector.js`) behind `<candidate_object>` is offline/diagnostic only — it never places live trades. The **canonical** live + production-backtest setup producer is the walker chain (`buildDeterministicPacketTruthFromInputs`), which the running app folds per bar. Manual `/analyze` is analysis-only; treat its candidate as a read, not a live trade signal.
+
 You are in entry hunt. A precomputed `<candidate_object>` block has been injected above. The detector has already evaluated every entry-model rule against engine state. **Your job is to package and narrate, not to interpret strategy.**
 
 ## Procedure

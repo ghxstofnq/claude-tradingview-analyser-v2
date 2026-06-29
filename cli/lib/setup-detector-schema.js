@@ -1,3 +1,5 @@
+// OFFLINE / DIAGNOSTIC ONLY — sibling of cli/lib/setup-detector.js (see its
+// header banner). Not for app/main/**; live + backtest use the walker chain.
 // Rewrites ambiguous engine fields into semantically explicit names.
 // Source: docs/superpowers/specs/2026-05-26-strategy-detector-design.md §Schema disambiguation
 
