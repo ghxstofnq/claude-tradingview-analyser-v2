@@ -7,6 +7,7 @@ Generated from:
 - `docs/audits/2026-06-29-cleanup-hygiene-audit.md`
 - `docs/audits/2026-06-29-script-prune-review.md`
 - `docs/audits/2026-06-29-experimental-script-prune-review.md`
+- `docs/audits/2026-06-29-operator-script-owner-audit.md`
 
 ## Rules
 
@@ -66,24 +67,27 @@ These are evidence-capture helpers, not trading/setup authorities.
 | `grade-snapshot.mjs` | One-shot replay snapshot for hand-grading / fixture-oracle evidence capture. Dumps engine evidence + OHLC. |
 | `validate-coherence.mjs` | Wedge-resistant Pillar-2 coherence validator using 15m closes. |
 
-## Remaining scripts needing owner classification
+## Operator/backtest/corpus scripts
 
-These are still candidates for a later cleanup pass. They were not touched in the first two prune batches because they may encode operator/backtest workflows or current branch work.
+These are not package entrypoints, but they are retained because they support corpus capture, backtest state maintenance, read-only fold sweeps, reports, or live/backtest parity checks. Treat any script marked state-mutating as an intentional operator action, not a routine test.
 
-### Operator/backtest/corpus scripts needing owner classification
+| Script | Owner/status | Notes |
+|---|---|---|
+| `drive-app-backtest.mjs` | App-driven operator | Drives the running app via renderer CDP so the app remains the single owner of the TradingView chart; writes backtest state. |
+| `record-corpus-batch.mjs` | Corpus recorder | Long-lived `runBacktest` loop using `PROD_DEPS`; useful for multi-session capture through one process. |
+| `regen-payloads.mjs` | State maintenance | Dry-run by default; `--write` backs up and regenerates `brief-payloads.json` from `brief-bundle.json`. |
+| `sweep-fold.mjs` | Read-only fold/report | Faithful carry+regen corpus fold for one symbol with temp state dirs; useful for parameter sweeps. |
+| `trade-report.mjs` | Report helper | Per-trade carry-refold report for selected dates. |
+| `verify-live-parity.mjs` | Parity diagnostic | Live resolver vs recorded backtest parity check for HTF fallback; modernize into an assertion-backed gate when this area changes. |
 
-- `drive-app-backtest.mjs`
-- `rebuild-backtest-library.mjs`
-- `record-corpus-batch.mjs`
-- `record-corpus.mjs`
-- `refold-week.mjs`
-- `refresh-tape-context.mjs`
-- `regen-payloads.mjs`
-- `sweep-fold.mjs`
-- `time-gate-test.mjs`
-- `trade-report.mjs`
-- `verify-live-parity.mjs`
-- `promote-stage-g-tapes.mjs`
+### High-risk manual-review operators
+
+Keep these discoverable, but run only when intentionally changing local backtest state or choosing a corpus-recording strategy.
+
+| Script | Risk |
+|---|---|
+| `rebuild-backtest-library.mjs` | Resets `state/backtest/index.json`, writes clean runs, and neutralizes orphan folders. |
+| `record-corpus.mjs` | Legacy/hardcoded corpus recorder that shells out once per session; process strategy differs from `record-corpus-batch.mjs`. |
 
 ## Pruning process
 
