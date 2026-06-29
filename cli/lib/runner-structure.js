@@ -4,8 +4,8 @@
 //
 // Faithful to risk-and-management.md §"Management styles" / RISK ~13:07–13:59
 // ("move the stop up structurally … hold until I get trailed out and we see a
-// structure change") and Lanto's Discord runner days (the stop ratchets behind
-// price along the swing structure; the ride ends on a structure change):
+// structure change"): the stop ratchets behind price along the swing structure;
+// the ride ends on a structure change.
 //
 //   protectiveLevel       — the latest SWING-tier protective pivot on the right
 //                           side of price (a Higher Low under a long, a Lower

@@ -480,7 +480,7 @@ test("overnight_verdict computes extending/retracing/consolidating from sweeps",
 // fresh near-price bear FVG votes bearish on its own; the sweep no longer sets
 // direction. (Open calibration: the near-price gate is 0.3%; a 4H supply zone
 // ~0.5-0.7% above — the June-5 case — is now too far to be the pre-open draw.
-// Revisit the HTF near-threshold against the Discord calls.)
+// Revisit the HTF near-threshold against docs/transcripts-backed oracle sessions.)
 test("payload htf_bias: a fresh near-price bear FVG votes bearish (array-state vote)", () => {
   const b = bundle();
   const ds = b.brief_digest.symbols["MNQ1!"];

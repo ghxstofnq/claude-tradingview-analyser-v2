@@ -70,7 +70,7 @@ function sweepRejected(sweep, closes, endMs, ignoreEngineFlag = false) {
 // move is that hours-of-data context; a small one is not. Separates 06-18 (+448,
 // fix the wrong divergent short) from the weak-overnight divergent winners that ARE
 // the edge (05-20 +144, 06-12 chop). Calibrated on the 19-session corpus; tune with
-// the Discord calls / full-year fold.
+// the docs/transcripts-backed oracle and full-year fold.
 const STRONG_OVN_NET = Number(process.env.GOFNQ_STRONG_OVN_NET) || 200;
 
 export function resolveOpenReaction({
