@@ -1,6 +1,6 @@
 # TV Handbook
 
-Quick reference for every `./bin/tv` command. The CLI talks to TradingView Web running inside the Electron app's `<webview>` over CDP on port 9223 (set by `app.commandLine.appendSwitch("remote-debugging-port", "9223")` in `app/electron-main.js`).
+Quick reference for every `./bin/tv` command. The CLI talks to TradingView Desktop over CDP on port 9225 (`packages/core/connection.js` `CDP_PORT = 9225`).
 
 Prerequisites: Electron app running. Signed in to TradingView Web in the webview. Chart loaded with desired symbol + indicators (ICT Engine V1 for analysis).
 
@@ -261,7 +261,7 @@ Quit with `q` / `Esc` / `Ctrl-C`. Reads from disk only — never touches CDP.
 
 ## Notes
 
-- All commands speak CDP to port 9223 (the Electron app's debug port). If the app is closed, every command errors with `CDP connection failed`. Start the app first.
+- All commands speak CDP to port 9225 (TradingView Desktop's debug port). If TradingView Desktop is closed, every command errors with `CDP connection failed`. Start it first.
 - `tv ui eval` is **synchronous** — returned promises are not awaited. For async fetch tests, write the result to `window.__foo` and read it back in a second eval call.
 - `tv pine get` can return 200KB+ for complex scripts. Avoid unless you intend to edit.
 - File output: pass `--out <path>` to `tv analyze` for bundles too large to pipe.

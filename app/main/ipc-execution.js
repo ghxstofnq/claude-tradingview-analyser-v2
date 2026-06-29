@@ -1,7 +1,7 @@
 // app/main/ipc-execution.js
-// execution:* IPC. Place/flatten/panic run guardrails first (place) and
-// delegate to the adapter; state is read-only. Placement is gated on M0, so
-// these return the adapter's NOT_IMPLEMENTED error as a structured result
+// execution:* IPC. Place/flatten/panic run guardrails first (place), then route
+// by active broker (Tradovate REST or TV paper adapter) and place live; state
+// reads stay read-only. Adapter/guardrail failures return as structured results
 // rather than throwing across IPC.
 import { ipcMain } from "electron";
 import { tvAdapter } from "./execution/tv-adapter.js";

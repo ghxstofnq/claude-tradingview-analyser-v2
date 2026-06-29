@@ -32,7 +32,7 @@ Most recent first. Entry format: `YYYY-MM-DD — short summary (#PR)`.
 
 ## Conventions
 
-- **CDP port 9223 only.** All CLI commands connect to TradingView Desktop on `localhost:9223`. Port 9222 is for sibling projects — never touch it from here.
+- **CDP port 9225 only.** All CLI commands connect to TradingView Desktop on `localhost:9225`. Port 9222 is for sibling projects — never touch it from here.
 - **CLI only.** No `mcp__tradingview__*` tools. Everything goes through `./bin/tv ...`.
 - **TV Desktop must be running and signed in.** Many endpoints require the page's session cookies; some controls only render once authenticated.
 
@@ -79,7 +79,7 @@ These are the patterns we keep reusing. When you're building something new, chec
 
 ### 1. CDP connection (`packages/core/connection.js`)
 
-All interactions tunnel through Chrome DevTools Protocol on port 9223. The connection module exposes:
+All interactions tunnel through Chrome DevTools Protocol on port 9225. The connection module exposes:
 
 - **`evaluate(jsExpression)`** — run synchronous JS in the page context, return the result. Use for DOM reads + simple synchronous JS.
 - **`evaluateAsync(promiseExpression)`** — run a Promise-returning expression, await it, return the resolved value. Use for `fetch()` and any awaited work.

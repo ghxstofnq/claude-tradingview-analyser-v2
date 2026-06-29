@@ -1,7 +1,9 @@
 // app/main/execution/cdp-webview.js
 // Minimal CDP client pinned to the in-app TradingView <webview> on port 9223
 // (type:"webview"). Distinct from packages/core (9225 analysis) so order
-// work never touches the analysis backend. Read-only this phase.
+// work never touches the analysis backend. `evaluate` runs JS in the page
+// context — order placement/modify/close POST through it (tv-adapter,
+// tradovate-adapter).
 import http from "node:http";
 import WebSocket from "ws";
 

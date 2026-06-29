@@ -65,7 +65,7 @@ function sweepRejected(sweep, closes, endMs, ignoreEngineFlag = false) {
     && (high ? c.close < level : c.close > level));
 }
 
-// Strong-overnight threshold (GOFNQ_STRONG_OVN_NET, default 300pt). BIAS 39:20:
+// Strong-overnight threshold (GOFNQ_STRONG_OVN_NET, default 200pt). BIAS 39:20:
 // the bias follows "overnight overall price through HOURS of data" — a BIG overnight
 // move is that hours-of-data context; a small one is not. Separates 06-18 (+448,
 // fix the wrong divergent short) from the weak-overnight divergent winners that ARE

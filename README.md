@@ -9,20 +9,20 @@ Scaffolding only. Functional scope still to be defined.
 ## Architecture
 
 - **CLI-only.** All TradingView interaction goes through the vendored `tv` CLI under `cli/`. No MCP tool usage anywhere in this project.
-- **CDP port 9223, exclusively.** The vendored CLI is locked to TradingView Desktop's CDP port 9223. Port 9222 is reserved for other projects on this machine and is never touched.
+- **CDP port 9225, exclusively.** The vendored CLI is locked to TradingView Desktop's CDP port 9225. Port 9222 is reserved for other projects on this machine and is never touched.
 - **Self-contained.** Independent of `~/Documents/ai-trading-agent` and `~/tradingview-mcp-ict`. The CLI is vendored as a fork — fixes and additions live here, never upstream.
 - **Local state only.** Project state lives under `./state/`. The shared `~/.tradingview-mcp/` directory is never written to.
 
 ## Requirements
 
 - macOS
-- TradingView Desktop launched with `--remote-debugging-port=9223`
+- TradingView Desktop launched with `--remote-debugging-port=9225`
 - Node 18+
 
 ## Layout
 
 ```
-cli/         vendored tv CLI (commands + core), pinned to port 9223
+cli/         vendored tv CLI (commands + core), pinned to port 9225
 state/       project-local persisted state (gitignored)
 scripts/     analysis entrypoints
 ```
@@ -52,11 +52,11 @@ Replay accuracy — 11 case(s)
 
 ### Launch TradingView for this project
 
-Use a dedicated TradingView Desktop instance on CDP `9223`; do not point this project at the main `9222` chart.
+Use a dedicated TradingView Desktop instance on CDP `9225`; do not point this project at the main `9222` chart.
 
 ```bash
-open -na "TradingView" --args --remote-debugging-port=9223 \
-  --user-data-dir="$HOME/Library/Application Support/TradingView-Hermes-9223"
+open -na "TradingView" --args --remote-debugging-port=9225 \
+  --user-data-dir="$HOME/Library/Application Support/TradingView-Hermes-9225"
 ```
 
 Then in TradingView:
@@ -86,7 +86,7 @@ It must return:
 
 Blocked readiness is not an ordinary no-trade. It means **do not evaluate the setup** until the source issue is fixed. Common blockers:
 
-- `cdp_unreachable` — TradingView is not reachable on port `9223`.
+- `cdp_unreachable` — TradingView is not reachable on port `9225`.
 - `tradingview_api_unavailable` — chart API is not exposed yet; reload/wait.
 - `chart_symbol_not_mnq_mes` — wrong chart symbol.
 - `unexpected_timeframe` — wrong chart timeframe.

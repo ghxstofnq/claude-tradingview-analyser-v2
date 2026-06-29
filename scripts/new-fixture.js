@@ -79,7 +79,7 @@ function main() {
   console.log(`Capturing ${bundlePath} ...`);
   const res = spawnSync('./bin/tv', ['analyze', '--out', bundlePath], { stdio: 'inherit' });
   if (res.status !== 0 || !existsSync(bundlePath)) {
-    console.error('capture failed — is TradingView Desktop running on CDP 9223?');
+    console.error('capture failed — is TradingView Desktop running on CDP 9225?');
     process.exit(1);
   }
   writeFileSync(expectedPath, expectedTemplate(id, label));

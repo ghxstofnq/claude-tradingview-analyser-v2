@@ -8,7 +8,7 @@ cd app && npm run dev
 
 ## Pre-launch
 
-- [ ] TradingView Desktop is running with `--remote-debugging-port=9223` (this is the analysis target — separate from the in-app webview).
+- [ ] TradingView Desktop is running with `--remote-debugging-port=9225` (this is the analysis target — separate from the in-app webview).
 - [ ] You're signed into Claude Code locally (`claude --version` returns ok).
 
 ## Window + chrome

@@ -137,7 +137,7 @@ docs/
     lanto-source-of-truth.md     verbatim Lanto rules + bot fidelity audit
     transcripts/                 the 5 source class transcripts
 packages/
-  core/                   vendored @tvmcp/core; CDP_PORT = 9223
+  core/                   vendored @tvmcp/core; CDP_PORT = 9225
 package.json              workspaces, scripts (tv / smoke / smoke:fixtures), sole runtime dep
 scripts/
   verify-citations.js     enforces constraint #6 on a paired (analysis, bundle)
