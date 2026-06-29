@@ -44,6 +44,21 @@ export function hasCleanDisplacement(context) {
   return displacement === 'clean' || displacement === 'acceptable';
 }
 
+// Continuation = the entry RIDES the current leg (leg direction matches the
+// trade side); a counter-leg entry is a Reversal. Leg direction = the engine's
+// most-recent leg extreme (leg_high_ms vs leg_low_ms) — the same stamps
+// execution-packet.classifySetupModel reads. Fail CLOSED (false) when the
+// stamps are unreadable: the Trend reclaim subtype must not spawn without leg
+// evidence, and it keeps the verified Reversal inversions (02-09/06-09, whose
+// leg runs counter to the trade) out of the continuation path entirely.
+export function isContinuationSetup(context, side) {
+  const lhMs = Number(context?.pillar2?.legHighMs);
+  const llMs = Number(context?.pillar2?.legLowMs);
+  if (!Number.isFinite(lhMs) || !Number.isFinite(llMs) || lhMs === llMs) return false;
+  const legUp = lhMs > llMs;
+  return (side === 'long' && legUp) || (side === 'short' && !legUp);
+}
+
 export function kindOf(row) {
   return String(row?.kind ?? row?.type ?? '').toLowerCase();
 }

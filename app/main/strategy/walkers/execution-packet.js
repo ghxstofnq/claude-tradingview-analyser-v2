@@ -197,6 +197,26 @@ function trendStructuralStop(walker, side, entry, context) {
   if (normalizeModelName(walker?.model) !== 'trend') return null;
   const correctSide = (price) => (side === 'long' ? price < entry : price > entry);
 
+  // Trend reclaim-continuation stop (entry-models.md §5 "below the swing low
+  // that touches the FVG ... or below the FVG low" = the dip-invalidation): the
+  // reclaim entered off the dip back into the flipped gap, so the stop sits just
+  // past the round level beyond that dip — a close back through it unwinds the
+  // reclaim. User-approved 2026-06-18 oracle: dip base 30402.5 → stop 30400
+  // (the MNQ 50-grid level just below; per-instrument via psych-levels.js, so
+  // MES uses its 5-grid). Only this subtype takes this path.
+  const reclaim = walker?.evidence?.confirmation?.rawPayload;
+  if (walker?.evidence?.reclaimContinuation && reclaim?.source === 'trend_reclaim_confirm') {
+    const sym = context?.market;
+    const dip = side === 'long' ? numberOrNull(reclaim.dip_low) : numberOrNull(reclaim.dip_high);
+    if (dip != null) {
+      const lvl = side === 'long' ? psychLevelsBelow(sym, dip, 1)[0] : psychLevelsAbove(sym, dip, 1)[0];
+      const px = numberOrNull(lvl?.price);
+      if (px != null && correctSide(px)) {
+        return { kind: 'trend_reclaim_dip', price: px, evidenceRef: 'gates.engine.confirmation.last_bar[dip]' };
+      }
+    }
+  }
+
   // Trend FVG-candle stop (2026-06-21, SHIPPED default-on; opt out
   // GOFNQ_P3_TREND_STOP=0): anchor the stop on the candle that CREATED the FVG
   // (its wick — low for long, high for short), found by the FVG's created_ms in
@@ -601,7 +621,11 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const confirmation = walker?.evidence?.confirmation ?? {};
   const confirmationPayload = confirmation.rawPayload ?? {};
-  const entryPrice = numberOrNull(confirmationPayload.close ?? confirmationPayload.price ?? confirmationPayload.confirm_close_price);
+  // The Trend reclaim-continuation entry is the gap CE, not the bar close
+  // (entry-models.md §3/§4: enter the FVG at/above the midpoint). The reclaim
+  // confirm path sets entry_price = pd.ce; every other path leaves it unset and
+  // falls through to the confirmation close (unchanged behavior).
+  const entryPrice = numberOrNull(confirmationPayload.entry_price ?? confirmationPayload.close ?? confirmationPayload.price ?? confirmationPayload.confirm_close_price);
   if (entryPrice == null) blockers.push('missing_confirmation_close_price');
 
   const side = walker?.side;

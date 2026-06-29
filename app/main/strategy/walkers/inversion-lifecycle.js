@@ -1,4 +1,5 @@
 import { runWalkerEngine } from './walker-engine.js';
+import { isActiveWalker } from './walker-state.js';
 import {
   activeModelWalkers,
   allPdArrays,
@@ -260,7 +261,19 @@ export function buildInversionWalkerAdvanceRequests(context, walkers = []) {
   const requests = [];
   const confirmationRows = context?.pillar3?.confirmationRows ?? [];
 
+  // Defer to a Trend reclaim-continuation walker tracking the SAME zone: on a
+  // Trend-priority continuation day, the chosen entry is the retrace/reclaim,
+  // not the aggressive break the Inversion mechanism takes (entry-models.md;
+  // TRADE24 18:57). Scoped to the same zone (pdArrayRef), so a genuine Reversal
+  // inversion — which never has a continuation-leg reclaim walker on its zone
+  // (02-09/06-09: leg runs counter to the trade) — is untouched.
+  const reclaimZones = new Set(walkers
+    .filter((w) => isActiveWalker(w) && w.model === 'Trend' && w?.evidence?.reclaimContinuation)
+    .map((w) => w.pdArrayRef)
+    .filter(Boolean));
+
   for (const walker of activeModelWalkers(walkers, 'Inversion')) {
+    if (reclaimZones.has(walker.pdArrayRef)) continue;
     const confirmed = confirmationRows.find((row) => isValidConfirmationForSide(row, walker.side, { requireBody: false })
       && fullCloseThrough(row, walker)
       && invertedOnThisBar(context, walker, row));
