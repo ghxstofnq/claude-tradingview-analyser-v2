@@ -249,11 +249,61 @@ Results:
 - `npm run test` exited 0: root tests `1607 pass / 0 fail`; app tests `9 pass / 0 fail`.
 - The MES tapes show as ignored local files (`!!`) and are not part of the commit.
 
+## 2025-12-12 re-grade slice 1 — transcript locked, exact levels blocked
+
+Allowed evidence re-read:
+
+- `docs/strategy/transcripts/How-I-Develop-Daily-Bias-12122025-CLASS-kix1SDRSCiU-formatted-transcript.md:65-99`
+- `docs/strategy/daily-bias.md:12-30`, `docs/strategy/daily-bias.md:104-120`
+- `docs/strategy/entry-models.md:89-115`
+- `docs/strategy/confirmation.md:13-39`
+- `docs/strategy/risk-and-management.md:41-52`
+- `docs/strategy/lanto-oracle.md:186-213` only as the already-audited transcript summary / caution, not as a source for retired exact levels.
+
+Transcript-grounded facts that remain promotable:
+
+| Fact | Evidence | Action |
+|---|---|---|
+| HTF was **not** a vote | Lanto: “the whole week we didn't have a clear ultra higher time frame look” and “we didn't end up using higher time frame today … there wasn't anything massive” (`transcript:71`, `transcript:83-85`) | Preserve `no HTF vote` |
+| Overnight was **bearish** | Asia/London/overnight described as bearish; London lows were the key level (`transcript:65`, `transcript:83-85`) | Preserve bearish overnight vote |
+| NY-open reaction was **bearish** | Price swept London lows, then the 9:40 5m sequence displaced back down and confirmed downside (`transcript:65`, `transcript:69`) | Preserve bearish open-reaction vote |
+| Grade was **B / 2 of 3** | Lanto defines 2/3 as tradable but not A+ (`transcript:71-73`; `daily-bias.md:20-30`) | Preserve `grade: B` |
+| Reversal long was rejected | London-low sweep alone was not enough; no major bullish displacement, overnight stayed bearish (`transcript:83-95`) | Do not promote any long oracle |
+| Trade direction clue is short; exact trade still unapproved | Lanto compares ES vs NQ at ~9:59/10:00 “confirmation off this trade” and says ES showed more aggressive sell (`transcript:97-99`) | Treat ES/MES short as a working clue only; do not promote exact levels |
+
+Chart/tape evidence attempt:
+
+```bash
+./bin/tv record-tape \
+  --label state/regrades/2025-12-12-mes-regrade-working.label.json \
+  --from 09:30 --to 11:00 \
+  --fixture 2025-12-12-mes-ny-am-regrade-working \
+  --out tests/tapes/2025-12-12-mes-ny-am-replay.tape.json
+```
+
+Result:
+
+```text
+Replay date unavailable: The selected date is not available for playback. The chart was moved to the first point available for playback. The requested date has no data for this timeframe.
+```
+
+Fallback `capture-replay` / TradingView WebSocket checks also failed to produce usable intraday evidence:
+
+- `./bin/tv capture-replay --label state/regrades/2025-12-12-mes-label-est.json --out state/regrades/2025-12-12-mes-capture-1000-est.json --force`
+  - validation blockers: `missing bars_by_tf.h4`, `missing bars_by_tf.h1`, `missing bars_by_tf.m15`, `missing bars_by_tf.m5`, `missing bars_by_tf.m1`.
+- Direct TradingView WebSocket pull for `CME_MINI:MES1!` 1m did not reach the 2025 session; returned only recent June 2026 intraday rows.
+- Explicit `CME_MINI:MESZ2025` 1m did not include 2025-12-12; first returned intraday row was `2025-12-14T23:00:00Z`.
+
+Decision for this slice: **NOT READY to promote exact oracle levels.**
+
+Keep `tests/fixtures/stage-g-sessions/2025-12-12-mes-ny-am-trend-short.label.json` as `needs_gxofnq_review` with exact `model`, `side`, `entry`, `stop`, `tp1`, and `tp2` unpromoted. The transcript supports the day-level read — bearish 2/3-B, no HTF vote, no long reversal — but the exact execution packet still needs chart/tape evidence or explicit user approval.
+
 ## Current next target
 
-The approved pair rows are now foldable locally. The next oracle-rebuild slice should be **2025-12-12 re-grade**:
+Acquire usable chart/tape evidence for **2025-12-12** before promoting exact oracle truth:
 
-1. Use allowed transcript/strategy evidence to preserve only the supported bias/grade facts.
-2. Reconstruct instrument, side, entry, stop, and TP levels from chart/tape evidence.
-3. Ask for user approval before promoting any exact oracle expectation.
-4. Keep retired candidate dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) as `pending_review` until after 2025-12-12 is resolved.
+1. Find a TradingView symbol/contract or saved chart source whose intraday replay/history includes 2025-12-12 NY AM.
+2. Reconstruct the exact short candidate around the transcript’s ~9:59/10:00 confirmation clue.
+3. Derive entry, structural stop, TP1, and TP2 from chart evidence.
+4. Ask for user approval before flipping any fixture expectation out of `needs_gxofnq_review`.
+5. Keep retired candidate dates (`2026-01-29`, `2026-04-06`, `2026-06-15`, `2026-06-22`) as `pending_review` until 2025-12-12 exact levels are resolved.
