@@ -93,12 +93,20 @@ This is the desired anti-contamination behavior.
 
 `inspect-fresh-oracle-tapes.mjs` rebuilds a direct-session brief from each tape's first captured bundle, then folds through `runBacktest(...)` with the production truth function.
 
-This exposed rows where no context builds because the deterministic brief reports `data_gap`, commonly when no primary draw is selected and at least one HTF anchor is missing. In this fresh corpus, `daily` is not reliably attached, so no-draw rows can be degraded even when `h4`/`h1`/`m15`/`m5` evidence exists.
+This exposed rows where no context builds because the deterministic brief reports `data_gap`, commonly when no primary draw is selected and at least one HTF anchor is missing. The first 2026-06-30 fresh corpus did not reliably attach `daily` because `freshChartForReplay({ timeframe: 'D' })` verified the chart resolution by strict string equality, while TradingView reports Daily as `1D`. That made Daily replay-anchor capture fail before replay started.
 
-That needs a design decision before promotion:
+Fix applied after first-pass inspection:
 
-- either fix Daily HTF capture, or
-- explicitly allow H4/H1-only context when Daily is unavailable and no draw exists, with tests.
+- `pinChart` now accepts `D` ↔ `1D` via the same timeframe-alias logic used by engine meta checks.
+- Recorder warnings are persisted into tape artifacts.
+- A representative re-record of `2026-06-09 MNQ` attached `daily`, `h4`, `h1`, `m15`, and `m5` with `warnings=[]`.
+
+Before promotion, the remaining fresh corpus should be regenerated or Daily-backfilled with this fixed recorder so all rows have consistent HTF evidence.
+
+That still leaves a strategy/design decision before promotion:
+
+- require successful Daily/H4/H1 anchor capture for every approved row, or
+- explicitly allow H4/H1-only context when Daily is unavailable, with tests and a visible warning.
 
 ### 3. Approved Batch A rows are not automatically reproduced from fresh context
 
