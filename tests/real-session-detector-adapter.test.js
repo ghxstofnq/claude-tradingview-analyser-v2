@@ -76,29 +76,30 @@ test('buildRealSessionDetectorInput mirrors the digest for short labels (destina
   assert.equal(adapted.ltf_bias_context.side, 'short');
   assert.equal(adapted.bundle.quote.last, 29731.25);
   assert.equal(adapted.bundle.brief_digest.symbols.MNQ.pillar1.htf_destination.dir, 'below');
-  assert.ok(adapted.untaken_targets.untaken_below.some((t) => t.price === 29302.5),
+  assert.ok(adapted.untaken_targets.untaken_below.some((t) => t.price === 29595.25),
     `label tp1 must land in untaken_below: ${JSON.stringify(adapted.untaken_targets.untaken_below)}`);
   assert.deepEqual(adapted.untaken_targets.untaken_above, []);
-  // every pool below must actually sit below the entry
+  // every pool below must actually sit below the active Option A entry
   for (const pool of adapted.untaken_targets.untaken_below) {
-    assert.ok(pool.price < 29731.25, `pool ${pool.price} is not below entry`);
+    assert.ok(pool.price < 29760, `pool ${pool.price} is not below entry`);
   }
   // bridged bearish iFVG present as-of, no future rows
   assert.equal(adapted.bundle.engine_by_tf.m5.fvgs.some((f) => f.kind === 'ifvg' && f.dir === 'bear'), true);
   assert.deepEqual(adapted.diagnostics.blockers, []);
 });
 
-test('real_session_detector replay mode turns the 2026-06-09 label into a detector-driven short Inversion packet', () => {
+test('legacy 2026-06-09 09:54 bundle is provenance-only after Option A', () => {
   const result = runReplayCase({
-    fixture: 'gx-real-detector-short',
+    fixture: 'gx-real-detector-short-provenance',
     mode: 'real_session_detector',
     label: shortLabel,
     bundle: shortBundle,
-    expected: { outcome: 'trade', model: 'Inversion', side: 'short' },
+    expected: { outcome: 'no_trade' },
   }, new URL('./fixtures', import.meta.url).pathname);
 
-  const candidate = result.actual.best_candidate;
-  assert.ok(candidate, `no best_candidate; rejections: ${JSON.stringify(result.actual.rejections ?? result.actual.rejection_summary)}`);
-  assert.equal(candidate.model, 'Inversion');
-  assert.equal(candidate.side, 'short');
+  assert.equal(shortLabel.label_status, 'needs_gxofnq_review');
+  assert.equal(shortLabel.replay.ready, false);
+  assert.equal(result.actual.best_candidate, null);
+  assert.ok(result.actual.rejections?.length || result.actual.rejection_summary,
+    'the old 09:54 bundle should remain diagnostic/provenance, not a scored active 10:27 packet');
 });

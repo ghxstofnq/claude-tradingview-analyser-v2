@@ -161,27 +161,27 @@ not a fabricated tick.
 - **Discriminator the chain must get right:** two imbalances confirming the *same* move → A+ even at
   2/3 bias; a single ordinary FVG entry on the same day would be a B.
 
-### D2 · 2026-06-09 NY-AM — A+ Inversion short  ·  status: graded (replay-confirmed; GXNQ's logged draws corrected)
+### D2 · 2026-06-09 NY-AM — B Inversion short  ·  status: graded (Option A evidence-backed replay packet)
 - **Setup:** overnight rallied (+301) and NY **swept the highs** (AS.H/NYAM.H/PDH) at the 30136
   spike → reversed **down off the HTF bear draw** (fresh bear daily FVG *at price* + 4H/1H bear
   FVGs) → **swing-tier bear MSS 10:45** (29595, dp 152) → sold off to 29154. Bias bearish; the
   bullish overnight was the **liquidity grab** that set up the reversal (not a conflict).
 - **Model / side:** **Inversion short** — the bullish FVGs **29743–29776** violated to bearish
   (inverted) on the retrace into the bear FVGs; the 1m violation close confirms.
-- **Entry: 29731.25** (1m inversion close, **~10:29–10:34** — NOT 09:50; the documented time was
-  ~40 min early). **Stop: 29851.50** (above the 29836 retrace swing). **1R = 120.25 pts.**
-- **Draws (untaken sell-side below):** **TP1 = AS.L 29595.25 (1.13R)** — nearest sell-side draw;
-  **TP2 = PDL 29113.75 (5.13R)** then **PWL 29071.25 (5.49R)** — the ultimate HTF draw (price hit
-  29154 ≈ PDL). **BE → entry (29731.25) when TP1 fills** (no-trim ride-the-trail).
-- **Grade A+ — via MULTI-ALIGNMENT (the "two-and-one", not a single inversion).** Two imbalances
-  confirmed the one short *in one*: (1) the retrace **rejecting off the HTF bear FVG** (a bearish FVG
-  rebalance) **and** (2) the **1m bull-FVG inversion** (violation close) — the structural analogue of
-  02-09's 5m-rebalance + 1m-inversion (ENTRY 27:05/31:25). Plus a significant grab (AS.H/NYAM.H/PDH),
-  swing-tier reversal, and it reached the draw. A *single* inversion here would have been **B**; the
-  A+ rests specifically on the two-imbalance alignment.
+- **Entry: 29760** — the first evidence-backed 1m inversion confirmation close after stale 10:00 ET
+  low-coherence inversions are suppressed. **Stop: 29818.75** (failed-leg extreme from the visible 1m
+  bars at packet time). **1R = 58.75 pts.**
+- **Draws (untaken sell-side below):** **TP1 = AS.L 29595.25 (2.80R)** — nearest sell-side draw;
+  **TP2 = PDL 29113.75 (11.00R)** then **PWL 29071.25 (11.73R)** — the ultimate HTF draw (price hit
+  29154 ≈ PDL). **BE → entry (29760) when TP1 fills**.
+- **Grade B — aligned bearish inversion, but no verified two-and-one.** The tape supports the
+  significant buy-side grab, bearish reversal delivery, and draw hit. It does **not** support the prior
+  A+ claim: no same-direction took-liq 5m FVG overlaps the 1m entry zone, so the multi-alignment
+  elevator does not fire.
 - **Corrections to GXNQ's label:** logged TP1 **29302** maps to no level/pool (dropped); logged
-  **TP2 "28779 PWL"** is wrong — actual **PWL is 29071.25**; logged entry time **09:50** is ~40 min
-  early (actual ~10:30).
+  **TP2 "28779 PWL"** is wrong — actual **PWL is 29071.25**; logged `29731.25` is a later 1m bar open
+  with no production-general entry anchor; logged `29851.50` is an h1 FVG candle-open, not the 1m
+  inversion invalidation anchor. Option A demotes the row to the evidence-backed B packet above.
 
 ### D3 · 2025-12-12 NY-AM — 2/3-B bearish day (the documented B1)  ·  status: transcript-grounded bias; exact trade levels retired pending re-derive — engine HTF over-read flagged
 - **Lanto's own words (BIAS class, THIS day):** *"we didn't end up using higher time frame today…

@@ -1,5 +1,7 @@
 # Batch A walker-alignment blocker report — 2026-06-29
 
+> 2026-06-30 update: the 06-09 blocker below is superseded by Option A. The active 06-09 oracle is the evidence-backed `Inversion short B` packet (`29760 / 29818.75 / 29595.25`, first packet `2026-06-09T14:27:00Z`), not the rejected `29731.25 / 29851.50 / A+` target. See `docs/audits/2026-06-30-batch-a-06-09-blocker.md`.
+
 ## Context
 
 User approved Batch A oracle packets from `docs/audits/recent-oracle-packets/` and asked to align the deterministic walker chain so the approved rows can be flipped back to `verified:true`.

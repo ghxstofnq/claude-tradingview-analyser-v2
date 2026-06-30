@@ -195,7 +195,20 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
       const ms = Number(s?.swept_ms);
       return Number.isFinite(ms) && Number.isFinite(t) && ms <= t && (t - ms) / 60000 <= invGrabRecencyMin();
     });
-    if (grab) return { valid: true, kind: 'reversal', reason: null, depth };
+    if (grab) {
+      // Reversal still needs directional delivery after the grab — not a choppy
+      // first crack through an FVG. 06-09 10:00 had the buy-side grab, but the
+      // open leg was still two-sided chop (m15 coherence 0.28) and latched a
+      // stale A+ before the real sell-side delivery. The evidence-backed 10:27
+      // short has coherence 0.81 after LO.L delivery. Fail open when coherence
+      // is absent so older/minimal fixtures don't get blocked by missing data.
+      const cohRaw = context?.pillar2?.coherence;
+      const coh = cohRaw == null ? NaN : Number(cohRaw);
+      if (Number.isFinite(coh) && coh < invCoherenceMin()) {
+        return { valid: false, kind: 'reversal', reason: 'reversal_low_coherence', depth, coherence: coh };
+      }
+      return { valid: true, kind: 'reversal', reason: null, depth, coherence: Number.isFinite(coh) ? coh : null };
+    }
     // The stop-anchoring grab can be an INTERNAL swing sweep, not just a session-tier
     // level. 06-15 (verified on a V5-recorded tape): Lanto's 10:30 long followed the
     // 10:14 sweep of an internal low (7606.5) — his "stop relative low"; named sweeps

@@ -340,7 +340,7 @@ Key finding: the existing fold is mechanically runnable, but three tracked MNQ t
 
 | Date | Existing tape expectation | Corrected oracle row in `docs/strategy/lanto-oracle.md` | Batch A recommendation |
 |---|---|---|---|
-| `2026-06-09` | Inversion short A+ at `29964.75 / 30027.75 / 29751.25` | Inversion short A+ at `29731.25 / 29851.50 / 29595.25`, TP2 `29113.75`, first valid window ~10:29–10:34 ET | **Correct before promotion** |
+| `2026-06-09` | Inversion short A+ at `29964.75 / 30027.75 / 29751.25` | Option A evidence-backed Inversion short B at `29760 / 29818.75 / 29595.25`, TP2 `29113.75`, first valid packet `2026-06-09T14:27:00Z` | **Correct before promotion** |
 | `2026-06-16` | Trend short B at `30864.25 / 30889 / 30750.75` | Reversal/MSS-leg FVG short B at `30864.25 / 30896 / 30783`, TP2 `30561.75` | **Correct before promotion** |
 | `2026-06-17` | no-trade | no-trade on price-quality veto despite bearish directional read | **Seed candidate** |
 | `2026-06-18` | Inversion long B at `30470.25 / 30411 / 30615` | Continuation/Trend long B at `30452.75 / 30400 / 30615` | **Correct before promotion** |
@@ -353,7 +353,7 @@ User approved all four Batch A packets. Applied the approval conservatively:
 
 | Date | Applied change | Verification state |
 |---|---|---|
-| `2026-06-09` | Updated tracked MNQ tape expectation to approved `Inversion short A+` packet: entry `29731.25`, stop `29851.50`, TP1 `29595.25`, TP2 `29113.75` | `verified:false` because the current deterministic chain still first emits the stale 10:00 ET packet at `29964.75` |
+| `2026-06-09` | Option A replaced the inconsistent A+ target with the evidence-backed `Inversion short B` packet: entry `29760`, stop `29818.75`, TP1 `29595.25`, TP2 `29113.75` | `verified:true` once the chain suppresses the stale 10:00 ET low-coherence inversion latch |
 | `2026-06-16` | Updated tracked MNQ tape expectation to approved `MSS`/reversal short B packet: entry `30864.25`, stop `30896`, TP1 `30783`, TP2 `30561.75` | `verified:false` because the current deterministic chain still emits `Trend` with stop `30889` / TP1 `30750.75` |
 | `2026-06-17` | Added approval metadata to the no-trade tape expectation | Remains `verified:true`; chain emits no packet |
 | `2026-06-18` | Updated tracked MNQ tape expectation to approved `Trend` long B packet: entry `30452.75`, stop `30400`, TP1 `30615` | `verified:false` because the current deterministic chain still emits a later `Inversion` long at `30470.25` |

@@ -218,18 +218,33 @@ test('override ON: deep + trend AGAINST (recent bull) + no grab → invalid', ()
   });
 });
 
-test('override ON: deep + grab present is unchanged: valid reversal (never demotes)', () => {
+test('override ON: deep + grab present + directional delivery is a valid reversal', () => {
   withOverride(() => {
     const r = inversionEntryValid({
       context: ctx({
         sweeps: [{ side: 'buy', target: 'NYAM.H', swept_ms: min(30) }],
-        structuresSwing: [{ dir: 'bull', event: 'mss', confirmed_ms: min(10) }], // trend against, but grab wins
-        coherence: 0.1,
+        structuresSwing: [{ dir: 'bull', event: 'mss', confirmed_ms: min(10) }], // trend against, but grab wins when delivery is clean
+        coherence: 0.8,
       }),
       side: 'short', entryPrice: 29400, nowMs: NOW,
     });
     assert.equal(r.valid, true);
     assert.equal(r.kind, 'reversal');
+  });
+});
+
+test('override ON: deep + grab present but low coherence suppresses stale reversal latch', () => {
+  withOverride(() => {
+    const r = inversionEntryValid({
+      context: ctx({
+        sweeps: [{ side: 'buy', target: 'NYAM.H', swept_ms: min(30) }],
+        structuresSwing: [{ dir: 'bull', event: 'mss', confirmed_ms: min(10) }],
+        coherence: 0.1,
+      }),
+      side: 'short', entryPrice: 29400, nowMs: NOW,
+    });
+    assert.equal(r.valid, false);
+    assert.equal(r.reason, 'reversal_low_coherence');
   });
 });
 
