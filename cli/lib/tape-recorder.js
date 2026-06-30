@@ -329,7 +329,7 @@ export function attachHtfSnapshot(entries, htf = {}) {
 }
 
 /** Assemble the tape file. Lands unverified — hand-grading freezes it. */
-export function tapeFromRecording({ label, entries, fixture = null }) {
+export function tapeFromRecording({ label, entries, fixture = null, warnings = [] }) {
   const context = contextFromLabel(label);
   return {
     fixture: fixture ?? `${label.trade_date}-${context.session}-replay`,
@@ -342,6 +342,7 @@ export function tapeFromRecording({ label, entries, fixture = null }) {
       model: label?.expected?.model ?? null,
       side: label?.expected?.side ?? null,
     },
+    warnings,
     entries,
   };
 }

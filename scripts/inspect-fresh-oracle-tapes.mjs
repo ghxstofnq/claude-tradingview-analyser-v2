@@ -110,6 +110,7 @@ async function foldOne(file) {
     session: tape.session,
     symbol,
     bars: tape.entries?.length ?? 0,
+    warnings: Array.isArray(tape.warnings) ? tape.warnings : [],
     tf_keys: Object.keys(tape.entries?.[0]?.inputs?.bundle?.engine_by_tf ?? {}).filter((k) => tape.entries?.[0]?.inputs?.bundle?.engine_by_tf?.[k]),
     brief: p ? {
       pillar_grade: p.pillar_grade ?? null,
@@ -240,6 +241,7 @@ for (const r of rows) {
   md.push(`### ${r.date} ${/^MES/i.test(r.symbol) ? 'MES' : 'MNQ'}`);
   md.push(`- context_built: ${r.context_built}`);
   md.push(`- chain_status: ${r.chain_status}`);
+  md.push(`- tape_warnings: ${r.warnings.length}${r.warnings.length ? ` — ${r.warnings.join('; ')}` : ''}`);
   md.push(`- brief: grade=${r.brief?.pillar_grade ?? 'n/a'}, reason=${r.brief?.no_trade_reason ?? 'n/a'}, htf_bias=${r.brief?.htf_bias_dir ?? 'n/a'}, pillar2=${r.brief?.pillar2_verdict ?? 'n/a'}`);
   if (r.brief?.primary_draw) md.push(`- primary_draw: ${r.brief.primary_draw.tf} ${r.brief.primary_draw.dir} ${r.brief.primary_draw.kind} ${r.brief.primary_draw.bottom}-${r.brief.primary_draw.top} CE ${r.brief.primary_draw.ce} (${r.brief.primary_draw.cite})`);
   if (r.open_reaction) md.push(`- open_reaction: ${r.open_reaction.interaction} ${r.open_reaction.level ?? ''} -> ${r.open_reaction.ltf_bias ?? r.open_reaction.bias} ${r.open_reaction.htf_ltf_alignment} cap=${r.open_reaction.grade_cap} at ${r.open_reaction.resolved_at_ts}`);

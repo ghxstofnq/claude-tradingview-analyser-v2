@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contextFromLabel, buildTapeEntry, recordTape, mergeFiveMinuteTrack } from "../cli/lib/tape-recorder.js";
+import { contextFromLabel, buildTapeEntry, recordTape, mergeFiveMinuteTrack, tapeFromRecording } from "../cli/lib/tape-recorder.js";
 
 const shortLabel = {
   fixture: "2026-06-09-mnq-ny-am-inversion-short",
@@ -77,6 +77,17 @@ test("contextFromLabel: no-trade labels are neutral even when they carry a side 
   assert.equal(ctx.ltf_bias_context.entry_model_priority, "undecided");
   assert.deepEqual(ctx.untaken_targets.untaken_above, []);
   assert.deepEqual(ctx.untaken_targets.untaken_below, []);
+});
+
+test("tapeFromRecording: persists recorder warnings into the tape artifact", () => {
+  const tape = tapeFromRecording({
+    label: shortLabel,
+    entries: [],
+    fixture: "warning-regression",
+    warnings: ["htf daily: engine did not emit D snapshot"],
+  });
+  assert.deepEqual(tape.warnings, ["htf daily: engine did not emit D snapshot"]);
+  assert.equal(tape.verified, false);
 });
 
 // ------------------------------------------------------------- buildTapeEntry

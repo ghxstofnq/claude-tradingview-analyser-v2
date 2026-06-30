@@ -17,7 +17,7 @@ The fresh tapes are good raw evidence:
 - Each tape has 152 primary 1m entries across `09:30–12:00 ET`.
 - Each tape has merged `m5` + `m15` evidence.
 - `h4` is present on all tapes; `h1` is present on 21/22 in the first health scan.
-- No saved-tape recorder warnings.
+- Warning persistence gap found after the first recording: the old recorder returned HTF-anchor warnings to stdout but did not save them into the tape artifact. `record-tape` now persists recorder warnings into future tapes; the 2026-06-30 fresh corpus should be treated as needing explicit HTF-presence inspection rather than trusted as "warning-clean".
 
 However, the first inspection fold shows that capture-only tapes are **not enough by themselves** to recreate approved oracle truth. After rebuilding deterministic brief context from each fresh tape's anchor bundle, current production code emits packets that diverge from the previously approved Batch A rows on several dates.
 

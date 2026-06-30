@@ -73,6 +73,15 @@ function jobMatches(job) {
   return [job.date, job.symbol, job.fixture, job.out, job.label].some((v) => String(v ?? '').toLowerCase().includes(needle));
 }
 
+function tapeWarnings(out) {
+  try {
+    const tape = JSON.parse(fs.readFileSync(out, 'utf8'));
+    return Array.isArray(tape.warnings) ? tape.warnings : [];
+  } catch {
+    return [];
+  }
+}
+
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 let jobs = (manifest.jobs ?? []).filter(jobMatches);
 if (limit > 0) jobs = jobs.slice(0, limit);
@@ -106,7 +115,8 @@ for (let i = 0; i < jobs.length; i += 1) {
   ];
   if (fs.existsSync(out) && !overwrite) {
     skipped += 1;
-    logLine(`[${i + 1}/${jobs.length}] SKIP ${job.date} ${job.symbol} exists ${path.relative(REPO, out)} (--overwrite to replace)`);
+    const warnings = tapeWarnings(out);
+    logLine(`[${i + 1}/${jobs.length}] SKIP ${job.date} ${job.symbol} exists ${path.relative(REPO, out)} warnings=${warnings.length} (--overwrite to replace)`);
     continue;
   }
   logLine(`[${i + 1}/${jobs.length}] ${dryRun ? 'DRY' : 'RUN'} ${job.date} ${job.symbol} ${job.from}-${job.to} -> ${path.relative(REPO, out)}`);
@@ -118,10 +128,12 @@ for (let i = 0; i < jobs.length; i += 1) {
     ts: new Date().toISOString(), job, code: res.code, seconds: secs,
     stdout_tail: res.stdout.slice(-2000), stderr_tail: res.stderr.slice(-2000),
   };
+  const warnings = res.code === 0 ? tapeWarnings(out) : [];
+  resultRecord.tape_warnings = warnings;
   fs.appendFileSync(path.join(LOG_DIR, 'record-fresh-oracle-results.jsonl'), `${JSON.stringify(resultRecord)}\n`);
   if (res.code === 0) {
     ok += 1;
-    logLine(`[${i + 1}/${jobs.length}] OK ${job.date} ${job.symbol} ${secs}s`);
+    logLine(`[${i + 1}/${jobs.length}] OK ${job.date} ${job.symbol} ${secs}s warnings=${warnings.length}`);
   } else {
     failed += 1;
     logLine(`[${i + 1}/${jobs.length}] FAIL ${job.date} ${job.symbol} code=${res.code} ${secs}s stderr=${res.stderr.slice(-300).replace(/\s+/g, ' ')}`);
