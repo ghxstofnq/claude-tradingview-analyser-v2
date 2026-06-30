@@ -42,41 +42,52 @@ function bareSymbol(label) {
  * fields the live loop reads from brief.json / ltf-bias.md / pair-decision.
  */
 export function contextFromLabel(label) {
-  const side = label?.expected?.side === 'short' ? 'short' : 'long';
-  const bias = side === 'short' ? 'bearish' : 'bullish';
-  const dir = side === 'short' ? 'below' : 'above';
+  const expected = label?.expected ?? {};
+  const isTrade = expected?.outcome === 'trade';
+  const side = expected?.side === 'short' ? 'short' : expected?.side === 'long' ? 'long' : null;
+  const directional = isTrade && side;
+  const bias = directional ? (side === 'short' ? 'bearish' : 'bullish') : null;
+  const dir = directional ? (side === 'short' ? 'below' : 'above') : null;
   const targets = ['tp1', 'tp2']
-    .map((field) => ({ price: Number(label?.expected?.[field]), name: `label_${field}`, cite: `label.expected.${field}` }))
+    .map((field) => ({ price: Number(expected?.[field]), name: `label_${field}`, cite: `label.expected.${field}` }))
     .filter((t) => Number.isFinite(t.price));
   return {
     session: SESSION_NAME_MAP[String(label?.session ?? '').toUpperCase()] ?? 'ny-am',
     leader: bareSymbol(label),
     ltf_bias_context: {
       bias,
-      htf_ltf_alignment: 'aligned',
+      htf_ltf_alignment: directional ? 'aligned' : 'unclear',
       is_retrace_day: false,
-      entry_model_priority: label?.expected?.model ?? 'undecided',
-      grade_cap: label?.expected?.grade ?? 'A+',
+      entry_model_priority: directional ? (expected?.model ?? 'undecided') : 'undecided',
+      grade_cap: directional ? (expected?.grade ?? 'A+') : 'B',
       // Stage-C 3-vote pillar for the faithful nested grade (deriveGrade). A
       // tradeable hand-grade carries the draw-bias pillar; default 2/3
       // (b_elevatable) so the grade = A+ ONLY on a real two-and-one at the
       // chain's entry, else B (grade follows the entry). A label may declare
       // expected.bias_pillar:'3of3' for a pure-3/3 A+ day (a_plus_eligible).
-      draw_bias_pillar: label?.expected?.bias_pillar === '3of3' ? 'confirmed-3of3' : 'clear-2of3',
-      a_plus_eligible: label?.expected?.bias_pillar === '3of3',
-      b_elevatable: label?.expected?.bias_pillar !== '3of3',
+      draw_bias_pillar: directional
+        ? (expected?.bias_pillar === '3of3' ? 'confirmed-3of3' : 'clear-2of3')
+        : null,
+      a_plus_eligible: directional && expected?.bias_pillar === '3of3',
+      b_elevatable: directional && expected?.bias_pillar !== '3of3',
     },
     session_state: {
-      pillar1: { status: 'pass', htfBias: bias, htfDraw: `${dir} ${targets[0]?.name ?? 'label target'}`, primaryDraw: targets[0]?.name ?? 'label target' },
-      pillar2: { status: 'pass', verdict: 'pass' },
+      pillar1: directional
+        ? { status: 'pass', htfBias: bias, htfDraw: `${dir} ${targets[0]?.name ?? 'label target'}`, primaryDraw: targets[0]?.name ?? 'label target' }
+        : { status: 'unknown', htfBias: null, htfDraw: null, primaryDraw: null },
+      pillar2: directional ? { status: 'pass', verdict: 'pass' } : { status: 'unknown', verdict: 'unknown' },
     },
     untaken_targets: {
-      untaken_above: side === 'short' ? [] : targets,
+      untaken_above: side === 'long' ? targets : [],
       untaken_below: side === 'short' ? targets : [],
     },
     brief_digest: {
-      htf_destination: { dir, price: targets[0]?.price ?? null, cite: targets[0]?.cite ?? 'label.expected.tp1' },
-      primary_draw: { name: targets[0]?.name ?? 'label target', price: targets[0]?.price ?? null, cite: targets[0]?.cite ?? 'label.expected.tp1' },
+      htf_destination: directional
+        ? { dir, price: targets[0]?.price ?? null, cite: targets[0]?.cite ?? 'label.expected.tp1' }
+        : { dir: null, price: null, cite: null },
+      primary_draw: directional
+        ? { name: targets[0]?.name ?? 'label target', price: targets[0]?.price ?? null, cite: targets[0]?.cite ?? 'label.expected.tp1' }
+        : null,
     },
   };
 }

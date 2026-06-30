@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-06-18-mes-ny-am-fresh-capture",
+  "fixtureSource": "fresh-oracle-capture",
+  "label_status": "capture_only",
+  "reviewer": "oracle-rerecord-2026-06-30",
+  "source_message": "Capture-only label for fresh oracle re-recording. It intentionally assigns no model/side/entry/stop/target; use the resulting tape as chart/engine evidence only until hand-graded and user-approved.",
+  "trade_date": "2026-06-18",
+  "symbol": "MES",
+  "contract_hint": "CME_MINI:MES1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "unknown",
+    "model": null,
+    "side": null,
+    "grade": null,
+    "entry": null,
+    "stop": null,
+    "tp1": null,
+    "tp2": null
+  }
+}

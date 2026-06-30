@@ -43,6 +43,42 @@ test("contextFromLabel: long label mirrors to bullish with pools above", () => {
   assert.deepEqual(ctx.untaken_targets.untaken_above.map((t) => t.price), [29302.5, 28779.0]);
 });
 
+test("contextFromLabel: unlabeled/unknown capture stays neutral, never defaults long", () => {
+  const ctx = contextFromLabel({
+    fixture: "2026-06-22-mnq-ny-am",
+    trade_date: "2026-06-22",
+    symbol: "MNQ",
+    contract_hint: "CME_MINI:MNQ1!",
+    session: "NY AM",
+    label_status: "unlabeled",
+    expected: { outcome: "unknown", side: null, tp1: null, tp2: null },
+  });
+  assert.equal(ctx.ltf_bias_context.bias, null);
+  assert.equal(ctx.ltf_bias_context.htf_ltf_alignment, "unclear");
+  assert.equal(ctx.ltf_bias_context.entry_model_priority, "undecided");
+  assert.equal(ctx.ltf_bias_context.grade_cap, "B");
+  assert.equal(ctx.session_state.pillar1.status, "unknown");
+  assert.deepEqual(ctx.untaken_targets.untaken_above, []);
+  assert.deepEqual(ctx.untaken_targets.untaken_below, []);
+  assert.deepEqual(ctx.brief_digest.htf_destination, { dir: null, price: null, cite: null });
+});
+
+test("contextFromLabel: no-trade labels are neutral even when they carry a side hint", () => {
+  const ctx = contextFromLabel({
+    fixture: "2026-06-17-mnq-ny-am-no-trade",
+    trade_date: "2026-06-17",
+    symbol: "MNQ",
+    contract_hint: "CME_MINI:MNQ1!",
+    session: "NY AM",
+    expected: { outcome: "no_trade", side: "short" },
+  });
+  assert.equal(ctx.ltf_bias_context.bias, null);
+  assert.equal(ctx.ltf_bias_context.htf_ltf_alignment, "unclear");
+  assert.equal(ctx.ltf_bias_context.entry_model_priority, "undecided");
+  assert.deepEqual(ctx.untaken_targets.untaken_above, []);
+  assert.deepEqual(ctx.untaken_targets.untaken_below, []);
+});
+
 // ------------------------------------------------------------- buildTapeEntry
 
 test("buildTapeEntry: builds a live-shaped inputs record with fresh engine meta", () => {
