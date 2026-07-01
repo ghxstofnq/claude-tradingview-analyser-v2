@@ -155,9 +155,10 @@ not a fabricated tick.
   the **25611** pullback (09:53). The two imbalances in one: 5m bull FVG rebalance + the 1m bearish FVGs
   (≈25610–25631) inverting bullish on the reclaim. **Stop ~25605** (below the 25611 reclaim/inversion
   low; structural alt ~25575 below the 25581 dip) → **1R ≈ 28 pts.**
-- **Draws (untaken buy-side above):** **TP1 = NYAM.H 25707 / LO.H 25723 cluster (~2.6–3.0R)**;
-  **TP2 = AS.H 25855.25 (~7.3R — HIT**, price ran to 25864); ultimate **PWH 26536**. **BE → entry (25630)
-  at TP1.**
+- **Draws (untaken buy-side above):** Lanto's target cluster is **NYAM.H ~25707 / LO.H 25723 (~2.6–3.0R)**;
+  the deterministic no-lookahead packet uses the closed-bar packet-time **NYAM.H 25696.75** because `25707`
+  is not present in the 09:54–09:56 evidence window. **TP2 = AS.H 25855.25 (~7.3R — HIT**, price ran
+  to 25864); ultimate **PWH 26536**. **BE → entry (25630) at TP1.**
 - **Discriminator the chain must get right:** two imbalances confirming the *same* move → A+ even at
   2/3 bias; a single ordinary FVG entry on the same day would be a B.
 

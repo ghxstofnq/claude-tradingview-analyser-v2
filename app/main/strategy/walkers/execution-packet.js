@@ -86,6 +86,10 @@ function normalizeModelName(model) {
   return value;
 }
 
+function kindOf(row) {
+  return String(row?.kind ?? row?.type ?? '').toLowerCase();
+}
+
 // Lanto's MODEL (Reversal vs Continuation) is whether the entry TURNS the
 // current leg or RIDES it — distinct from the walker LIFECYCLE name (MSS/Trend/
 // Inversion), which is the entry MECHANISM. Leg direction = the engine's most
@@ -518,6 +522,16 @@ function nearestIntradayTarget(context, side, entry, stop) {
 // (b_elevatable) day to A+; never creates a trade on its own. Absent 5m data →
 // false (no elevation, the day stays B).
 function hasMultiAlignment(context, walker) {
+  // The Trend/iFVG-entry subtype verifies the two-and-one evidence before it
+  // marks the walker. Once marked, grade elevation may trust the marker instead
+  // of re-deriving from generic overlap rules (02-09: the 5m rebalance is a
+  // tapped BPR at the reclaim low while the entry anchor is the 1m/m5 iFVG
+  // above it; forcing literal overlap would miss the transcript case).
+  const explicitTrendEntry = normalizeModelName(walker?.model) === 'trend'
+    && Boolean(walker?.evidence?.multiAlignmentTrendEntry)
+    && kindOf(walker?.evidence?.pdArray?.rawPayload ?? {}) === 'ifvg';
+  if (explicitTrendEntry) return true;
+
   // The real "two-and-one" (ENTRY 27:05) is a 5m FVG REBALANCE that took
   // liquidity, paired with a 1m iFVG go-invert IN ONE spot. So it requires
   // (a) the entry be an INVERSION (a plain FVG-retrace is a single mechanism,
@@ -633,21 +647,46 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   if (entryPrice == null) blockers.push('missing_confirmation_close_price');
 
   const side = walker?.side;
+  const explicitStopPrice = numberOrNull(confirmationPayload.stop_price);
+  const explicitStopCorrectSide = explicitStopPrice != null && entryPrice != null
+    && (side === 'long' ? explicitStopPrice < entryPrice : side === 'short' ? explicitStopPrice > entryPrice : false);
+  const explicitStopCandidate = explicitStopCorrectSide ? {
+    kind: `${confirmationPayload.source ?? 'explicit'}_stop`,
+    price: explicitStopPrice,
+    evidenceRef: confirmationPayload.stop_evidence_ref ?? refOf(confirmation, walker?.confirmationRef ?? null),
+    rawPayload: confirmationPayload,
+  } : null;
+
   const stopAudit = entryPrice == null ? { selected: null, rejected: [] } : stopCandidatesWithAudit(context, side, entryPrice);
-  const stopCandidate = (entryPrice == null ? null : (
+  const stopCandidate = explicitStopCandidate ?? ((entryPrice == null ? null : (
     inversionStructuralStop(walker, side, entryPrice, context)
     ?? trendStructuralStop(walker, side, entryPrice, context)
     ?? mssStructuralStop(walker, side, entryPrice, context)
-  )) ?? stopAudit.selected;
+  )) ?? stopAudit.selected);
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
-  const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
+  const explicitTarget = (priceField, labelField, evidenceField) => {
+    const price = numberOrNull(confirmationPayload?.[priceField]);
+    if (price == null || entryPrice == null || !stopCandidate || !targetIsCorrectSide({ price }, entryPrice, side)) return null;
+    return {
+      price,
+      label: confirmationPayload?.[labelField] ?? null,
+      name: confirmationPayload?.[labelField] ?? null,
+      target_class: 'explicit',
+      evidenceRef: confirmationPayload?.[evidenceField] ?? refOf(confirmation, walker?.confirmationRef ?? null),
+      rMultiple: computeRMultiple({ entry: entryPrice, stop: stopCandidate.price, target: price }),
+      rawPayload: confirmationPayload,
+    };
+  };
+  const explicitTp1Candidate = explicitTarget('tp1_price', 'tp1_label', 'tp1_evidence_ref');
+  const explicitTp2Candidate = explicitTarget('tp2_price', 'tp2_label', 'tp2_evidence_ref');
+  const tp1Candidate = explicitTp1Candidate ?? (entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price));
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
   // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
   // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
-  const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
+  const tp2Candidate = explicitTp2Candidate ?? (tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
-    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
+    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate));
   // First intraday objective — the scale-in green-light reference (opt-in via
   // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
   // the HTF draw sits. Null when there's no intraday objective.

@@ -80,12 +80,27 @@ test('D5: overlapping 5m FVG that did NOT take liquidity → stays B (not a two-
   assert.equal(g, 'B');
 });
 
-test('D5: a took-liq 5m FVG but an FVG-retrace (non-inversion) entry → stays B', () => {
+test('D5: a took-liq 5m FVG but a plain FVG-retrace Trend entry → stays B', () => {
   const g = deriveGrade({
     context: elevCtx([{ dir: 'bear', top: 29796, bottom: 29788, took_liq: true }]),
-    walker: { ...elevWalker, model: 'Trend' }, // fvg_retrace mechanism, not an inversion
+    walker: { ...elevWalker, model: 'Trend' }, // plain fvg_retrace mechanism, not iFVG multi-alignment
   });
   assert.equal(g, 'B');
+});
+
+test('D5: Trend iFVG-entry with explicit multi-alignment evidence can elevate 2/3 → A+', () => {
+  const g = deriveGrade({
+    context: elevCtx([{ dir: 'bear', kind: 'bpr', top: 29796, bottom: 29788, state: 'tapped' }]),
+    walker: {
+      model: 'Trend',
+      side: 'short',
+      evidence: {
+        pdArray: { rawPayload: { kind: 'ifvg', dir: 'bear', top: 29795, bottom: 29790 } },
+        multiAlignmentTrendEntry: { rawPayload: { source: 'trend_multi_alignment_ifvg_entry' } },
+      },
+    },
+  });
+  assert.equal(g, 'A+');
 });
 
 test('D5: 2/3 with NO 5m FVG partner → stays B', () => {

@@ -8,6 +8,7 @@ import {
   isValidConfirmationForSide,
   kindOf,
   matchesTrackedPd,
+  numberOrNull,
   refOf,
   sideForPdDirection,
   stateIsTradable,
@@ -209,6 +210,196 @@ export function buildTrendReclaimAdvanceRequests(context, walkers = []) {
   return requests;
 }
 
+function isMultiAlignmentTrendWalker(walker) {
+  return Boolean(walker?.evidence?.multiAlignmentTrendEntry);
+}
+
+function latestBar(context) {
+  return (context?.pillar3?.ohlcv1m ?? []).at(-1) ?? null;
+}
+
+function bounds(row) {
+  const top = numberOrNull(row?.top);
+  const bottom = numberOrNull(row?.bottom);
+  return Number.isFinite(top) && Number.isFinite(bottom) ? { top, bottom } : null;
+}
+
+function sameSide(row, side) {
+  const rowSide = sideForPdDirection(row);
+  return rowSide === side;
+}
+
+function findTappedFiveMinuteRebalance(context, side) {
+  const nowMs = Date.parse(context?.eventTimeUtc);
+  const bar = latestBar(context);
+  const low = numberOrNull(bar?.low);
+  const high = numberOrNull(bar?.high);
+  const close = numberOrNull(bar?.close);
+  return (context?.pillar3?.fvgs5m ?? [])
+    .filter((row) => ['fvg', 'bpr', 'ifvg'].includes(kindOf(row)) && sameSide(row, side))
+    .filter((row) => bounds(row))
+    .filter((row) => {
+      const state = String(row?.state ?? '').toLowerCase();
+      const entered = Number(row?.entered_ms ?? row?.tap_ms);
+      if (!['tapped', 'ce_tapped', 'filled'].includes(state) || !Number.isFinite(entered) || entered <= 0) return false;
+      // The 5m rebalance must be the current/recent pullback, not a stale
+      // morning imbalance that merely exists in the m5 overlay. This blocks the
+      // 09:45 false-positive and waits for the 09:52–09:54 25611 CE tap.
+      if (Number.isFinite(nowMs) && (entered > nowMs || nowMs - entered > 10 * 60_000)) return false;
+      const b = bounds(row);
+      const touched = low != null && high != null && low <= b.top && high >= b.bottom;
+      const closedAway = close != null && (side === 'long' ? close > b.top : close < b.bottom);
+      return touched && closedAway;
+    })
+    .sort((a, b) => (Number(b.entered_ms ?? b.tap_ms) || 0) - (Number(a.entered_ms ?? a.tap_ms) || 0))[0] ?? null;
+}
+
+function findHistoricalIfvgAlignment(context, side) {
+  const nowMs = Date.parse(context?.eventTimeUtc);
+  const bar = latestBar(context);
+  const close = numberOrNull(bar?.close);
+  return allPdArrays(context)
+    .filter((row) => kindOf(row) === 'ifvg' && sameSide(row, side))
+    .filter((row) => row?.took_liq !== true && row?.took_liq !== 1)
+    .filter((row) => bounds(row))
+    .filter((row) => {
+      const confirmed = Number(row?.confirm_ms);
+      return Number.isFinite(confirmed) && confirmed > 0 && (!Number.isFinite(nowMs) || confirmed < nowMs);
+    })
+    .map((row) => {
+      const b = bounds(row);
+      const anchor = side === 'long' ? b.bottom : b.top;
+      const distance = close == null ? 0 : Math.abs(close - anchor);
+      return { row, anchor, distance };
+    })
+    .filter((c) => c.distance <= 35)
+    .sort((a, b) => a.distance - b.distance)[0]?.row ?? null;
+}
+
+function findEntryIfvgAnchor(context, side, alignment) {
+  const align = bounds(alignment);
+  if (!align) return alignment;
+  const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 3;
+  const candidates = [
+    ...(context?.pillar3?.fvgs5m ?? []),
+    ...allPdArrays(context),
+  ].filter((row) => kindOf(row) === 'ifvg' && sameSide(row, side) && bounds(row));
+  return candidates.find((row) => {
+    const b = bounds(row);
+    return near(b.bottom, align.bottom) || near(b.top, align.top);
+  }) ?? alignment;
+}
+
+function fivePointBufferedStop(rebalance, side) {
+  const b = bounds(rebalance);
+  if (!b) return null;
+  if (side === 'long') return Math.floor((b.bottom - 5) / 5) * 5;
+  if (side === 'short') return Math.ceil((b.top + 5) / 5) * 5;
+  return null;
+}
+
+function openPriceTargetFromHistoricalRows(context, side, entry, stop) {
+  const risk = Math.abs(Number(entry) - Number(stop));
+  if (!Number.isFinite(risk) || risk <= 0) return null;
+  const minMove = risk * 2.5;
+  const fields = ['c1o', 'c2o', 'c3o'];
+  const prices = [];
+  for (const row of allPdArrays(context)) {
+    for (const field of fields) {
+      const px = numberOrNull(row?.[field]);
+      if (px != null) prices.push({ price: px, evidenceRef: refOf(row, 'pillar3.pdArrays') + `[${field}]` });
+    }
+  }
+  const filtered = prices.filter((p) => side === 'long'
+    ? p.price > entry && p.price - entry >= minMove
+    : p.price < entry && entry - p.price >= minMove);
+  return filtered.sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry))[0] ?? null;
+}
+
+function sessionTargetByName(context, side, name) {
+  const key = side === 'long' ? 'above' : 'below';
+  return (context?.pillar1?.untakenTargets?.[key] ?? [])
+    .find((t) => String(t?.name ?? t?.label ?? '').replace('_', '.').toUpperCase() === name);
+}
+
+function buildMultiAlignmentTrendCandidate(context) {
+  const bias = context?.sessionChain?.ltfBias;
+  const side = bias === 'bullish' ? 'long' : bias === 'bearish' ? 'short' : null;
+  if (!side) return null;
+  if (context?.sessionChain?.drawBiasPillar !== 'clear-2of3') return null;
+  if (context?.sessionChain?.bElevatable !== true) return null;
+  const primaryDraw = context?.sessionChain?.pillar1?.primaryDraw;
+  if (!primaryDraw || typeof primaryDraw !== 'object') return null;
+  if (!hasCleanDisplacement(context)) return null;
+  const rebalance = findTappedFiveMinuteRebalance(context, side);
+  const alignment = findHistoricalIfvgAlignment(context, side);
+  if (!rebalance || !alignment) return null;
+  const entryZone = findEntryIfvgAnchor(context, side, alignment);
+  const eb = bounds(entryZone);
+  if (!eb) return null;
+  const entry = side === 'long' ? eb.bottom : eb.top;
+  const stop = fivePointBufferedStop(rebalance, side);
+  if (!Number.isFinite(entry) || !Number.isFinite(stop) || (side === 'long' ? stop >= entry : stop <= entry)) return null;
+  const bar = latestBar(context);
+  const close = numberOrNull(bar?.close);
+  if (close == null || (side === 'long' ? close < entry - 1 : close > entry + 1)) return null;
+  const tp1 = openPriceTargetFromHistoricalRows(context, side, entry, stop);
+  const tp2 = sessionTargetByName(context, side, side === 'long' ? 'AS.H' : 'AS.L');
+  return { side, entryZone, alignment, rebalance, entry, stop, tp1, tp2, bar };
+}
+
+export function buildTrendMultiAlignmentSpawnRequests(context) {
+  if (context?.sourceHealth?.status && context.sourceHealth.status !== 'fresh') return [];
+  if (context?.pillar1?.status && context.pillar1.status !== 'pass') return [];
+  if (context?.pillar2?.status && context.pillar2.status !== 'pass') return [];
+  const candidate = buildMultiAlignmentTrendCandidate(context);
+  if (!candidate) return [];
+  return [{
+    model: 'Trend',
+    side: candidate.side,
+    pdArray: { ...candidate.entryZone, kind: 'ifvg' },
+    setupEvidence: {
+      multiAlignmentTrendEntry: {
+        evidenceRef: refOf(candidate.entryZone, 'pillar3.ifvg.multi_alignment_entry'),
+        rawPayload: {
+          source: 'trend_multi_alignment_ifvg_entry',
+          ifvg_alignment: candidate.alignment,
+          five_minute_rebalance: candidate.rebalance,
+          entry_price: candidate.entry,
+          stop_price: candidate.stop,
+          tp1_price: candidate.tp1?.price ?? null,
+          tp1_evidence_ref: candidate.tp1?.evidenceRef ?? null,
+          tp2_price: candidate.tp2?.price ?? null,
+          tp2_evidence_ref: refOf(candidate.tp2, null),
+        },
+      },
+    },
+  }];
+}
+
+export function buildTrendMultiAlignmentAdvanceRequests(context, walkers = []) {
+  const candidate = buildMultiAlignmentTrendCandidate(context);
+  if (!candidate) return [];
+  const requests = [];
+  for (const walker of activeModelWalkers(walkers, 'Trend')) {
+    if (!isMultiAlignmentTrendWalker(walker) || !RECLAIM_PRE_CONFIRM_STAGES.has(walker.stage)) continue;
+    requests.push({
+      id: walker.id,
+      eventTimeUtc: context?.eventTimeUtc,
+      stage: 'confirmed',
+      evidenceRef: refOf(walker?.evidence?.multiAlignmentTrendEntry, walker.pdArrayRef),
+      evidenceKey: 'confirmation',
+      rawPayload: {
+        ...walker.evidence.multiAlignmentTrendEntry.rawPayload,
+        last_bar: candidate.bar,
+        close: Number(candidate.bar?.close),
+        confirm_ms: Date.parse(context?.eventTimeUtc) || null,
+      },
+    });
+  }
+  return requests;
+}
+
 // EM Trend §3/§4: kill a pre-confirmation continuation walker when market
 // structure breaks against it — the latest swing-tier structure flips to the
 // opposing direction AFTER the walker spawned ("no trade if price breaks
@@ -240,9 +431,9 @@ export function buildTrendWalkerAdvanceRequests(context, walkers = []) {
   const confirmationRows = context?.pillar3?.confirmationRows ?? [];
 
   for (const walker of activeModelWalkers(walkers, 'Trend')) {
-    // Reclaim-subtype walkers use their own confirm path (buildTrendReclaim-
-    // AdvanceRequests) — the normal retrace tap/confirm must not touch them.
-    if (isReclaimWalker(walker)) continue;
+    // Reclaim/multi-alignment subtype walkers use their own confirm paths — the
+    // normal retrace tap/confirm must not touch them.
+    if (isReclaimWalker(walker) || isMultiAlignmentTrendWalker(walker)) continue;
     const tapped = insidePdArrays.find((row) => matchesTrackedPd(walker, row));
     if ((walker.stage === 'watching' || walker.stage === 'pd_identified' || walker.stage === 'confirmation_pending') && tapped) {
       requests.push({
@@ -285,7 +476,11 @@ export function buildTrendWalkerAdvanceRequests(context, walkers = []) {
 }
 
 export function runTrendWalkerLifecycle({ context, walkers = [] } = {}) {
-  const spawnRequests = [...buildTrendWalkerSpawnRequests(context), ...buildTrendReclaimSpawnRequests(context)];
+  const spawnRequests = [
+    ...buildTrendWalkerSpawnRequests(context),
+    ...buildTrendReclaimSpawnRequests(context),
+    ...buildTrendMultiAlignmentSpawnRequests(context),
+  ];
   const spawned = runWalkerEngine({ context, walkers, spawnRequests });
   const pdAdvanceRequests = spawned.events
     .filter((event) => event.type === 'spawn' && event.spawned && event.walker?.model === 'Trend')
@@ -303,6 +498,7 @@ export function runTrendWalkerLifecycle({ context, walkers = [] } = {}) {
   const advanceRequests = [
     ...buildTrendWalkerAdvanceRequests(context, killed.walkers),
     ...buildTrendReclaimAdvanceRequests(context, killed.walkers),
+    ...buildTrendMultiAlignmentAdvanceRequests(context, killed.walkers),
   ];
   const advanced = runWalkerEngine({ context, walkers: killed.walkers, advanceRequests });
   return { walkers: advanced.walkers, events: [...spawned.events, ...pdAdvanced.events, ...killed.events, ...advanced.events] };

@@ -129,6 +129,8 @@ test("direct-brief fold: unclear before the boundary, aligned after a rejection 
   assert.equal(capture[2].htf_ltf_alignment, "aligned");
   assert.equal(capture[2].bias, "bearish");
   assert.equal(capture[2].grade_cap, "A+");
+  assert.equal(capture[2].draw_bias_pillar, "clear-2of3");
+  assert.equal(capture[2].requires_clean_entry, false);
   assert.equal(capture[3].htf_ltf_alignment, "aligned");
 
   assert.equal(summary.chain_status, "clean");
