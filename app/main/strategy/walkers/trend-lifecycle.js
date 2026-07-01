@@ -237,6 +237,11 @@ function findTappedFiveMinuteRebalance(context, side) {
   const close = numberOrNull(bar?.close);
   return (context?.pillar3?.fvgs5m ?? [])
     .filter((row) => ['fvg', 'bpr', 'ifvg'].includes(kindOf(row)) && sameSide(row, side))
+    // The two-and-one elevator needs a clear 5m rebalance partner. Tiny or
+    // liquidity-taking 5m impulse gaps are a single MSS/reversal leg, not the
+    // 5m-rebalance + 1m-iFVG pairing (06-16 fresh-context false A+ guard).
+    .filter((row) => String(row?.size_quality ?? '').toLowerCase() !== 'tiny')
+    .filter((row) => row?.took_liq !== true && row?.took_liq !== 1)
     .filter((row) => bounds(row))
     .filter((row) => {
       const state = String(row?.state ?? '').toLowerCase();
