@@ -3,12 +3,13 @@ import { psychLevelsAbove, psychLevelsBelow } from './psych-levels.js';
 
 const TICK_SIZE = 0.25;
 
-// Structural cushion above/below an MSS reversal FVG's far edge (entry-models.md
-// MSS §6: "below the FVG low ... structural invalidation"; A+ ex.: "a few ticks
-// below the MSS low"). 7 ticks (both instruments share the 0.25 tick). The lone
-// calibration knob for the took-liq far-edge stop, fixed to the user-approved
-// 2026-06-16 oracle (FVG top 30894.25 → stop 30896).
-const MSS_FVG_STOP_BUFFER = 1.75;
+// Structural cushion above/below an MSS reversal FVG invalidation point
+// (entry-models.md MSS §6: "below the FVG low ... structural invalidation";
+// A+ ex.: "a few ticks below the MSS low"). User correction 2026-07-01:
+// 06-16 MNQ invalidates at the FIRST FVG candle's wick, buffered by two ticks
+// (c1h 30904.50 → stop 30905.00), not the tighter far-edge proxy.
+const MSS_FVG_FIRST_CANDLE_STOP_BUFFER = 0.5;
+const MSS_FVG_FAR_EDGE_FALLBACK_BUFFER = 1.75;
 
 function roundTick(value) {
   return Math.round(value / TICK_SIZE) * TICK_SIZE;
@@ -38,7 +39,7 @@ const INTRADAY_TARGET_KINDS = {
   short: new Set(['swing_low']),
 };
 
-function targetPool(context, side) {
+function targetPool(context, side, { throughIntradayLiquidity = false } = {}) {
   const dirKey = side === 'long' ? 'above' : 'below';
   const targets = context?.pillar1?.untakenTargets ?? {};
   // Persistent session-history draws (multi-day-old session highs/lows that
@@ -49,31 +50,30 @@ function targetPool(context, side) {
     .map((t) => ({ ...t, target_class: t.source === 'session_draw' ? 'htf' : 'level' }));
   const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
   const stops = context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [];
-  // The CURRENT leg's running extreme (engine leg_high/leg_low — the active
-  // leg's frontier, reset per external structure break) is where price IS, not
-  // resting liquidity ahead — §7 Step 7 TP1 is the nearest resting intraday
-  // pool. An intraday swing pivot that merely re-prints that running extreme is
-  // not a forward target (June 16 short: the running NYAM.L 30750.75 == leg_low
-  // shadowed the resting LO.L 30783 draw as TP1). Drop it unless the brief
-  // explicitly tracks that price in untakenTargets. Keyed on the leg extreme,
-  // NOT the session high/low name: a session extreme formed earlier and left
-  // behind IS resting liquidity (June 25 long: NYAM.H 30198.5 ≠ leg_high 30127,
-  // a real overhead draw — must not be filtered).
-  const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.26;
-  const legExtreme = side === 'long'
-    ? numberOrNull(context?.pillar2?.legHigh)
-    : numberOrNull(context?.pillar2?.legLow);
-  const explicitLevelPrices = levels.map((t) => Number(t.price ?? t.level)).filter(Number.isFinite);
-  const isRunningLegExtreme = (price) =>
-    legExtreme != null && near(price, legExtreme) && !explicitLevelPrices.some((lp) => near(price, lp));
   // UNSWEPT swings only — a swept swing holds no resting liquidity and is
   // not a target (user ruling 2026-06-12; same rule the untaken-levels
   // injection already enforces for session levels). Leg extremes carry no
-  // swept flag, so they stay out of the target pool entirely.
+  // swept flag, so only real swing rows enter the target pool.
+  const executableTargetPrice = (s) => {
+    const anchorPrice = Number(s?.price ?? s?.level);
+    if (!Number.isFinite(anchorPrice)) return anchorPrice;
+    // MSS TP1 executes one tick THROUGH internal liquidity, not exactly at the
+    // resting pool. 06-16 MNQ short: unswept internal low 30750.75 → TP1
+    // 30750.50. Mirrored for longs above an unswept swing high. Non-MSS
+    // verified rows keep their already-approved exact swing prices.
+    if (!throughIntradayLiquidity) return anchorPrice;
+    return side === 'long' ? anchorPrice + TICK_SIZE : anchorPrice - TICK_SIZE;
+  };
   const pivots = stops
     .filter((s) => kinds.has(String(s?.kind ?? '')) && s?.swept !== true)
-    .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday', price: Number(s?.price ?? s?.level) }))
-    .filter((s) => Number.isFinite(s.price) && !isRunningLegExtreme(s.price));
+    .map((s) => ({
+      ...s,
+      name: s.name ?? s.kind,
+      target_class: 'intraday',
+      anchorPrice: Number(s?.price ?? s?.level),
+      price: executableTargetPrice(s),
+    }))
+    .filter((s) => Number.isFinite(s.price));
   return [...levels, ...pivots];
 }
 
@@ -291,15 +291,28 @@ function mssStructuralStop(walker, side, entry, context) {
   }
 
   // EM MSS §6: with no explicit MSS pivot, a liquidity-taking reversal FVG's
-  // structural invalidation IS its far edge — a close beyond it unwinds the
-  // reversal. Prefer the buffered far edge over a farther session-level/swing
-  // in the pool (June 16: the beyond-zone pool offered PDH 30918.5 ~24pt away;
-  // the real stop is a few ticks above the FVG high 30894.25 → 30896). Gated on
-  // took_liq so plain continuation FVGs keep the structural-swing anchor below.
+  // structural invalidation is the candle that CREATED the FVG — a reclaim
+  // through that wick unwinds the reversal. User correction 2026-07-01 for
+  // 06-16 MNQ: first FVG candle high 30904.50 + two ticks = 30905.00. Prefer
+  // that over the older buffered far-edge proxy; fall back to the far edge only
+  // when the engine row lacks c1h/c1l.
   const tookLiq = pd.took_liq === true || pd.took_liq === 1;
+  const firstCandleExtreme = side === 'long' ? numberOrNull(pd.c1l) : numberOrNull(pd.c1h);
+  if (tookLiq && firstCandleExtreme != null) {
+    const buffered = side === 'long'
+      ? firstCandleExtreme - MSS_FVG_FIRST_CANDLE_STOP_BUFFER
+      : firstCandleExtreme + MSS_FVG_FIRST_CANDLE_STOP_BUFFER;
+    if (correctSide(buffered)) {
+      return {
+        kind: 'mss_fvg_first_candle',
+        price: buffered,
+        evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray'),
+      };
+    }
+  }
   const farEdge = side === 'long' ? zoneBottom : zoneTop;
   if (tookLiq && farEdge != null) {
-    const buffered = side === 'long' ? farEdge - MSS_FVG_STOP_BUFFER : farEdge + MSS_FVG_STOP_BUFFER;
+    const buffered = side === 'long' ? farEdge - MSS_FVG_FAR_EDGE_FALLBACK_BUFFER : farEdge + MSS_FVG_FAR_EDGE_FALLBACK_BUFFER;
     if (correctSide(buffered)) {
       return { kind: 'mss_fvg_far_edge', price: buffered, evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray') };
     }
@@ -394,13 +407,13 @@ function inversionStructuralStop(walker, side, entry, context) {
   return null;
 }
 
-function validTargets(context, side, entry, stop) {
+function validTargets(context, side, entry, stop, options = {}) {
   const score = (rows) => rows
     .map((target) => ({ ...target, price: numberOrNull(target?.price ?? target?.level) }))
     .filter((target) => target.price != null && targetIsCorrectSide(target, entry, side))
     .map((target) => ({ ...target, rMultiple: computeRMultiple({ entry, stop, target: target.price }) }))
     .filter((target) => target.rMultiple != null);
-  let valid = score(targetPool(context, side));
+  let valid = score(targetPool(context, side, options));
   // Empty overhead = price discovery → fall back to the psych grid.
   if (valid.length === 0) valid = score(psychFallback(context, side, entry));
   return valid.sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
@@ -422,8 +435,8 @@ function isWeeklyDraw(target) {
 // Otherwise the nearest session level clearing the 1.5R floor takes it.
 // When nothing qualifies, return the nearest candidate so the packet
 // still reports tp1_below_1_5r (rather than missing_side_consistent_tp1).
-function selectTp1(context, side, entry, stop) {
-  const all = validTargets(context, side, entry, stop);
+function selectTp1(context, side, entry, stop, options = {}) {
+  const all = validTargets(context, side, entry, stop, options);
   // §7 Step 7: TP1 = nearest INTRADAY liquidity; the weekly draw is the
   // runner. Falls back to the full pool only if there is no other target.
   const intraday = all.filter((t) => !isWeeklyDraw(t));
@@ -456,10 +469,10 @@ function selectTp1(context, side, entry, stop) {
 // at or toward the HTF draw"). Tie-break = nearest clearing the runner R (user
 // ruling 2026-06-15). `tp1` may be the TP1 row (preferred — carries zone) or a
 // bare price.
-function selectTp2(context, side, entry, stop, tp1) {
+function selectTp2(context, side, entry, stop, tp1, options = {}) {
   const tp1Price = tp1?.price ?? tp1;
   if (tp1Price == null) return null;
-  const beyond = validTargets(context, side, entry, stop)
+  const beyond = validTargets(context, side, entry, stop, options)
     .filter((t) => Math.abs(t.price - entry) > Math.abs(tp1Price - entry));
   // Same-gap full fill: if TP1 is an opposing-FVG edge, TP2 = that gap's far
   // edge (partial fill → full fill off one gap).
@@ -490,8 +503,8 @@ function selectTp2(context, side, entry, stop, tp1) {
 // final draw sits (TV_GREENLIGHT_INTRADAY). Nearest clearing 1.5R, else the
 // nearest intraday/level, else null (no intraday objective → caller falls back
 // to TP1).
-function nearestIntradayTarget(context, side, entry, stop) {
-  const all = validTargets(context, side, entry, stop)
+function nearestIntradayTarget(context, side, entry, stop, options = {}) {
+  const all = validTargets(context, side, entry, stop, options)
     .filter((t) => !isWeeklyDraw(t) && (t.target_class === 'intraday' || t.target_class === 'level'));
   return all.find((t) => t.rMultiple >= 1.5) ?? all[0] ?? null;
 }
@@ -637,19 +650,20 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   )) ?? stopAudit.selected;
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
-  const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
+  const targetOptions = { throughIntradayLiquidity: normalizeModelName(walker?.model) === 'mss' };
+  const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price, targetOptions);
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
   // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
   // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
   const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
-    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
+    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate, targetOptions);
   // First intraday objective — the scale-in green-light reference (opt-in via
   // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
   // the HTF draw sits. Null when there's no intraday objective.
   const greenlightTarget = entryPrice == null || !stopCandidate
     ? null
-    : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price);
+    : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price, targetOptions);
 
   // (D6: the bot-specific late-session overlays with no transcript basis are
   // removed — the 15:32 ET entry cutoff, the 11:00 ET exhaustion-runner A+→B cap,

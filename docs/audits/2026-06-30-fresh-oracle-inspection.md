@@ -69,6 +69,8 @@ This table is a **mechanical inspection**, not approval.
 | `2026-06-24` | inconclusive; SMT → MNQ | no setup, divergent | context none (`data_gap`) | not ready; context blocker |
 | `2026-06-25` | inconclusive; SMT none | no setup, degraded HTF fallback | **A+ Trend short** `7449.75 / 7464.75 / 7404`, unresolved | review-only candidate; prior parity no-trade is contradicted |
 
+Post-alignment update (2026-07-01): `2026-06-16` MNQ has since been user-corrected and promoted. The deterministic chain now emits `B MSS short 30864.25 / 30905.00 / 30750.50`, and the tracked tape expectation is `verified:true` with that corrected row.
+
 ## Key blockers found
 
 ### 1. Capture-only raw fold correctly emits zero packets

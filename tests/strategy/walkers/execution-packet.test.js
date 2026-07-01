@@ -300,8 +300,8 @@ test('divergent day: a Trend packet in the LTF direction is playable at B, not b
 
 // §6 / MSS model: "Target: Next internal high, then session high / HTF
 // draw." TP1 must come from intraday liquidity — internal swing pivots and
-// leg extremes join the target pool; the nearest target satisfying the
-// 1.5R discipline wins (nearer swings that fail R are skipped, not
+// leg extremes join the target pool; swing TP1 executes one tick through
+// that liquidity, and the nearest target satisfying the 1.5R discipline wins (nearer swings that fail R are skipped, not
 // blocking). TP2 is the next target beyond TP1. (Audit 2026-06-12: the
 // pool held only untaken session levels — the first live setup got the
 // weekly high as TP1 at 9.2R, and TP2 duplicated TP1.)
@@ -320,7 +320,7 @@ test('tp1 prefers the nearest unswept swing clearing 2R; tp2 is the next target 
     walker: confirmedMssWalker(),
   });
   assert.equal(packet.status, 'executable');
-  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp1.price, 21046.75);
   assert.equal(packet.tp2 ?? null, null); // nothing beyond the swing
 });
 
@@ -350,7 +350,7 @@ test('swept swings are not targets; the nearest UNSWEPT swing wins', () => {
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21050);
+  assert.equal(packet.tp1.price, 21050.25);
 });
 
 // User ruling 2026-06-12: a swing low/high qualifies as TP1 only at ≥2R.
@@ -386,7 +386,7 @@ test('tp1: a swing clearing 2R still wins over the farther level', () => {
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp1.price, 21046.75);
 });
 
 // User finding 2026-06-13 (June 12 AM + June 11 PM 13:30): a WIDE stop
@@ -445,7 +445,7 @@ test('tp2 still reaches the weekly draw (PWH) once a nearer intraday TP1 qualifi
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp1.price, 21046.75);
   assert.equal(packet.tp2?.price, 21300); // weekly draw rides as the runner
 });
 
@@ -533,6 +533,64 @@ test('mss stop: zone edge fallback when no swing exists beyond the zone', () => 
   });
   assert.equal(packet.stop.kind, 'mss_zone_edge');
   assert.equal(packet.stop.price, 21000);
+});
+
+test('mss stop: liquidity-taking reversal FVG anchors on the first FVG candle extreme plus buffer', () => {
+  // User correction 2026-07-01 for 2026-06-16 MNQ: the old stop used the FVG
+  // far edge (top 30894.25 + 7 ticks = 30896). Correct MSS invalidation sits
+  // on the FIRST FVG candle's wick, buffered by two ticks: c1h 30904.50 → 30905.
+  const walker = {
+    ...confirmedMssWalker({
+      top: 30894.25,
+      bottom: 30883.75,
+      direction: 'bearish',
+      took_liq: true,
+      c1h: 30904.5,
+      c1l: 30894.25,
+    }),
+    model: 'MSS',
+    side: 'short',
+  };
+  walker.evidence.confirmation.rawPayload = { close: 30864.25, last_bar: { high: 30884, low: 30854.75 } };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      pillar1: { status: 'pass', untakenTargets: { above: [], below: [{ price: 30750.5, label: 'NYAM.L sweep', evidenceRef: 'p1.targets.nyamL' }] } },
+      pillar3: { structuralStops: [{ kind: 'swing_high', side: 'short', price: 30918.5, evidenceRef: 'p3.stops.pdh' }] },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'mss_fvg_first_candle');
+  assert.equal(packet.stop.price, 30905);
+});
+
+test('tp1: an unswept intraday swing is executed one tick through liquidity and can beat a nearer stale label target', () => {
+  // User correction 2026-07-01 for 2026-06-16 MNQ: the stale label TP1 30783
+  // must yield to the unswept sell-side internal low 30750.75; execution targets
+  // one tick through that liquidity pool → 30750.50.
+  const walker = {
+    ...confirmedMssWalker({ top: 30894.25, bottom: 30883.75, direction: 'bearish', took_liq: true, c1h: 30904.5 }),
+    model: 'MSS',
+    side: 'short',
+  };
+  walker.evidence.pdArray = { evidenceRef: 'zone:30883.75-30894.25', rawPayload: { top: 30894.25, bottom: 30883.75, direction: 'bearish', took_liq: true, c1h: 30904.5 } };
+  walker.evidence.confirmation = { evidenceRef: 'zone:30883.75-30894.25', rawPayload: { close: 30864.25, last_bar: { high: 30884, low: 30854.75 } } };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bearish' }),
+      pillar1: { status: 'pass', untakenTargets: { above: [], below: [{ price: 30783, label: 'stale_label_tp1', evidenceRef: 'label.expected.tp1' }] } },
+      pillar3: {
+        structuralStops: [
+          { kind: 'swing_high', side: 'short', price: 30918.5, evidenceRef: 'p3.stops.pdh' },
+          { kind: 'swing_low', price: 30750.75, swept: false, evidenceRef: 'p3.swings.nyamL' },
+        ],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.price, 30905);
+  assert.equal(packet.tp1.price, 30750.5);
+  assert.equal(packet.evidenceAudit.tp1.rawPayload.anchorPrice, 30750.75);
 });
 
 test('trend stop: the tap candle extreme, then the zone far edge (entry-models.md Trend §6)', () => {

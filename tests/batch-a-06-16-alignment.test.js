@@ -3,7 +3,7 @@
 // Folds the recorded 06-16 MNQ tape through the REAL deterministic chain and
 // asserts it emits the user-approved oracle packet (docs/audits/recent-oracle-
 // packets/2026-06-16-ny-am.md; docs/strategy/lanto-oracle.md §2026-06-16):
-//   MSS / Reversal-FVG short B · entry 30864.25 · stop 30896 · TP1 30783 ·
+//   MSS / Reversal-FVG short B · entry 30864.25 · stop 30905.00 · TP1 30750.50 ·
 //   first packet 2026-06-16T13:57:00Z · one primary trade for the session.
 //
 // Runs against the tape directly (not via runTapesFromDir) so it asserts the
@@ -24,7 +24,7 @@ test("2026-06-16 NY-AM folds to the approved MSS reversal-FVG short packet", asy
   const tape = JSON.parse(readFileSync(TAPE, "utf8"));
   const outcome = await foldTape(tape, { truthFn: barClose.buildDeterministicPacketTruthFromInputs });
 
-  // The tape's `expected` block IS the approved oracle — assess against it.
+  // The tape's `expected` block IS the promoted/user-corrected oracle row.
   const verdict = assessTape(tape, outcome);
   assert.ok(
     verdict.ok,
@@ -37,8 +37,8 @@ test("2026-06-16 NY-AM folds to the approved MSS reversal-FVG short packet", asy
   assert.equal(outcome.firstPacket?.model, "MSS", "model");
   assert.equal(outcome.firstPacket?.side, "short", "side");
   assert.equal(outcome.firstPacket?.entry, 30864.25, "entry");
-  assert.equal(outcome.firstPacket?.stop, 30896, "stop");
-  assert.equal(outcome.firstPacket?.tp1, 30783, "tp1");
+  assert.equal(outcome.firstPacket?.stop, 30905, "stop");
+  assert.equal(outcome.firstPacket?.tp1, 30750.5, "tp1");
   assert.equal(outcome.firstPacket?.grade, "B", "grade");
   assert.equal(outcome.firstPacketEventTs, "2026-06-16T13:57:00.000Z", "first_packet_event_ts");
   assert.equal(outcome.distinctPacketIds.length, 1, "one primary trade per session");
