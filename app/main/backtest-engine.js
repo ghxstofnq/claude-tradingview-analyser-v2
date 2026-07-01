@@ -406,6 +406,10 @@ export async function runBacktest({
               is_retrace_day: read.is_retrace_day,
               entry_model_priority: read.entry_model_priority,
               grade_cap: read.grade_cap,
+              draw_bias_pillar: read.draw_bias_pillar,
+              b_elevatable: read.b_elevatable,
+              a_plus_eligible: read.a_plus_eligible,
+              requires_clean_entry: read.requires_clean_entry,
             },
           };
           chainStatus = cs;

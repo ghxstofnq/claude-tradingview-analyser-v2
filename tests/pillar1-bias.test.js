@@ -147,6 +147,20 @@ test('pickPrimaryDraw: a fresh array that took NO liquidity is not significant �
   assert.equal(pickPrimaryDraw(blocks, { price: 30490 }), null);
 });
 
+test('htfVote: D1 02-09 — stacked TL-light H4/H1 near-price bull arrays cast a marginal HTF vote', () => {
+  // D1's HTF read is explicitly marginal/TL-light: a single no-liq gap is still
+  // noise, but two near-price HTF arrays agreeing in the same direction are a
+  // usable HTF vote for the 2/3 + multi-alignment A+ case.
+  const blocks = htf({
+    h4: [{ dir: 'bull', state: 'ce_tapped', took_liq: false, size_quality: 'tiny', disp_score: 0.6, ce: 25528.25, cite: 'h4-bull-tl-light' }],
+    daily: [],
+    h1: [{ dir: 'bull', state: 'fresh', took_liq: false, size_quality: 'tiny', disp_score: 0.58, ce: 25581.5, cite: 'h1-bull-tl-light' }],
+  });
+  const v = htfVote(blocks, { price: 25572.75 });
+  assert.equal(v.vote, 'bullish');
+  assert.equal(v.draw.cite, 'h4-bull-tl-light');
+});
+
 test('pickPrimaryDraw: a far array (> NEAR_PRICE_PCT) is excluded even if otherwise significant', () => {
   const far = 30000 * (1 + NEAR_PRICE_PCT * 2); // double the cutoff away
   const blocks = htf({
@@ -362,6 +376,7 @@ test('combineBias: 06-16 — bull lean, open SWING bear REVERSES → flip bearis
   const g = combineBias({ htf: 'bullish', overnight: 'none', nyopen: swing('bearish'), pillar2: 'good' });
   assert.equal(g.bias, 'bearish');
   assert.equal(g.grade_cap, 'B');
+  assert.equal(g.b_elevatable, false);
 });
 
 test('combineBias: 06-17 — bull lean, open INTERNAL bear (no mass displacement) → HANDS-OFF no-trade (§4)', () => {

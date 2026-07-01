@@ -33,6 +33,11 @@ tests/tapes/2026-06-15-ny-am-replay.tape.json
 tests/tapes/2026-04-06-ny-am-replay.tape.json
 tests/tapes/2026-06-22-ny-am-replay.tape.json
 
+# Fresh oracle re-recording artifacts: large, local evidence tapes + logs.
+# Commit only the manifest/scripts; promote selected hand-graded tapes separately.
+tests/tapes/fresh-oracle/
+state/oracle-fresh-recording/
+
 # Generated tool / skill output + machine-local config (never committed)
 graphify-out/
 .understand-anything/

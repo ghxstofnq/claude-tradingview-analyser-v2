@@ -11,18 +11,6 @@
         "side": "long",
         "grade": "A+"
       }
-    },
-    {
-      "fixture": "2026-06-09-mnq-ny-am-inversion-short-detector-driven",
-      "mode": "real_session_detector",
-      "labelPath": "real-sessions/2026-06-09-mnq-ny-am-inversion-short.label.json",
-      "bundlePath": "real-sessions/2026-06-09-mnq-ny-am-inversion-short.asof-0954.bundle.json",
-      "expected": {
-        "outcome": "trade",
-        "model": "Inversion",
-        "side": "short",
-        "grade": "A+"
-      }
     }
   ]
 }

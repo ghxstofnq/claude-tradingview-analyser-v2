@@ -12,9 +12,14 @@
 
 import * as chart from '@tvmcp/core/chart';
 import { getClient, evaluate } from '@tvmcp/core/connection';
+import { tfMatchesMeta } from './tf-capture.js';
 
 const SETTLE_MS = 600;
 const bare = (s) => String(s ?? '').replace(/^[A-Z_]+:/, '');
+
+export function chartResolutionMatches(requested, actual) {
+  return actual === requested || tfMatchesMeta(requested, actual);
+}
 
 // Reload the TradingView page via RAW CDP Page.reload (not evaluate) — when the
 // chart is wedged on "symbol doesn't exist", evaluate() hangs, but the raw CDP
@@ -49,7 +54,7 @@ export async function pinChart({ leader, timeframe = '1', deadlineMs = 30_000 } 
     try { state = await chart.getState(); } catch { /* still loading */ }
     if (state) {
       const symbolOk = bare(state.symbol) === bare(leader);
-      const tfOk = state.resolution === timeframe;
+      const tfOk = chartResolutionMatches(timeframe, state.resolution);
       if (symbolOk && tfOk) return;
       if (!requested) {
         if (!symbolOk) await chart.setSymbol({ symbol: leader });

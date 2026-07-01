@@ -60,8 +60,30 @@ function finalizeConfirmedWalkers({ context, walkers }) {
   const advanceRequests = [];
   const killRequests = [];
 
+  // Session primary-trade latch (§7 — one 9:30-anchored entry per NY session;
+  // Lanto commits to a setup and MANAGES it after, he does not keep taking
+  // fresh entries). Once a primary executable packet has fired (a walker
+  // reached packet_ready, which is terminal and persists in state), suppress
+  // every later packet for the rest of the session — newly-confirmed walkers
+  // are continuations of the same move already held by the primary trade
+  // (June 16: a 10:14 Inversion + 10:54 Trend re-entry of the same down-leg
+  // already in the 09:57 MSS short). The open trade is managed elsewhere; this
+  // only stops re-surfacing. The first packet bar has no packet_ready yet, so
+  // it (and any co-confirming walker that bar) fires normally — the caller
+  // surfaces the single best packet.
+  const sessionPrimaryTaken = walkers.some((walker) => walker?.stage === 'packet_ready');
+
   for (const walker of walkers) {
     if (walker?.stage !== 'confirmed') continue;
+    if (sessionPrimaryTaken) {
+      killRequests.push({
+        id: walker.id,
+        eventTimeUtc: context?.eventTimeUtc,
+        reason: 'session_primary_already_taken',
+        evidenceRef: walker.confirmationRef,
+      });
+      continue;
+    }
     const packet = buildExecutionPacketForWalker({ context, walker });
     packets.push({ walkerId: walker.id, ...packet });
     if (packet.status === 'executable') {

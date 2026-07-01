@@ -107,6 +107,19 @@ function sigScore(zone) {
   return (Number.isFinite(ds) ? ds : 0) + sizeBoost;
 }
 
+function tlLightArrayVote(zone) {
+  const direct = arrayVote(zone);
+  if (direct.vote !== 'none') return direct;
+  const dir = asDir(zone?.dir);
+  const state = String(zone?.state || 'fresh');
+  // D1 02-09 calibration: a filled HTF demand gap that price has rebalanced
+  // and reclaimed can still contribute to the marginal HTF read when another
+  // HTF array agrees. This remains stack-only; a single no-liq filled/fresh gap
+  // stays noise.
+  if (dir && state === 'filled') return { vote: biasWord(dir), reason: 'filled-rebalanced-tl-light' };
+  return direct;
+}
+
 // Build the primary-draw object from a winning candidate { z, ce, vote, voteReason }.
 function buildDraw(tf, { z, ce, vote, voteReason }, price) {
   return {
@@ -118,7 +131,7 @@ function buildDraw(tf, { z, ce, vote, voteReason }, price) {
     ce,
     disp_score: Number.isFinite(z.disp_score) ? z.disp_score : 0,
     size_quality: z.size_quality ?? null,
-    took_liq: true,
+    took_liq: z.took_liq === true,
     state: z.state || 'fresh',
     distance_to_ce: Number.isFinite(price) ? price - ce : null,
     // zone above/below current price — for the legacy biasFromDraw fallback
@@ -149,6 +162,35 @@ function qualifyingZones(block, price) {
     .sort((a, b) => sigScore(b.z) - sigScore(a.z) || Math.abs(a.ce - price) - Math.abs(b.ce - price));
 }
 
+// D1 02-09: Lanto's documented HTF vote is marginal/TL-light — a tiny H4/H1
+// array stack at price, not a single took-liq HTF gap. Keep the normal gate
+// strict for one-off no-liq gaps, but when no normal winner exists allow TWO
+// distinct HTF timeframes, near price, clean enough, and same direction to form
+// one marginal HTF vote.
+function stackedTlLightZones(htfByTf, price) {
+  const candidates = [];
+  for (const tf of TF_PRIORITY) {
+    const block = htfByTf?.[tf];
+    for (const z of [...(block?.top_fvgs ?? []), ...(block?.top_bprs ?? [])]) {
+      if (z?.took_liq === true) continue;
+      const ce = Number.isFinite(z?.ce) ? z.ce : (Number(z?.top) + Number(z?.bottom)) / 2;
+      const v = tlLightArrayVote(z);
+      if (v.vote === 'none' || !nearPrice(ce, price) || !isSignificant(z)) continue;
+      candidates.push({ tf, z, ce, vote: v.vote, voteReason: v.reason });
+    }
+  }
+  for (const vote of ['bullish', 'bearish']) {
+    const same = candidates.filter((c) => c.vote === vote);
+    const distinctTfs = new Set(same.map((c) => c.tf));
+    if (distinctTfs.size < 2) continue;
+    same.sort((a, b) => TF_PRIORITY.indexOf(a.tf) - TF_PRIORITY.indexOf(b.tf)
+      || sigScore(b.z) - sigScore(a.z)
+      || Math.abs(a.ce - price) - Math.abs(b.ce - price));
+    return same[0];
+  }
+  return null;
+}
+
 /**
  * Pick the ONE significant near-price PD array that sets HTF bias (daily-bias
  * §2: "pick one primary draw … read the reaction off it"). Walks TFs 4H→Daily→1H;
@@ -174,6 +216,11 @@ export function pickPrimaryDraw(htfByTf, { price = null, intradayByTf = null } =
   for (const tf of TF_PRIORITY) {
     const qualifying = qualifyingZones(htfByTf?.[tf], price);
     if (qualifying.length) { winner = { tf, c: qualifying[0] }; break; }
+  }
+
+  if (!winner) {
+    const tlLight = stackedTlLightZones(htfByTf, price);
+    if (tlLight) winner = { tf: tlLight.tf, c: tlLight };
   }
 
   if (process.env.GOFNQ_HTF_INTRADAY_DRAW !== '0' && winner && winner.c.z?.state === 'inverted') {
@@ -400,6 +447,10 @@ export function combineBias({ htf, overnight, nyopen, pillar2 = null, smt_bias =
   const openObj = nyopen && typeof nyopen === 'object' ? nyopen : {};
   const openSwing = openObj.tier === 'swing' && openObj.displaced === true; // mass displacement (§5)
   const priceGood = pillar2 === 'good' || pillar2 == null;
+  // D1 2026-02-09: a marginal price-quality day can still be A+ when the
+  // ENTRY itself is the multi-alignment "two-and-one". Only true `poor`
+  // price quality removes the elevation path and demands an extra-clean entry.
+  const entryElevatable = pillar2 !== 'poor';
   const requires_clean_entry = pillar2 === 'poor';
 
   // Pre-open lean = HTF + overnight. Both present + agree → that direction; both
@@ -444,12 +495,12 @@ export function combineBias({ htf, overnight, nyopen, pillar2 = null, smt_bias =
     if (count >= 3) {
       return out({ bias: lean, draw_bias_pillar: 'confirmed-3of3', grade_cap: priceGood ? 'A+' : 'B', a_plus_eligible: priceGood, reason: 'three_of_three' });
     }
-    return out({ bias: lean, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: priceGood, reason: 'two_of_three' });
+    return out({ bias: lean, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: entryElevatable, reason: 'two_of_three' });
   }
 
   // REVERSE — the open opposes the lean. Flip only on mass displacement (§5).
   if (openSwing) {
-    return out({ bias: n, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: priceGood, reason: 'flip_swing_reversal' });
+    return out({ bias: n, draw_bias_pillar: 'clear-2of3', grade_cap: 'B', b_elevatable: entryElevatable && h === lean && o === lean, reason: 'flip_swing_reversal' });
   }
   // Not enough to flip → timing not there yet (§4).
   return out({ bias: lean, reason: 'reversal_hands_off', no_trade_reason: 'conflict_hands_off' });

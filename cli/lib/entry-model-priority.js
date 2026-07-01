@@ -4,7 +4,7 @@
  *
  * Inputs: open-reaction phase facts (pillar2_verdict, htf_ltf_alignment,
  * ltf_bias) + engine-derived signals (failure_swings, most_recent_structure,
- * inverted_fvg_present).
+ * inverted_fvg_present, trend_reclaim_present).
  *
  * Output: { priority: 'MSS'|'Trend'|'Inversion'|'undecided', reason: str,
  *           cite: str }. The `cite` field names the path the LLM should
@@ -20,6 +20,7 @@ export function computeEntryModelPriority({
   failure_swings = [],
   most_recent_structure = null,
   inverted_fvg_present = false,
+  trend_reclaim_present = false,
 } = {}) {
   if (pillar2_verdict === 'poor') {
     return { priority: 'undecided', reason: 'pillar2 poor — quality gates trumps entry model', cite: 'pillar2_verdict' };
@@ -28,6 +29,13 @@ export function computeEntryModelPriority({
     return { priority: 'MSS', reason: 'divergent — LTF reversal at HTF level', cite: 'htf_ltf_alignment=divergent' };
   }
   if (htf_ltf_alignment === 'aligned') {
+    // A live/fresh direct-brief fold can resolve the open reaction after a
+    // flipped, bias-side iFVG has already become the active reclaim. When that
+    // current-bar reclaim-continuation evidence is present, it is the Trend
+    // model itself — stale older failure_swings should not redirect it to MSS.
+    if (trend_reclaim_present) {
+      return { priority: 'Trend', reason: 'aligned + current Trend reclaim-continuation iFVG', cite: 'trend_reclaim_present' };
+    }
     if (failure_swings.length > 0) {
       return { priority: 'MSS', reason: 'aligned + recent failure_swing (mss+sweep)', cite: 'failure_swings[0]' };
     }

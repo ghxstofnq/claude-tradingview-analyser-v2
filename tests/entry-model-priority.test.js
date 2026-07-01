@@ -33,6 +33,20 @@ test('aligned + recent failure_swing → MSS', () => {
   assert.match(r.cite, /failure_swings/);
 });
 
+test('aligned + Trend reclaim-continuation evidence beats older failure_swing → Trend', () => {
+  const r = computeEntryModelPriority({
+    pillar2_verdict: 'good',
+    htf_ltf_alignment: 'aligned',
+    ltf_bias: 'bullish',
+    failure_swings: [{ event: 'mss', validation: 'sweep', confirmed_ms: 1779785460000 }],
+    most_recent_structure: { event: 'bos', dir: 'bear', confirmed_ms: 1779785700000 },
+    inverted_fvg_present: true,
+    trend_reclaim_present: true,
+  });
+  assert.equal(r.priority, 'Trend');
+  assert.match(r.cite, /trend_reclaim/i);
+});
+
 test('aligned + recent BoS in bias direction (no failure_swing) → Trend', () => {
   const r = computeEntryModelPriority({
     pillar2_verdict: 'good',

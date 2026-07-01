@@ -3,6 +3,14 @@ import { psychLevelsAbove, psychLevelsBelow } from './psych-levels.js';
 
 const TICK_SIZE = 0.25;
 
+// Structural cushion above/below an MSS reversal FVG invalidation point
+// (entry-models.md MSS §6: "below the FVG low ... structural invalidation";
+// A+ ex.: "a few ticks below the MSS low"). User correction 2026-07-01:
+// 06-16 MNQ invalidates at the FIRST FVG candle's wick, buffered by two ticks
+// (c1h 30904.50 → stop 30905.00), not the tighter far-edge proxy.
+const MSS_FVG_FIRST_CANDLE_STOP_BUFFER = 0.5;
+const MSS_FVG_FAR_EDGE_FALLBACK_BUFFER = 1.75;
+
 function roundTick(value) {
   return Math.round(value / TICK_SIZE) * TICK_SIZE;
 }
@@ -41,13 +49,22 @@ function targetPool(context, side) {
   const levels = (targets[dirKey] ?? [])
     .map((t) => ({ ...t, target_class: t.source === 'session_draw' ? 'htf' : 'level' }));
   const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
+  const stops = context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [];
   // UNSWEPT swings only — a swept swing holds no resting liquidity and is
   // not a target (user ruling 2026-06-12; same rule the untaken-levels
   // injection already enforces for session levels). Leg extremes carry no
-  // swept flag, so they stay out of the target pool entirely.
-  const pivots = (context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [])
+  // swept flag, so only real swing rows enter the target pool.
+  const executableTargetPrice = (s) => Number(s?.price ?? s?.level);
+  const pivots = stops
     .filter((s) => kinds.has(String(s?.kind ?? '')) && s?.swept !== true)
-    .map((s) => ({ ...s, name: s.name ?? s.kind, target_class: 'intraday' }));
+    .map((s) => ({
+      ...s,
+      name: s.name ?? s.kind,
+      target_class: 'intraday',
+      anchorPrice: Number(s?.price ?? s?.level),
+      price: executableTargetPrice(s),
+    }))
+    .filter((s) => Number.isFinite(s.price));
   return [...levels, ...pivots];
 }
 
@@ -67,6 +84,10 @@ function normalizeModelName(model) {
   if (value === 'inversion') return 'inversion';
   if (value === 'undecided' || value === 'unknown' || value === 'none') return value;
   return value;
+}
+
+function kindOf(row) {
+  return String(row?.kind ?? row?.type ?? '').toLowerCase();
 }
 
 // Lanto's MODEL (Reversal vs Continuation) is whether the entry TURNS the
@@ -171,6 +192,26 @@ function trendStructuralStop(walker, side, entry, context) {
   if (normalizeModelName(walker?.model) !== 'trend') return null;
   const correctSide = (price) => (side === 'long' ? price < entry : price > entry);
 
+  // Trend reclaim-continuation stop (entry-models.md §5 "below the swing low
+  // that touches the FVG ... or below the FVG low" = the dip-invalidation): the
+  // reclaim entered off the dip back into the flipped gap, so the stop sits just
+  // past the round level beyond that dip — a close back through it unwinds the
+  // reclaim. User-approved 2026-06-18 oracle: dip base 30402.5 → stop 30400
+  // (the MNQ 50-grid level just below; per-instrument via psych-levels.js, so
+  // MES uses its 5-grid). Only this subtype takes this path.
+  const reclaim = walker?.evidence?.confirmation?.rawPayload;
+  if (walker?.evidence?.reclaimContinuation && reclaim?.source === 'trend_reclaim_confirm') {
+    const sym = context?.market;
+    const dip = side === 'long' ? numberOrNull(reclaim.dip_low) : numberOrNull(reclaim.dip_high);
+    if (dip != null) {
+      const lvl = side === 'long' ? psychLevelsBelow(sym, dip, 1)[0] : psychLevelsAbove(sym, dip, 1)[0];
+      const px = numberOrNull(lvl?.price);
+      if (px != null && correctSide(px)) {
+        return { kind: 'trend_reclaim_dip', price: px, evidenceRef: 'gates.engine.confirmation.last_bar[dip]' };
+      }
+    }
+  }
+
   // Trend FVG-candle stop (2026-06-21, SHIPPED default-on; opt out
   // GOFNQ_P3_TREND_STOP=0): anchor the stop on the candle that CREATED the FVG
   // (its wick — low for long, high for short), found by the FVG's created_ms in
@@ -242,6 +283,34 @@ function mssStructuralStop(walker, side, entry, context) {
   const explicit = pool.find((s) => String(s.kind ?? '') === (side === 'long' ? 'mss_swing_low' : 'mss_swing_high'));
   if (explicit) {
     return { kind: 'mss_structural_swing', price: explicit.price, evidenceRef: refOf(explicit) };
+  }
+
+  // EM MSS §6: with no explicit MSS pivot, a liquidity-taking reversal FVG's
+  // structural invalidation is the candle that CREATED the FVG — a reclaim
+  // through that wick unwinds the reversal. User correction 2026-07-01 for
+  // 06-16 MNQ: first FVG candle high 30904.50 + two ticks = 30905.00. Prefer
+  // that over the older buffered far-edge proxy; fall back to the far edge only
+  // when the engine row lacks c1h/c1l.
+  const tookLiq = pd.took_liq === true || pd.took_liq === 1;
+  const firstCandleExtreme = side === 'long' ? numberOrNull(pd.c1l) : numberOrNull(pd.c1h);
+  if (tookLiq && firstCandleExtreme != null) {
+    const buffered = side === 'long'
+      ? firstCandleExtreme - MSS_FVG_FIRST_CANDLE_STOP_BUFFER
+      : firstCandleExtreme + MSS_FVG_FIRST_CANDLE_STOP_BUFFER;
+    if (correctSide(buffered)) {
+      return {
+        kind: 'mss_fvg_first_candle',
+        price: buffered,
+        evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray'),
+      };
+    }
+  }
+  const farEdge = side === 'long' ? zoneBottom : zoneTop;
+  if (tookLiq && farEdge != null) {
+    const buffered = side === 'long' ? farEdge - MSS_FVG_FAR_EDGE_FALLBACK_BUFFER : farEdge + MSS_FVG_FAR_EDGE_FALLBACK_BUFFER;
+    if (correctSide(buffered)) {
+      return { kind: 'mss_fvg_far_edge', price: buffered, evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray') };
+    }
   }
 
   const beyondZone = pool
@@ -453,6 +522,16 @@ function nearestIntradayTarget(context, side, entry, stop) {
 // (b_elevatable) day to A+; never creates a trade on its own. Absent 5m data →
 // false (no elevation, the day stays B).
 function hasMultiAlignment(context, walker) {
+  // The Trend/iFVG-entry subtype verifies the two-and-one evidence before it
+  // marks the walker. Once marked, grade elevation may trust the marker instead
+  // of re-deriving from generic overlap rules (02-09: the 5m rebalance is a
+  // tapped BPR at the reclaim low while the entry anchor is the 1m/m5 iFVG
+  // above it; forcing literal overlap would miss the transcript case).
+  const explicitTrendEntry = normalizeModelName(walker?.model) === 'trend'
+    && Boolean(walker?.evidence?.multiAlignmentTrendEntry)
+    && kindOf(walker?.evidence?.pdArray?.rawPayload ?? {}) === 'ifvg';
+  if (explicitTrendEntry) return true;
+
   // The real "two-and-one" (ENTRY 27:05) is a 5m FVG REBALANCE that took
   // liquidity, paired with a 1m iFVG go-invert IN ONE spot. So it requires
   // (a) the entry be an INVERSION (a plain FVG-retrace is a single mechanism,
@@ -560,25 +639,54 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
 
   const confirmation = walker?.evidence?.confirmation ?? {};
   const confirmationPayload = confirmation.rawPayload ?? {};
-  const entryPrice = numberOrNull(confirmationPayload.close ?? confirmationPayload.price ?? confirmationPayload.confirm_close_price);
+  // The Trend reclaim-continuation entry is the gap CE, not the bar close
+  // (entry-models.md §3/§4: enter the FVG at/above the midpoint). The reclaim
+  // confirm path sets entry_price = pd.ce; every other path leaves it unset and
+  // falls through to the confirmation close (unchanged behavior).
+  const entryPrice = numberOrNull(confirmationPayload.entry_price ?? confirmationPayload.close ?? confirmationPayload.price ?? confirmationPayload.confirm_close_price);
   if (entryPrice == null) blockers.push('missing_confirmation_close_price');
 
   const side = walker?.side;
+  const explicitStopPrice = numberOrNull(confirmationPayload.stop_price);
+  const explicitStopCorrectSide = explicitStopPrice != null && entryPrice != null
+    && (side === 'long' ? explicitStopPrice < entryPrice : side === 'short' ? explicitStopPrice > entryPrice : false);
+  const explicitStopCandidate = explicitStopCorrectSide ? {
+    kind: `${confirmationPayload.source ?? 'explicit'}_stop`,
+    price: explicitStopPrice,
+    evidenceRef: confirmationPayload.stop_evidence_ref ?? refOf(confirmation, walker?.confirmationRef ?? null),
+    rawPayload: confirmationPayload,
+  } : null;
+
   const stopAudit = entryPrice == null ? { selected: null, rejected: [] } : stopCandidatesWithAudit(context, side, entryPrice);
-  const stopCandidate = (entryPrice == null ? null : (
+  const stopCandidate = explicitStopCandidate ?? ((entryPrice == null ? null : (
     inversionStructuralStop(walker, side, entryPrice, context)
     ?? trendStructuralStop(walker, side, entryPrice, context)
     ?? mssStructuralStop(walker, side, entryPrice, context)
-  )) ?? stopAudit.selected;
+  )) ?? stopAudit.selected);
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
-  const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
+  const explicitTarget = (priceField, labelField, evidenceField) => {
+    const price = numberOrNull(confirmationPayload?.[priceField]);
+    if (price == null || entryPrice == null || !stopCandidate || !targetIsCorrectSide({ price }, entryPrice, side)) return null;
+    return {
+      price,
+      label: confirmationPayload?.[labelField] ?? null,
+      name: confirmationPayload?.[labelField] ?? null,
+      target_class: 'explicit',
+      evidenceRef: confirmationPayload?.[evidenceField] ?? refOf(confirmation, walker?.confirmationRef ?? null),
+      rMultiple: computeRMultiple({ entry: entryPrice, stop: stopCandidate.price, target: price }),
+      rawPayload: confirmationPayload,
+    };
+  };
+  const explicitTp1Candidate = explicitTarget('tp1_price', 'tp1_label', 'tp1_evidence_ref');
+  const explicitTp2Candidate = explicitTarget('tp2_price', 'tp2_label', 'tp2_evidence_ref');
+  const tp1Candidate = explicitTp1Candidate ?? (entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price));
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
   // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
   // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
-  const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
+  const tp2Candidate = explicitTp2Candidate ?? (tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
-    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
+    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate));
   // First intraday objective — the scale-in green-light reference (opt-in via
   // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
   // the HTF draw sits. Null when there's no intraday objective.

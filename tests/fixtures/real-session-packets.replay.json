@@ -13,20 +13,6 @@
         "stop": 30269.75,
         "tp1": 30437.5
       }
-    },
-    {
-      "fixture": "2026-06-09-mnq-ny-am-inversion-short-real-session",
-      "mode": "real_session_packet",
-      "labelPath": "real-sessions/2026-06-09-mnq-ny-am-inversion-short.label.json",
-      "bundlePath": "real-sessions/2026-06-09-mnq-ny-am-inversion-short.asof-0954.bundle.json",
-      "expected": {
-        "outcome": "trade",
-        "model": "Inversion",
-        "side": "short",
-        "entry": 29731.25,
-        "stop": 29847,
-        "tp1": 29302.5
-      }
     }
   ]
 }

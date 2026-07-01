@@ -145,19 +145,29 @@ export function buildStrategyContext(bundle = {}) {
   pillar3.ohlcv1m = bundle.ohlcv1m ?? bundle.bars?.m1 ?? [];
   pillar3.ohlcv5m = bundle.ohlcv5m ?? bundle.bars?.m5 ?? [];
   pillar3.full1m = bundle.full1m ?? [];
-  // 5m FVG zones — the partner imbalance for the multi-alignment "two-and-one"
-  // elevator (entry-models.md: a 5m FVG rebalance lined up with a 1m iFVG in one
-  // spot). Read from the per-bar m5 overlay; absent → [] (no elevation, safe).
-  pillar3.fvgs5m = bundle.engine_by_tf?.m5?.fvgs ?? [];
+  // 5m imbalance zones — the partner imbalance for the multi-alignment
+  // "two-and-one" elevator (entry-models.md: a 5m FVG/BPR rebalance lined up
+  // with a 1m iFVG in one spot). Read from the per-bar m5 overlay; absent → []
+  // (no elevation, safe). Keep the historical property name (`fvgs5m`) for the
+  // grade helper, but include BPRs too: D1 2026-02-09's rebalance is emitted as
+  // a tapped 5m BPR at the reclaim low.
+  pillar3.fvgs5m = [
+    ...(bundle.engine_by_tf?.m5?.fvgs ?? []).map((z, index) => ({ ...z, kind: z.kind ?? z.type ?? 'fvg', evidenceRef: z.evidenceRef ?? z.cite ?? `engine_by_tf.m5.fvgs[${index}]` })),
+    ...(bundle.engine_by_tf?.m5?.bprs ?? []).map((z, index) => ({ ...z, kind: z.kind ?? z.type ?? 'bpr', evidenceRef: z.evidenceRef ?? z.cite ?? `engine_by_tf.m5.bprs[${index}]` })),
+  ];
 
   const pillar2 = buildPillar2(engine, hardBlockers, sessionChain);
-  // The deployed engine omits `coherence` (it's in the Pine source, undeployed),
-  // so compute it from the m15 bars the multi-TF recorder captures — the
-  // two-sided-chop signal the 1m quality fields can't see (Stage-G G3 veto).
-  if (pillar2.coherence == null) {
-    pillar2.coherence = computeCoherenceFromBars(
-      bundle.bars_by_tf?.m15?.last_5_bars ?? bundle.bars_by_tf?.m15?.bars,
-    );
+  // Stage-G G3 uses M15 directional efficiency, not noisy current-chart-TF
+  // coherence. Fresh schema-4 tapes can include `current_tf.coherence` from the
+  // 1m chart; if we prefer it, the approved 2026-06-09 10:27 reversal reads as
+  // chop (1m 0.15) even though the captured M15 delivery is clean (0.81). Prefer
+  // captured M15 bars when available, and fall back to current_tf only when M15
+  // is absent/unreadable.
+  const m15Coherence = computeCoherenceFromBars(
+    bundle.bars_by_tf?.m15?.last_5_bars ?? bundle.bars_by_tf?.m15?.bars,
+  );
+  if (m15Coherence != null) {
+    pillar2.coherence = m15Coherence;
   }
   return {
     market: bundle.market ?? 'unknown',

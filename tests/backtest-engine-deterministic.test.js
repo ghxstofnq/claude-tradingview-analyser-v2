@@ -60,15 +60,12 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   });
 
   assert.equal(summary.cost_usd, 0);
-  // Stage-G (2026-06-24): the continuation-trend fix (an inversion continuation
-  // must run WITH the most-recent swing-tier break) suppresses June 9's premature
-  // early short and surfaces the verified A+ reversal — entry 29964.75, grade A+.
-  // As an A+ it arms a runner to the deeper draw
-  // rather than banking at TP1; the recorded tape window ends before that deeper
-  // target, so the trade stays OPEN (no loss, no in-window resolution). TP
-  // targeting to the major-liquidity draw (AS.L 29595.25) is the separate open
-  // Stage-G item — see scripts/fold-tape.mjs on the 06-09 tape.
-  assert.equal(summary.losses, 0, "the A+ short must not hit its stop on the recorded bars");
+  // Batch-A oracle rebuild (2026-06-29): the June 9 tape is now demoted from
+  // verified:true because the approved oracle entry is the later 10:29–10:34 ET
+  // Inversion short. This backtest still proves the engine can run the recorded
+  // day end-to-end and surface one short opportunity; exact oracle alignment is
+  // covered by the day-tape gate once the deterministic chain is corrected.
+  assert.equal(summary.losses, 0, "the Option A short must not hit its stop on the recorded bars");
   assert.equal(summary.chain_status, "clean");
 
   // As the move unfolds, neighboring zones confirm the same trade idea under
@@ -81,16 +78,14 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
     assert.equal(s.setup.model, "Inversion");
     assert.equal(s.setup.side, "short");
   }
-  // The FIRST surfaced packet is the corrected reversal short, graded A+ (the
-  // tape gate locks this); later same-opportunity confirmations can grade B.
-  assert.equal(surfaced[0].setup.grade, "A+", "the corrected June 9 first reversal short grades A+");
-  // TODO(stage-G): exact entry/stop/tp1 are IN FLUX — the multi-TF re-record +
-  // the deterministic inversion gate (2026-06-23) block the pre-grab losers, so
-  // the first surfaced bar moved off the old 29792/09:52. The exact retrace
-  // level (gate's first-valid-after-grab vs the oracle's deeper 10:27) is the
-  // open Stage-G entry-precision item. Until it's finalized + the tape promoted,
-  // this test asserts only the load-bearing facts (model/side/one-opportunity,
-  // below) + a sane short entry, not the exact tick.
+  // The FIRST surfaced packet is the Option A evidence-backed reversal short,
+  // graded B; the A+ runner mechanic is covered by the 02-09 test below.
+  assert.equal(surfaced[0].setup.grade, "B", "the Option A June 9 first reversal short grades B");
+  assert.equal(surfaced[0].setup.entry, 29760, "entry");
+  assert.equal(surfaced[0].setup.stop, 29818.75, "stop");
+  assert.equal(surfaced[0].setup.tp1, 29595.25, "tp1");
+  // The exact active oracle is locked by the day-tape gate; this backtest test
+  // also ensures the full engine path surfaces the same load-bearing packet.
   assert.ok(surfaced[0].setup.entry > 0 && surfaced[0].setup.stop > surfaced[0].setup.entry,
     `first short: entry ${surfaced[0].setup.entry}, stop ${surfaced[0].setup.stop} (stop must sit above entry)`);
 

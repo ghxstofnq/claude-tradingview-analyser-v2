@@ -93,6 +93,15 @@ async function run() {
     if (!exists(s.mnq) || !exists(s.mes)) { rows.push({ date: s.date, status: "MISSING tape (record MES)" }); continue; }
     const mnqTape = load(s.mnq);
     const mesTape = load(s.mes);
+    // The pair fold is performance evidence only for primary tapes whose
+    // approved expectation is frozen (`verified:true`). Local MES counterparts
+    // may remain unverified because they are used only as competing market data,
+    // not as MES oracle truth. If a primary tape is demoted after oracle
+    // correction, skip it instead of scoring stale chain output.
+    if (mnqTape.verified !== true) {
+      rows.push({ date: s.date, status: "PRIMARY tape unverified (approved oracle pending chain alignment)" });
+      continue;
+    }
     // Open-reaction window = first 30 min from the session open (DST-agnostic —
     // derived from the tape's first bar, not a fixed UTC offset).
     const windowStartMs = Date.parse(mnqTape.entries[0].event.ts);

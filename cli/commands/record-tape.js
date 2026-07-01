@@ -16,6 +16,7 @@ import { freshChartForReplay } from '../lib/replay-recovery.js';
 // is no mid-replay TF switching (the wedge the two-pass design avoids).
 async function captureHtfAnchors({ deps, symbol, date, fromEt }) {
   const out = {};
+  const warnings = [];
   for (const [res, key] of [['240', 'h4'], ['60', 'h1'], ['D', 'daily']]) {
     try {
       await freshChartForReplay({ leader: symbol, timeframe: res });
@@ -27,13 +28,15 @@ async function captureHtfAnchors({ deps, symbol, date, fromEt }) {
         await deps.sleep(400);
       }
       out[key] = eng;
-    } catch {
+      if (!eng) warnings.push(`htf ${key}: engine did not emit ${res} snapshot`);
+    } catch (err) {
       out[key] = null;
+      warnings.push(`htf ${key}: ${err?.message ?? String(err)}`);
     } finally {
       try { await deps.stopReplay(); } catch { /* best-effort */ }
     }
   }
-  return out;
+  return { htf: out, warnings };
 }
 
 register('record-tape', {
@@ -82,7 +85,7 @@ register('record-tape', {
     const rec15 = await recordEntries({ context, date, fromEt, toEt, deps, tf: '15' });
 
     // HTF draw context (h4/h1/daily) — one anchor snapshot at fromEt.
-    const htf = await captureHtfAnchors({ deps, symbol, date, fromEt });
+    const { htf, warnings: htfWarnings } = await captureHtfAnchors({ deps, symbol, date, fromEt });
 
     // Leave the chart reloaded + pinned back at 1m.
     await freshChartForReplay({ leader: symbol, timeframe: '1' });
@@ -96,10 +99,11 @@ register('record-tape', {
         ...rec1.warnings,
         ...rec5.warnings.map((w) => `5m: ${w}`),
         ...rec15.warnings.map((w) => `15m: ${w}`),
+        ...htfWarnings,
       ],
     };
 
-    const tape = tapeFromRecording({ label, entries: recording.entries, fixture: opts.fixture || null });
+    const tape = tapeFromRecording({ label, entries: recording.entries, fixture: opts.fixture || null, warnings: recording.warnings });
     const out = opts.out || path.resolve('tests', 'tapes', `${tape.fixture}.tape.json`);
     mkdirSync(path.dirname(out), { recursive: true });
     writeFileSync(out, `${JSON.stringify(tape, null, 2)}\n`, 'utf8');
