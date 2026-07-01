@@ -310,7 +310,7 @@ lesson below.
   high tapped CE 30889 exactly** (also sweeping AS.H/NYAM.H), and the **09:56 candle closed bearish with
   a ~1pt upper wick** (O 30883 → C 30864) = the confirmation. **Entry 30864.25**, **stop 30905.00**
   (user-corrected 2026-06-30: stop belongs on the first FVG candle, not the tighter 30896 CE/FVG-high proxy;
-  never threatened — max bounce 30867). **TP1 30750.50 (~2.79R; user-corrected 2026-06-30, hit at 10:20 ET);
+  never threatened — max bounce 30867). **TP1 30750.75 (~2.79R; user-corrected 2026-07-01 to the anchor, hit at 10:20 ET);
   TP2/runner NYAM.L 30561.75 (~7.42R) — reached.** (NYAM.L = 30561.75 on the 1m engine, not the ~30601
   in the earlier 5m note.)
 - **Discriminator:** a near-price-bearish-FVG + open-reaction-reversal day is **bias-aligned** (NOT

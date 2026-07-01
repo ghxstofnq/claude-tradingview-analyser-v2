@@ -39,7 +39,7 @@ const INTRADAY_TARGET_KINDS = {
   short: new Set(['swing_low']),
 };
 
-function targetPool(context, side, { throughIntradayLiquidity = false } = {}) {
+function targetPool(context, side) {
   const dirKey = side === 'long' ? 'above' : 'below';
   const targets = context?.pillar1?.untakenTargets ?? {};
   // Persistent session-history draws (multi-day-old session highs/lows that
@@ -54,16 +54,7 @@ function targetPool(context, side, { throughIntradayLiquidity = false } = {}) {
   // not a target (user ruling 2026-06-12; same rule the untaken-levels
   // injection already enforces for session levels). Leg extremes carry no
   // swept flag, so only real swing rows enter the target pool.
-  const executableTargetPrice = (s) => {
-    const anchorPrice = Number(s?.price ?? s?.level);
-    if (!Number.isFinite(anchorPrice)) return anchorPrice;
-    // MSS TP1 executes one tick THROUGH internal liquidity, not exactly at the
-    // resting pool. 06-16 MNQ short: unswept internal low 30750.75 → TP1
-    // 30750.50. Mirrored for longs above an unswept swing high. Non-MSS
-    // verified rows keep their already-approved exact swing prices.
-    if (!throughIntradayLiquidity) return anchorPrice;
-    return side === 'long' ? anchorPrice + TICK_SIZE : anchorPrice - TICK_SIZE;
-  };
+  const executableTargetPrice = (s) => Number(s?.price ?? s?.level);
   const pivots = stops
     .filter((s) => kinds.has(String(s?.kind ?? '')) && s?.swept !== true)
     .map((s) => ({
@@ -407,13 +398,13 @@ function inversionStructuralStop(walker, side, entry, context) {
   return null;
 }
 
-function validTargets(context, side, entry, stop, options = {}) {
+function validTargets(context, side, entry, stop) {
   const score = (rows) => rows
     .map((target) => ({ ...target, price: numberOrNull(target?.price ?? target?.level) }))
     .filter((target) => target.price != null && targetIsCorrectSide(target, entry, side))
     .map((target) => ({ ...target, rMultiple: computeRMultiple({ entry, stop, target: target.price }) }))
     .filter((target) => target.rMultiple != null);
-  let valid = score(targetPool(context, side, options));
+  let valid = score(targetPool(context, side));
   // Empty overhead = price discovery → fall back to the psych grid.
   if (valid.length === 0) valid = score(psychFallback(context, side, entry));
   return valid.sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
@@ -435,8 +426,8 @@ function isWeeklyDraw(target) {
 // Otherwise the nearest session level clearing the 1.5R floor takes it.
 // When nothing qualifies, return the nearest candidate so the packet
 // still reports tp1_below_1_5r (rather than missing_side_consistent_tp1).
-function selectTp1(context, side, entry, stop, options = {}) {
-  const all = validTargets(context, side, entry, stop, options);
+function selectTp1(context, side, entry, stop) {
+  const all = validTargets(context, side, entry, stop);
   // §7 Step 7: TP1 = nearest INTRADAY liquidity; the weekly draw is the
   // runner. Falls back to the full pool only if there is no other target.
   const intraday = all.filter((t) => !isWeeklyDraw(t));
@@ -469,10 +460,10 @@ function selectTp1(context, side, entry, stop, options = {}) {
 // at or toward the HTF draw"). Tie-break = nearest clearing the runner R (user
 // ruling 2026-06-15). `tp1` may be the TP1 row (preferred — carries zone) or a
 // bare price.
-function selectTp2(context, side, entry, stop, tp1, options = {}) {
+function selectTp2(context, side, entry, stop, tp1) {
   const tp1Price = tp1?.price ?? tp1;
   if (tp1Price == null) return null;
-  const beyond = validTargets(context, side, entry, stop, options)
+  const beyond = validTargets(context, side, entry, stop)
     .filter((t) => Math.abs(t.price - entry) > Math.abs(tp1Price - entry));
   // Same-gap full fill: if TP1 is an opposing-FVG edge, TP2 = that gap's far
   // edge (partial fill → full fill off one gap).
@@ -503,8 +494,8 @@ function selectTp2(context, side, entry, stop, tp1, options = {}) {
 // final draw sits (TV_GREENLIGHT_INTRADAY). Nearest clearing 1.5R, else the
 // nearest intraday/level, else null (no intraday objective → caller falls back
 // to TP1).
-function nearestIntradayTarget(context, side, entry, stop, options = {}) {
-  const all = validTargets(context, side, entry, stop, options)
+function nearestIntradayTarget(context, side, entry, stop) {
+  const all = validTargets(context, side, entry, stop)
     .filter((t) => !isWeeklyDraw(t) && (t.target_class === 'intraday' || t.target_class === 'level'));
   return all.find((t) => t.rMultiple >= 1.5) ?? all[0] ?? null;
 }
@@ -650,20 +641,19 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   )) ?? stopAudit.selected;
   if (!stopCandidate) blockers.push('missing_structural_stop');
 
-  const targetOptions = { throughIntradayLiquidity: normalizeModelName(walker?.model) === 'mss' };
-  const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price, targetOptions);
+  const tp1Candidate = entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price);
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
   // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
   // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
   const tp2Candidate = tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
-    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate, targetOptions);
+    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate);
   // First intraday objective — the scale-in green-light reference (opt-in via
   // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
   // the HTF draw sits. Null when there's no intraday objective.
   const greenlightTarget = entryPrice == null || !stopCandidate
     ? null
-    : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price, targetOptions);
+    : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price);
 
   // (D6: the bot-specific late-session overlays with no transcript basis are
   // removed — the 15:32 ET entry cutoff, the 11:00 ET exhaustion-runner A+→B cap,
