@@ -625,6 +625,52 @@ test('trend stop: the tap candle extreme, then the zone far edge (entry-models.m
   assert.equal(packet.stop.price, 28971.75);
 });
 
+test('trend stop: FVG first-candle wick from walker evidence outranks full1m fallback', () => {
+  // User correction 2026-07-01 for 2026-06-15 MES: stop belongs at the first
+  // FVG candle low 7626.50, not the later full1m-created candle low 7627.00.
+  const createdMs = 1781536800000;
+  const walker = {
+    ...confirmedMssWalker({
+      top: 7629.75,
+      bottom: 7627.75,
+      direction: 'bullish',
+      created_ms: createdMs,
+      c1l: 7626.5,
+      c1h: 7627.75,
+    }),
+    model: 'Trend',
+    side: 'long',
+  };
+  walker.evidence.confirmation.rawPayload = {
+    source: 'trend_wick_tap_confirm', close: 7630.5,
+    last_bar: { time: 1781537040, open: 7629.75, high: 7630.5, low: 7629.25, close: 7630.5 },
+  };
+  const packet = buildExecutionPacketForWalker({
+    context: executableContext({
+      sessionChain: alignedChain({ ltfBias: 'bullish' }),
+      pillar1: { status: 'pass', untakenTargets: { above: [], below: [] } },
+      pillar3: {
+        structuralStops: [],
+        htfPdArrays: [
+          {
+            kind: 'fvg', dir: 'bear', state: 'fresh', tf: 'h4',
+            top: 7609.5, bottom: 7596, c1h: 7641.5, c1l: 7609.5,
+            evidenceRef: 'engine_by_tf.h4.fvgs[15]',
+          },
+        ],
+        full1m: [
+          { time: createdMs / 1000, high: 7630.5, low: 7627 },
+        ],
+      },
+    }),
+    walker,
+  });
+  assert.equal(packet.stop.kind, 'trend_fvg_first_candle');
+  assert.equal(packet.stop.price, 7626.5);
+  assert.equal(packet.tp1.price, 7641.5);
+  assert.equal(packet.tp1.evidenceRef, 'engine_by_tf.h4.fvgs[15]');
+});
+
 test('trend stop: FVG-creating candle wick from full1m takes precedence (default-on)', () => {
   // SHIPPED default-on (GOFNQ_P3_TREND_STOP): anchor on the candle that CREATED
   // the FVG (its wick), found by created_ms in the full 1m history — the impulse

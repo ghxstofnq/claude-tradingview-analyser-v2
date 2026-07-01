@@ -2,21 +2,59 @@
   "schema": "gxofnq.real-session-label.v1",
   "fixture": "2026-06-15-mes-ny-am",
   "fixtureSource": "real",
-  "label_status": "unlabeled",
-  "reviewer": "smt-pair-2026-06-25",
-  "source_message": "Paired MES candidate tape retained for pair-leader research only. No strategy expectation is assigned; re-grade from docs/strategy, transcripts, chart evidence, and user approval before scoring.",
+  "label_status": "labeled",
+  "reviewer": "GXNQ-correction-2026-07-01",
+  "source_message": "Oracle 06-15 NY-AM: user corrected the MES Trend long levels during fresh review. Stop must be the first FVG candle low 7626.50, not 7627.00; TP1 must be the H4 FVG first-candle high 7641.50, not the psych fallback 7640.00. Production fold now emits MES B Trend long 7630.5 / 7626.5 / 7641.5 at 11:24 ET. Outcome is stop_hit at 11:33 ET; corrected TP1 was reached later at 11:50 ET after stop. MNQ had no setup; pair leader was inconclusive/null. Preserve as an approved valid MES setup with losing/wickout outcome, not a no-trade row.",
   "trade_date": "2026-06-15",
   "symbol": "MES",
   "contract_hint": "CME_MINI:MES1!",
   "session": "NY AM",
   "expected": {
-    "outcome": "unknown",
-    "model": null,
-    "side": null,
-    "grade": null,
-    "entry": null,
-    "stop": null,
-    "tp1": null,
-    "tp2": null
+    "outcome": "trade",
+    "model": "Trend",
+    "side": "long",
+    "grade": "B",
+    "entry": 7630.5,
+    "stop": 7626.5,
+    "tp1": 7641.5,
+    "tp2": 7650
+  },
+  "oracle_context": {
+    "decision": "approve_mes_trend_long_losing_wickout",
+    "approval_note": "User corrected levels on 2026-07-01: stop 7626.50 at first FVG candle low; TP1 7641.50 at H4 FVG first-candle high.",
+    "event_time_et": "2026-06-15T11:24:00-04:00",
+    "stop_time_et": "2026-06-15T11:33:00-04:00",
+    "later_tp1_time_et": "2026-06-15T11:50:00-04:00",
+    "outcome": "stop_hit",
+    "entry_evidence_ref": "zone:7627.75-7629.75",
+    "entry_source": "trend_wick_tap_confirm",
+    "stop_evidence_ref": "zone:7627.75-7629.75.c1l",
+    "stop_rule": "trend_fvg_first_candle_low",
+    "tp1_evidence_ref": "engine_by_tf.h4.fvgs[15].c1h",
+    "tp1_rule": "htf_fvg_first_candle_high",
+    "risk_points": 4,
+    "tp1_r_multiple": 2.75,
+    "max_favorable_points_after_entry": 14,
+    "max_adverse_points_before_stop": 4,
+    "paired_mnq_context": {
+      "expected_label": "tests/fixtures/stage-g-sessions/2026-06-15-mnq-ny-am.label.json remains unlabeled/unknown",
+      "fresh_fold": "no setup; clean context"
+    },
+    "pair_leader": {
+      "evidence_leader": null,
+      "displacement_reason": "inconclusive_margin_below_threshold",
+      "primary_disp_score": 0.91,
+      "secondary_disp_score": 0.92,
+      "margin": 0.010000000000000009,
+      "threshold": 0.1,
+      "smt_leader": null,
+      "smt_reason": "no_divergence_measured"
+    },
+    "second_entry_review": {
+      "clean_second_long_after_stop_before_tp1": false,
+      "current_engine_behavior": "The first packet_ready latches the NY-AM session as primary taken; stop outcome does not reset that latch. A same-zone continuation was blocked at 11:26 ET before stop, and a later long was blocked after TP1 was already reached.",
+      "future_design_question": "Whether to allow a controlled retry after an early stop is a separate implementation/risk decision, not part of this oracle promotion."
+    },
+    "not_a_pair_leader_rule": true
   }
 }

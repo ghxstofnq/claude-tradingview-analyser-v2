@@ -119,6 +119,34 @@ test('06-25 approved no-trade label keeps pair-conflict losers as rejected prove
   assert.equal(rejected[1].event_time_et, '2026-06-25T10:14:00-04:00');
 });
 
+test('06-15 MES corrected Trend long is approved as valid setup with losing wickout outcome', () => {
+  const label = readStageGLabel('2026-06-15-mes-ny-am.label.json');
+
+  assert.equal(label.label_status, 'labeled');
+  assert.deepEqual(label.expected, {
+    outcome: 'trade',
+    model: 'Trend',
+    side: 'long',
+    grade: 'B',
+    entry: 7630.5,
+    stop: 7626.5,
+    tp1: 7641.5,
+    tp2: 7650,
+  });
+  assert.equal(label.oracle_context?.decision, 'approve_mes_trend_long_losing_wickout');
+  assert.equal(label.oracle_context?.event_time_et, '2026-06-15T11:24:00-04:00');
+  assert.equal(label.oracle_context?.stop_time_et, '2026-06-15T11:33:00-04:00');
+  assert.equal(label.oracle_context?.later_tp1_time_et, '2026-06-15T11:50:00-04:00');
+  assert.equal(label.oracle_context?.outcome, 'stop_hit');
+  assert.equal(label.oracle_context?.stop_rule, 'trend_fvg_first_candle_low');
+  assert.equal(label.oracle_context?.tp1_rule, 'htf_fvg_first_candle_high');
+  assert.equal(label.oracle_context?.risk_points, 4);
+  assert.equal(label.oracle_context?.tp1_r_multiple, 2.75);
+  assert.equal(label.oracle_context?.pair_leader?.evidence_leader, null);
+  assert.equal(label.oracle_context?.second_entry_review?.clean_second_long_after_stop_before_tp1, false);
+  assert.match(label.oracle_context?.paired_mnq_context?.fresh_fold ?? '', /no setup/);
+});
+
 test('06-22 approved MES short keeps MNQ no-setup pair context and no leader-rule promotion', () => {
   const label = readStageGLabel('2026-06-22-mes-ny-am.label.json');
 
