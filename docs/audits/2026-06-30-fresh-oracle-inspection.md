@@ -60,7 +60,7 @@ This table is a **mechanical inspection**, not approval.
 | `2026-01-29` | displacement → MES; SMT none | context none (`data_gap`) | no setup, divergent | not ready; context blocker |
 | `2026-02-09` | inconclusive; SMT none | context none (`data_gap`) | context none (`data_gap`) | not ready; contradicts previous approved MNQ long seed |
 | `2026-04-06` | inconclusive; SMT → MES | no setup, divergent | context none (`data_gap`) | not ready; context blocker |
-| `2026-06-09` | inconclusive; SMT none | **B MSS short** `29476.75 / 29554.75 / 29113.75`, stopped | context none (`data_gap`) | not ready; contradicts approved Option A Inversion packet |
+| `2026-06-09` | inconclusive; SMT none | initially emitted later **B MSS short** `29476.75 / 29554.75 / 29113.75` before M15-coherence fix | context none (`data_gap`) | reconciled after Option-A coherence fix |
 | `2026-06-15` | inconclusive; SMT none | no setup, clean | **A+ Trend long** `7630.5 / 7627 / 7640`, stopped | review-only candidate, not oracle truth |
 | `2026-06-16` | displacement → MNQ; SMT → MES | **B MSS short** `30864.25 / 30896 / 30783.75`, TP1 | B Trend short `7612 / 7617.5 / 7598.25`, unresolved | closest approval candidate; still requires chart/strategy review |
 | `2026-06-17` | inconclusive; SMT none | no setup, divergent | no setup, divergent | candidate no-trade; verify context |
@@ -72,6 +72,8 @@ This table is a **mechanical inspection**, not approval.
 Post-alignment update (2026-07-01): `2026-06-16` MNQ has since been user-corrected and promoted. The deterministic chain now emits `B MSS short 30864.25 / 30905.00 / 30750.75`, and the tracked tape expectation is `verified:true` with that corrected row.
 
 Post-alignment update (2026-07-01): `2026-06-18` MNQ Option A has since been reconciled against the fresh MNQ capture. The deterministic direct-brief fold now emits the approved `B Trend long 30452.75 / 30400 / 30615` at `2026-06-18T13:46:00.000Z`; MES remains no-setup/divergent and unverified.
+
+Post-alignment update (2026-07-01): `2026-06-09` MNQ Option A has since been reconciled against the fresh MNQ capture. Root cause: `buildStrategyContext` preferred the noisy current-chart-TF `coherence` (`1m = 0.15`) over the intended M15 directional-efficiency read (`m15 = 0.81`), so the approved 10:27 ET inversion was incorrectly blocked as `reversal_low_coherence` and a later MSS surfaced. The deterministic direct-brief fold now emits the approved `B Inversion short 29760 / 29818.75 / 29595.25` at `2026-06-09T14:27:00.000Z`; MES remains context-none (`pillar2_poor`) and unverified.
 
 ## Key blockers found
 
@@ -114,10 +116,9 @@ That still leaves a strategy/design decision before promotion:
 
 ### 3. Approved Batch A rows are not automatically reproduced from fresh context
 
-The fresh mechanical fold currently disagrees with some already-approved rows:
+The fresh mechanical fold initially disagreed with some already-approved rows:
 
-- `2026-06-09` approved Option A: `Inversion short B` at `29760 / 29818.75 / 29595.25` around `14:27Z`.
-  - Fresh context fold currently emits later `MSS short B` at `29476.75 / 29554.75 / 29113.75`, stopped.
+- `2026-06-09` approved MNQ Inversion short is now reconciled by the M15-coherence precedence fix: `B Inversion short 29760 / 29818.75 / 29595.25`, TP1 hit.
 - `2026-06-18` approved MNQ Trend long is now reconciled by the Option A direct-brief fold fix: `B Trend long 30452.75 / 30400 / 30615`, TP1 hit.
 - `2026-02-09` approved row was MNQ long, but fresh context fold currently builds no context.
 
@@ -146,7 +147,7 @@ Possible next review priorities:
 
 1. `2026-06-16 MNQ` — closest to current known Batch A behavior and mechanically profitable.
 2. `2026-06-17` / `2026-06-22` — no-setup candidates, but both need context verification.
-3. `2026-06-09` / `2026-02-09` — remaining high-priority contradiction/context cases because they disagree with already-approved rows.
+3. `2026-02-09` — remaining high-priority context case because it disagrees with the already-approved row.
 4. `2026-06-25 MES` — new mechanical packet contradicts prior parity no-trade; do not promote without chart review.
 
 ## Required next steps

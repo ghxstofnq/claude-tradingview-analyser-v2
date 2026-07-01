@@ -151,13 +151,17 @@ export function buildStrategyContext(bundle = {}) {
   pillar3.fvgs5m = bundle.engine_by_tf?.m5?.fvgs ?? [];
 
   const pillar2 = buildPillar2(engine, hardBlockers, sessionChain);
-  // The deployed engine omits `coherence` (it's in the Pine source, undeployed),
-  // so compute it from the m15 bars the multi-TF recorder captures — the
-  // two-sided-chop signal the 1m quality fields can't see (Stage-G G3 veto).
-  if (pillar2.coherence == null) {
-    pillar2.coherence = computeCoherenceFromBars(
-      bundle.bars_by_tf?.m15?.last_5_bars ?? bundle.bars_by_tf?.m15?.bars,
-    );
+  // Stage-G G3 uses M15 directional efficiency, not noisy current-chart-TF
+  // coherence. Fresh schema-4 tapes can include `current_tf.coherence` from the
+  // 1m chart; if we prefer it, the approved 2026-06-09 10:27 reversal reads as
+  // chop (1m 0.15) even though the captured M15 delivery is clean (0.81). Prefer
+  // captured M15 bars when available, and fall back to current_tf only when M15
+  // is absent/unreadable.
+  const m15Coherence = computeCoherenceFromBars(
+    bundle.bars_by_tf?.m15?.last_5_bars ?? bundle.bars_by_tf?.m15?.bars,
+  );
+  if (m15Coherence != null) {
+    pillar2.coherence = m15Coherence;
   }
   return {
     market: bundle.market ?? 'unknown',
