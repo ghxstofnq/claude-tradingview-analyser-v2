@@ -1,0 +1,62 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-06-25-mnq-ny-am-no-trade",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "GXNQ-approval-2026-07-01",
+  "source_message": "Oracle 06-25 NY-AM: approved NO-TRADE / stand-aside after fresh MNQ+MES review. Short bias was technically correct, but the 09:30 open already dumped hard and the rest of NY-AM chopped/two-sided with no clean continuation. Fresh mechanical packets conflicted by pair (MNQ B Inversion long at 10:52 ET, MES A+ Inversion short at 10:14 ET), both stopped, and pair-leader evidence was inconclusive. Correct lesson: hard day / post-open exhaustion / no convincing leader — do not force either side.",
+  "trade_date": "2026-06-25",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "no_trade",
+    "side": null
+  },
+  "oracle_context": {
+    "decision": "stand_aside",
+    "approval_note": "User agreed 2026-07-01: preserve both fresh mechanical losers as rejected provenance; do not approve MNQ long or MES short.",
+    "day_read": "Short bias was technically correct, but the 09:30 open dumped and the rest of the day went up/down without clean continuation; nothing really went anywhere.",
+    "pair_leader": {
+      "evidence_leader": null,
+      "displacement_reason": "inconclusive_margin_below_threshold",
+      "primary_disp_score": 0.88,
+      "secondary_disp_score": 0.93,
+      "margin": 0.05,
+      "threshold": 0.1,
+      "smt_leader": null,
+      "smt_reason": "no_divergence_measured"
+    },
+    "live_fallback_note": "Current deterministic open-reaction finalizer defaults null pair-leader evidence to PAIR_PRIMARY/MNQ1!, but this row treats the evidence truth as no convincing leader, not an MNQ approval.",
+    "rejected_candidates": [
+      {
+        "symbol": "MNQ",
+        "model": "Inversion",
+        "side": "long",
+        "grade": "B",
+        "event_time_et": "2026-06-25T10:52:00-04:00",
+        "entry": 29728.25,
+        "stop": 29595.5,
+        "tp1": 30198.5,
+        "tp2": 30264.25,
+        "outcome": "stop_hit",
+        "stop_time_et": "2026-06-25T11:12:00-04:00",
+        "reason_rejected": "degraded htf_fallback / divergent / retrace-day B-capped context; opposite MES short also present; stopped before TP1"
+      },
+      {
+        "symbol": "MES",
+        "model": "Inversion",
+        "side": "short",
+        "grade": "A+",
+        "event_time_et": "2026-06-25T10:14:00-04:00",
+        "entry": 7441,
+        "stop": 7454.5,
+        "tp1": 7390,
+        "tp2": null,
+        "outcome": "stop_hit",
+        "stop_time_et": "2026-06-25T10:21:00-04:00",
+        "reason_rejected": "cleaner bearish mechanical read, but pair leader was inconclusive, MNQ pointed opposite, and price reversed into stop almost immediately"
+      }
+    ]
+  }
+}

@@ -365,6 +365,23 @@ lesson below.
   **Drilling to the 1m exact entry is what separates a clean A+ from a marginal B** — the 5m "dip then
   rally" looked cleaner than the 1m delivery actually was.
 
+**E5 · 2026-06-25 NY-AM — no-trade (post-open dump + chop / no convincing leader)  ·  status: graded (user-confirmed)**
+- **User chart read (2026-07-01):** short bias was technically correct, but the 09:30 open had already
+  dumped hard and the rest of NY-AM chopped up/down without clean continuation — "nothing really went
+  nowhere." Both the MNQ long and MES short mechanical candidates could be argued in isolation, which is
+  exactly why this is a hard stand-aside day rather than a trade oracle.
+- **Pair/leader read:** displacement leader **null** (MNQ `0.88`, MES `0.93`, margin `0.05` below the
+  `0.10` threshold) and SMT leader **null** (`no_divergence_measured`). Current live code would default a
+  null leader to **MNQ1!** for continuity, but the oracle truth for this row is **no convincing leader**,
+  not an MNQ approval.
+- **Rejected mechanical candidates:** fresh MNQ emitted a **B Inversion long** at **10:52 ET**
+  (`29728.25 / 29595.5 / 30198.5 / 30264.25`) and stopped at **11:12 ET**. Fresh MES emitted an
+  **A+ Inversion short** at **10:14 ET** (`7441 / 7454.5 / 7390`) and stopped at **10:21 ET**. Preserve
+  both as rejected provenance; neither is the oracle row.
+- **Verdict: no-trade — on post-open exhaustion/chop + pair conflict, not because short bias was wrong.**
+  The correct lesson is: after an opening dump, if pair evidence is inconclusive and both directions can
+  be argued while price goes two-sided, do not force either side.
+
 ---
 
 ## Pass bar
