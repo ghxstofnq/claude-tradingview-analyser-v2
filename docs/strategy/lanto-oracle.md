@@ -308,9 +308,10 @@ lesson below.
 - **Entry / stop / TP (1m-pinned 2026-06-22): MSS-leg FVG retrace.** The **08:24 swing bear MSS** leg
   left a **fresh bearish FVG 30883.75–30894.25 (CE 30889)** that stayed live ~90 min; at **09:55 the
   high tapped CE 30889 exactly** (also sweeping AS.H/NYAM.H), and the **09:56 candle closed bearish with
-  a ~1pt upper wick** (O 30883 → C 30864) = the confirmation. **Entry 30864.25**, **stop 30896** (above
-  the FVG high 30894.25; never threatened — max bounce 30867). **TP1 LO.L 30783 (2.6R) / AS.L 30755
-  (3.4R); TP2 NYAM.L 30561.75 (9.5R) — reached.** (NYAM.L = 30561.75 on the 1m engine, not the ~30601
+  a ~1pt upper wick** (O 30883 → C 30864) = the confirmation. **Entry 30864.25**, **stop 30905.00**
+  (user-corrected 2026-06-30: stop belongs on the first FVG candle, not the tighter 30896 CE/FVG-high proxy;
+  never threatened — max bounce 30867). **TP1 LO.L 30783.75 (~1.98R) / AS.L 30755.5 (~2.67R);
+  TP2 NYAM.L 30561.75 (~7.42R) — reached.** (NYAM.L = 30561.75 on the 1m engine, not the ~30601
   in the earlier 5m note.)
 - **Discriminator:** a near-price-bearish-FVG + open-reaction-reversal day is **bias-aligned** (NOT
   "counter-HTF divergent" — that was the structure over-read), and grades **B** — a single clean entry
