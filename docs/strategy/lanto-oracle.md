@@ -382,6 +382,21 @@ lesson below.
   The correct lesson is: after an opening dump, if pair evidence is inconclusive and both directions can
   be argued while price goes two-sided, do not force either side.
 
+**E6 · 2026-06-22 NY-AM — MES B Inversion short  ·  status: graded (user-confirmed)**
+- **Approved instrument:** MES only. MNQ fresh fold had **no setup** with divergent context; keep the MNQ
+  label neutral/unknown as paired context rather than turning it into a no-trade oracle row.
+- **Pair/leader read:** displacement leader **null** (MNQ `0.95`, MES `0.90`, margin `0.05` below the
+  `0.10` threshold) and SMT leader **null** (`no_divergence_measured`). This row approves the MES packet
+  from fresh tape/chart review; it does **not** promote a general pair-leader rule.
+- **Packet:** **B Inversion short** at **10:18 ET** from `zone:7584-7588.25` / `violation_close_bridge`.
+  Entry **7580.5**, stop **7591.75** (`bars.last_5_bars[extreme]`), TP1 **7556.75**
+  (`gates.engine.pillar3.swings.swing[7]`), TP2/LO.L **7552.5**.
+- **Outcome path:** TP1 hit at **10:31 ET**; TP2/LO.L touched at **10:32 ET**; stop never hit in the tape
+  path. Maximum favorable excursion after entry was about **53.25 points**, with about **7 points** max
+  adverse before TP1.
+- **Verdict: approve MES B Inversion short.** The correct lesson is to allow the clean MES short packet
+  while preserving the null leader evidence as a caution, not as a standalone leader-selection rule.
+
 ---
 
 ## Pass bar
