@@ -4,7 +4,7 @@
   "fixtureSource": "real",
   "label_status": "labeled",
   "reviewer": "oracle-D-2026-06-22",
-  "source_message": "Oracle OOS 06-16: B short, Reversal (swing-tier bear MSS), bias-ALIGNED bearish. Entry 30864.25 (09:56 1m bearish close — MSS-leg FVG retrace into 30883.75-30894.25, CE 30889, from the 08:24 swing bear MSS leg; 09:55 high tapped CE exactly + swept AS.H/NYAM.H). Stop 30896 (above FVG high 30894.25). TP1 LO.L 30783 (2.6R) / AS.L 30755 (3.4R); TP2 NYAM.L 30561.75 (9.5R, reached). Move: high 30869.75 @09:55 -> broke down 10:20 -> bottom NYAM.L 30561.75 @10:59.",
+  "source_message": "Oracle OOS 06-16: B short, Reversal (swing-tier bear MSS), bias-ALIGNED bearish. Entry 30864.25 (09:56 1m bearish close — MSS-leg FVG retrace into 30883.75-30894.25, CE 30889, from the 08:24 swing bear MSS leg; 09:55 high tapped CE exactly + swept AS.H/NYAM.H). Stop 30905.00 (user-corrected first-FVG-candle invalidation; not the tighter 30896 CE/FVG-high proxy). Executable no-lookahead TP1 30750.75 (user-corrected anchor, hit at 10:20 ET). LO.L 30783 / AS.L 30755 and runner NYAM.L 30561.75 are draw/runner context; NYAM.L was reached later but is not forced into the 09:57 ET executable packet. Move: high 30869.75 @09:55 -> broke down 10:20 -> bottom NYAM.L 30561.75 @10:59.",
   "trade_date": "2026-06-16",
   "symbol": "MNQ",
   "contract_hint": "CME_MINI:MNQ1!",
@@ -15,8 +15,14 @@
     "side": "short",
     "grade": "B",
     "entry": 30864.25,
-    "stop": 30896,
-    "tp1": 30783,
-    "tp2": 30561.75
+    "stop": 30905,
+    "tp1": 30750.75,
+    "tp2": null
+  },
+  "oracle_target_context": {
+    "lo_l": 30783,
+    "as_l": 30755,
+    "nyam_l_runner": 30561.75,
+    "note": "Draw/runner context from the oracle note; executable expected fields stay aligned to the no-lookahead packet-time fold. B execution banks TP1."
   }
 }
