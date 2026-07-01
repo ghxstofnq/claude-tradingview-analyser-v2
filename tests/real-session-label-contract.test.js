@@ -142,6 +142,45 @@ test('06-22 approved MES short keeps MNQ no-setup pair context and no leader-rul
   assert.match(label.oracle_context?.paired_mnq_context?.fresh_fold ?? '', /no setup/);
 });
 
+test('06-17 MES counterpart remains rejected provenance under approved MNQ no-trade', () => {
+  const label = readStageGLabel('2026-06-17-mes-ny-am.label.json');
+
+  assert.equal(label.label_status, 'unlabeled');
+  assert.deepEqual(label.expected, {
+    outcome: 'unknown',
+    model: null,
+    side: null,
+    grade: null,
+    entry: null,
+    stop: null,
+    tp1: null,
+    tp2: null,
+  });
+  assert.equal(label.oracle_context?.decision, 'reject_mes_packet_preserve_mnq_no_trade');
+  assert.equal(label.oracle_context?.not_oracle_truth, true);
+  assert.deepEqual(label.oracle_context?.rejected_candidate, {
+    model: 'Inversion',
+    side: 'short',
+    grade: 'B',
+    event_time_et: '2026-06-17T10:11:00-04:00',
+    entry: 7587.25,
+    stop: 7593.5,
+    tp1: 7577.75,
+    tp2: 7295,
+    outcome: 'stop_hit',
+    stop_time_et: '2026-06-17T10:13:00-04:00',
+    later_tp1_time_et: '2026-06-17T10:41:00-04:00',
+    reason_rejected: 'Early packet stopped before target; approved MNQ row is no-trade on price quality / no clean fast entry; pair leader was inconclusive/null.',
+  });
+  assert.equal(label.oracle_context?.second_entry_review?.clean_second_short_before_tp1, false);
+  assert.match(label.oracle_context?.second_entry_review?.current_engine_behavior ?? '', /packet_ready latches the NY-AM session/);
+  assert.deepEqual(label.oracle_context?.second_entry_review?.blocked_later_candidates?.map((candidate) => `${candidate.time_et}:${candidate.side}:${candidate.blocker}`), [
+    '2026-06-17T11:19:00-04:00:long:session_primary_already_taken',
+    '2026-06-17T11:54:00-04:00:short:session_primary_already_taken',
+  ]);
+  assert.equal(label.oracle_context?.pair_leader?.evidence_leader, null);
+});
+
 test('trade labels declare a no-lookahead replay readiness contract before they can be scored', () => {
   for (const file of readdirSync(REAL_SESSION_LABEL_DIR).filter((f) => f.endsWith('.label.json'))) {
     const label = readLabel(file);

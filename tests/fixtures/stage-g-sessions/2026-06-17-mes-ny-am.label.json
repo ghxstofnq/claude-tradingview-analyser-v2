@@ -3,8 +3,8 @@
   "fixture": "2026-06-17-mes-ny-am",
   "fixtureSource": "real",
   "label_status": "unlabeled",
-  "reviewer": "smt-pair-2026-06-25",
-  "source_message": "MES counterpart of the 2026-06-17 NY-AM Stage-G session, recorded to pair with the MNQ tape for research. No MES strategy expectation is assigned; re-grade from docs/strategy, transcripts, chart evidence, and user approval before scoring.",
+  "reviewer": "GXNQ-review-2026-07-01",
+  "source_message": "MES counterpart of the approved 2026-06-17 MNQ no-trade. Fresh direct-brief fold surfaced an early B Inversion short at 10:11 ET (7587.25 / 7593.5 / 7577.75 / 7295), but it stopped at 10:13 ET before later reaching TP1 at 10:41 ET. Trace review also showed no second clean short before the TP1 move; later confirmed candidates were blocked by the current session primary-trade latch after the first packet_ready. Keep as rejected/diagnostic provenance; do not promote or use to invalidate the approved MNQ no-trade row.",
   "trade_date": "2026-06-17",
   "symbol": "MES",
   "contract_hint": "CME_MINI:MES1!",
@@ -18,5 +18,53 @@
     "stop": null,
     "tp1": null,
     "tp2": null
+  },
+  "oracle_context": {
+    "decision": "reject_mes_packet_preserve_mnq_no_trade",
+    "approved_row": "2026-06-17 MNQ no-trade remains the oracle truth",
+    "rejected_candidate": {
+      "model": "Inversion",
+      "side": "short",
+      "grade": "B",
+      "event_time_et": "2026-06-17T10:11:00-04:00",
+      "entry": 7587.25,
+      "stop": 7593.5,
+      "tp1": 7577.75,
+      "tp2": 7295,
+      "outcome": "stop_hit",
+      "stop_time_et": "2026-06-17T10:13:00-04:00",
+      "later_tp1_time_et": "2026-06-17T10:41:00-04:00",
+      "reason_rejected": "Early packet stopped before target; approved MNQ row is no-trade on price quality / no clean fast entry; pair leader was inconclusive/null."
+    },
+    "second_entry_review": {
+      "clean_second_short_before_tp1": false,
+      "current_engine_behavior": "A walker that reaches packet_ready latches the NY-AM session as primary taken; the stop outcome does not reset that latch.",
+      "blocked_later_candidates": [
+        {
+          "time_et": "2026-06-17T11:19:00-04:00",
+          "model": "Inversion",
+          "side": "long",
+          "blocker": "session_primary_already_taken"
+        },
+        {
+          "time_et": "2026-06-17T11:54:00-04:00",
+          "model": "Inversion",
+          "side": "short",
+          "blocker": "session_primary_already_taken"
+        }
+      ],
+      "future_design_question": "Whether to allow one controlled retry after an early stop is a separate implementation/risk decision, not part of this oracle promotion."
+    },
+    "pair_leader": {
+      "evidence_leader": null,
+      "displacement_reason": "inconclusive_margin_below_threshold",
+      "primary_disp_score": 0.9,
+      "secondary_disp_score": 0.85,
+      "margin": 0.05,
+      "threshold": 0.1,
+      "smt_leader": null,
+      "smt_reason": "no_divergence_measured"
+    },
+    "not_oracle_truth": true
   }
 }
