@@ -4,9 +4,14 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const REAL_SESSION_LABEL_DIR = new URL('./fixtures/real-sessions/', import.meta.url);
+const STAGE_G_LABEL_DIR = new URL('./fixtures/stage-g-sessions/', import.meta.url);
 
 function readLabel(name) {
   return JSON.parse(readFileSync(new URL(name, REAL_SESSION_LABEL_DIR), 'utf8'));
+}
+
+function readStageGLabel(name) {
+  return JSON.parse(readFileSync(new URL(name, STAGE_G_LABEL_DIR), 'utf8'));
 }
 
 test('GXNQ label 2026-05-29 MNQ inversion long is captured as a replay-ready real-session contract', () => {
@@ -73,6 +78,23 @@ test('real-session labels are strict enough to prevent ambiguous tradable fixtur
       assert.ok(label.expected.stop_anchor || label.expected.stop, `${file}: stop anchor/price`);
     }
   }
+});
+
+test('06-16 MNQ MSS label keeps executable fields no-lookahead and runner target as provenance', () => {
+  const label = readStageGLabel('2026-06-16-mnq-ny-am-mss-short.label.json');
+
+  assert.deepEqual(label.expected, {
+    outcome: 'trade',
+    model: 'MSS',
+    side: 'short',
+    grade: 'B',
+    entry: 30864.25,
+    stop: 30905,
+    tp1: 30750.75,
+    tp2: null,
+  });
+  assert.equal(label.oracle_target_context?.nyam_l_runner, 30561.75);
+  assert.match(label.oracle_target_context?.note ?? '', /no-lookahead packet-time fold/);
 });
 
 test('trade labels declare a no-lookahead replay readiness contract before they can be scored', () => {
