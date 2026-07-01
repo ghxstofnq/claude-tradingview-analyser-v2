@@ -119,6 +119,29 @@ test('06-25 approved no-trade label keeps pair-conflict losers as rejected prove
   assert.equal(rejected[1].event_time_et, '2026-06-25T10:14:00-04:00');
 });
 
+test('06-22 approved MES short keeps MNQ no-setup pair context and no leader-rule promotion', () => {
+  const label = readStageGLabel('2026-06-22-mes-ny-am.label.json');
+
+  assert.deepEqual(label.expected, {
+    outcome: 'trade',
+    model: 'Inversion',
+    side: 'short',
+    grade: 'B',
+    entry: 7580.5,
+    stop: 7591.75,
+    tp1: 7556.75,
+    tp2: 7552.5,
+  });
+  assert.equal(label.label_status, 'labeled');
+  assert.equal(label.oracle_context?.decision, 'approve_mes_short');
+  assert.equal(label.oracle_context?.event_time_et, '2026-06-22T10:18:00-04:00');
+  assert.equal(label.oracle_context?.tp1_time_et, '2026-06-22T10:31:00-04:00');
+  assert.equal(label.oracle_context?.tp2_touch_time_et, '2026-06-22T10:32:00-04:00');
+  assert.equal(label.oracle_context?.pair_leader?.evidence_leader, null);
+  assert.equal(label.oracle_context?.not_a_pair_leader_rule, true);
+  assert.match(label.oracle_context?.paired_mnq_context?.fresh_fold ?? '', /no setup/);
+});
+
 test('trade labels declare a no-lookahead replay readiness contract before they can be scored', () => {
   for (const file of readdirSync(REAL_SESSION_LABEL_DIR).filter((f) => f.endsWith('.label.json'))) {
     const label = readLabel(file);

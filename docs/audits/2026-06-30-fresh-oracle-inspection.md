@@ -65,7 +65,7 @@ This table is a **mechanical inspection**, not approval.
 | `2026-06-16` | displacement → MNQ; SMT → MES | **B MSS short** `30864.25 / 30896 / 30783.75`, TP1 | B Trend short `7612 / 7617.5 / 7598.25`, unresolved | closest approval candidate; still requires chart/strategy review |
 | `2026-06-17` | inconclusive; SMT none | no setup, divergent | **B Inversion short** `7587.25 / 7593.5 / 7577.75`, stopped | MNQ no-trade remains approved; MES packet is review-only |
 | `2026-06-18` | inconclusive; SMT none | no setup, clean | no setup, divergent | not ready; contradicts previous approved MNQ Trend long seed |
-| `2026-06-22` | inconclusive; SMT none | no setup, divergent | **B Inversion short** `7580.5 / 7591.75 / 7556.75`, TP1 | not ready; fresh tapes exist but no oracle approval |
+| `2026-06-22` | inconclusive; SMT none | no setup, divergent | **B Inversion short** `7580.5 / 7591.75 / 7556.75`, TP1; TP2/LO.L touched | approved MES B Inversion short; MNQ remains neutral paired context |
 | `2026-06-24` | inconclusive; SMT → MNQ | no setup, divergent | context none (`data_gap`) | not ready; context blocker |
 | `2026-06-25` | inconclusive; SMT none | **B Inversion long** `29728.25 / 29595.5 / 30198.5`, stopped | **A+ Inversion short** `7441 / 7454.5 / 7390`, stopped | approved no-trade / stand-aside after user review; both trades rejected as provenance |
 
@@ -79,7 +79,7 @@ Post-alignment update (2026-07-01): `2026-06-25` was re-inspected after the 06-0
 
 Post-alignment update (2026-07-01): `2026-06-17` remains an approved MNQ no-trade seed row. Fresh MNQ still emits no setup, while fresh MES now emits a stopped `B Inversion short 7587.25 / 7593.5 / 7577.75`. Treat the MES packet as review-only; do not use it to invalidate the approved MNQ no-trade row without separate chart/strategy approval.
 
-Post-alignment update (2026-07-01): `2026-06-22` is no longer blocked on missing fresh tapes; MNQ and MES fresh tapes exist. The row remains not-ready because there is no canonical strategy row or user-approved label: MNQ emits no setup, while MES emits a mechanical `B Inversion short 7580.5 / 7591.75 / 7556.75` to TP1. Keep both labels neutral until review.
+Post-alignment update (2026-07-01): `2026-06-22` is now approved as an MES-specific `B Inversion short 7580.5 / 7591.75 / 7556.75 / 7552.5`. MNQ remains neutral paired context (`no setup`, divergent). Pair leader/SMT were null/inconclusive, so this approval must not be generalized into a pair-leader rule.
 
 ## Key blockers found
 
@@ -147,13 +147,12 @@ No pair-leader rule should be promoted from this inspection alone.
 
 ## Current approval posture
 
-Several rows have since been reconciled/promoted from the first-pass state (`2026-06-09`, `2026-06-16 MNQ`, `2026-06-18 MNQ`, `2026-02-09 MNQ`, and `2026-06-25 no-trade`). The remaining fresh rows are review signals only until a per-date packet is hand-graded and user-approved.
+Several rows have since been reconciled/promoted from the first-pass state (`2026-06-09`, `2026-06-16 MNQ`, `2026-06-18 MNQ`, `2026-02-09 MNQ`, `2026-06-22 MES`, and `2026-06-25 no-trade`). The remaining fresh rows are review signals only until a per-date packet is hand-graded and user-approved.
 
 Possible next review priorities:
 
-1. `2026-06-22` — fresh tapes now exist, MNQ no-setup conflicts with MES TP1 mechanical candidate; requires chart/strategy review before any label promotion.
-2. `2026-06-17 MES` — approved MNQ no-trade remains valid, but the fresh MES stopped packet should be reviewed as pair-side evidence, not promoted.
-3. Unlabeled MES/MNQ fresh setups (`2026-04-06`, `2026-06-15`, `2026-06-24`) — review-only candidates; do not promote without chart approval.
+1. `2026-06-17 MES` — approved MNQ no-trade remains valid, but the fresh MES stopped packet should be reviewed as pair-side evidence, not promoted.
+2. Unlabeled MES/MNQ fresh setups (`2026-04-06`, `2026-06-15`, `2026-06-24`) — review-only candidates; do not promote without chart approval.
 
 ## Required next steps
 
