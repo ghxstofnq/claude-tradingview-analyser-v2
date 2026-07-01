@@ -345,6 +345,13 @@ lesson below.
 - **Discriminator:** the bearish move eventually reached the lower draw, but a setup with no clean fast
   entry + marginal two-sided quality is NOT tradeable — stand aside, don't chase the eventual delivery.
   Contrast 06-16 (swing-tier MSS + clean breakdown + mass displacement = tradeable B).
+- **Fresh MES counterpart review (2026-07-01):** fresh MES surfaced an early mechanical **B Inversion
+  short** at **10:11 ET** (`7587.25 / 7593.5 / 7577.75 / 7295`) but it stopped at **10:13 ET** before
+  later reaching TP1 at **10:41 ET**. There was no second clean short before the TP1 move; later candidates
+  were blocked by the current one-primary-packet session latch (`session_primary_already_taken`) after the
+  first `packet_ready`. Preserve MES as rejected/diagnostic provenance; it does not invalidate the MNQ
+  no-trade row. A controlled retry-after-early-stop rule, if desired, is a future implementation/risk
+  decision, not oracle truth for this row.
 
 **E2 · 2026-06-18 NY-AM — marginal B long (Continuation / Trend)  ·  status: graded (user-confirmed)**
 - **Bias bullish ALIGNED (2/3–3/3; re-derived 2026-06-22):** overnight bull **+448** (swept
