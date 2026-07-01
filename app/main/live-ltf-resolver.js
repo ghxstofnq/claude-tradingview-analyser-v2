@@ -19,6 +19,72 @@ import { biasFromDraw } from "./backtest-context.js";
 import { swingStructuresForBias, swingStructuresForRealign } from "./structure-source.js";
 import { htfFallbackVerdict } from "./htf-fallback.js";
 
+const RECLAIM_DISP_MIN = 0.8;
+
+function rowKind(row) {
+  return String(row?.kind ?? row?.type ?? '').toLowerCase();
+}
+
+function sideForPd(row) {
+  const dir = String(row?.dir ?? row?.direction ?? '').toLowerCase();
+  if (dir === 'bull' || dir === 'bullish') return 'long';
+  if (dir === 'bear' || dir === 'bearish') return 'short';
+  return null;
+}
+
+function sideMatchesBias(side, bias) {
+  return (side === 'long' && bias === 'bullish') || (side === 'short' && bias === 'bearish');
+}
+
+function sameZone(a, b) {
+  const fields = ['top', 'bottom', 'ce'];
+  return fields.every((k) => Number.isFinite(Number(a?.[k]))
+    && Number.isFinite(Number(b?.[k]))
+    && Math.abs(Number(a[k]) - Number(b[k])) < 1e-9);
+}
+
+function confirmBarForSide(row, side) {
+  const ce = Number(row?.ce);
+  if (!Number.isFinite(ce)) return false;
+  const bar = row?.last_bar;
+  if (!bar) return false;
+  const body = Number(bar.body_ratio);
+  if (!Number.isFinite(body) || body < 0.6) return false;
+  const close = Number(bar.close);
+  if (!Number.isFinite(close)) return false;
+  if (side === 'long') return bar.direction === 'bullish' && Number(bar.low) < ce && close > ce;
+  if (side === 'short') return bar.direction === 'bearish' && Number(bar.high) > ce && close < ce;
+  return false;
+}
+
+function legContinuesTowardSide(bundle, side) {
+  const current = bundle?.engine?.pillar2?.current_tf ?? bundle?.gates?.engine?.pillar2?.current_tf ?? {};
+  const lhMs = Number(current.leg_high_ms);
+  const llMs = Number(current.leg_low_ms);
+  if (!Number.isFinite(lhMs) || !Number.isFinite(llMs) || lhMs === llMs) return false;
+  const legUp = lhMs > llMs;
+  return (side === 'long' && legUp) || (side === 'short' && !legUp);
+}
+
+function trendReclaimPresent({ bundle, bias }) {
+  const gates = bundle?.gates?.engine ?? {};
+  const rows = gates?.pillar3?.fvgs ?? [];
+  const insideRows = gates?.price_context?.inside_fvgs ?? [];
+  return rows.some((row) => {
+    if (rowKind(row) !== 'ifvg') return false;
+    const side = sideForPd(row);
+    if (!side || !sideMatchesBias(side, bias) || !legContinuesTowardSide(bundle, side)) return false;
+    if (!(row.took_liq === true || row.took_liq === 1)) return false;
+    if (!(Number(row.disp_score) >= RECLAIM_DISP_MIN) || !Number.isFinite(Number(row.ce))) return false;
+    // Direct-brief replays may only become tradeable after the open-reaction
+    // minute-15 boundary. By then the engine can already mark the flipped iFVG
+    // `invalidated`, while the current price_context row still shows the same
+    // zone being reclaimed by a deliberate candle. Require that current in-zone
+    // reclaim evidence so this signal stays narrower than generic iFVG inversion.
+    return insideRows.some((inside) => sameZone(row, inside) && confirmBarForSide({ ...inside, last_bar: gates?.confirmation?.last_bar }, side));
+  });
+}
+
 function etDateOf(ts) {
   const ms = Date.parse(ts);
   if (!Number.isFinite(ms)) return null;
@@ -182,7 +248,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
         ...verdict,
         htf_ltf_alignment: aligned ? "aligned" : "divergent",
         is_retrace_day: !aligned,
-        grade_cap: aligned ? "A+" : "B",
+        grade_cap: aligned && verdict.interaction !== "pending_reaction" ? "A+" : "B",
       };
     }
   }
@@ -210,6 +276,7 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
     failure_swings: p3.failure_swings ?? [],
     most_recent_structure: p3.most_recent_structure ?? null,
     inverted_fvg_present: (p3.fvgs ?? []).some((f) => f?.state === "inverted"),
+    trend_reclaim_present: trendReclaimPresent({ bundle, bias: verdict.ltf_bias }),
   });
 
   return {

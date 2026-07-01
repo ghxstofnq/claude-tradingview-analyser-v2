@@ -71,6 +71,8 @@ This table is a **mechanical inspection**, not approval.
 
 Post-alignment update (2026-07-01): `2026-06-16` MNQ has since been user-corrected and promoted. The deterministic chain now emits `B MSS short 30864.25 / 30905.00 / 30750.75`, and the tracked tape expectation is `verified:true` with that corrected row.
 
+Post-alignment update (2026-07-01): `2026-06-18` MNQ Option A has since been reconciled against the fresh MNQ capture. The deterministic direct-brief fold now emits the approved `B Trend long 30452.75 / 30400 / 30615` at `2026-06-18T13:46:00.000Z`; MES remains no-setup/divergent and unverified.
+
 ## Key blockers found
 
 ### 1. Capture-only raw fold correctly emits zero packets
@@ -116,7 +118,7 @@ The fresh mechanical fold currently disagrees with some already-approved rows:
 
 - `2026-06-09` approved Option A: `Inversion short B` at `29760 / 29818.75 / 29595.25` around `14:27Z`.
   - Fresh context fold currently emits later `MSS short B` at `29476.75 / 29554.75 / 29113.75`, stopped.
-- `2026-06-18` approved row was MNQ Trend long, but fresh context fold emits no MNQ setup.
+- `2026-06-18` approved MNQ Trend long is now reconciled by the Option A direct-brief fold fix: `B Trend long 30452.75 / 30400 / 30615`, TP1 hit.
 - `2026-02-09` approved row was MNQ long, but fresh context fold currently builds no context.
 
 Therefore these fresh folds are review signals, not replacements.
@@ -144,7 +146,7 @@ Possible next review priorities:
 
 1. `2026-06-16 MNQ` — closest to current known Batch A behavior and mechanically profitable.
 2. `2026-06-17` / `2026-06-22` — no-setup candidates, but both need context verification.
-3. `2026-06-09` / `2026-06-18` — high-priority contradiction cases because they disagree with already-approved rows.
+3. `2026-06-09` / `2026-02-09` — remaining high-priority contradiction/context cases because they disagree with already-approved rows.
 4. `2026-06-25 MES` — new mechanical packet contradicts prior parity no-trade; do not promote without chart review.
 
 ## Required next steps

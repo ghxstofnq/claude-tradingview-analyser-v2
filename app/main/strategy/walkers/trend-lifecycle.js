@@ -101,11 +101,12 @@ function findReclaimContinuationPdArrays(context) {
   if (String(chain.entryModelPriority ?? '').toLowerCase() !== 'trend') return [];
   const bias = chain.ltfBias;
   return allPdArrays(context)
-    .filter((pdArray) => kindOf(pdArray) === 'ifvg' && stateIsTradable(pdArray))
+    .filter((pdArray) => kindOf(pdArray) === 'ifvg')
     .map((pdArray) => ({ pdArray, side: sideForPdDirection(pdArray) }))
     .filter(({ side }) => side
       && ((side === 'long' && bias === 'bullish') || (side === 'short' && bias === 'bearish'))
       && isContinuationSetup(context, side))
+    .filter(({ pdArray, side }) => stateIsTradable(pdArray) || Boolean(currentReclaimConfirmBar(pdArray, side, context)))
     .filter(({ pdArray }) => (pdArray.took_liq === true || pdArray.took_liq === 1)
       && Number(pdArray.disp_score) >= RECLAIM_DISP_MIN
       && Number.isFinite(Number(pdArray.ce)));
@@ -134,6 +135,37 @@ function isReclaimWalker(walker) {
   return Boolean(walker?.evidence?.reclaimContinuation);
 }
 
+function samePdZone(a, b) {
+  const aRef = refOf(a, null);
+  const bRef = refOf(b, null);
+  if (aRef && bRef) return aRef === bRef;
+  return ['top', 'bottom', 'ce'].every((k) => Number.isFinite(Number(a?.[k]))
+    && Number.isFinite(Number(b?.[k]))
+    && Math.abs(Number(a[k]) - Number(b[k])) < 1e-9);
+}
+
+function currentReclaimConfirmBar(pdArray, side, context) {
+  const inside = (context?.pillar3?.insidePdArrays ?? context?.pillar3?.inside_pd_arrays ?? [])
+    .some((row) => samePdZone(pdArray, row));
+  if (!inside) return null;
+  const ce = Number(pdArray?.ce);
+  if (!Number.isFinite(ce)) return null;
+  const bar = (context?.pillar3?.confirmationRows ?? [])
+    .map((row) => row?.last_bar)
+    .find((b) => b && Number.isFinite(Number(b.close)));
+  if (!bar) return null;
+  const body = Number(bar.body_ratio);
+  if (!Number.isFinite(body) || body < CONFIRM_BODY_MIN) return null;
+  const close = Number(bar.close);
+  if (side === 'long') {
+    return bar.direction === 'bullish' && Number(bar.low) < ce && close > ce ? bar : null;
+  }
+  if (side === 'short') {
+    return bar.direction === 'bearish' && Number(bar.high) > ce && close < ce ? bar : null;
+  }
+  return null;
+}
+
 // EM Trend §4 reclaim confirmation: price dips back through the flipped gap's CE
 // and a deliberate 1m candle closes back beyond the CE in the trade direction —
 // "respecting" the zone (confirmation.md). Reads the closed confirmation bar
@@ -144,26 +176,8 @@ function isReclaimWalker(walker) {
 // (low/high crossed the CE — excludes the 09:43 aggressive break that never
 // retraced). Entry is the CE, not the bar close (set on the request payload).
 function reclaimConfirmBar(walker, context) {
-  const inside = (context?.pillar3?.insidePdArrays ?? context?.pillar3?.inside_pd_arrays ?? [])
-    .some((row) => matchesTrackedPd(walker, row));
-  if (!inside) return null;
   const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
-  const ce = Number(pd.ce);
-  if (!Number.isFinite(ce)) return null;
-  const bar = (context?.pillar3?.confirmationRows ?? [])
-    .map((row) => row?.last_bar)
-    .find((b) => b && Number.isFinite(Number(b.close)));
-  if (!bar) return null;
-  const body = Number(bar.body_ratio);
-  if (!Number.isFinite(body) || body < CONFIRM_BODY_MIN) return null;
-  const close = Number(bar.close);
-  if (walker.side === 'long') {
-    return bar.direction === 'bullish' && Number(bar.low) < ce && close > ce ? bar : null;
-  }
-  if (walker.side === 'short') {
-    return bar.direction === 'bearish' && Number(bar.high) > ce && close < ce ? bar : null;
-  }
-  return null;
+  return currentReclaimConfirmBar(pd, walker.side, context);
 }
 
 const RECLAIM_PRE_CONFIRM_STAGES = new Set(['watching', 'pd_identified', 'tap_seen', 'confirmation_pending']);
