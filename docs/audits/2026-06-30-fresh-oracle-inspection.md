@@ -67,13 +67,15 @@ This table is a **mechanical inspection**, not approval.
 | `2026-06-18` | inconclusive; SMT none | no setup, clean | no setup, divergent | not ready; contradicts previous approved MNQ Trend long seed |
 | `2026-06-22` | inconclusive; SMT none | no setup, divergent | no setup, divergent | candidate no-trade; verify context |
 | `2026-06-24` | inconclusive; SMT → MNQ | no setup, divergent | context none (`data_gap`) | not ready; context blocker |
-| `2026-06-25` | inconclusive; SMT none | no setup, degraded HTF fallback | **A+ Trend short** `7449.75 / 7464.75 / 7404`, unresolved | review-only candidate; prior parity no-trade is contradicted |
+| `2026-06-25` | inconclusive; SMT none | **B Inversion long** `29728.25 / 29595.5 / 30198.5`, stopped | **A+ Inversion short** `7441 / 7454.5 / 7390`, stopped | review-only contradiction; prior parity no-trade is contradicted |
 
 Post-alignment update (2026-07-01): `2026-06-16` MNQ has since been user-corrected and promoted. The deterministic chain now emits `B MSS short 30864.25 / 30905.00 / 30750.75`, and the tracked tape expectation is `verified:true` with that corrected row.
 
 Post-alignment update (2026-07-01): `2026-06-18` MNQ Option A has since been reconciled against the fresh MNQ capture. The deterministic direct-brief fold now emits the approved `B Trend long 30452.75 / 30400 / 30615` at `2026-06-18T13:46:00.000Z`; MES remains no-setup/divergent and unverified.
 
 Post-alignment update (2026-07-01): `2026-06-09` MNQ Option A has since been reconciled against the fresh MNQ capture. Root cause: `buildStrategyContext` preferred the noisy current-chart-TF `coherence` (`1m = 0.15`) over the intended M15 directional-efficiency read (`m15 = 0.81`), so the approved 10:27 ET inversion was incorrectly blocked as `reversal_low_coherence` and a later MSS surfaced. The deterministic direct-brief fold now emits the approved `B Inversion short 29760 / 29818.75 / 29595.25` at `2026-06-09T14:27:00.000Z`; MES remains context-none (`pillar2_poor`) and unverified.
+
+Post-alignment update (2026-07-01): `2026-06-25` was re-inspected after the 06-09/06-16/06-18 reconciliation work. The prior parity no-trade proposal is contradicted by fresh direct-brief packets on both instruments: MNQ `B Inversion long 29728.25 / 29595.5 / 30198.5` stopped, and MES `A+ Inversion short 7441 / 7454.5 / 7390` stopped. Treat 06-25 as review/not-ready until parity-vs-fresh context and pair direction are explained.
 
 ## Key blockers found
 
@@ -141,14 +143,13 @@ No pair-leader rule should be promoted from this inspection alone.
 
 ## Current approval posture
 
-No fresh oracle row is approved yet.
+Several rows have since been reconciled/promoted from the first-pass state (`2026-06-09`, `2026-06-16 MNQ`, `2026-06-18 MNQ`, and `2026-02-09 MNQ`). The remaining fresh rows are review signals only until a per-date packet is hand-graded and user-approved.
 
 Possible next review priorities:
 
-1. `2026-06-16 MNQ` — closest to current known Batch A behavior and mechanically profitable.
+1. `2026-06-25` — parity no-trade is contradicted by fresh direct-brief stop-hit packets on both MNQ and MES; requires context/pair-direction review before any oracle decision.
 2. `2026-06-17` / `2026-06-22` — no-setup candidates, but both need context verification.
-3. `2026-02-09` — remaining high-priority context case because it disagrees with the already-approved row.
-4. `2026-06-25 MES` — new mechanical packet contradicts prior parity no-trade; do not promote without chart review.
+3. Unlabeled MES/MNQ fresh setups (`2026-04-06`, `2026-06-15`, `2026-06-24`) — review-only candidates; do not promote without chart approval.
 
 ## Required next steps
 
