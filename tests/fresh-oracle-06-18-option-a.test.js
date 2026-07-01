@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -61,7 +61,11 @@ function directContextForFreshTape(tape) {
   return contextFromBriefPayloads({ session: tape.session ?? "ny-am", payloads });
 }
 
-test("fresh 2026-06-18 MNQ folds to the approved Trend reclaim-continuation long", async () => {
+test("fresh 2026-06-18 MNQ folds to the approved Trend reclaim-continuation long", async (t) => {
+  if (!existsSync(TAPE)) {
+    t.skip(`fresh oracle tape not available: ${TAPE}`);
+    return;
+  }
   const tape = JSON.parse(readFileSync(TAPE, "utf8"));
   const tapeForFold = clone(tape);
   const context = directContextForFreshTape(tapeForFold);
