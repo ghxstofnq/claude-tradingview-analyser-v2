@@ -61,7 +61,7 @@ This table is a **mechanical inspection**, not approval.
 | `2026-02-09` | inconclusive; SMT none | context none (`data_gap`) | context none (`data_gap`) | not ready; contradicts previous approved MNQ long seed |
 | `2026-04-06` | inconclusive; SMT → MES | no setup, divergent | context none (`data_gap`) | not ready; context blocker |
 | `2026-06-09` | inconclusive; SMT none | initially emitted later **B MSS short** `29476.75 / 29554.75 / 29113.75` before M15-coherence fix | context none (`data_gap`) | reconciled after Option-A coherence fix |
-| `2026-06-15` | inconclusive; SMT none | no setup, clean | **A+ Trend long** `7630.5 / 7627 / 7640`, stopped | review-only candidate, not oracle truth |
+| `2026-06-15` | inconclusive; SMT none | no setup, clean | **B Trend long** `7630.5 / 7626.5 / 7641.5`, stopped before later TP1 touch | approved MES valid setup with losing/wickout outcome; corrected stop/TP1 from user review |
 | `2026-06-16` | displacement → MNQ; SMT → MES | **B MSS short** `30864.25 / 30896 / 30783.75`, TP1 | B Trend short `7612 / 7617.5 / 7598.25`, unresolved | closest approval candidate; still requires chart/strategy review |
 | `2026-06-17` | inconclusive; SMT none | no setup, divergent | **B Inversion short** `7587.25 / 7593.5 / 7577.75`, stopped | MNQ no-trade remains approved; MES rejected as diagnostic provenance; no second clean short before target move |
 | `2026-06-18` | inconclusive; SMT none | no setup, clean | no setup, divergent | not ready; contradicts previous approved MNQ Trend long seed |
@@ -147,11 +147,11 @@ No pair-leader rule should be promoted from this inspection alone.
 
 ## Current approval posture
 
-Several rows have since been reconciled/promoted from the first-pass state (`2026-06-09`, `2026-06-16 MNQ`, `2026-06-18 MNQ`, `2026-02-09 MNQ`, `2026-06-22 MES`, and `2026-06-25 no-trade`). `2026-06-17 MES` has also been resolved as rejected/diagnostic provenance under the already-approved MNQ no-trade row. The remaining fresh rows are review signals only until a per-date packet is hand-graded and user-approved.
+Several rows have since been reconciled/promoted from the first-pass state (`2026-06-09`, `2026-06-16 MNQ`, `2026-06-18 MNQ`, `2026-02-09 MNQ`, `2026-06-22 MES`, `2026-06-15 MES`, and `2026-06-25 no-trade`). `2026-06-17 MES` has also been resolved as rejected/diagnostic provenance under the already-approved MNQ no-trade row. The remaining fresh rows are review signals only until a per-date packet is hand-graded and user-approved.
 
 Possible next review priorities:
 
-1. Unlabeled MES/MNQ fresh setups (`2026-04-06`, `2026-06-15`, `2026-06-24`) — review-only candidates; do not promote without chart approval.
+1. Unlabeled MES/MNQ fresh setups (`2026-04-06`, `2026-06-24`) — review-only candidates; do not promote without chart approval.
 2. Pair-leader/context-policy cleanup (`2026-01-29` leader signal plus Daily HTF backfill policy) — document or repair before calling the corpus finished.
 
 ## Required next steps

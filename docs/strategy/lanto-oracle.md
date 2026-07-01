@@ -404,6 +404,25 @@ lesson below.
 - **Verdict: approve MES B Inversion short.** The correct lesson is to allow the clean MES short packet
   while preserving the null leader evidence as a caution, not as a standalone leader-selection rule.
 
+**E7 · 2026-06-15 NY-AM — MES B Trend long, stopped/wickout  ·  status: graded (user-corrected)**
+- **Approved instrument:** MES only. MNQ fresh fold had **no setup** with clean context; keep the MNQ label
+  neutral/unknown as paired context.
+- **Pair/leader read:** displacement leader **null** (MNQ `0.91`, MES `0.92`, margin `0.01` below the
+  `0.10` threshold) and SMT leader **null** (`no_divergence_measured`). This is an MES packet approval,
+  not a pair-leader rule.
+- **Packet:** **B Trend long** at **11:24 ET** from `zone:7627.75-7629.75` / `trend_wick_tap_confirm`.
+  Entry **7630.5**. User-corrected stop **7626.50** = first FVG candle low (`c1l`), not the older
+  `7627.00` full1m fallback. User-corrected TP1 **7641.50** = H4 bearish FVG first-candle high
+  (`engine_by_tf.h4.fvgs[15].c1h`), not the generic `7640.00` psych fallback. TP2 **7650**.
+- **Outcome path:** corrected stop hit first at **11:33 ET** on a wick; corrected TP1 was reached later at
+  **11:50 ET** after the stop. Risk **4.0 points**; TP1 would have paid **2.75R** if held/re-entered.
+- **Second-entry note:** no clean second long surfaced after the stop before TP1. The current engine also
+  latches the NY-AM session after the first `packet_ready`; a retry-after-stop rule is a separate future
+  implementation/risk question, not oracle truth for this row.
+- **Verdict: approve MES B Trend long as a valid setup with losing/wickout outcome.** Do not relabel as
+  no-trade just because TP1 printed after the stop; the corrected executable fields are the packet-time
+  evidence above.
+
 ---
 
 ## Pass bar

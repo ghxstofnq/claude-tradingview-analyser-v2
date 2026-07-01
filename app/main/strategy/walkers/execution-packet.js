@@ -39,7 +39,65 @@ const INTRADAY_TARGET_KINDS = {
   short: new Set(['swing_low']),
 };
 
-function targetPool(context, side) {
+function primaryDrawFvgTarget(context, side) {
+  const draw = context?.pillar1?.primaryDraw
+    ?? context?.pillar1?.primary_draw
+    ?? context?.sessionChain?.pillar1?.primaryDraw
+    ?? context?.sessionChain?.pillar1?.primary_draw
+    ?? null;
+  if (!draw || String(draw?.kind ?? draw?.type ?? '').toLowerCase() !== 'fvg') return null;
+  const state = String(draw?.state ?? 'fresh').toLowerCase();
+  if (['invalidated', 'taken', 'filled'].includes(state)) return null;
+  // For a long into an overhead bearish FVG, the first objective is the candle
+  // that created the draw (06-15 MES user correction: H4 bear FVG c1h 7641.50),
+  // not the generic psych grid just below it. Mirror for shorts into a bullish
+  // draw below. This is packet-time evidence from the captured HTF row.
+  const drawDir = String(draw?.dir ?? draw?.direction ?? '').toLowerCase();
+  const price = side === 'long' && ['bear', 'bearish'].includes(drawDir)
+    ? numberOrNull(draw.c1h)
+    : side === 'short' && ['bull', 'bullish'].includes(drawDir)
+      ? numberOrNull(draw.c1l)
+      : null;
+  if (price == null) return null;
+  return {
+    ...draw,
+    name: 'primary_draw_fvg_first_candle',
+    label: 'primary_draw_fvg_first_candle',
+    target_class: 'fvg',
+    edge: side === 'long' ? 'c1h' : 'c1l',
+    zone: refOf(draw, 'pillar1.primaryDraw'),
+    price,
+    anchorPrice: price,
+    evidenceRef: refOf(draw, 'pillar1.primaryDraw'),
+  };
+}
+
+function htfFvgFirstCandleTargets(context, side) {
+  const wantDir = side === 'long' ? ['bear', 'bearish'] : ['bull', 'bullish'];
+  const priceKey = side === 'long' ? 'c1h' : 'c1l';
+  return (context?.pillar3?.htfPdArrays ?? [])
+    .filter((row) => String(row?.kind ?? row?.type ?? '').toLowerCase() === 'fvg')
+    .filter((row) => wantDir.includes(String(row?.dir ?? row?.direction ?? '').toLowerCase()))
+    .filter((row) => !['invalidated', 'taken', 'filled'].includes(String(row?.state ?? 'fresh').toLowerCase()))
+    .map((row) => {
+      const price = numberOrNull(row?.[priceKey]);
+      if (price == null) return null;
+      return {
+        ...row,
+        name: 'htf_fvg_first_candle',
+        label: 'htf_fvg_first_candle',
+        target_class: 'fvg',
+        edge: priceKey,
+        zone: refOf(row, 'pillar3.htfPdArrays'),
+        price,
+        anchorPrice: price,
+        evidenceRef: refOf(row, 'pillar3.htfPdArrays'),
+      };
+    })
+    .filter(Boolean);
+}
+
+function targetPool(context, side, { includeHtfFvgTargets = false } = {}) {
   const dirKey = side === 'long' ? 'above' : 'below';
   const targets = context?.pillar1?.untakenTargets ?? {};
   // Persistent session-history draws (multi-day-old session highs/lows that
@@ -48,6 +106,8 @@ function targetPool(context, side) {
   // session levels (from the brief) stay TP1-eligible 'level' class.
   const levels = (targets[dirKey] ?? [])
     .map((t) => ({ ...t, target_class: t.source === 'session_draw' ? 'htf' : 'level' }));
+  const primaryDrawTarget = primaryDrawFvgTarget(context, side);
+  const htfFvgTargets = includeHtfFvgTargets ? htfFvgFirstCandleTargets(context, side) : [];
   const kinds = INTRADAY_TARGET_KINDS[side] ?? new Set();
   const stops = context?.pillar3?.structuralStops ?? context?.pillar3?.structural_stops ?? [];
   // UNSWEPT swings only — a swept swing holds no resting liquidity and is
@@ -65,7 +125,7 @@ function targetPool(context, side) {
       price: executableTargetPrice(s),
     }))
     .filter((s) => Number.isFinite(s.price));
-  return [...levels, ...pivots];
+  return [...levels, ...(primaryDrawTarget ? [primaryDrawTarget] : []), ...htfFvgTargets, ...pivots];
 }
 
 // Price-discovery fallback (§ user ruling 2026-06-15): when the pool above/below
@@ -209,6 +269,19 @@ function trendStructuralStop(walker, side, entry, context) {
       if (px != null && correctSide(px)) {
         return { kind: 'trend_reclaim_dip', price: px, evidenceRef: 'gates.engine.confirmation.last_bar[dip]' };
       }
+    }
+  }
+
+  // Trend FVG first-candle stop (user correction 2026-07-01, 06-15 MES):
+  // when the engine row already carries the three FVG candles, the first
+  // candle's wick is the clearest packet-time "FVG low/high itself" anchor.
+  // Prefer it over reconstructing by created_ms from full1m, which can land on
+  // the later candle in the three-candle sequence.
+  if (process.env.GOFNQ_P3_TREND_STOP !== '0') {
+    const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+    const firstCandleExtreme = side === 'short' ? numberOrNull(pd.c1h) : numberOrNull(pd.c1l);
+    if (firstCandleExtreme != null && correctSide(firstCandleExtreme)) {
+      return { kind: 'trend_fvg_first_candle', price: firstCandleExtreme, evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray') };
     }
   }
 
@@ -402,13 +475,13 @@ function inversionStructuralStop(walker, side, entry, context) {
   return null;
 }
 
-function validTargets(context, side, entry, stop) {
+function validTargets(context, side, entry, stop, opts = {}) {
   const score = (rows) => rows
     .map((target) => ({ ...target, price: numberOrNull(target?.price ?? target?.level) }))
     .filter((target) => target.price != null && targetIsCorrectSide(target, entry, side))
     .map((target) => ({ ...target, rMultiple: computeRMultiple({ entry, stop, target: target.price }) }))
     .filter((target) => target.rMultiple != null);
-  let valid = score(targetPool(context, side));
+  let valid = score(targetPool(context, side, opts));
   // Empty overhead = price discovery → fall back to the psych grid.
   if (valid.length === 0) valid = score(psychFallback(context, side, entry));
   return valid.sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
@@ -430,8 +503,8 @@ function isWeeklyDraw(target) {
 // Otherwise the nearest session level clearing the 1.5R floor takes it.
 // When nothing qualifies, return the nearest candidate so the packet
 // still reports tp1_below_1_5r (rather than missing_side_consistent_tp1).
-function selectTp1(context, side, entry, stop) {
-  const all = validTargets(context, side, entry, stop);
+function selectTp1(context, side, entry, stop, opts = {}) {
+  const all = validTargets(context, side, entry, stop, opts);
   // §7 Step 7: TP1 = nearest INTRADAY liquidity; the weekly draw is the
   // runner. Falls back to the full pool only if there is no other target.
   const intraday = all.filter((t) => !isWeeklyDraw(t));
@@ -464,10 +537,10 @@ function selectTp1(context, side, entry, stop) {
 // at or toward the HTF draw"). Tie-break = nearest clearing the runner R (user
 // ruling 2026-06-15). `tp1` may be the TP1 row (preferred — carries zone) or a
 // bare price.
-function selectTp2(context, side, entry, stop, tp1) {
+function selectTp2(context, side, entry, stop, tp1, opts = {}) {
   const tp1Price = tp1?.price ?? tp1;
   if (tp1Price == null) return null;
-  const beyond = validTargets(context, side, entry, stop)
+  const beyond = validTargets(context, side, entry, stop, opts)
     .filter((t) => Math.abs(t.price - entry) > Math.abs(tp1Price - entry));
   // Same-gap full fill: if TP1 is an opposing-FVG edge, TP2 = that gap's far
   // edge (partial fill → full fill off one gap).
@@ -680,13 +753,14 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   };
   const explicitTp1Candidate = explicitTarget('tp1_price', 'tp1_label', 'tp1_evidence_ref');
   const explicitTp2Candidate = explicitTarget('tp2_price', 'tp2_label', 'tp2_evidence_ref');
-  const tp1Candidate = explicitTp1Candidate ?? (entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price));
+  const includeHtfFvgTargets = normalizeModelName(walker?.model) === 'trend';
+  const tp1Candidate = explicitTp1Candidate ?? (entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price, { includeHtfFvgTargets }));
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
   // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
   // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
   const tp2Candidate = explicitTp2Candidate ?? (tp1Candidate == null || entryPrice == null || !stopCandidate
     ? null
-    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate));
+    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate, { includeHtfFvgTargets }));
   // First intraday objective — the scale-in green-light reference (opt-in via
   // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
   // the HTF draw sits. Null when there's no intraday objective.

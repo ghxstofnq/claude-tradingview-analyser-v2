@@ -155,6 +155,24 @@ export function buildStrategyContext(bundle = {}) {
     ...(bundle.engine_by_tf?.m5?.fvgs ?? []).map((z, index) => ({ ...z, kind: z.kind ?? z.type ?? 'fvg', evidenceRef: z.evidenceRef ?? z.cite ?? `engine_by_tf.m5.fvgs[${index}]` })),
     ...(bundle.engine_by_tf?.m5?.bprs ?? []).map((z, index) => ({ ...z, kind: z.kind ?? z.type ?? 'bpr', evidenceRef: z.evidenceRef ?? z.cite ?? `engine_by_tf.m5.bprs[${index}]` })),
   ];
+  // HTF PD arrays used as packet-time target evidence when the session brief did
+  // not lock a primary_draw. Example: 06-15 MES Trend long TP1 = the H4 bearish
+  // FVG first candle high (engine_by_tf.h4.fvgs[15].c1h = 7641.50), not a
+  // generic psych fallback.
+  const htfRows = [];
+  for (const tf of ['daily', 'h4', 'h1']) {
+    for (const [table, fallbackKind] of [['fvgs', 'fvg'], ['bprs', 'bpr']]) {
+      for (const [index, z] of (bundle.engine_by_tf?.[tf]?.[table] ?? []).entries()) {
+        htfRows.push({
+          ...z,
+          tf,
+          kind: z.kind ?? z.type ?? fallbackKind,
+          evidenceRef: z.evidenceRef ?? z.cite ?? `engine_by_tf.${tf}.${table}[${index}]`,
+        });
+      }
+    }
+  }
+  pillar3.htfPdArrays = htfRows;
 
   const pillar2 = buildPillar2(engine, hardBlockers, sessionChain);
   // Stage-G G3 uses M15 directional efficiency, not noisy current-chart-TF
