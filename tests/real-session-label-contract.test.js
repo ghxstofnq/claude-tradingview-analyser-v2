@@ -97,6 +97,28 @@ test('06-16 MNQ MSS label keeps executable fields no-lookahead and runner target
   assert.match(label.oracle_target_context?.note ?? '', /no-lookahead packet-time fold/);
 });
 
+test('06-25 approved no-trade label keeps pair-conflict losers as rejected provenance', () => {
+  const label = readStageGLabel('2026-06-25-mnq-ny-am-no-trade.label.json');
+
+  assert.deepEqual(label.expected, {
+    outcome: 'no_trade',
+    side: null,
+  });
+  assert.equal(label.label_status, 'labeled');
+  assert.equal(label.oracle_context?.decision, 'stand_aside');
+  assert.equal(label.oracle_context?.pair_leader?.evidence_leader, null);
+  assert.match(label.oracle_context?.live_fallback_note ?? '', /defaults null pair-leader evidence to PAIR_PRIMARY\/MNQ1!/);
+
+  const rejected = label.oracle_context?.rejected_candidates ?? [];
+  assert.equal(rejected.length, 2);
+  assert.deepEqual(rejected.map((c) => `${c.symbol}:${c.side}:${c.outcome}`), [
+    'MNQ:long:stop_hit',
+    'MES:short:stop_hit',
+  ]);
+  assert.equal(rejected[0].event_time_et, '2026-06-25T10:52:00-04:00');
+  assert.equal(rejected[1].event_time_et, '2026-06-25T10:14:00-04:00');
+});
+
 test('trade labels declare a no-lookahead replay readiness contract before they can be scored', () => {
   for (const file of readdirSync(REAL_SESSION_LABEL_DIR).filter((f) => f.endsWith('.label.json'))) {
     const label = readLabel(file);
