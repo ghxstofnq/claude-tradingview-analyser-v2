@@ -60,7 +60,7 @@ function directContextForFreshTape(tape) {
   return contextFromBriefPayloads({ session: tape.session ?? "ny-am", payloads });
 }
 
-test("fresh 2026-06-15 MES folds to corrected Trend long stop and TP1", async (t) => {
+test("fresh 2026-06-15 MES folds to corrected Trend long with buffered stop and TP1 hit", async (t) => {
   if (!existsSync(TAPE)) {
     t.skip(`fresh oracle tape not available: ${TAPE}`);
     return;
@@ -84,7 +84,7 @@ test("fresh 2026-06-15 MES folds to corrected Trend long stop and TP1", async (t
     gradeFn: gradeOpenTrade,
   };
 
-  await runBacktest({
+  const result = await runBacktest({
     date: tape.date,
     session: tape.session ?? "ny-am",
     mode: "auto",
@@ -99,9 +99,15 @@ test("fresh 2026-06-15 MES folds to corrected Trend long stop and TP1", async (t
   assert.equal(first.model, "Trend", "model");
   assert.equal(first.side, "long", "side");
   assert.equal(first.entry, 7630.5, "entry");
-  assert.equal(first.stop, 7626.5, "stop must use first FVG candle low");
+  assert.equal(first.stop_level, 7626.5, "structural stop anchor must use first FVG candle low");
+  assert.equal(first.invalidation, 7626.5, "structural invalidation anchor");
+  assert.equal(first.stop, 7626.0, "broker stop must sit two ticks below the structural stop level");
+  assert.equal(first.stop_buffer_ticks, 2, "stop buffer ticks");
   assert.equal(first.tp1, 7641.5, "tp1 must use H4 FVG first candle high");
   assert.equal(first.grade, "B", "grade");
   assert.equal(first.event_ts, "2026-06-15T15:24:00.000Z", "first_packet_event_ts");
   assert.equal(new Set(surfaced.map((s) => `${s.model}:${s.side}`)).size, 1, "one primary trade per session");
+  assert.equal(result.summary.wins, 1, "buffered 06-15 trade should reach TP1");
+  assert.equal(result.summary.losses, 0, "wick into structural anchor should not count as stop-out");
+  assert.equal(result.summary.total_r, 2.44, "R must use the wider execution stop");
 });

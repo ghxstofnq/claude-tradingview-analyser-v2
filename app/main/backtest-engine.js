@@ -474,6 +474,9 @@ export async function runBacktest({
           side: payload.side ?? null,
           entry: payload.entry ?? null,
           stop: payload.stop ?? null,
+          stop_level: payload.stop_level ?? null,
+          stop_buffer_ticks: payload.stop_buffer_ticks ?? null,
+          invalidation: payload.invalidation ?? payload.stop_level ?? null,
           tp1: payload.tp1 ?? null,
           tp2: payload.tp2 ?? null,
           grade: payload.grade ?? null,
@@ -601,6 +604,9 @@ export async function runBacktest({
         outcome: "setup",
         model: first.model, side: first.side, grade: first.grade,
         entry: first.entry, stop: first.stop, tp1: first.tp1,
+        ...(first.stop_level != null ? { stop_level: first.stop_level } : {}),
+        ...(first.invalidation != null ? { invalidation: first.invalidation } : {}),
+        ...(first.stop_buffer_ticks != null ? { stop_buffer_ticks: first.stop_buffer_ticks } : {}),
         ...(outcome ? { trade_outcome: outcome } : {}),
       };
       fs.writeFileSync(tapePath, JSON.stringify(tape, null, 2));

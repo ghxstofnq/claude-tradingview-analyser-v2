@@ -64,18 +64,21 @@ test('buildExecutionPacketForWalker creates executable packet only from confirme
   assert.equal(packet.side, 'long');
   assert.equal(packet.entry.price, 21002);
   assert.equal(packet.entry.evidenceRef, 'gates.engine.confirmation');
-  assert.equal(packet.stop.price, 20980);
+  assert.equal(packet.structuralStop.price, 20980);
+  assert.equal(packet.stop.anchorPrice, 20980);
+  assert.equal(packet.stop.price, 20979.5);
   assert.equal(packet.stop.evidenceRef, 'p3.stops.mssLow');
   assert.equal(packet.tp1.price, 21040);
-  assert.equal(packet.tp1.rMultiple, 1.73);
+  assert.equal(packet.tp1.rMultiple, 1.69);
   assert.equal(packet.grade, 'A+');
   assert.equal(packet.finalVerdict, 'manual_candidate');
   assert.equal(packet.evidenceAudit.entry.timestampMs, 1780062420000);
   assert.equal(packet.evidenceAudit.entry.close, 21002);
   assert.equal(packet.evidenceAudit.stop.rule, 'mss_structural_swing');
   assert.equal(packet.evidenceAudit.stop.anchorPrice, 20980);
+  assert.equal(packet.evidenceAudit.stop.executionPrice, 20979.5);
   assert.equal(packet.evidenceAudit.tp1.label, 'London High');
-  assert.equal(packet.evidenceAudit.tp1.rMultiple, 1.73);
+  assert.equal(packet.evidenceAudit.tp1.rMultiple, 1.69);
 });
 
 test('buildExecutionPacketForWalker records rejected alternative stops for transparent review', () => {
@@ -105,7 +108,8 @@ test('buildExecutionPacketForWalker blocks instead of inventing stop or weak TP1
     walker: confirmedMssWalker(),
   });
   assert.equal(zoneEdge.stop.kind, 'mss_zone_edge');
-  assert.equal(zoneEdge.stop.price, 20980);
+  assert.equal(zoneEdge.structuralStop.price, 20980);
+  assert.equal(zoneEdge.stop.price, 20979.5);
 
   // No pool AND no zone bounds → still fail closed.
   const noStop = buildExecutionPacketForWalker({
@@ -313,14 +317,14 @@ test('tp1 prefers the nearest unswept swing clearing 2R; tp2 is the next target 
         structuralStops: [
           { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
           { kind: 'swing_high', price: 21015, evidenceRef: 'p3.swings.near' },     // 0.59R — skipped
-          { kind: 'swing_high', price: 21046.5, evidenceRef: 'p3.swings.target' }, // 2.02R — TP1
+          { kind: 'swing_high', price: 21047, evidenceRef: 'p3.swings.target' }, // 2.00R on buffered stop — TP1
         ],
       },
     }),
     walker: confirmedMssWalker(),
   });
   assert.equal(packet.status, 'executable');
-  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp1.price, 21047);
   assert.equal(packet.tp2 ?? null, null); // nothing beyond the swing
 });
 
@@ -363,14 +367,14 @@ test('tp1: swings need 2R — a 1.6R swing yields to the qualifying level', () =
       pillar3: {
         structuralStops: [
           { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
-          // entry 21002, stop 20980 → risk 22. Swing at 21037.5 = 1.61R < 2R → skipped.
+          // entry 21002, execution stop 20979.5 → risk 22.5. Swing at 21037.5 = 1.58R < 2R → skipped.
           { kind: 'swing_high', price: 21037.5, swept: false, evidenceRef: 'p3.swings.near' },
         ],
       },
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21040); // session level (1.73R ≥ 1.5R floor)
+  assert.equal(packet.tp1.price, 21040); // session level (1.69R ≥ 1.5R floor)
 });
 
 test('tp1: a swing clearing 2R still wins over the farther level', () => {
@@ -380,13 +384,13 @@ test('tp1: a swing clearing 2R still wins over the farther level', () => {
       pillar3: {
         structuralStops: [
           { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
-          { kind: 'swing_high', price: 21046.5, swept: false, evidenceRef: 'p3.swings.q' }, // 2.02R
+          { kind: 'swing_high', price: 21047, swept: false, evidenceRef: 'p3.swings.q' }, // 2.00R on buffered stop
         ],
       },
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp1.price, 21047);
 });
 
 // User finding 2026-06-13 (June 12 AM + June 11 PM 13:30): a WIDE stop
@@ -431,11 +435,11 @@ test('tp2 still reaches the weekly draw (PWH) once a nearer intraday TP1 qualifi
   const packet = buildExecutionPacketForWalker({
     context: executableContext({
       sessionChain: alignedChain(),
-      // entry 21002, stop 20980 → risk 22. Swing 21046.5 = 2.02R → TP1.
+      // entry 21002, execution stop 20979.5 → risk 22.5. Swing 21047 = 2.00R → TP1.
       pillar3: {
         structuralStops: [
           { side: 'long', price: 20980, kind: 'mss_swing_low', evidenceRef: 'p3.stops.mssLow' },
-          { kind: 'swing_high', price: 21046.5, swept: false, evidenceRef: 'p3.swings.q' },
+          { kind: 'swing_high', price: 21047, swept: false, evidenceRef: 'p3.swings.q' },
         ],
       },
       pillar1: {
@@ -445,7 +449,7 @@ test('tp2 still reaches the weekly draw (PWH) once a nearer intraday TP1 qualifi
     }),
     walker: confirmedMssWalker(),
   });
-  assert.equal(packet.tp1.price, 21046.5);
+  assert.equal(packet.tp1.price, 21047);
   assert.equal(packet.tp2?.price, 21300); // weekly draw rides as the runner
 });
 
@@ -474,7 +478,8 @@ test('inversion stop: the violating candle extreme outranks the beyond-zone swin
     walker,
   });
   assert.equal(packet.stop.kind, 'inversion_violating_candle');
-  assert.equal(packet.stop.price, 20992);
+  assert.equal(packet.structuralStop.price, 20992);
+  assert.equal(packet.stop.price, 20991.5);
 });
 
 test('mss stop: the structural swing beyond the reversal zone outranks micro-pivots near entry', () => {
@@ -505,7 +510,8 @@ test('mss stop: the structural swing beyond the reversal zone outranks micro-piv
     walker,
   });
   assert.equal(packet.stop.kind, 'mss_structural_swing');
-  assert.equal(packet.stop.price, 20990);
+  assert.equal(packet.structuralStop.price, 20990);
+  assert.equal(packet.stop.price, 20989.5);
 });
 
 test('mss stop: zone edge fallback when no swing exists beyond the zone', () => {
@@ -532,7 +538,8 @@ test('mss stop: zone edge fallback when no swing exists beyond the zone', () => 
     walker,
   });
   assert.equal(packet.stop.kind, 'mss_zone_edge');
-  assert.equal(packet.stop.price, 21000);
+  assert.equal(packet.structuralStop.price, 21000);
+  assert.equal(packet.stop.price, 20999.5);
 });
 
 test('mss stop: liquidity-taking reversal FVG anchors on the first FVG candle extreme plus buffer', () => {
@@ -561,6 +568,7 @@ test('mss stop: liquidity-taking reversal FVG anchors on the first FVG candle ex
     walker,
   });
   assert.equal(packet.stop.kind, 'mss_fvg_first_candle');
+  assert.equal(packet.structuralStop.price, 30904.5);
   assert.equal(packet.stop.price, 30905);
 });
 
@@ -587,6 +595,7 @@ test('tp1: an unswept intraday swing anchor can beat a nearer stale label target
     }),
     walker,
   });
+  assert.equal(packet.structuralStop.price, 30904.5);
   assert.equal(packet.stop.price, 30905);
   assert.equal(packet.tp1.price, 30750.75);
   assert.equal(packet.evidenceAudit.tp1.rawPayload.anchorPrice, 30750.75);
@@ -622,12 +631,15 @@ test('trend stop: the tap candle extreme, then the zone far edge (entry-models.m
     walker,
   });
   assert.equal(packet.stop.kind, 'trend_tap_candle');
-  assert.equal(packet.stop.price, 28971.75);
+  assert.equal(packet.structuralStop.price, 28971.75);
+  assert.equal(packet.stop.price, 28972.25);
 });
 
 test('trend stop: FVG first-candle wick from walker evidence outranks full1m fallback', () => {
-  // User correction 2026-07-01 for 2026-06-15 MES: stop belongs at the first
-  // FVG candle low 7626.50, not the later full1m-created candle low 7627.00.
+  // User correction 2026-07-01 for 2026-06-15 MES: the structural stop anchor
+  // belongs at the first FVG candle low 7626.50, not the later full1m-created
+  // candle low 7627.00. User follow-up: executable/broker stop sits two ticks
+  // below the anchor so the 7626.50 wick tap does not stop the trade.
   const createdMs = 1781536800000;
   const walker = {
     ...confirmedMssWalker({
@@ -666,9 +678,13 @@ test('trend stop: FVG first-candle wick from walker evidence outranks full1m fal
     walker,
   });
   assert.equal(packet.stop.kind, 'trend_fvg_first_candle');
-  assert.equal(packet.stop.price, 7626.5);
+  assert.equal(packet.structuralStop.price, 7626.5);
+  assert.equal(packet.stop.anchorPrice, 7626.5);
+  assert.equal(packet.stop.price, 7626.0);
+  assert.equal(packet.stop.bufferTicks, 2);
   assert.equal(packet.tp1.price, 7641.5);
   assert.equal(packet.tp1.evidenceRef, 'engine_by_tf.h4.fvgs[15]');
+  assert.equal(packet.tp1.rMultiple, 2.44);
 });
 
 test('trend stop: FVG-creating candle wick from full1m takes precedence (default-on)', () => {
@@ -704,7 +720,8 @@ test('trend stop: FVG-creating candle wick from full1m takes precedence (default
     walker,
   });
   assert.equal(packet.stop.kind, 'trend_fvg_candle');
-  assert.equal(packet.stop.price, 29050); // the FVG candle's HIGH (short), not the 28971.75 pullback
+  assert.equal(packet.structuralStop.price, 29050); // the FVG candle's HIGH (short), not the 28971.75 pullback
+  assert.equal(packet.stop.price, 29050.5);
 });
 
 test('inversion stop: the failed-leg extreme across visible 1m bars outranks the violating candle', () => {
@@ -739,7 +756,8 @@ test('inversion stop: the failed-leg extreme across visible 1m bars outranks the
     walker,
   });
   assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
-  assert.equal(packet.stop.price, 21022.5);
+  assert.equal(packet.structuralStop.price, 21022.5);
+  assert.equal(packet.stop.price, 21023);
 });
 
 // Volatility-relative wide-leg cap (PRICE 10:34: the stop is sized to the current
@@ -776,20 +794,23 @@ test('inversion stop: a leg wider than 5×ATR falls back to the tighter violatin
   // entry 20900, leg high 21000 = 100pt; ATR 15 → budget 75 (<100) → tighten.
   const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900, atr14: 15 });
   assert.equal(packet.stop.kind, 'inversion_violating_candle');
-  assert.equal(packet.stop.price, 20950);
+  assert.equal(packet.structuralStop.price, 20950);
+  assert.equal(packet.stop.price, 20950.5);
 });
 
 test('inversion stop: the SAME 100pt leg is kept when ATR is high (trending — budget scales up)', () => {
   // entry 20900, leg high 21000 = 100pt; ATR 25 → budget 125 (>100) → leg kept.
   const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900, atr14: 25 });
   assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
-  assert.equal(packet.stop.price, 21000);
+  assert.equal(packet.structuralStop.price, 21000);
+  assert.equal(packet.stop.price, 21000.5);
 });
 
 test('inversion stop: no ATR reading → the leg anchor stands (cannot judge "too wide")', () => {
   const packet = wideLegInversion({ legHigh: 21000, candleHigh: 20950, close: 20900 }); // no atr14
   assert.equal(packet.stop.kind, 'inversion_failed_leg_extreme');
-  assert.equal(packet.stop.price, 21000);
+  assert.equal(packet.structuralStop.price, 21000);
+  assert.equal(packet.stop.price, 21000.5);
 });
 
 test('trend stop: anchors to the pullback swing low, not the confirmation candle wick', () => {
@@ -827,7 +848,8 @@ test('trend stop: anchors to the pullback swing low, not the confirmation candle
   assert.equal(packet.status, 'executable');
   assert.equal(packet.model, 'Trend');
   assert.equal(packet.stop.kind, 'trend_pullback_swing');
-  assert.equal(packet.stop.price, 20985); // not the 20990 confirmation wick
+  assert.equal(packet.structuralStop.price, 20985); // not the 20990 confirmation wick
+  assert.equal(packet.stop.price, 20984.5);
 });
 
 test('trend stop: falls back to the confirmation candle when no recent-bar window', () => {
@@ -853,5 +875,6 @@ test('trend stop: falls back to the confirmation candle when no recent-bar windo
   };
   const packet = buildExecutionPacketForWalker({ context, walker });
   assert.equal(packet.stop.kind, 'trend_tap_candle');
-  assert.equal(packet.stop.price, 20990);
+  assert.equal(packet.structuralStop.price, 20990);
+  assert.equal(packet.stop.price, 20989.5);
 });

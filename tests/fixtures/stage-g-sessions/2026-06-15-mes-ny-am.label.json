@@ -3,8 +3,8 @@
   "fixture": "2026-06-15-mes-ny-am",
   "fixtureSource": "real",
   "label_status": "labeled",
-  "reviewer": "GXNQ-correction-2026-07-01",
-  "source_message": "Oracle 06-15 NY-AM: user corrected the MES Trend long levels during fresh review. Stop must be the first FVG candle low 7626.50, not 7627.00; TP1 must be the H4 FVG first-candle high 7641.50, not the psych fallback 7640.00. Production fold now emits MES B Trend long 7630.5 / 7626.5 / 7641.5 at 11:24 ET. Outcome is stop_hit at 11:33 ET; corrected TP1 was reached later at 11:50 ET after stop. MNQ had no setup; pair leader was inconclusive/null. Preserve as an approved valid MES setup with losing/wickout outcome, not a no-trade row.",
+  "reviewer": "GXNQ-buffered-stop-correction-2026-07-02",
+  "source_message": "Oracle 06-15 NY-AM: user corrected the MES Trend long structural levels during fresh review, then approved the universal execution rule that broker stops sit two ticks beyond the structural stop level. Structural stop anchor is the first FVG candle low 7626.50, not 7627.00; executable stop is 7626.00. TP1 is the H4 FVG first-candle high 7641.50, not the psych fallback 7640.00. Production fold now emits MES B Trend long 7630.5 / 7626.0 execution stop (7626.5 structural anchor) / 7641.5 at 11:24 ET. The 11:33 ET wick tagged the structural anchor but not the buffered broker stop, and TP1 hit at 11:50 ET. MNQ had no setup; pair leader was inconclusive/null. Preserve as an approved valid MES setup with buffered-stop TP1 outcome.",
   "trade_date": "2026-06-15",
   "symbol": "MES",
   "contract_hint": "CME_MINI:MES1!",
@@ -15,27 +15,27 @@
     "side": "long",
     "grade": "B",
     "entry": 7630.5,
-    "stop": 7626.5,
+    "stop": 7626.0,
     "tp1": 7641.5,
-    "tp2": 7650
+    "tp2": 7650,
+    "stop_level": 7626.5,
+    "invalidation": 7626.5,
+    "stop_buffer_ticks": 2
   },
   "oracle_context": {
-    "decision": "approve_mes_trend_long_losing_wickout",
-    "approval_note": "User corrected levels on 2026-07-01: stop 7626.50 at first FVG candle low; TP1 7641.50 at H4 FVG first-candle high.",
+    "decision": "approve_mes_trend_long_buffered_tp1",
+    "approval_note": "User corrected levels on 2026-07-01: structural stop anchor 7626.50 at first FVG candle low; TP1 7641.50 at H4 FVG first-candle high. User follow-up on 2026-07-02: executable broker stop is two ticks beyond the structural level, so long stop = 7626.00.",
     "event_time_et": "2026-06-15T11:24:00-04:00",
-    "stop_time_et": "2026-06-15T11:33:00-04:00",
-    "later_tp1_time_et": "2026-06-15T11:50:00-04:00",
-    "outcome": "stop_hit",
+    "outcome": "tp1_hit",
     "entry_evidence_ref": "zone:7627.75-7629.75",
     "entry_source": "trend_wick_tap_confirm",
     "stop_evidence_ref": "zone:7627.75-7629.75.c1l",
     "stop_rule": "trend_fvg_first_candle_low",
     "tp1_evidence_ref": "engine_by_tf.h4.fvgs[15].c1h",
     "tp1_rule": "htf_fvg_first_candle_high",
-    "risk_points": 4,
-    "tp1_r_multiple": 2.75,
+    "risk_points": 4.5,
+    "tp1_r_multiple": 2.44,
     "max_favorable_points_after_entry": 14,
-    "max_adverse_points_before_stop": 4,
     "paired_mnq_context": {
       "expected_label": "tests/fixtures/stage-g-sessions/2026-06-15-mnq-ny-am.label.json remains unlabeled/unknown",
       "fresh_fold": "no setup; clean context"
@@ -52,9 +52,15 @@
     },
     "second_entry_review": {
       "clean_second_long_after_stop_before_tp1": false,
-      "current_engine_behavior": "The first packet_ready latches the NY-AM session as primary taken; stop outcome does not reset that latch. A same-zone continuation was blocked at 11:26 ET before stop, and a later long was blocked after TP1 was already reached.",
-      "future_design_question": "Whether to allow a controlled retry after an early stop is a separate implementation/risk decision, not part of this oracle promotion."
+      "current_engine_behavior": "With the two-tick execution buffer, the first approved packet is not stopped by the 11:33 ET wick into the structural anchor and reaches TP1 at 11:50 ET; retry-after-stop is not involved for this row.",
+      "future_design_question": "Whether to allow controlled retries after true execution-stop losses remains a separate implementation/risk decision."
     },
-    "not_a_pair_leader_rule": true
+    "not_a_pair_leader_rule": true,
+    "structural_stop_level": 7626.5,
+    "execution_stop": 7626.0,
+    "stop_buffer_ticks": 2,
+    "structural_anchor_touch_time_et": "2026-06-15T11:33:00-04:00",
+    "tp1_time_et": "2026-06-15T11:50:00-04:00",
+    "max_adverse_points_before_tp1": 4.0
   }
 }

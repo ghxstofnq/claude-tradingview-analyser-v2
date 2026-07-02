@@ -3,7 +3,7 @@
 // Folds the recorded 06-09 MNQ tape through the REAL deterministic chain and
 // asserts the Option-A evidence-backed oracle packet (docs/audits/recent-
 // oracle-packets/2026-06-09-ny-am.md; docs/strategy/lanto-oracle.md §2026-06-09):
-//   Inversion short B · entry 29760 · stop 29818.75 · TP1 29595.25 · first
+//   Inversion short B · entry 29760 · execution stop 29819.25 (structural 29818.75) · TP1 29595.25 · first
 //   packet 2026-06-09T14:27:00Z · one primary trade for the session.
 //
 // This replaces the previously-approved-but-inconsistent 29731.25 / 29851.50
@@ -38,7 +38,7 @@ test("2026-06-09 NY-AM folds to the evidence-backed Inversion short B packet", a
     assert.equal(outcome.firstPacket?.model, "Inversion", "model");
     assert.equal(outcome.firstPacket?.side, "short", "side");
     assert.equal(outcome.firstPacket?.entry, 29760, "entry");
-    assert.equal(outcome.firstPacket?.stop, 29818.75, "stop");
+    assert.equal(outcome.firstPacket?.stop, 29819.25, "execution stop");
     assert.equal(outcome.firstPacket?.tp1, 29595.25, "tp1");
     assert.equal(outcome.firstPacket?.grade, "B", "grade");
     assert.equal(outcome.firstPacketEventTs, "2026-06-09T14:27:00.000Z", "first_packet_event_ts");

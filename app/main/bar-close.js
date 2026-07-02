@@ -1417,8 +1417,15 @@ function deterministicPacketToSurfacePayload(packet, ev) {
     side: packet.side,
     entry: packet.entry?.price,
     entry_cite: packet.entry?.evidenceRef ?? 'deterministic.entry',
+    // Executable broker stop (structural anchor ± two ticks). This is the price
+    // used for R, sizing, brackets, and live/backtest outcome grading.
     stop: packet.stop?.price,
     stop_cite: packet.stop?.evidenceRef ?? 'deterministic.stop',
+    // Structural invalidation anchor — preserved separately so the trader can
+    // audit the strategy level that the buffered broker stop protects.
+    stop_level: packet.stop?.anchorPrice ?? packet.structuralStop?.price ?? null,
+    stop_buffer_ticks: packet.stop?.bufferTicks ?? null,
+    invalidation: packet.stop?.anchorPrice ?? packet.structuralStop?.price ?? packet.stop?.price,
     tp1: packet.tp1?.price,
     tp1_cite: packet.tp1?.evidenceRef ?? 'deterministic.tp1',
     tp2: packet.tp2?.price ?? packet.tp1?.price,

@@ -187,7 +187,8 @@ test("fresh 2026-02-09 MNQ folds to the approved multi-alignment Trend/iFVG-entr
   assert.equal(first.side, "long", "side");
   assert.equal(first.grade, "A+", "grade");
   assert.equal(first.entry, 25632, "entry");
-  assert.equal(first.stop, 25605, "stop");
+  assert.equal(first.stop_level, 25605, "structural stop anchor");
+  assert.equal(first.stop, 25604.5, "execution stop");
   assert.equal(first.tp1, 25696.75, "tp1"); // no-lookahead packet-time NYAM.H; 25707 is not present in 09:54–09:56 closed-bar evidence
   assert.equal(first.tp2, 25855.25, "tp2");
   assert.ok(["09:54", "09:55", "09:56"].includes(etMinute(first.event_ts)), "entry should surface in the documented 09:54–09:56 ET window");

@@ -100,7 +100,8 @@ test("fresh 2026-06-18 MNQ folds to the approved Trend reclaim-continuation long
   assert.equal(first.model, "Trend", "model");
   assert.equal(first.side, "long", "side");
   assert.equal(first.entry, 30452.75, "entry");
-  assert.equal(first.stop, 30400, "stop");
+  assert.equal(first.stop_level, 30400, "structural stop anchor");
+  assert.equal(first.stop, 30399.5, "execution stop");
   assert.equal(first.tp1, 30615, "tp1");
   assert.equal(first.grade, "B", "grade");
   assert.equal(first.event_ts, "2026-06-18T13:46:00.000Z", "first_packet_event_ts");
