@@ -57,12 +57,13 @@ describe("applyTrancheExit stop-move safety (C12)", () => {
     assert.deepEqual(d.calls.cancel, [11]);         // old stop cancelled after
     assert.equal(d.calls.record[0].stopOrderId, 99);
   });
-  it("if the new stop fails to place, the old stop is NOT cancelled and it flattens", async () => {
+  it("if the new stop fails to place, keep the ORIGINAL stop and do NOT flatten", async () => {
     const d = deps(null); // placement returns no id
     const r = await applyTrancheExit({ id: "T-1", status: "TP1_HIT" }, d);
     assert.deepEqual(d.calls.cancel, [], "must NOT cancel the live stop when the replacement failed");
-    assert.deepEqual(d.calls.flatten, ["MNQ1!"], "flatten to avoid a naked runner");
+    assert.deepEqual(d.calls.flatten, [], "must NOT flatten — the original stop still protects the runner, and flatten would orphan the TP limit");
     assert.equal(r.error, "modify_stop_failed");
+    assert.equal(r.stopKept, true);
     assert.equal(d.calls.errors.length, 1);
   });
 });

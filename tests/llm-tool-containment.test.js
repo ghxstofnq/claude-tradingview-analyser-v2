@@ -8,9 +8,7 @@ import {
   assertOwnerPurpose,
   setCurrentTurnPurpose,
   setCurrentDeterministicPacket,
-  clearTurnAuditState,
   surfaceSetup,
-  surfaceSessionBrief,
 } from "../app/main/tools/surface.js";
 
 describe("per-purpose tool allow-list (C26)", () => {
@@ -37,7 +35,10 @@ describe("per-purpose tool allow-list (C26)", () => {
   });
 });
 
-describe("owner-purpose guard (C26/C27 belt-and-braces)", () => {
+// The owner-guard is invoked by the SDK MCP tool handlers (which run inside the
+// LLM turn), NOT inside the surface functions — so the deterministic chain's
+// direct JS calls never touch a purpose global a concurrent turn could mutate.
+describe("owner-purpose guard (C26 belt-and-braces, handler-layer)", () => {
   it("a null purpose (direct JS chain call) is always allowed", () => {
     setCurrentTurnPurpose(null);
     assert.doesNotThrow(() => assertOwnerPurpose("surface_setup"));
@@ -58,21 +59,31 @@ describe("owner-purpose guard (C26/C27 belt-and-braces)", () => {
   });
 });
 
-describe("surface_setup fails closed (C27)", () => {
-  it("a chat turn cannot mint a setup (owner guard fires before any IO)", async () => {
-    setCurrentTurnPurpose("chat");
-    await assert.rejects(surfaceSetup({ grade: "B", side: "long", entry: 1, stop: 0.5, tp1: 2 }), /not callable from a 'chat' turn/);
-    setCurrentTurnPurpose(null);
-  });
-  it("even on a bar-close turn, no armed packet → rejected (not silently accepted)", async () => {
-    setCurrentTurnPurpose("bar-close");
-    clearTurnAuditState(); // no packet armed
+describe("surface_setup fails closed on the packet (C27)", () => {
+  it("no armed packet → rejected (not silently accepted), regardless of purpose", async () => {
+    setCurrentDeterministicPacket(null); // no packet armed
     await assert.rejects(surfaceSetup({ grade: "B", side: "long", entry: 1, stop: 0.5, tp1: 2 }), /deterministic packet/i);
-    setCurrentTurnPurpose(null);
   });
-  it("a chat turn cannot author a session brief", async () => {
-    setCurrentTurnPurpose("chat");
-    await assert.rejects(surfaceSessionBrief({ symbol: "MNQ1!" }), /not callable from a 'chat' turn/);
+});
+
+// The parity-protection regression the review demanded: the surface functions
+// must NOT read a purpose global, so the deterministic chain's direct call
+// still succeeds even while a concurrent non-owner LLM turn has set its purpose.
+// (Before the fix, an in-function owner-guard threw here and dropped the setup —
+// a live-only failure the backtest never sees = a parity break.)
+describe("chain direct call is not blocked by a concurrent turn's purpose (parity)", () => {
+  it("surfaceSetup with a matching armed packet succeeds while purpose='chat'", async () => {
+    const packet = {
+      status: "executable", finalVerdict: "manual_candidate",
+      model: "MSS", side: "long", grade: "B",
+      entry: { price: 21000 }, stop: { price: 20990 }, tp1: { price: 21050 },
+    };
+    setCurrentDeterministicPacket(packet);
+    setCurrentTurnPurpose("chat"); // a concurrent chat turn set this
+    const payload = { model: "MSS", side: "long", grade: "B", entry: 21000, stop: 20990, tp1: 21050 };
+    // Must NOT throw an owner error — the chain call bypasses the guard entirely.
+    await assert.doesNotReject(surfaceSetup(payload));
     setCurrentTurnPurpose(null);
+    setCurrentDeterministicPacket(null);
   });
 });

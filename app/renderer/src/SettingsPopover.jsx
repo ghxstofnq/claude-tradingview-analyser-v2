@@ -36,9 +36,11 @@ function GuardField({ label, hint, value, onChange }) {
 function SettingsPopover({ guards, setGuards, onClose, float }) {
   const exec = useExecutionState();
   const health = useHealth(); // live detector loop state (audit C31)
-  // Today's realized loss for the guardrail readout (audit C32). Keyed by the
-  // same UTC date the daily-loss halt itself uses (fills.readFills of the
-  // ISO date), so the readout reflects the actual halt tally.
+  // Today's realized loss for the guardrail readout (audit C32). Uses the same
+  // UTC date key the halt reads (fills.readFills of the ISO date). This sums
+  // ALL accounts' fills for the day; the halt itself scopes to the active
+  // account, so with one active account (the usual case) this equals the halt
+  // tally — a close readout, not a byte-exact mirror of the per-account gate.
   const { fills } = useFills(new Date().toISOString().slice(0, 10));
   const todayLossUsd = Math.abs((fills || []).reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0));
 

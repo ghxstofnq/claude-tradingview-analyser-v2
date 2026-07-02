@@ -40,8 +40,10 @@ export { KNOWN_PATHS };
 export async function getClient() {
   if (client) {
     try {
-      // Quick liveness check
-      await client.Runtime.evaluate({ expression: '1', returnByValue: true });
+      // Quick liveness check — deadline-wrapped so a WEDGED page (the exact
+      // hung-detector case) drops the stale client and reconnects instead of
+      // hanging here forever (audit review: this probe was outside the C23 gate).
+      await withTimeout(client.Runtime.evaluate({ expression: '1', returnByValue: true }), EVAL_TIMEOUT_MS, 'core.liveness');
       return client;
     } catch {
       client = null;
@@ -98,14 +100,15 @@ export async function getTargetInfo() {
 
 export async function evaluate(expression, opts = {}) {
   const c = await getClient();
+  const { timeoutMs, ...cdpOpts } = opts; // timeoutMs is ours, not a CDP param
   const result = await withTimeout(
     c.Runtime.evaluate({
       expression,
       returnByValue: true,
       awaitPromise: opts.awaitPromise ?? false,
-      ...opts,
+      ...cdpOpts,
     }),
-    opts.timeoutMs ?? EVAL_TIMEOUT_MS,
+    timeoutMs ?? EVAL_TIMEOUT_MS,
     'core.evaluate',
   );
   if (result.exceptionDetails) {

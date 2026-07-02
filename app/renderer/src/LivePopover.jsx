@@ -268,7 +268,10 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
   const tp1 = position?.tp ?? tpOrder?.price ?? t.tp1;
   const qty = position?.qty ?? t.size?.contracts ?? null;
   const sym = String(position?.symbol || symbol || "").replace("CME_MINI:", "");
-  const view = { side, entry, stop, tp1, tp2: t.tp2, r_realized: t.r_realized, tp1_hit: t.tp1_hit };
+  // Carry fill state so the P&L gate (audit C35) applies in the IN-TRADE panel:
+  // a broker position present = filled; otherwise the trade's own state (a
+  // pending_entry order shows PENDING, not a fabricated live R).
+  const view = { side, entry, stop, tp1, tp2: t.tp2, r_realized: t.r_realized, tp1_hit: t.tp1_hit, state: position ? "filled" : t.state };
   const livePrice = (typeof price === "number" && Number.isFinite(price)) ? price : lastBar?.close;
   const grid = liveGridFromTrade(view, livePrice);
   const brain = useDeterministicBrain();

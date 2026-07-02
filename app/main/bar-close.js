@@ -876,14 +876,6 @@ function normalizePassStatus(value) {
 async function runDeterministicPacketTruthForBar(ev, session) {
   const inputs = await buildDetectorInputs(session);
   const dir = await activeSessionDir();
-  // Day-tape recording (fix #4): freeze this bar's exact detector inputs so
-  // any session can later be promoted into a replayable regression tape
-  // (scripts/promote-day-tape.js). Fire-and-forget — recording must never
-  // block or fail the live turn.
-  if (inputs?.bundle) {
-    const record = buildWalkerInputsRecord({ event: ev, session, inputs });
-    fs.appendFile(path.join(dir, "walker-inputs.jsonl"), `${JSON.stringify(record)}\n`).catch(() => {});
-  }
   if (!inputs?.bundle?.gates) {
     const truth = { finalVerdict: 'no_trade', packets: [], bestPacket: null, blockers: ['missing_scan_bundle'], walkersChanged: false, eventTimeUtc: ev?.ts ?? null };
     await persistDeterministicTruth(dir, truth);
@@ -903,6 +895,17 @@ async function runDeterministicPacketTruthForBar(ev, session) {
     return truth;
   }
 
+  // Day-tape recording (fix #4): freeze this bar's exact detector inputs so any
+  // session can later be promoted into a replayable regression tape
+  // (scripts/promote-day-tape.js). Recorded ONLY here — AFTER the
+  // missing_scan_bundle and scan_stale early-returns — so the tape captures
+  // exactly the bars the live chain actually folds; a live-only block (stale)
+  // must not enter a tape that replays clean and diverges (parity, audit review).
+  // Fire-and-forget: recording must never block or fail the live turn.
+  {
+    const record = buildWalkerInputsRecord({ event: ev, session, inputs });
+    fs.appendFile(path.join(dir, "walker-inputs.jsonl"), `${JSON.stringify(record)}\n`).catch(() => {});
+  }
   const previous = await readDeterministicWalkersJson(dir);
   const truth = buildDeterministicPacketTruthFromInputs({
     inputs,
@@ -935,9 +938,13 @@ async function runDeterministicPacketTruthForBar(ev, session) {
     // single dropped line still lets the streak compute from the good lines.
     const { records, dropped } = parseJsonlTolerant(txt);
     if (dropped > 0) {
-      _send?.("app:error", { source: "bar-close", level: "warn", message: `trades.jsonl: ${dropped} corrupt line(s) skipped while computing the 3-loss halt` });
+      // A dropped line could BE the loss outcome that trips the halt — the
+      // streak can't be trusted, so fail CLOSED (halt) on any corruption (C21).
+      lossHalt = true;
+      _send?.("app:error", { source: "bar-close", level: "error", message: `trades.jsonl: ${dropped} corrupt line(s) — 3-loss halt fails CLOSED (halting for this session)` });
+    } else {
+      lossHalt = consecutiveLossStreak(records) >= 3;
     }
-    lossHalt = consecutiveLossStreak(records) >= 3;
   } catch (err) {
     // ENOENT = no trades yet (not halted). Any OTHER read failure on a money
     // guardrail fails CLOSED — treat unreadable trade history as halted (C21).

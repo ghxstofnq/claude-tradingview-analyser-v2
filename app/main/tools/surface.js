@@ -162,7 +162,6 @@ export function validateSetupAgainstDeterministicPacket(payload, packet) {
 
 
 export async function surfaceSetup(payload) {
-  assertOwnerPurpose("surface_setup");
   // #32 A+ requires pillar_breakdown — these setups carry the most risk
   // and the trader needs the alignment view. Reject A+ without it
   // so Claude retries with the missing field.
@@ -231,7 +230,6 @@ export async function surfaceNoTrade({
   evidenceRefs,
   eventTimeUtc,
 } = {}) {
-  assertOwnerPurpose("surface_no_trade");
   if (_currentDeterministicPacket?.status === 'executable' && _currentDeterministicPacket?.finalVerdict === 'manual_candidate') {
     throw new Error('surface_no_trade: executable deterministic packet is active. Use surface_setup with the deterministic packet values; no-trade would hide packet truth.');
   }
@@ -302,7 +300,6 @@ async function briefDirFor(session) {
 // Renderer side picks: useSessionBrief prefers per-symbol files when
 // available, falling back to brief.json.
 export async function surfaceSessionBrief(payload) {
-  assertOwnerPurpose("surface_session_brief");
   // Validate symbol against the pair allow-list. Without this, Claude can
   // hallucinate symbol="MNQ" (no !) and the file lands as brief-MNQ.json
   // — invisible to the UI, no error.
@@ -413,7 +410,6 @@ const OPEN_REACTION_DEDUP_MS = 30_000;
 let _lastOpenReaction = { ts: 0, key: null };
 
 export async function surfaceOpenReaction(payload) {
-  assertOwnerPurpose("surface_open_reaction");
   const dedupeKey = `${payload.minutes_into_phase}-${payload.bias_direction}`;
   const sinceLast = Date.now() - _lastOpenReaction.ts;
   if (_lastOpenReaction.key === dedupeKey && sinceLast < OPEN_REACTION_DEDUP_MS) {
@@ -515,7 +511,6 @@ ${priorBlock}
 // Finalized LTF bias, written at +14m of the open-reaction window. JSON
 // sidecar is the source of truth for the renderer; markdown is the human view.
 export async function surfaceLtfBias(payload) {
-  assertOwnerPurpose("surface_ltf_bias");
   // Cross-check entry_model_priority against the deterministic resolver.
   // Catches model errors silently violating the decision tree. We don't
   // throw — the model's "undecided" is always honored — but we log a
@@ -575,7 +570,6 @@ ${record.reasoning || "_no reasoning provided_"}
 // folder of the just-completed session via payload.session — not the active
 // clock, which by then has rolled to inter-session/idle.
 export async function surfaceSessionSummary(payload) {
-  assertOwnerPurpose("surface_session_summary");
   const dir = await briefDirFor(payload.session);
   const record = { ...payload, ts: new Date().toISOString() };
   await persistRecord(dir, "summary", record, renderSummaryMd);
@@ -621,7 +615,6 @@ ${watch || "- _no watchlist provided_"}
 // open-reaction phase. Once this file exists, tv analyze --pair short-
 // circuits to single-symbol on the leader for the rest of the session.
 export async function surfaceLeaderDecision(payload) {
-  assertOwnerPurpose("surface_leader_decision");
   const { primary, secondary, leader, evidence, reason, session } = payload;
   if (!primary || !secondary) throw new Error("surface_leader_decision requires primary and secondary");
   if (!session) throw new Error("surface_leader_decision requires session ('london' | 'ny-am' | 'ny-pm')");

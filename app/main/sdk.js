@@ -26,7 +26,7 @@ import {
   surfaceSessionSummary,
   surfaceLeaderDecision,
   setCurrentTurnPurpose,
-  clearTurnAuditState,
+  assertOwnerPurpose,
 } from "./tools/surface.js";
 import { getPersistentMemory, setBacktestContext, clearBacktestContext } from "./persistent-memory.js";
 import { setBacktestSessionContext, clearBacktestSessionContext } from "./sessions.js";
@@ -199,11 +199,6 @@ async function loadSystemPrompt(purpose) {
 // natural surface for trader-driven corrections; wrap and review are the
 // two reflective phases.
 const PURPOSES_WITH_MEMORY_WRITE = new Set(["chat", "wrap", "review"]);
-
-// Live-chain purposes — the only turns during which the deterministic packet is
-// legitimately armed. Non-chain turns clear it so a stale packet can't leak into
-// e.g. a chat turn (audit C27).
-const CHAIN_PURPOSES = new Set(["bar-close", "catch-up"]);
 
 // Per-purpose tool allow-list (audit C26). The walker chain is the ONLY setup
 // producer, so surface_setup/no_trade + the chain handoffs are reachable only
@@ -433,6 +428,7 @@ function buildMcpServer() {
       },
       async (args) => {
         try {
+          assertOwnerPurpose("surface_setup"); // C26 belt-and-braces at the LLM boundary (race-free; direct JS chain calls bypass)
           return ok(await surfaceSetup(args));
         } catch (e) {
           return err(e?.message || String(e));
@@ -447,6 +443,7 @@ function buildMcpServer() {
       },
       async (args) => {
         try {
+          assertOwnerPurpose("surface_no_trade");
           return ok(await surfaceNoTrade(args));
         } catch (e) {
           return err(e?.message || String(e));
@@ -465,6 +462,7 @@ function buildMcpServer() {
       },
       async (args) => {
         try {
+          assertOwnerPurpose("surface_open_reaction");
           return ok(await surfaceOpenReaction(args));
         } catch (e) {
           return err(e?.message || String(e));
@@ -497,6 +495,7 @@ function buildMcpServer() {
       },
       async (args) => {
         try {
+          assertOwnerPurpose("surface_ltf_bias");
           return ok(await surfaceLtfBias(args));
         } catch (e) {
           return err(e?.message || String(e));
@@ -522,6 +521,7 @@ function buildMcpServer() {
       },
       async (args) => {
         try {
+          assertOwnerPurpose("surface_session_summary");
           return ok(await surfaceSessionSummary(args));
         } catch (e) {
           return err(e?.message || String(e));
@@ -681,6 +681,7 @@ function buildMcpServer() {
       },
       async (args) => {
         try {
+          assertOwnerPurpose("surface_session_brief");
           return ok(await surfaceSessionBrief(args));
         } catch (e) {
           return err(e?.message || String(e));
@@ -706,6 +707,7 @@ function buildMcpServer() {
       },
       async (args) => {
         try {
+          assertOwnerPurpose("surface_leader_decision");
           return ok(await surfaceLeaderDecision(args));
         } catch (e) {
           return err(e?.message || String(e));
@@ -1002,12 +1004,15 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, provi
   // eslint-disable-next-line no-console
   console.log("[sdk] userTurn start", { purpose, textLen: text.length, resuming: !!resumeId, timeoutMs });
 
-  // Tell the surface tools which purpose is running so their owner-purpose guard
-  // can reject a tool the turn isn't the owner of (audit C26/C27). A non-chain
-  // turn also clears any deterministic packet the last bar armed so it can't
-  // leak into e.g. a chat surface_setup.
+  // Tell the surface tools which purpose is running so the per-tool owner-guard
+  // in the MCP handlers can reject a tool this turn isn't the owner of (audit
+  // C26). Read only inside those handlers (which run within THIS turn), never by
+  // the deterministic chain — so it can't race the chain's own direct calls.
+  // (No packet-clear here: chat/review can't reach surface_setup — allow-list +
+  // handler guard — so a stale armed packet is unexploitable; the next bar
+  // overwrites it. Clearing it would be a second global the concurrent chain
+  // races on.)
   setCurrentTurnPurpose(purpose);
-  if (!CHAIN_PURPOSES.has(purpose)) clearTurnAuditState();
 
   let q;
   try {

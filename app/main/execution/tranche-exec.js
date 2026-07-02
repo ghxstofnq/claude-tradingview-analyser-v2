@@ -155,9 +155,13 @@ export async function applyTrancheExit(transition, deps) {
       // to be safe rather than leave the runner unprotected.
       const newId = await d.placeStandalone({ symbol: plan.accept.symbol, type: "stop", side: exitSide, contracts, price: a.price });
       if (!Number.isFinite(newId)) {
-        d.emitError?.({ level: "error", message: `BE stop replacement failed for ${transition.id} — kept original stop, flattening to avoid a naked runner` });
-        try { await d.flatten(plan.accept.symbol); } catch { /* best-effort */ }
-        return { applied: plan.actions, error: "modify_stop_failed", flattened: true };
+        // Replacement BE stop failed to place. The ORIGINAL stop was never
+        // cancelled, so the runner is still protected — the safe action is to
+        // keep it and surface the error, NOT flatten (flatten=close_position
+        // doesn't cancel the resting TP2 limit, which would then orphan-reverse
+        // the position). A later real transition still manages it. (audit review)
+        d.emitError?.({ level: "error", message: `BE stop replacement failed for ${transition.id} — original stop kept (runner still protected); leave/close manually if needed` });
+        return { applied: plan.actions, error: "modify_stop_failed", stopKept: true };
       }
       await d.cancelOrder(a.orderId);
       await d.recordTrancheOrders({ setup_id: transition.id, stopOrderId: newId, limitOrderId: plan.orders.limitOrderId });

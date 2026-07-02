@@ -179,15 +179,21 @@ async function buildRealDeps() {
       const results = [];
       for (const a of actions) results.push(await tvAdapter.placeStandalone(a));
       const { stopOrderId, limitOrderId, naked, authLost } = evaluateBracketResults(results);
-      if (authLost) _send?.("app:error", { source: "tranche-manager", level: "error", message: `Broker rejected the bracket as logged-out (401/403) for ${trancheId} — auto-entry halted` });
+      if (authLost) _send?.("app:error", { source: "tranche-manager", level: "error", message: `Broker rejected the bracket as logged-out (401/403) for ${trancheId} — re-auth the TradingView/broker session; auto-entries will keep failing until then` });
       // A filled entry with no working protective stop is the worst money-path
       // state (audit C13). Flatten the just-opened entry immediately, surface
       // it, and never persist a naked entry as if it were bracketed.
       if (naked) {
         try { await tvAdapter.flatten({ symbol: packet.symbol }); } catch { /* best-effort — the error below still surfaces */ }
-        _send?.("app:error", { source: "tranche-manager", level: "error", message: `Bracket stop leg failed for ${trancheId} — flattened the entry to avoid a naked position` });
-        await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId: null, limitOrderId, error: "stop_leg_failed", flattened: true, ts: new Date().toISOString() });
-        return { stopOrderId: null, limitOrderId, error: "stop_leg_failed", flattened: true };
+        // flatten (close_position) does NOT cancel resting orders, so the TP
+        // limit leg would orphan-reverse the position when it fills — cancel it
+        // too (audit review). Then close the journal trade so foldOpenTrades
+        // stops the grader ticking a phantom position.
+        if (Number.isFinite(limitOrderId)) { try { await tvAdapter.cancelOrder({ id: limitOrderId }); } catch { /* best-effort */ } }
+        _send?.("app:error", { source: "tranche-manager", level: "error", message: `Bracket stop leg failed for ${trancheId} — flattened the entry and cancelled the TP leg to avoid a naked/reversed position` });
+        await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId: null, limitOrderId: null, error: "stop_leg_failed", flattened: true, ts: new Date().toISOString() });
+        await appendTrade({ type: "outcome", id: trancheId, status: "INVALIDATED", source: "bracket-naked-abort", ts: new Date().toISOString() });
+        return { stopOrderId: null, limitOrderId: null, error: "stop_leg_failed", flattened: true };
       }
       await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId, limitOrderId, ts: new Date().toISOString() });
       return { stopOrderId, limitOrderId };
