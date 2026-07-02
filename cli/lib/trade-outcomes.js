@@ -279,7 +279,10 @@ export function foldOpenTrades(events) {
     } else if (ev.type === "outcome") {
       const t = byId.get(ev.id);
       if (!t) continue;
-      if (ev.status === "FILLED") t.state = "filled";
+      // A FILLED must not RE-OPEN a trade already voided by a failed order
+      // (a stale FILLED written before the order was known to fail — the exact
+      // shape of the 2026-07-02 phantom in the journal). Terminal stays terminal.
+      if (ev.status === "FILLED") { if (t.state !== "closed") t.state = "filled"; }
       // A+ → TP2: TP1 arms the runner (stop → break-even, original retained for
       // R/16:00-close). For everything else, TP1 is a full close at the target.
       else if (ev.status === "TP1_HIT") {

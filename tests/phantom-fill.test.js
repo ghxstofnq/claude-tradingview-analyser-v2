@@ -51,6 +51,18 @@ describe("phantom fill (failed order must not fill)", () => {
     const events = [ACCEPT, { type: "tranche_orders", broker: "paper", setup_id: "T-1", stopOrderId: 11, limitOrderId: 22 }];
     assert.equal(foldOpenTrades(events).length, 1, "a real open must still be tracked");
   });
+
+  // The exact 2026-07-02 live journal shape: accept → failed tranche_orders →
+  // a STALE FILLED (written by the old code before the failure was known). The
+  // failed order voids it and the stale FILLED must not re-open it.
+  it("FIX: the real-incident journal (failed order + stale FILLED) folds to 0 open", () => {
+    const events = [
+      { type: "accept", id: "T-1", side: "short", entry: 29819, stop: 29934, invalidation: 29934, tp1: 29274 },
+      { type: "tranche_orders", broker: "paper", setup_id: "T-1", stopOrderId: null, limitOrderId: null },
+      { type: "outcome", id: "T-1", status: "FILLED", fill_price: 29819 },
+    ];
+    assert.equal(foldOpenTrades(events).length, 0, "no phantom position survives");
+  });
 });
 
 describe("symbol propagation (root cause of the failed order)", () => {
