@@ -24,17 +24,35 @@ export function readFills(tradesDir, date) {
 }
 
 // Daily realized LOSS as a positive $ number (for the daily-halt guardrail).
-// `account` scopes the sum to ONE account so a halt on one account is never
-// charged another's losses. It matches a fill's specific `accountId` first
-// (e.g. "D50756821") and falls back to the broker `account` label
-// ("paper"/"tradovate") for fills written before per-account ids — that broker
-// fallback is also why two different Tradovate accounts used to share a tally.
-// Null/omitted = all accounts (back-compat). Fills are labelled at write time
-// (trading-feed → paper id, tradovate-fills → Tradovate account id).
+// `account` scopes the sum so a halt on one account is never charged another's:
+//   - null/omitted → all accounts (back-compat).
+//   - string → matches a fill's specific `accountId`, falling back to the broker
+//     `account` label ("paper"/"tradovate") for fills written before per-account
+//     ids (back-compat with the label-scoping callers).
+//   - { id, broker } → matches this account's id, AND ALSO counts any fill of
+//     the same broker that carries NO accountId. A fill written before the id
+//     was learned used to be silently excluded from the id-scoped halt, so the
+//     halt under-counted and traded past the limit (audit C14). Under-counting a
+//     loss halt risks unbounded loss; counting an ambiguous same-broker fill only
+//     halts slightly early — the fail-safe direction.
 export function dayRealizedLossUsd(fills = [], account = null) {
-  const key = account == null ? null : String(account);
-  const scoped = key == null ? fills : fills.filter((f) => String(f?.accountId ?? f?.account) === key);
-  const loss = scoped.reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0);
+  let matches;
+  if (account == null) {
+    matches = () => true;
+  } else if (typeof account === "object") {
+    const id = account.id == null ? null : String(account.id);
+    const broker = account.broker == null ? null : String(account.broker);
+    matches = (f) => {
+      const fid = f?.accountId == null ? null : String(f.accountId);
+      if (id != null && fid === id) return true;
+      if (fid == null && broker != null && String(f?.account) === broker) return true;
+      return false;
+    };
+  } else {
+    const key = String(account);
+    matches = (f) => String(f?.accountId ?? f?.account) === key;
+  }
+  const loss = fills.filter(matches).reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0);
   return Math.abs(loss);
 }
 

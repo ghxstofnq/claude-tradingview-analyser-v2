@@ -17,25 +17,11 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { verifyCitations } from '../cli/lib/cite-check.js';
 
 function fail(msg, code = 2) {
   console.error(`error: ${msg}`);
   process.exit(code);
-}
-
-function getByPath(obj, path) {
-  // Split 'pine.boxes.studies[0].zones[3].high' into tokens.
-  const tokens = path.split(/\.|\[(\d+)\]/).filter((t) => t !== undefined && t !== '');
-  let cur = obj;
-  for (const t of tokens) {
-    if (cur == null) return undefined;
-    cur = /^\d+$/.test(t) ? cur[Number(t)] : cur[t];
-  }
-  return cur;
-}
-
-function approxEqual(a, b) {
-  return typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-4;
 }
 
 const [, , analysisPath, bundlePath] = process.argv;
@@ -49,40 +35,9 @@ catch (e) { fail(`could not read analysis: ${e.message}`); }
 try { bundle = JSON.parse(readFileSync(bundlePath, 'utf8')); }
 catch (e) { fail(`could not parse bundle: ${e.message}`); }
 
-// Match citation pairs: <number> (<path>)
-// number: optional minus, digits with optional decimal
-// path: paren-balanced, no nested parens (good enough for our syntax)
-const cite = /(-?\d+(?:\.\d+)?)\s*\(([^)\n]+)\)/g;
-
-const violations = [];
-const checked = [];
-let match;
-while ((match = cite.exec(analysis)) !== null) {
-  const cited = Number(match[1]);
-  const path = match[2].trim();
-
-  // Skip non-citation parentheticals (paths must look like a JSON accessor).
-  // Allowed: letters/underscore start, then word chars, dots, brackets, digits,
-  // and `!` (futures symbols like MNQ1!, MES1! contain `!` — these appear as
-  // object keys in dual-symbol paired bundles, e.g. pair.symbols.MNQ1!.quote.last).
-  if (!/^[a-zA-Z_][\w.[\]!]*$/.test(path)) continue;
-
-  const actual = getByPath(bundle, path);
-  if (actual === undefined) {
-    violations.push({ cited, path, reason: 'path not present in bundle' });
-  } else if (typeof actual !== 'number') {
-    const preview = JSON.stringify(actual);
-    violations.push({
-      cited,
-      path,
-      reason: `path resolves to non-number (${typeof actual}: ${preview && preview.length > 60 ? preview.slice(0, 60) + '…' : preview})`,
-    });
-  } else if (!approxEqual(cited, actual)) {
-    violations.push({ cited, path, reason: `bundle has ${actual}` });
-  } else {
-    checked.push({ cited, path });
-  }
-}
+// Shared resolver (cli/lib/cite-check.js) — same logic used by the live
+// surface-time check so the two can never drift (audit C29).
+const { violations, checked } = verifyCitations(analysis, bundle);
 
 if (violations.length === 0 && checked.length === 0) {
   console.warn(

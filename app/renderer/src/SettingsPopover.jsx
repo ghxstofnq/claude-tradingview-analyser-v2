@@ -11,6 +11,8 @@ import { useFloat } from "./hooks/useFloat.js";
 import { armReady as isArmReady, realAccountView } from "./Account.helpers.js";
 import { useExecutionState } from "./hooks/useExecutionState.js";
 import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
+import { useHealth } from "./hooks/useHealth.js";
+import { useFills } from "./hooks/useFills.js";
 
 function Row({ k, v }) {
   return (
@@ -33,6 +35,14 @@ function GuardField({ label, hint, value, onChange }) {
 
 function SettingsPopover({ guards, setGuards, onClose, float }) {
   const exec = useExecutionState();
+  const health = useHealth(); // live detector loop state (audit C31)
+  // Today's realized loss for the guardrail readout (audit C32). Uses the same
+  // UTC date key the halt reads (fills.readFills of the ISO date). This sums
+  // ALL accounts' fills for the day; the halt itself scopes to the active
+  // account, so with one active account (the usual case) this equals the halt
+  // tally — a close readout, not a byte-exact mirror of the per-account gate.
+  const { fills } = useFills(new Date().toISOString().slice(0, 10));
+  const todayLossUsd = Math.abs((fills || []).reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0));
 
   // Execution config (automation mode + risk knobs) lives in main so auto-fire
   // can read it. Load on mount; every change persists to both renderer state
@@ -104,7 +114,9 @@ function SettingsPopover({ guards, setGuards, onClose, float }) {
           <GuardField label="Max $ / trade" hint="per-order ceiling" value={guards.perTradeMax} onChange={(v) => set("perTradeMax", v)} />
           <GuardField label="Daily loss limit" hint="locks new entries when hit" value={guards.dailyLimit} onChange={(v) => set("dailyLimit", v)} />
           <GuardField label="Default $ risk" hint="seeds each new ticket" value={guards.defaultRisk} onChange={(v) => set("defaultRisk", v)} />
-          <div className="guard-foot">Today: <b>—</b> · $0 of ${guards.dailyLimit} loss limit used</div>
+          <div className="guard-foot" style={todayLossUsd >= guards.dailyLimit ? { color: "var(--red)" } : todayLossUsd >= guards.dailyLimit * 0.7 ? { color: "var(--amber)" } : undefined}>
+            Today: <b>${Math.round(todayLossUsd).toLocaleString("en-US")}</b> of ${guards.dailyLimit} loss limit used
+          </div>
         </div>
         <div className="section">
           <div className="sect-hd"><span>AUTOMATION</span><span className="meta">AUTO-FIRE · PAPER</span></div>
@@ -132,7 +144,11 @@ function SettingsPopover({ guards, setGuards, onClose, float }) {
             : <span style={{ color: "var(--amber)" }}>{exec.loading ? "checking…" : "○ not connected — connect in TradingView"}</span>} />
           <Row k="Per-order confirm" v={<span style={{ color: "var(--amber)" }}>OFF · fires on accept</span>} />
           <Row k="Default order type" v="MARKET" />
-          <Row k="Detector" v={<span style={{ color: "var(--green)" }}>● RUNNING</span>} />
+          <Row k="Detector" v={health?.loop === "healthy"
+            ? <span style={{ color: "var(--green)" }}>● RUNNING</span>
+            : health?.loop === "stale"
+            ? <span style={{ color: "var(--amber)" }}>● STALE</span>
+            : <span style={{ color: "var(--red)" }}>○ STOPPED</span>} />
         </div>
         <div className="section">
           <div className="sect-hd"><span>BROKER ROUTING</span><span className="meta">FOLLOWS THE ACTIVE ACCOUNT</span></div>
