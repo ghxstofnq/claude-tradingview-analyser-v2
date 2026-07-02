@@ -268,7 +268,10 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
   const tp1 = position?.tp ?? tpOrder?.price ?? t.tp1;
   const qty = position?.qty ?? t.size?.contracts ?? null;
   const sym = String(position?.symbol || symbol || "").replace("CME_MINI:", "");
-  const view = { side, entry, stop, tp1, tp2: t.tp2, r_realized: t.r_realized, tp1_hit: t.tp1_hit };
+  // Carry fill state so the P&L gate (audit C35) applies in the IN-TRADE panel:
+  // a broker position present = filled; otherwise the trade's own state (a
+  // pending_entry order shows PENDING, not a fabricated live R).
+  const view = { side, entry, stop, tp1, tp2: t.tp2, r_realized: t.r_realized, tp1_hit: t.tp1_hit, state: position ? "filled" : t.state };
   const livePrice = (typeof price === "number" && Number.isFinite(price)) ? price : lastBar?.close;
   const grid = liveGridFromTrade(view, livePrice);
   const brain = useDeterministicBrain();
@@ -293,7 +296,17 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
       grid.pnl = { v: `${r >= 0 ? "+" : "−"}$${Math.abs(r).toLocaleString("en-US")}`, sub: "unrealized", tone: r > 0 ? "green" : r < 0 ? "red" : "" };
     }
   }
-  const mng = (fn) => () => { try { executionAdapter[fn]({ symbol: position?.symbol || symbol, tradeId: t.id }); } catch { /* best-effort */ } };
+  // Trade-management actions await the broker ack and surface any failure
+  // (audit C34) — a fire-and-forget FLATTEN that the broker rejects previously
+  // looked successful while the position stayed open.
+  const [mngMsg, setMngMsg] = useState(null);
+  const mng = (fn, label) => async () => {
+    setMngMsg(null);
+    try {
+      const r = await executionAdapter[fn]({ symbol: position?.symbol || symbol, tradeId: t.id });
+      if (!r?.ok) setMngMsg(`${label} FAILED — ${r?.error || `broker rejected (status ${r?.status ?? "?"})`}`);
+    } catch (e) { setMngMsg(`${label} FAILED — ${String(e?.message || e)}`); }
+  };
   const deepenPrompt = `Live read of the open ${t.model || side} ${side} trade on ${sym} (entry ${entry} / stop ${stop} / TP1 ${tp1}). Per Lanto — is price respecting the setup, has it confirmed continuation toward the ultimate target, and should the runner trail or is structure breaking? Concise prose, no tool calls.`;
   return (
     <div className="work-scroll">
@@ -332,13 +345,18 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
               : "No-trim ride-the-trail — hold full size to TP1, then trail; never scaled."}
           </div>
           <div className="itbtns">
-            <button className="itbtn flatten" onClick={mng("flatten")}>▣ FLATTEN</button>
-            <button className="itbtn be" onClick={mng("moveStopToBE")}>⇲ BE</button>
+            <button className="itbtn flatten" onClick={mng("flatten", "FLATTEN")}>▣ FLATTEN</button>
+            <button className="itbtn be" onClick={mng("moveStopToBE", "BE")}>⇲ BE</button>
           </div>
           <div className="itbtns-sec">
-            <button className="itbtn-sec" onClick={mng("trail")}>TRAIL</button>
-            <button className="itbtn-sec" onClick={mng("cancel")}>CANCEL</button>
+            <button className="itbtn-sec" onClick={mng("trail", "TRAIL")}>TRAIL</button>
+            <button className="itbtn-sec" onClick={mng("cancel", "CANCEL")}>CANCEL</button>
           </div>
+          {mngMsg && (
+            <div className="guard-foot" style={{ color: "var(--red)", cursor: "pointer" }} onClick={() => setMngMsg(null)}>
+              ⚠ {mngMsg} (tap to dismiss)
+            </div>
+          )}
         </div>
 
         {latestBrain && (

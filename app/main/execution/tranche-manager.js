@@ -4,6 +4,12 @@
 // unit-tested here; the runtime that talks to the journal + broker is added in
 // a later task. Detection rules are the shared, backtest-parity module.
 import { sizeFromStop } from "./sizing-core.js";
+import { evaluateBracketResults } from "./tranche-exec.js";
+
+// app:error sink (wired from bar-close) so a naked-entry flatten / broker
+// rejection surfaces to the operator instead of being swallowed (audit C13/C24).
+let _send = null;
+export function setTrancheSink(send) { _send = send; }
 
 // Pure: map a surfaced packet → Tradovate bracket-order args. A Tradovate order
 // carries its OWN stop/target in one POST (native bracket), so a tranche is a
@@ -129,7 +135,7 @@ async function buildRealDeps() {
     // Scope to THIS account's id (not the broker label) + read from the real
     // TRADES_DIR (config), not the non-existent fills.TRADES_DIR which silently
     // read nothing — so auto mode previously had no daily halt at all.
-    dayRealizedLossUsd: () => { try { const acct = active.getActiveAccount()?.id ?? null; return fills.dayRealizedLossUsd(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), acct); } catch { return 0; } },
+    dayRealizedLossUsd: () => { try { const a = active.getActiveAccount(); const scope = a?.id ? { id: a.id, broker: a.broker ?? null } : null; return fills.dayRealizedLossUsd(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), scope); } catch { return 0; } },
     // Best-effort open drawdown for the predictive daily-loss gate. Same
     // read-only sources as the IPC fire path: Tradovate REST position if active,
     // otherwise the paper/webview position. Any read failure degrades to 0 so
@@ -172,9 +178,23 @@ async function buildRealDeps() {
       });
       const results = [];
       for (const a of actions) results.push(await tvAdapter.placeStandalone(a));
-      const idOf = (r) => { try { return Number(JSON.parse(r.body).id); } catch { return null; } };
-      const stopOrderId = idOf(results[1]);
-      const limitOrderId = idOf(results[2]);
+      const { stopOrderId, limitOrderId, naked, authLost } = evaluateBracketResults(results);
+      if (authLost) _send?.("app:error", { source: "tranche-manager", level: "error", message: `Broker rejected the bracket as logged-out (401/403) for ${trancheId} — re-auth the TradingView/broker session; auto-entries will keep failing until then` });
+      // A filled entry with no working protective stop is the worst money-path
+      // state (audit C13). Flatten the just-opened entry immediately, surface
+      // it, and never persist a naked entry as if it were bracketed.
+      if (naked) {
+        try { await tvAdapter.flatten({ symbol: packet.symbol }); } catch { /* best-effort — the error below still surfaces */ }
+        // flatten (close_position) does NOT cancel resting orders, so the TP
+        // limit leg would orphan-reverse the position when it fills — cancel it
+        // too (audit review). Then close the journal trade so foldOpenTrades
+        // stops the grader ticking a phantom position.
+        if (Number.isFinite(limitOrderId)) { try { await tvAdapter.cancelOrder({ id: limitOrderId }); } catch { /* best-effort */ } }
+        _send?.("app:error", { source: "tranche-manager", level: "error", message: `Bracket stop leg failed for ${trancheId} — flattened the entry and cancelled the TP leg to avoid a naked/reversed position` });
+        await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId: null, limitOrderId: null, error: "stop_leg_failed", flattened: true, ts: new Date().toISOString() });
+        await appendTrade({ type: "outcome", id: trancheId, status: "INVALIDATED", source: "bracket-naked-abort", ts: new Date().toISOString() });
+        return { stopOrderId: null, limitOrderId: null, error: "stop_leg_failed", flattened: true };
+      }
       await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId, limitOrderId, ts: new Date().toISOString() });
       return { stopOrderId, limitOrderId };
     },

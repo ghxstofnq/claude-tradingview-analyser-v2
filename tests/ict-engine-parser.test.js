@@ -124,6 +124,15 @@ test('parseIctEngineTable flags an unknown schema as unsupported', () => {
   assert.equal(t.schema_supported, false);
 });
 
+test('C19: below-current schemas still PARSE but schema_current flags a stale deploy', () => {
+  const stale = parseIctEngineTable(['meta | schema=1|count=0|emit_ny=00:00:00|emit_ms=0|tf=15|symbol=MNQ1!']);
+  assert.equal(stale.schema_supported, true, 'old schema must still parse (fixture back-compat)');
+  assert.equal(stale.schema_current, false, 'but flags as not the currently-deployed schema');
+
+  const current = parseIctEngineTable(['meta | schema=4|count=0|emit_ny=00:00:00|emit_ms=0|tf=15|symbol=MNQ1!']);
+  assert.equal(current.schema_current, true);
+});
+
 test('parseIctEngineTable returns null without a meta row', () => {
   assert.equal(parseIctEngineTable(['level | name=PWH|price=1|state=complete|swept=0|formed_ms=0']), null);
   assert.equal(parseIctEngineTable([]), null);

@@ -1,4 +1,5 @@
 import CDP from 'chrome-remote-interface';
+import { withTimeout } from './guards.js';
 
 let client = null;
 let targetInfo = null;
@@ -9,6 +10,11 @@ const CDP_HOST = 'localhost';
 const CDP_PORT = Number(process.env.TV_CDP_PORT) || 9225;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 500;
+// Deadline for a single CDP evaluate. A wedged page/socket previously hung the
+// caller forever (the hung-detector case the heartbeat watchdog exists for —
+// audit C23). No retry: some evaluates mutate (setSymbol/replay/pine) and a
+// retry could double-apply. Env-overridable for slow machines.
+const EVAL_TIMEOUT_MS = Number(process.env.TV_EVAL_TIMEOUT_MS) || 8000;
 
 // Known direct API paths discovered via live probing (see PROBE_RESULTS.md)
 const KNOWN_PATHS = {
@@ -34,8 +40,10 @@ export { KNOWN_PATHS };
 export async function getClient() {
   if (client) {
     try {
-      // Quick liveness check
-      await client.Runtime.evaluate({ expression: '1', returnByValue: true });
+      // Quick liveness check — deadline-wrapped so a WEDGED page (the exact
+      // hung-detector case) drops the stale client and reconnects instead of
+      // hanging here forever (audit review: this probe was outside the C23 gate).
+      await withTimeout(client.Runtime.evaluate({ expression: '1', returnByValue: true }), EVAL_TIMEOUT_MS, 'core.liveness');
       return client;
     } catch {
       client = null;
@@ -92,12 +100,17 @@ export async function getTargetInfo() {
 
 export async function evaluate(expression, opts = {}) {
   const c = await getClient();
-  const result = await c.Runtime.evaluate({
-    expression,
-    returnByValue: true,
-    awaitPromise: opts.awaitPromise ?? false,
-    ...opts,
-  });
+  const { timeoutMs, ...cdpOpts } = opts; // timeoutMs is ours, not a CDP param
+  const result = await withTimeout(
+    c.Runtime.evaluate({
+      expression,
+      returnByValue: true,
+      awaitPromise: opts.awaitPromise ?? false,
+      ...cdpOpts,
+    }),
+    timeoutMs ?? EVAL_TIMEOUT_MS,
+    'core.evaluate',
+  );
   if (result.exceptionDetails) {
     const msg = result.exceptionDetails.exception?.description
       || result.exceptionDetails.text

@@ -47,7 +47,10 @@ async function guarded(payload) {
   // account's losses must not halt another. Use the account id (not the broker
   // label) so two different Tradovate accounts don't share one tally. Falls back
   // to all-accounts when the active account is unknown.
-  const account = getActiveAccount()?.id ?? null;
+  const acct = getActiveAccount();
+  // Scope by { id, broker } so a fill written before the account id was learned
+  // (accountId null) still counts toward this broker's halt (audit C14).
+  const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
   // Fold current open drawdown into the gate so a new order can't be sized into
   // a worst-case day that breaches the daily limit (audit Phase 3).
   const dayState = { realizedLossUsd: dayRealizedLossUsd(fills, account), openLossUsd: await openLossUsdNow() };
@@ -231,11 +234,16 @@ export function registerExecutionIpc() {
     ipcMain.handle(`execution:${verb}`, async (_e, payload) => {
       try {
         // Route flatten/panic to Tradovate when it's the active broker.
+        // Derive ok from the broker ack — a non-200/rejected close must NOT
+        // report ok:true, or the IN-TRADE failure banner (audit C34) never
+        // fires and a still-open position looks flat.
         if (getActiveAccount()?.broker === "tradovate") {
           const { closeTradovatePosition } = await import("./execution/tradovate-adapter.js");
-          return { ok: true, broker: "tradovate", result: await closeTradovatePosition(payload || {}) };
+          const result = await closeTradovatePosition(payload || {});
+          return { ok: result?.ok === true, broker: "tradovate", result };
         }
-        return { ok: true, broker: "paper", result: await tvAdapter[verb](payload) };
+        const result = await tvAdapter[verb](payload);
+        return { ok: result?.ok === true || result?.status === 200, broker: "paper", result };
       } catch (e) { return { ok: false, error: String(e?.message || e) }; }
     });
   }
@@ -321,7 +329,9 @@ export function registerExecutionIpc() {
       if (wos.length === 0) return { ok: true, cancelled: 0 };
       const results = [];
       for (const o of wos) results.push(await tvAdapter.cancelOrder({ id: o.id }));
-      return { ok: true, cancelled: results.length, result: results };
+      // ok only when EVERY cancel acked — a partial cancel must surface (C34).
+      const cancelled = results.filter((r) => r?.ok === true || r?.status === 200).length;
+      return { ok: cancelled === results.length, cancelled, result: results };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 }

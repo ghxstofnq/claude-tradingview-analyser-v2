@@ -13,6 +13,12 @@
 /** Engine table schemas this parser understands. Guard on meta.schema. */
 export const ENGINE_SCHEMA = 1;
 export const SUPPORTED_SCHEMAS = new Set([1, 2, 3, 4]);
+// The schema the CURRENTLY-DEPLOYED indicator should emit. Older schemas still
+// PARSE (fixtures/replay/back-compat depend on it — audit C19 kept additive so
+// it doesn't break the V1/V2/V3 regression baselines), but a LIVE capture
+// reading below this is a stale-deploy signal the live/health path surfaces via
+// the schema_current flag rather than a silent accept.
+export const CURRENT_SCHEMA = 4;
 
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
@@ -108,7 +114,7 @@ function withIsHigh(swing) {
 export function parseIctEngineTable(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
   const out = {
-    schema: null, schema_supported: false, meta: null,
+    schema: null, schema_supported: false, schema_current: false, meta: null,
     levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [],
     pools: [], quality: null,
   };
@@ -120,6 +126,8 @@ export function parseIctEngineTable(rows) {
       out.meta = fields;
       out.schema = fields.schema ?? null;
       out.schema_supported = SUPPORTED_SCHEMAS.has(out.schema);
+      // Below-current = parses but signals a stale deployed indicator (C19).
+      out.schema_current = out.schema === CURRENT_SCHEMA;
     } else if (type === 'level') out.levels.push(fields);
     else if (type === 'sweep') out.sweeps.push(fields);
     else if (type === 'fvg') out.fvgs.push(fields);

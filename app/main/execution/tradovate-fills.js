@@ -9,12 +9,38 @@ import path from "node:path";
 import { appendFill } from "./fills.js";
 import { TRADES_DIR } from "./config.js";
 import { activeBroker, getTradovate, tvRootOf } from "./tradovate.js";
-import { readTradovatePosition } from "./tradovate-adapter.js";
+import { readTradovatePositionSafe } from "./tradovate-adapter.js";
 import { activeSessionDir } from "../sessions.js";
 import { foldOpenTrades, closeTradesAtBrokerExit } from "../../../cli/lib/trade-outcomes.js";
 
 const pointValue = (sym) => (/MES/.test(sym || "") ? 5 : 2);
 const today = () => new Date().toISOString().slice(0, 10);
+// Consecutive confirmed-flat reads required before booking a close — debounces
+// a one-off flat read so a blip never books a phantom close (audit C11).
+const FLAT_CONFIRM = 2;
+
+// Dedup key for a booked round-trip so a re-poll can't double-record the same
+// close (audit C11). closeMs is the natural key; fall back to exit/entry/qty.
+export function roundTripKey(rt, instrument) {
+  return `${rt?.closeMs ?? rt?.exit ?? "?"}:${instrument}:${rt?.qty ?? "?"}:${rt?.entry ?? "?"}`;
+}
+
+// Pure per-tick decision for the Tradovate fill poller. Keeps the error-vs-flat
+// + debounce logic (the C11 fix) in one tested place; the runtime does only the
+// executions fetch + dedup on a "reached_flat" verdict.
+//   skip_read_error → read failed, do nothing (never infer flat)
+//   track_open      → position present, reset the flat counter
+//   idle            → flat and nothing open
+//   await_confirm   → flat but not yet confirmed enough times
+//   reached_flat    → confirmed flat with an open trade → book or clear
+export function planTradovateFillTransition({ readOk, hasPosition, hasOpenTrade, flatReads = 0, flatConfirm = FLAT_CONFIRM }) {
+  if (!readOk) return { action: "skip_read_error", flatReads };
+  if (hasPosition) return { action: "track_open", flatReads: 0 };
+  if (!hasOpenTrade) return { action: "idle", flatReads: 0 };
+  const n = flatReads + 1;
+  if (n < flatConfirm) return { action: "await_confirm", flatReads: n };
+  return { action: "reached_flat", flatReads: 0 };
+}
 
 let _send = null;
 export function setTradovateFillsSink(send) { _send = send; }
@@ -88,18 +114,26 @@ async function fetchExecutions() {
 }
 
 let openTrade = null;
+let flatReads = 0;
+const bookedKeys = new Set();
 let timer = null, stopped = false;
 
 async function tick() {
   if (stopped) return;
   try {
-    if (activeBroker() !== "tradovate") { openTrade = null; return; }
-    const pos = await readTradovatePosition();
-    if (pos) {
-      if (!openTrade) openTrade = { instrument: pos.symbol, openedMs: Date.now() };
-    } else if (openTrade) {
-      const rt = reconstructLastRoundTrip(await fetchExecutions(), openTrade.instrument, pointValue(openTrade.instrument));
-      if (rt) {
+    if (activeBroker() !== "tradovate") { openTrade = null; flatReads = 0; return; }
+    const res = await readTradovatePositionSafe();
+    const plan = planTradovateFillTransition({ readOk: res.ok, hasPosition: !!res.position, hasOpenTrade: !!openTrade, flatReads });
+    flatReads = plan.flatReads;
+    if (plan.action === "skip_read_error") return; // transient failure — never infer flat (C11)
+    if (plan.action === "track_open") { if (!openTrade) openTrade = { instrument: res.position.symbol, openedMs: Date.now() }; return; }
+    if (plan.action === "idle" || plan.action === "await_confirm") return;
+    // reached_flat: confirmed flat with an open trade → book the round-trip once.
+    const rt = reconstructLastRoundTrip(await fetchExecutions(), openTrade.instrument, pointValue(openTrade.instrument));
+    if (rt) {
+      const key = roundTripKey(rt, openTrade.instrument);
+      if (!bookedKeys.has(key)) {
+        bookedKeys.add(key);
         try {
           appendFill(TRADES_DIR, today(), {
             account: "tradovate",
@@ -111,8 +145,8 @@ async function tick() {
         } catch { /* fill record best-effort */ }
         await reconcileJournalOnClose(rt, openTrade.instrument);
       }
-      openTrade = null;
     }
+    openTrade = null;
   } catch { /* poll best-effort */ }
 }
 
@@ -123,4 +157,4 @@ export function startTradovateFillPoller({ intervalMs = 4000, send } = {}) {
   timer = setInterval(tick, intervalMs);
 }
 export function stopTradovateFillPoller() { stopped = true; if (timer) { clearInterval(timer); timer = null; } }
-export function __resetTradovateFills() { openTrade = null; }
+export function __resetTradovateFills() { openTrade = null; flatReads = 0; bookedKeys.clear(); }

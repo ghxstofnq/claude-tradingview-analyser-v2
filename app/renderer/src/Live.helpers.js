@@ -100,9 +100,12 @@ export function liveGridFromTrade(trade, lastClose) {
   const fromEntry = isLong ? lastClose - entry : entry - lastClose;
   const distTp1 = isLong ? tp1 - lastClose : lastClose - tp1;
   const distStop = isLong ? lastClose - stop : stop - lastClose;
+  // Gate unrealized P&L on fill state (audit C35): a pending_entry order isn't
+  // in the market, so showing a live P&L for it is a fabricated money number.
+  const isPending = trade.state === "pending_entry";
   const pnlR = trade.r_realized != null
     ? Number(trade.r_realized)
-    : Number.isFinite(entry) && Number.isFinite(stop) && entry !== stop
+    : (!isPending && Number.isFinite(entry) && Number.isFinite(stop) && entry !== stop)
       ? fmt(fromEntry / Math.abs(entry - stop))
       : null;
   return {
@@ -112,8 +115,8 @@ export function liveGridFromTrade(trade, lastClose) {
       tone: "",
     },
     pnl: {
-      v: pnlR != null ? `${pnlR > 0 ? "+" : ""}${pnlR} R` : "—",
-      sub: trade.r_realized != null ? "realized" : "unrealized",
+      v: pnlR != null ? `${pnlR > 0 ? "+" : ""}${pnlR} R` : (isPending ? "PENDING" : "—"),
+      sub: trade.r_realized != null ? "realized" : (isPending ? "awaiting fill" : "unrealized"),
       tone: pnlR == null ? "" : pnlR > 0 ? "green" : pnlR < 0 ? "red" : "",
     },
     toTp1: {

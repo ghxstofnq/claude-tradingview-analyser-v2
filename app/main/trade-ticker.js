@@ -8,6 +8,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { activeSessionDir } from "./sessions.js";
 import { tickTrades, foldOpenTrades, closeTradesAtEod } from "../../cli/lib/trade-outcomes.js";
+import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
 
 // 4:00 PM ET cash close — any trade still open at/after this minute is
 // force-closed at market (user ruling 2026-06-13).
@@ -85,7 +86,13 @@ export async function tickOpenTrades(ev, opts = {}) {
       events = _cachedEvents;
     } else {
       const txt = await fs.readFile(file, "utf8");
-      events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      // Tolerant parse (C20): a torn tail line must not throw here — that
+      // silently returned and halted ALL stop/TP/EOD outcome tracking.
+      const parsed = parseJsonlTolerant(txt);
+      events = parsed.records;
+      if (parsed.dropped > 0) {
+        _send?.("app:error", { source: "trade-ticker", level: "error", message: `trades.jsonl: ${parsed.dropped} corrupt line(s) skipped while ticking open trades` });
+      }
       _cachedFile = file;
       _cachedMtime = stat.mtimeMs;
       _cachedEvents = events;
@@ -147,7 +154,12 @@ export async function maybeForceCloseAtEod(ev) {
   let events;
   try {
     const txt = await fs.readFile(file, "utf8");
-    events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    // Tolerant parse (C20): a torn line must not skip the 16:00 force-close.
+    const parsed = parseJsonlTolerant(txt);
+    events = parsed.records;
+    if (parsed.dropped > 0) {
+      _send?.("app:error", { source: "trade-ticker", level: "error", message: `trades.jsonl: ${parsed.dropped} corrupt line(s) skipped during EOD force-close` });
+    }
   } catch { return; }
   const open = foldOpenTrades(events);
   if (!open.length) return;

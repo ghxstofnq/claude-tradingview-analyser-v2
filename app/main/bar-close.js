@@ -41,10 +41,14 @@ import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
 import { foldOpenTrades, consecutiveLossStreak } from "../../cli/lib/trade-outcomes.js";
+import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
+import { scanStaleBlocker, SCAN_STALE_THRESHOLD_MS } from "../../cli/lib/scan-freshness.js";
 import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // #65 Trade ticking + session-end audit live in trade-ticker now,
 // so this file is closer to pure orchestration.
 import { setTickerSink, tickOpenTrades, maybeForceCloseAtEod, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
+import { setTrancheSink } from "./execution/tranche-manager.js";
+import { setExecutionSink } from "./execution/tranche-exec.js";
 import { surfaceSetup, surfaceNoTrade } from "./tools/surface.js";
 import { alertIfPlumbingBlock } from "./health-check.js";
 import { buildStrategyContext } from "./strategy/context/build-strategy-context.js";
@@ -214,6 +218,8 @@ Reply with 2-4 sentences of plain prose for the trader: if a packet fired, expla
 export function startDetector({ send }) {
   _send = send;
   setTickerSink(send);
+  setTrancheSink(send);
+  setExecutionSink(send);
   // Idempotent — if a detector subprocess is already running (e.g.
   // electron-main.js calls both bindDetectorToMode + an explicit kick on
   // LIVE-restore boot, or a mode flip fires while one is alive), don't
@@ -870,21 +876,36 @@ function normalizePassStatus(value) {
 async function runDeterministicPacketTruthForBar(ev, session) {
   const inputs = await buildDetectorInputs(session);
   const dir = await activeSessionDir();
-  // Day-tape recording (fix #4): freeze this bar's exact detector inputs so
-  // any session can later be promoted into a replayable regression tape
-  // (scripts/promote-day-tape.js). Fire-and-forget — recording must never
-  // block or fail the live turn.
-  if (inputs?.bundle) {
-    const record = buildWalkerInputsRecord({ event: ev, session, inputs });
-    fs.appendFile(path.join(dir, "walker-inputs.jsonl"), `${JSON.stringify(record)}\n`).catch(() => {});
-  }
   if (!inputs?.bundle?.gates) {
     const truth = { finalVerdict: 'no_trade', packets: [], bestPacket: null, blockers: ['missing_scan_bundle'], walkersChanged: false, eventTimeUtc: ev?.ts ?? null };
     await persistDeterministicTruth(dir, truth);
     await surfaceNoTrade({ reason: 'deterministic packet blocked: missing_scan_bundle' }).catch(() => {});
     return truth;
   }
+  // Wall-clock freshness gate (audit C1). This is the LIVE, non-replay path
+  // (runClaudeTurnFor already returned on replay), so a bundle much older than a
+  // bar means the fast scan failed and we're about to fold minutes-old evidence
+  // at stale prices. Block rather than trade on it.
+  const staleBlocker = scanStaleBlocker({ bundleTimestamp: inputs.bundle.timestamp, nowMs: Date.now() });
+  if (staleBlocker) {
+    _send?.("app:error", { source: "bar-close", level: "error", message: `scan bundle is stale (>${Math.round(SCAN_STALE_THRESHOLD_MS / 1000)}s old) — blocking the fold; the fast capture likely failed` });
+    const truth = { finalVerdict: 'no_trade', packets: [], bestPacket: null, blockers: [staleBlocker], walkersChanged: false, eventTimeUtc: ev?.ts ?? null };
+    await persistDeterministicTruth(dir, truth);
+    await surfaceNoTrade({ reason: `deterministic packet blocked: ${staleBlocker}` }).catch(() => {});
+    return truth;
+  }
 
+  // Day-tape recording (fix #4): freeze this bar's exact detector inputs so any
+  // session can later be promoted into a replayable regression tape
+  // (scripts/promote-day-tape.js). Recorded ONLY here — AFTER the
+  // missing_scan_bundle and scan_stale early-returns — so the tape captures
+  // exactly the bars the live chain actually folds; a live-only block (stale)
+  // must not enter a tape that replays clean and diverges (parity, audit review).
+  // Fire-and-forget: recording must never block or fail the live turn.
+  {
+    const record = buildWalkerInputsRecord({ event: ev, session, inputs });
+    fs.appendFile(path.join(dir, "walker-inputs.jsonl"), `${JSON.stringify(record)}\n`).catch(() => {});
+  }
   const previous = await readDeterministicWalkersJson(dir);
   const truth = buildDeterministicPacketTruthFromInputs({
     inputs,
@@ -913,9 +934,25 @@ async function runDeterministicPacketTruthForBar(ev, session) {
   let lossHalt = false;
   try {
     const txt = await fs.readFile(path.join(dir, "trades.jsonl"), "utf8");
-    const events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    lossHalt = consecutiveLossStreak(events) >= 3;
-  } catch { /* no trades file yet — not halted */ }
+    // Tolerant parse (C21): a torn tail line must not fail the streak OPEN. A
+    // single dropped line still lets the streak compute from the good lines.
+    const { records, dropped } = parseJsonlTolerant(txt);
+    if (dropped > 0) {
+      // A dropped line could BE the loss outcome that trips the halt — the
+      // streak can't be trusted, so fail CLOSED (halt) on any corruption (C21).
+      lossHalt = true;
+      _send?.("app:error", { source: "bar-close", level: "error", message: `trades.jsonl: ${dropped} corrupt line(s) — 3-loss halt fails CLOSED (halting for this session)` });
+    } else {
+      lossHalt = consecutiveLossStreak(records) >= 3;
+    }
+  } catch (err) {
+    // ENOENT = no trades yet (not halted). Any OTHER read failure on a money
+    // guardrail fails CLOSED — treat unreadable trade history as halted (C21).
+    if (err?.code !== "ENOENT") {
+      lossHalt = true;
+      _send?.("app:error", { source: "bar-close", level: "error", message: `trades.jsonl unreadable — failing CLOSED (loss halt ON): ${err?.message || err}` });
+    }
+  }
 
   if (bestPacket && !lossHalt) {
     await surfaceSetup(truth.surfacePayload);

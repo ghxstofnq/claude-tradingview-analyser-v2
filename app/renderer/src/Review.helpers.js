@@ -260,14 +260,25 @@ export function degradedChainStages(chainAudit) {
   return out;
 }
 
+// Today's ET calendar date (YYYY-MM-DD) — the badge is a "today's session"
+// indicator, so it must be scoped to today, not just the newest row.
+export function etDateNow() {
+  try { return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); } catch { return null; }
+}
+
 // Badge numbers for the REVIEW topbar cell from the library (newest-first row).
 // Reads net_r/setups from the row's `stats` block — the row shape is
-// { date, session, grade, stats:{ net_r, setups, ... } }. The old badge read
-// today.total_r / today.setups (top-level, never present) and always showed 0.
-export function todayBadge(library) {
-  const today = Array.isArray(library) ? library[0] : null;
-  const r = today?.stats?.net_r;
-  return { totalR: r == null ? null : Number(r), setups: today?.stats?.setups ?? 0 };
+// { date, session, grade, stats:{ net_r, setups, ... } }.
+// Stale-guard (audit C33): the newest row may be a PRIOR day's session. Only
+// show its R when its date IS today; otherwise fall back to the dim
+// setup-count state so yesterday's P&L is never labeled "today's session".
+export function todayBadge(library, todayEtDate = etDateNow()) {
+  const row = Array.isArray(library) ? library[0] : null;
+  if (!row || (row.date && todayEtDate && row.date !== todayEtDate)) {
+    return { totalR: null, setups: row?.stats?.setups ?? 0 };
+  }
+  const r = row?.stats?.net_r;
+  return { totalR: r == null ? null : Number(r), setups: row?.stats?.setups ?? 0 };
 }
 
 // ── Faithfulness verdict ──────────────────────────────────────────────
