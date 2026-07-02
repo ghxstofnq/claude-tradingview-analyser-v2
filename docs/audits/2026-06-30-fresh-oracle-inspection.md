@@ -57,16 +57,16 @@ This table is a **mechanical inspection**, not approval.
 
 | Date | Pair-leader evidence | MNQ context fold | MES context fold | Initial status |
 |---|---|---|---|---|
-| `2026-01-29` | displacement → MES; SMT none | context none (`data_gap`) | no setup, divergent | not ready; context blocker |
-| `2026-02-09` | inconclusive; SMT none | context none (`data_gap`) | context none (`data_gap`) | not ready; contradicts previous approved MNQ long seed |
-| `2026-04-06` | inconclusive; SMT → MES | no setup, divergent | context none (`data_gap`) | not ready; context blocker |
+| `2026-01-29` | displacement → MES; SMT none | no setup, clean | no setup, divergent / pillar2 poor | approved no-trade / stand-aside; leader signal alone not enough |
+| `2026-02-09` | inconclusive; SMT none | first-pass context none (`data_gap`) | first-pass context none (`data_gap`) | approved MNQ A+ multi-alignment long from transcript/replay seed; first-pass blocker superseded |
+| `2026-04-06` | inconclusive; SMT → MES | **B Inversion short** `24625 / 24746.25 exec stop (24745.75 structural) / 24337`, unresolved | context none (`no_bias`) | packet-only unresolved review evidence; not R-scored |
 | `2026-06-09` | inconclusive; SMT none | initially emitted later **B MSS short** `29476.75 / 29554.75 / 29113.75` before M15-coherence fix | context none (`data_gap`) | reconciled after Option-A coherence fix |
 | `2026-06-15` | inconclusive; SMT none | no setup, clean | **B Trend long** `7630.5 / 7626.0 exec stop (7626.5 structural) / 7641.5`, TP1 | approved MES valid setup with buffered-stop TP1 outcome; corrected stop/TP1 plus 2-tick execution buffer from user review |
-| `2026-06-16` | displacement → MNQ; SMT → MES | **B MSS short** `30864.25 / 30896 / 30783.75`, TP1 | B Trend short `7612 / 7617.5 / 7598.25`, unresolved | closest approval candidate; still requires chart/strategy review |
+| `2026-06-16` | displacement → MNQ; SMT → MES | approved **B MSS short** `30864.25 / 30905.0 exec stop / 30750.75`, TP1 | B Trend short `7612 / 7617.5 / 7598.25`, unresolved pair context | approved MNQ B MSS short; MES remains unscored paired context |
 | `2026-06-17` | inconclusive; SMT none | no setup, divergent | **B Inversion short** `7587.25 / 7593.5 / 7577.75`, stopped | MNQ no-trade remains approved; MES rejected as diagnostic provenance; no second clean short before target move |
-| `2026-06-18` | inconclusive; SMT none | no setup, clean | no setup, divergent | not ready; contradicts previous approved MNQ Trend long seed |
+| `2026-06-18` | inconclusive; SMT none | approved **B Trend long** `30452.75 / 30399.5 exec stop (30400 structural) / 30615` | no setup, divergent | approved MNQ B Trend long after Option-A direct-brief reconciliation |
 | `2026-06-22` | inconclusive; SMT none | no setup, divergent | **B Inversion short** `7580.5 / 7591.75 / 7556.75`, TP1; TP2/LO.L touched | approved MES B Inversion short; MNQ remains neutral paired context |
-| `2026-06-24` | inconclusive; SMT → MNQ | no setup, divergent | context none (`data_gap`) | not ready; context blocker |
+| `2026-06-24` | inconclusive; SMT → MNQ but bias_dir short | **B Inversion long** `29722.25 / 29563.5 exec stop (29564 structural) / 29843.5`, stopped before later TP1/TP2 | context none (`no_bias`) | approved MNQ valid losing B; second-entry latch issue documented |
 | `2026-06-25` | inconclusive; SMT none | **B Inversion long** `29728.25 / 29595.5 / 30198.5`, stopped | **A+ Inversion short** `7441 / 7454.5 / 7390`, stopped | approved no-trade / stand-aside after user review; both trades rejected as provenance |
 
 Post-alignment update (2026-07-01): `2026-06-16` MNQ has since been user-corrected and promoted. The deterministic chain now emits `B MSS short 30864.25 / 30905.00 / 30750.75`, and the tracked tape expectation is `verified:true` with that corrected row.
@@ -113,12 +113,7 @@ Fix applied after first-pass inspection:
 - Recorder warnings are persisted into tape artifacts.
 - A representative re-record of `2026-06-09 MNQ` attached `daily`, `h4`, `h1`, `m15`, and `m5` with `warnings=[]`.
 
-Before promotion, the remaining fresh corpus should be regenerated or Daily-backfilled with this fixed recorder so all rows have consistent HTF evidence.
-
-That still leaves a strategy/design decision before promotion:
-
-- require successful Daily/H4/H1 anchor capture for every approved row, or
-- explicitly allow H4/H1-only context when Daily is unavailable, with tests and a visible warning.
+Current status (2026-07-02): the fresh corpus has been repaired/backfilled to full HTF coverage: `daily=22/22`, `h4=22/22`, `h1=22/22`, `m15=22/22`, `m5=22/22`, with `warnings=0`. Policy is now explicit: approved fresh-oracle rows require Daily/H4/H1/M15/M5 coverage and warning-clean source health by default. If Daily/H4/H1 is missing in a future corpus, the row stays not-ready unless the user explicitly approves an exception with a visible warning.
 
 ### 3. Approved Batch A rows are not automatically reproduced from fresh context
 
@@ -147,25 +142,23 @@ No pair-leader rule should be promoted from this inspection alone.
 
 ## Current approval posture
 
-Several rows have since been reconciled/promoted from the first-pass state (`2026-06-09`, `2026-06-16 MNQ`, `2026-06-18 MNQ`, `2026-02-09 MNQ`, `2026-06-22 MES`, `2026-06-15 MES`, and `2026-06-25 no-trade`). `2026-06-17 MES` has also been resolved as rejected/diagnostic provenance under the already-approved MNQ no-trade row. The remaining fresh rows are review signals only until a per-date packet is hand-graded and user-approved.
+Rows reconciled/promoted from the first-pass state now include `2026-01-29 no-trade`, `2026-02-09 MNQ`, `2026-04-06 packet-only unresolved`, `2026-06-09`, `2026-06-15 MES`, `2026-06-16 MNQ`, `2026-06-17 MES rejected provenance`, `2026-06-18 MNQ`, `2026-06-22 MES`, `2026-06-24 MNQ losing B with retry/latch note`, and `2026-06-25 no-trade`. The fresh-corpus approval pass is complete; future work is implementation/policy refinement, not blind fixture promotion.
 
 Possible next review priorities:
 
-1. Unlabeled MES/MNQ fresh setups (`2026-04-06`, `2026-06-24`) — review-only candidates; do not promote without chart approval.
-2. Pair-leader/context-policy cleanup (`2026-01-29` leader signal plus Daily HTF backfill policy) — document or repair before calling the corpus finished.
+1. `2026-06-24` is approved as a valid losing MNQ B trade; the likely winning second long is documented as a `session_primary_already_taken` retry-policy blocker.
+2. `2026-04-06` is preserved as packet-only unresolved review evidence, not R-scored.
+3. `2026-01-29` is approved no-trade / stand-aside.
+4. Daily HTF source policy is closed: require warning-clean Daily/H4/H1/M15/M5 coverage by default.
 
 ## Required next steps
 
-1. Fix or explicitly document the Daily HTF capture/context policy.
-2. For each high-priority date, inspect the fresh tape evidence around:
-   - anchor brief / primary draw selection,
-   - open reaction window,
-   - first walker lifecycle transition,
-   - packet bar and immediate outcome bars.
-3. Write revised per-date approval packets that include both MNQ and MES fresh evidence.
-4. Ask user approval before any promotion.
-5. Only after approval, create tracked oracle tapes/labels and run `npm run tapes`.
+1. Done — Daily HTF capture/context policy documented as full-coverage-by-default.
+2. Done — `2026-06-24`, `2026-04-06`, and `2026-01-29` reviewed with fresh tape evidence.
+3. Done — revised per-date approval packets/labels include MNQ and MES context.
+4. Done — user approved final classification on 2026-07-02.
+5. Done in tracked labels/docs; full fresh tapes remain local/gitignored evidence, while stale/incomplete legacy tapes stay `verified:false` unless separately recaptured/promoted.
 
 ## Non-negotiable conclusion
 
-Fresh recording succeeded, and selected rows have now been approved or explicitly rejected after review. The remaining work is not to blindly flip `verified:true`; it is to finish per-date review for the unresolved candidates and close the context reconstruction / Daily HTF policy boundary.
+Fresh recording succeeded and the final unresolved candidates have been classified. Do not blindly flip local fresh tapes or stale legacy tapes to `verified:true`; approved truth now lives in the stage-G labels and canonical docs, while full fresh tapes remain local/gitignored evidence unless a future PR deliberately promotes compact replay artifacts.

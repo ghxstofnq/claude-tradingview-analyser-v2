@@ -3,8 +3,8 @@
   "fixture": "2026-04-06-mnq-ny-am",
   "fixtureSource": "real",
   "label_status": "unlabeled",
-  "reviewer": "smt-pair-2026-06-25",
-  "source_message": "Paired MNQ candidate tape retained for pair-leader research only. No strategy expectation is assigned; re-grade from docs/strategy, transcripts, chart evidence, and user approval before scoring.",
+  "reviewer": "GXNQ-review-2026-07-02",
+  "source_message": "Oracle 04-06 NY-AM: preserve fresh MNQ B Inversion short as packet-only unresolved review evidence, not an R-scored oracle trade. MES has no context/no setup. User approved finishing this posture with the final fresh-oracle cleanup.",
   "trade_date": "2026-04-06",
   "symbol": "MNQ",
   "contract_hint": "CME_MINI:MNQ1!",
@@ -18,5 +18,49 @@
     "stop": null,
     "tp1": null,
     "tp2": null
+  },
+  "oracle_context": {
+    "decision": "keep_packet_only_unresolved",
+    "not_oracle_truth": true,
+    "not_scored_in_r": true,
+    "review_packet": {
+      "symbol": "MNQ",
+      "model": "Inversion",
+      "side": "short",
+      "grade": "B",
+      "event_time_et": "2026-04-06T10:04:00-04:00",
+      "entry": 24625,
+      "stop": 24746.25,
+      "stop_level": 24745.75,
+      "stop_buffer_ticks": 2,
+      "tp1": 24337,
+      "tp2": 24273.75,
+      "outcome": "unresolved_in_ny_am_tape",
+      "post_entry_max_high": 24684,
+      "post_entry_max_high_time_et": "2026-04-06T10:21:00-04:00",
+      "post_entry_min_low": 24545.25,
+      "post_entry_min_low_time_et": "2026-04-06T11:33:00-04:00"
+    },
+    "pair_leader": {
+      "evidence_leader": null,
+      "displacement_reason": "inconclusive_margin_below_threshold",
+      "primary_disp_score": 0.98,
+      "secondary_disp_score": 0.96,
+      "margin": 0.02,
+      "threshold": 0.1,
+      "smt_leader": "MES1!",
+      "smt_bias_dir": "short",
+      "smt_reason": "smt_divergence"
+    },
+    "paired_mes_context": {
+      "fresh_fold": "context none / no setup; brief reason no_bias; pillar2 marginal"
+    },
+    "second_entry_review": {
+      "actual_best_packet_count": 1,
+      "packet_ready_count": 1,
+      "confirmed_after_first_packet_count": 7,
+      "session_primary_already_taken_count": 7,
+      "note": "Later confirmed walkers were suppressed by the one-primary-session latch while the first packet remained unresolved. This row stays packet-only, not a retry policy decision."
+    }
   }
 }
