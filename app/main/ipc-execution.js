@@ -47,7 +47,10 @@ async function guarded(payload) {
   // account's losses must not halt another. Use the account id (not the broker
   // label) so two different Tradovate accounts don't share one tally. Falls back
   // to all-accounts when the active account is unknown.
-  const account = getActiveAccount()?.id ?? null;
+  const acct = getActiveAccount();
+  // Scope by { id, broker } so a fill written before the account id was learned
+  // (accountId null) still counts toward this broker's halt (audit C14).
+  const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
   // Fold current open drawdown into the gate so a new order can't be sized into
   // a worst-case day that breaches the daily limit (audit Phase 3).
   const dayState = { realizedLossUsd: dayRealizedLossUsd(fills, account), openLossUsd: await openLossUsdNow() };

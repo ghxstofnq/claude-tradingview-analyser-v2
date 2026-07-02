@@ -135,7 +135,7 @@ async function buildRealDeps() {
     // Scope to THIS account's id (not the broker label) + read from the real
     // TRADES_DIR (config), not the non-existent fills.TRADES_DIR which silently
     // read nothing — so auto mode previously had no daily halt at all.
-    dayRealizedLossUsd: () => { try { const acct = active.getActiveAccount()?.id ?? null; return fills.dayRealizedLossUsd(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), acct); } catch { return 0; } },
+    dayRealizedLossUsd: () => { try { const a = active.getActiveAccount(); const scope = a?.id ? { id: a.id, broker: a.broker ?? null } : null; return fills.dayRealizedLossUsd(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), scope); } catch { return 0; } },
     // Best-effort open drawdown for the predictive daily-loss gate. Same
     // read-only sources as the IPC fire path: Tradovate REST position if active,
     // otherwise the paper/webview position. Any read failure degrades to 0 so

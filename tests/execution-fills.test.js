@@ -61,6 +61,29 @@ describe("fills", () => {
     const all = readFills(dir, "2026-06-19");
     assert.equal(dayRealizedLossUsd(all, "tradovate"), 500);
   });
+  it("C14: an { id, broker } scope counts a same-broker fill that has no accountId", () => {
+    // The fill was written before the account id was learned (accountId absent)
+    // — it must NOT be silently excluded from the id-scoped halt, or the halt
+    // under-counts and trades past the limit.
+    appendFill(dir, "2026-06-20", { account: "tradovate", accountId: "D50756821", actual: { usd: -300 } });
+    appendFill(dir, "2026-06-20", { account: "tradovate", actual: { usd: -200 } }); // no accountId yet
+    const all = readFills(dir, "2026-06-20");
+    // Before the fix (id-only string scope) this returned 300, hiding the -200.
+    assert.equal(dayRealizedLossUsd(all, { id: "D50756821", broker: "tradovate" }), 500);
+  });
+  it("C14: the { id, broker } scope does NOT bleed a null-id fill across brokers", () => {
+    appendFill(dir, "2026-06-20", { account: "paper", accountId: "P1", actual: { usd: -100 } });
+    appendFill(dir, "2026-06-20", { account: "tradovate", actual: { usd: -900 } }); // null id, different broker
+    const all = readFills(dir, "2026-06-20");
+    assert.equal(dayRealizedLossUsd(all, { id: "P1", broker: "paper" }), 100, "tradovate's null-id loss must not hit the paper halt");
+  });
+  it("C14: a different same-broker account's identified fill is still excluded", () => {
+    appendFill(dir, "2026-06-20", { account: "tradovate", accountId: "A", actual: { usd: -100 } });
+    appendFill(dir, "2026-06-20", { account: "tradovate", accountId: "B", actual: { usd: -900 } });
+    const all = readFills(dir, "2026-06-20");
+    assert.equal(dayRealizedLossUsd(all, { id: "A", broker: "tradovate" }), 100);
+  });
+
   it("fillsByAccount groups by label; unlabelled bucket under 'unknown'", () => {
     const g = fillsByAccount([
       { account: "paper", actual: { usd: 1 } },
