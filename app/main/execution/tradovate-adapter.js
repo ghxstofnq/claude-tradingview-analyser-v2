@@ -90,7 +90,13 @@ export async function closeTradovatePosition(/* { instrument } */ arg = {}) {
     } catch (e) { return { status: 0, body: "fetch failed: " + String(e) }; }
   })()`;
   const res = await evaluate(expr);
-  return { ...res, ok: (res.closed ?? 0) >= 0 && res.status !== 0 };
+  // ok must reflect the per-position DELETE acks, not just the positions-list
+  // GET — a rejected close (e.g. 400) previously still reported ok:true, so the
+  // IN-TRADE failure banner (audit C34) never fired on the Tradovate path.
+  // Empty targets (already flat) = a valid successful flatten.
+  const results = Array.isArray(res.results) ? res.results : [];
+  const allDeletesOk = results.every((r) => Number(r?.status) >= 200 && Number(r?.status) < 300);
+  return { ...res, ok: res.status !== 0 && allDeletesOk };
 }
 
 // Read the open Tradovate position (for the IN-TRADE / ORDERS display + to
