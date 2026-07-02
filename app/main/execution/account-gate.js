@@ -8,7 +8,11 @@ export function resolveAccountGate({ active, confirmed } = {}) {
   if (!active) return { route: false, needsConfirm: false, level: null, reason: "no_active_account" };
   // Match on id AND type — the same account id can be re-typed paper→live once a
   // liveHost is configured; id-only matching would route to live with no confirm.
-  if (confirmed && active.id === confirmed.id && active.type === confirmed.type) return { route: true, needsConfirm: false, level: null, reason: null };
+  // Also match on broker — two different brokers can share a numeric account id
+  // + type; id+type-only routed a Tradovate order to a "confirmed" paper account
+  // (or vice versa) with no re-confirm (audit review). Undefined brokers on both
+  // sides still match (legacy back-compat); a mismatch forces re-confirm.
+  if (confirmed && active.id === confirmed.id && active.type === confirmed.type && (active.broker ?? null) === (confirmed.broker ?? null)) return { route: true, needsConfirm: false, level: null, reason: null };
   return { route: false, needsConfirm: true, level: active.type === "live" ? "live" : "paper", reason: "account_switch" };
 }
 

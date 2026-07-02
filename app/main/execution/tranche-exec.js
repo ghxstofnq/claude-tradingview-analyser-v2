@@ -62,7 +62,12 @@ export function brokerActionsForTransition({ status, runner, entry, side, contra
     // One leg filled → cancel the resting sibling so it doesn't open a position.
     return siblingOrderId != null ? [{ kind: "cancel", orderId: siblingOrderId }] : [];
   }
-  if (status === "CLOSED_EOD") {
+  // Any terminal state that leaves the journal thinking the trade is done must
+  // reconcile the broker: flatten (a no-op if flat — safe) + cancel any resting
+  // orders. Previously only CLOSED_EOD did this, so an EXPIRED_EOD/INVALIDATED
+  // trade whose MARKET entry actually filled at the broker was left as a stranded
+  // position with live resting orders (audit review).
+  if (status === "CLOSED_EOD" || status === "EXPIRED_EOD" || status === "INVALIDATED") {
     const acts = [{ kind: "close", side, contracts, symbol }];
     if (stopOrderId != null) acts.push({ kind: "cancel", orderId: stopOrderId });
     if (limitOrderId != null) acts.push({ kind: "cancel", orderId: limitOrderId });
