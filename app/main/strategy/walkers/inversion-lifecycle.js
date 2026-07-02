@@ -234,7 +234,7 @@ export function inversionEntryValid({ context, side, entryPrice, nowMs } = {}) {
     if (process.env.GOFNQ_INV_TREND_OVERRIDE === '1') {
       // Optional open-reaction gate (test): suppress the override inside the first
       // ~15 min of the ny-am session (§7 Step 4). Fail-open when the time is unknown.
-      const sessMin = process.env.GOFNQ_INV_OPEN_GATE === '1' ? nyAmMinutesSinceOpen(context?.eventTimeUtc) : NaN;
+      const sessMin = process.env.GOFNQ_INV_OPEN_GATE !== '0' ? nyAmMinutesSinceOpen(context?.eventTimeUtc) : NaN;
       const pastOpen = !Number.isFinite(sessMin) || sessMin >= invOpenReactionMin();
       if (pastOpen) {
         const trend = continuationVerdict(context, side, depth, invDeepCoherenceMin());

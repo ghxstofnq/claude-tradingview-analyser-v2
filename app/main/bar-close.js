@@ -1248,7 +1248,7 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
       // drops boundary closes (06-15 10:29: a bear FVG inverted bullish with the close
       // landing EXACTLY at the zone top, so close > top failed and the long never
       // confirmed). GOFNQ_INV_RECLAIM makes the boundary inclusive (>=/<=).
-      const inclusive = process.env.GOFNQ_INV_RECLAIM === '1';
+      const inclusive = process.env.GOFNQ_INV_RECLAIM !== '0';
       return wantDir === 'bear'
         ? (inclusive ? Number(close) <= bottom : Number(close) < bottom)
         : (inclusive ? Number(close) >= top : Number(close) > top);

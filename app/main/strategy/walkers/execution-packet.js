@@ -764,7 +764,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     // entry. When on, for non-inversion models, if the stop is wider than the
     // cap prefer the nearest valid same-side pool anchor when it's tighter.
     // risk-and-management.md per-model stops anchor near the entry zone.
-    if (process.env.GOFNQ_WIDE_STOP_CAP_ALL_MODELS === '1'
+    if (process.env.GOFNQ_WIDE_STOP_CAP_ALL_MODELS !== '0'
       && normalizeModelName(walker?.model) !== 'inversion'
       && atr14 != null && atr14 > 0
       && Math.abs(entryPrice - stopCandidate.price) > 5 * atr14) {
@@ -779,7 +779,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     // producing an absurd-R:R "setup" (June 9 2.75pt / June 11 1.5pt on ~13-19pt
     // ATR ≈ 0.15-0.2 ATR). When on, block it rather than fire. The 0.35 fraction
     // is the calibration knob. risk-and-management.md "Stops (structural)".
-    if (process.env.GOFNQ_MIN_STOP_BAND === '1'
+    if (process.env.GOFNQ_MIN_STOP_BAND !== '0'
       && atr14 != null && atr14 > 0
       && Math.abs(entryPrice - stopCandidate.price) < 0.35 * atr14) {
       blockers.push('stop_too_tight');

@@ -5,10 +5,10 @@ import { htfFallbackVerdict } from "../app/main/htf-fallback.js";
 
 const base = { htfBias: "bullish", session: "ny-am", ms: 2000, windowEndMs: 1000 };
 
-test("default (gate off): fires a B trade in the HTF lean, even against near-term structure", () => {
-  delete process.env.GOFNQ_HTF_FALLBACK_STANDASIDE;
+test("gate off (opt-out via =0): fires a B trade in the HTF lean, even against near-term structure", () => {
+  process.env.GOFNQ_HTF_FALLBACK_STANDASIDE = "0";
   const v = htfFallbackVerdict({ ...base, h4StructDir: "bearish", h1StructDir: "bearish" });
-  assert.equal(v?.ltf_bias, "bullish");          // current behavior preserved
+  assert.equal(v?.ltf_bias, "bullish");          // legacy opt-out behavior (default is now stand-aside)
   assert.equal(v?.interaction, "htf_fallback");
   assert.equal(v?.grade_cap, "B");
 });

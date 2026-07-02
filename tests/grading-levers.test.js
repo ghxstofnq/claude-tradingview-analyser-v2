@@ -82,8 +82,8 @@ describe("C2 GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW", () => {
       pdArray: { rawPayload: { bottom: 20950, top: 20970 } },
     },
   };
-  it("OFF: kills on the broken-LH anchor (close 21000 < LH 21050) — the bug", () => {
-    delete process.env.GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW;
+  it("OFF (opt-out via =0): kills on the broken-LH anchor (close 21000 < LH 21050) — the legacy bug", () => {
+    process.env.GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW = "0";
     const reqs = buildMssWalkerKillRequests(ctxAt(21000), [walker]);
     assert.equal(reqs.length, 1, "legacy anchor kills the walker mid-retrace");
   });
