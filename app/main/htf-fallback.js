@@ -42,7 +42,7 @@ export function htfFallbackVerdict({ htfBias, session, ms, windowEndMs, h4Struct
   // HTF — Lanto stands aside (1/3 no-trade), he doesn't trade the daily lean into
   // the opposing delivery (How I Develop Daily Bias, 12/12). When no near-term
   // structure printed, there's nothing to conflict with — the lean stands.
-  if (process.env.GOFNQ_HTF_FALLBACK_STANDASIDE === "1") {
+  if (process.env.GOFNQ_HTF_FALLBACK_STANDASIDE !== "0") {
     const near = [h4StructDir, h1StructDir]
       .map((d) => (/bull|above/i.test(String(d)) ? "bullish" : /bear|below/i.test(String(d)) ? "bearish" : null))
       .filter(Boolean);

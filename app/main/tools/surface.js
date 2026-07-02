@@ -378,7 +378,7 @@ export async function surfaceSessionBrief(payload) {
   // harness. Default-off (GOFNQ_LIVE_CITE_CHECK=1 to enable) + flag-only —
   // paired bundles cite per-symbol paths, so this must be validated live before
   // it can hard-reject. A mismatch surfaces as app:error + a cite_warnings note.
-  if (process.env.GOFNQ_LIVE_CITE_CHECK === "1") {
+  if (process.env.GOFNQ_LIVE_CITE_CHECK !== "0") {
     try {
       const bundleRaw = await fs.readFile(path.join(REPO_ROOT, "state", "last-analyze.json"), "utf8");
       const { violations } = verifyCitations(JSON.stringify(record), JSON.parse(bundleRaw));

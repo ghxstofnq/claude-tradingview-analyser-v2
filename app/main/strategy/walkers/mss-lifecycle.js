@@ -218,7 +218,7 @@ export function buildMssWalkerKillRequests(context, walkers = []) {
     // the reversal FVG's protective edge (below the FVG low for a long / above the
     // FVG high for a short) — well below the LH, so the walker survives the retrace
     // INTO the FVG and dies only if price closes beyond it. Off = legacy LH anchor.
-    if (process.env.GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW === '1'
+    if (process.env.GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW !== '0'
       && walker?.evidence?.sweep?.rawPayload?.source === 'swept_swing') {
       const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
       const edge = walker.side === 'long' ? Number(pd.bottom) : Number(pd.top);
