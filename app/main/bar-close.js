@@ -42,6 +42,7 @@ import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
 import { foldOpenTrades, consecutiveLossStreak } from "../../cli/lib/trade-outcomes.js";
 import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
+import { scanStaleBlocker, SCAN_STALE_THRESHOLD_MS } from "../../cli/lib/scan-freshness.js";
 import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // #65 Trade ticking + session-end audit live in trade-ticker now,
 // so this file is closer to pure orchestration.
@@ -887,6 +888,18 @@ async function runDeterministicPacketTruthForBar(ev, session) {
     const truth = { finalVerdict: 'no_trade', packets: [], bestPacket: null, blockers: ['missing_scan_bundle'], walkersChanged: false, eventTimeUtc: ev?.ts ?? null };
     await persistDeterministicTruth(dir, truth);
     await surfaceNoTrade({ reason: 'deterministic packet blocked: missing_scan_bundle' }).catch(() => {});
+    return truth;
+  }
+  // Wall-clock freshness gate (audit C1). This is the LIVE, non-replay path
+  // (runClaudeTurnFor already returned on replay), so a bundle much older than a
+  // bar means the fast scan failed and we're about to fold minutes-old evidence
+  // at stale prices. Block rather than trade on it.
+  const staleBlocker = scanStaleBlocker({ bundleTimestamp: inputs.bundle.timestamp, nowMs: Date.now() });
+  if (staleBlocker) {
+    _send?.("app:error", { source: "bar-close", level: "error", message: `scan bundle is stale (>${Math.round(SCAN_STALE_THRESHOLD_MS / 1000)}s old) — blocking the fold; the fast capture likely failed` });
+    const truth = { finalVerdict: 'no_trade', packets: [], bestPacket: null, blockers: [staleBlocker], walkersChanged: false, eventTimeUtc: ev?.ts ?? null };
+    await persistDeterministicTruth(dir, truth);
+    await surfaceNoTrade({ reason: `deterministic packet blocked: ${staleBlocker}` }).catch(() => {});
     return truth;
   }
 
