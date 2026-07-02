@@ -70,10 +70,23 @@ const ROW_FIELD_TYPES = {
   quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num', leg_high: 'num', leg_low: 'num', leg_high_ms: 'num', leg_low_ms: 'num', range_vs_normal: 'num', coherence: 'num', overnight_net: 'num', or_high: 'num', or_low: 'num' },
 };
 
+// U1: the indicator rounds ce (FVG/BPR midpoint) to mintick before emitting, so
+// the emitted ce drifts from the true midpoint by up to half a tick. Recompute
+// it exactly from the zone edges so CE-based logic isn't tick-biased.
+function withExactCe(zone) {
+  if (Number.isFinite(zone.top) && Number.isFinite(zone.bottom)) {
+    return { ...zone, ce: (zone.top + zone.bottom) / 2 };
+  }
+  return zone;
+}
+
 /** Coerce one payload value. 'num' → finite Number or null; 'bool' → v==='1'. */
 function coerceValue(v, kind) {
   if (kind === 'bool') return v === '1';
   if (kind === 'num') {
+    // I28: a blank / truncated cell is MISSING, not 0. Number('') === 0 would
+    // otherwise inject a phantom price of 0 — a real level the bot could cite.
+    if (v == null || String(v).trim() === '') return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
@@ -130,8 +143,8 @@ export function parseIctEngineTable(rows) {
       out.schema_current = out.schema === CURRENT_SCHEMA;
     } else if (type === 'level') out.levels.push(fields);
     else if (type === 'sweep') out.sweeps.push(fields);
-    else if (type === 'fvg') out.fvgs.push(fields);
-    else if (type === 'bpr') out.bprs.push(fields);
+    else if (type === 'fvg') out.fvgs.push(withExactCe(fields));
+    else if (type === 'bpr') out.bprs.push(withExactCe(fields));
     else if (type === 'swing') out.swings.push(withIsHigh(fields));
     else if (type === 'structure') out.structures.push(fields);
     else if (type === 'liquidity') out.pools.push(fields);
@@ -147,9 +160,25 @@ export function parseIctEngineTable(rows) {
 export function findIctEngineRows(pineTablesResult) {
   // Match V1 ('ICT Engine') and V2 ('ICT Engine V2') by prefix — substring is
   // intentionally loose so future minor versions don't break discovery.
-  const study = (pineTablesResult?.studies || []).find(
+  const matches = (pineTablesResult?.studies || []).filter(
     (s) => typeof s?.name === 'string' && /^ICT Engine\b/i.test(s.name),
   );
-  const rows = study?.tables?.[0]?.rows;
-  return Array.isArray(rows) ? rows : null;
+  if (matches.length <= 1) {
+    const rows = matches[0]?.tables?.[0]?.rows;
+    return Array.isArray(rows) ? rows : null;
+  }
+  // I29: a stale duplicate deploy can leave two ICT Engine instances on one
+  // chart. Never silently read whichever comes first — pick the one with the
+  // freshest emit (meta.emit_ms), tie-broken by the more-populated table.
+  let best = null, bestEmit = -Infinity, bestLen = -1;
+  for (const s of matches) {
+    const rows = s?.tables?.[0]?.rows;
+    if (!Array.isArray(rows)) continue;
+    const meta = rows.map(parseRow).find((r) => r?.type === 'meta');
+    const emit = meta?.fields?.emit_ms ?? -1;
+    if (emit > bestEmit || (emit === bestEmit && rows.length > bestLen)) {
+      bestEmit = emit; bestLen = rows.length; best = rows;
+    }
+  }
+  return best;
 }
