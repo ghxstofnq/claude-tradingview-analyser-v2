@@ -4,6 +4,12 @@
 // unit-tested here; the runtime that talks to the journal + broker is added in
 // a later task. Detection rules are the shared, backtest-parity module.
 import { sizeFromStop } from "./sizing-core.js";
+import { evaluateBracketResults } from "./tranche-exec.js";
+
+// app:error sink (wired from bar-close) so a naked-entry flatten / broker
+// rejection surfaces to the operator instead of being swallowed (audit C13/C24).
+let _send = null;
+export function setTrancheSink(send) { _send = send; }
 
 // Pure: map a surfaced packet → Tradovate bracket-order args. A Tradovate order
 // carries its OWN stop/target in one POST (native bracket), so a tranche is a
@@ -172,9 +178,17 @@ async function buildRealDeps() {
       });
       const results = [];
       for (const a of actions) results.push(await tvAdapter.placeStandalone(a));
-      const idOf = (r) => { try { return Number(JSON.parse(r.body).id); } catch { return null; } };
-      const stopOrderId = idOf(results[1]);
-      const limitOrderId = idOf(results[2]);
+      const { stopOrderId, limitOrderId, naked, authLost } = evaluateBracketResults(results);
+      if (authLost) _send?.("app:error", { source: "tranche-manager", level: "error", message: `Broker rejected the bracket as logged-out (401/403) for ${trancheId} — auto-entry halted` });
+      // A filled entry with no working protective stop is the worst money-path
+      // state (audit C13). Flatten the just-opened entry immediately, surface
+      // it, and never persist a naked entry as if it were bracketed.
+      if (naked) {
+        try { await tvAdapter.flatten({ symbol: packet.symbol }); } catch { /* best-effort — the error below still surfaces */ }
+        _send?.("app:error", { source: "tranche-manager", level: "error", message: `Bracket stop leg failed for ${trancheId} — flattened the entry to avoid a naked position` });
+        await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId: null, limitOrderId, error: "stop_leg_failed", flattened: true, ts: new Date().toISOString() });
+        return { stopOrderId: null, limitOrderId, error: "stop_leg_failed", flattened: true };
+      }
       await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId, limitOrderId, ts: new Date().toISOString() });
       return { stopOrderId, limitOrderId };
     },

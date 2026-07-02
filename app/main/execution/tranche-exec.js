@@ -11,6 +11,27 @@
 
 import { runnerEligible } from "../../../cli/lib/trade-outcomes.js";
 
+// Pure: given the [entry, stop, limit] placeStandalone results, decide whether
+// the bracket is safe or the entry is NAKED (filled with no working protective
+// stop). A bracket must be atomic — a naked entry is the worst money-path state
+// (audit C13). `naked` is true when the entry placed OK but the stop leg did
+// not come back working (rejected, or no order id). Also flags a broker auth
+// loss (401/403) so the caller can halt new entries (audit C24).
+export function evaluateBracketResults(results = []) {
+  const idOf = (r) => { try { return Number(JSON.parse(r?.body).id); } catch { return null; } };
+  const entryOk = results[0]?.ok === true;
+  const stopOrderId = idOf(results[1]);
+  const limitOrderId = idOf(results[2]);
+  const stopOk = results[1]?.ok === true && Number.isFinite(stopOrderId);
+  const authLost = results.some((r) => r?.status === 401 || r?.status === 403);
+  return { entryOk, stopOk, stopOrderId, limitOrderId, naked: entryOk && !stopOk, authLost };
+}
+
+// app:error sink (wired from bar-close alongside the ticker sink) so broker
+// rejections/failed exits surface to the operator instead of being swallowed.
+let _send = null;
+export function setExecutionSink(send) { _send = send; }
+
 // A+ runs to TP2 (when there's room); everything else banks at TP1.
 function runnerTp(grade, tp1, tp2) {
   return grade === "A+" && tp2 != null && Number.isFinite(Number(tp2)) ? tp2 : tp1;
@@ -128,8 +149,17 @@ export async function applyTrancheExit(transition, deps) {
     if (a.kind === "cancel") await d.cancelOrder(a.orderId);
     else if (a.kind === "close") await d.flatten(a.symbol);
     else if (a.kind === "modify_stop") {
-      await d.cancelOrder(a.orderId);
+      // Place the replacement BE stop FIRST and confirm its id before cancelling
+      // the live stop — never open a naked-runner window (audit C12). If the new
+      // stop fails to come back, keep the original stop, surface it, and flatten
+      // to be safe rather than leave the runner unprotected.
       const newId = await d.placeStandalone({ symbol: plan.accept.symbol, type: "stop", side: exitSide, contracts, price: a.price });
+      if (!Number.isFinite(newId)) {
+        d.emitError?.({ level: "error", message: `BE stop replacement failed for ${transition.id} — kept original stop, flattening to avoid a naked runner` });
+        try { await d.flatten(plan.accept.symbol); } catch { /* best-effort */ }
+        return { applied: plan.actions, error: "modify_stop_failed", flattened: true };
+      }
+      await d.cancelOrder(a.orderId);
       await d.recordTrancheOrders({ setup_id: transition.id, stopOrderId: newId, limitOrderId: plan.orders.limitOrderId });
     }
   }
@@ -150,9 +180,12 @@ async function buildExitDeps() {
         return txt.trim().split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
       } catch { return []; }
     },
-    cancelOrder: (id) => tvAdapter.cancelOrder({ id }),
-    flatten: (symbol) => tvAdapter.flatten({ symbol }),
-    placeStandalone: async (o) => { const r = await tvAdapter.placeStandalone(o); try { return Number(JSON.parse(r.body).id); } catch { return null; } },
+    // Adapter mutations inspect the broker ack and surface any rejection
+    // (401/403 = auth lost) instead of silently ignoring it (audit C24).
+    cancelOrder: async (id) => { const r = await tvAdapter.cancelOrder({ id }); if (r?.ok !== true) _send?.("app:error", { source: "tranche-exec", level: (r?.status === 401 || r?.status === 403) ? "error" : "warn", message: `cancel order ${id} failed (status ${r?.status ?? "?"})` }); return r; },
+    flatten: async (symbol) => { const r = await tvAdapter.flatten({ symbol }); if (r?.ok !== true) _send?.("app:error", { source: "tranche-exec", level: "error", message: `flatten ${symbol} FAILED (status ${r?.status ?? "?"}) — position may still be open` }); return r; },
+    placeStandalone: async (o) => { const r = await tvAdapter.placeStandalone(o); if (r?.ok !== true) _send?.("app:error", { source: "tranche-exec", level: "error", message: `place ${o.type} order failed (status ${r?.status ?? "?"})` }); try { return Number(JSON.parse(r.body).id); } catch { return null; } },
+    emitError: (o) => _send?.("app:error", { source: "tranche-exec", ...o }),
     recordTrancheOrders: async (obj) => { await fs.appendFile(await tradesFile(), JSON.stringify({ type: "tranche_orders", ...obj, ts: new Date().toISOString() }) + "\n", "utf8"); },
     modifyTradovateStop: (a) => tradovateAdapter.modifyTradovateStop(a),
     closeTradovatePosition: (a) => tradovateAdapter.closeTradovatePosition(a),

@@ -46,6 +46,8 @@ import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // #65 Trade ticking + session-end audit live in trade-ticker now,
 // so this file is closer to pure orchestration.
 import { setTickerSink, tickOpenTrades, maybeForceCloseAtEod, maybeWarnSessionEndedWithOpenTrades } from "./trade-ticker.js";
+import { setTrancheSink } from "./execution/tranche-manager.js";
+import { setExecutionSink } from "./execution/tranche-exec.js";
 import { surfaceSetup, surfaceNoTrade } from "./tools/surface.js";
 import { alertIfPlumbingBlock } from "./health-check.js";
 import { buildStrategyContext } from "./strategy/context/build-strategy-context.js";
@@ -215,6 +217,8 @@ Reply with 2-4 sentences of plain prose for the trader: if a packet fired, expla
 export function startDetector({ send }) {
   _send = send;
   setTickerSink(send);
+  setTrancheSink(send);
+  setExecutionSink(send);
   // Idempotent — if a detector subprocess is already running (e.g.
   // electron-main.js calls both bindDetectorToMode + an explicit kick on
   // LIVE-restore boot, or a mode flip fires while one is alive), don't
