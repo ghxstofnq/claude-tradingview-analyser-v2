@@ -75,6 +75,7 @@ export async function closeTradovatePosition(/* { instrument } */ arg = {}) {
       const auth = { headers: { "authorization": ${JSON.stringify("Bearer " + t.token)} }, credentials: "include" };
       const pr = await fetch(${JSON.stringify(base + "/positions?locale=en")}, auth);
       let positions = []; try { const j = await pr.json(); positions = Array.isArray(j) ? j : (j && j.d) || []; } catch (e) {}
+      const foundOk = pr.ok;
       const want = ${JSON.stringify(want)};
       const targets = positions.filter(p => {
         const net = Number(p.netPos ?? p.qty ?? p.netPosition ?? 0);
@@ -86,17 +87,19 @@ export async function closeTradovatePosition(/* { instrument } */ arg = {}) {
         const dr = await fetch(${JSON.stringify(base)} + "/positions/" + (p.id), { method: "DELETE", ...auth });
         out.push({ id: p.id, status: dr.status, body: (await dr.text()).slice(0,200) });
       }
-      return { status: 200, closed: out.length, results: out, found: positions.length };
-    } catch (e) { return { status: 0, body: "fetch failed: " + String(e) }; }
+      return { status: 200, foundOk, closed: out.length, results: out, found: positions.length };
+    } catch (e) { return { status: 0, foundOk: false, body: "fetch failed: " + String(e) }; }
   })()`;
   const res = await evaluate(expr);
-  // ok must reflect the per-position DELETE acks, not just the positions-list
-  // GET — a rejected close (e.g. 400) previously still reported ok:true, so the
-  // IN-TRADE failure banner (audit C34) never fired on the Tradovate path.
-  // Empty targets (already flat) = a valid successful flatten.
+  // ok must reflect BOTH the positions-list GET succeeding AND the per-position
+  // DELETE acks. A failed GET (expired token / 401) previously yielded empty
+  // targets → ok:true "flat" for a position that may still be open (audit
+  // review); and a rejected close (400) read as success (C34). Empty targets on
+  // a SUCCESSFUL read = already flat = a valid successful flatten.
+  const readOk = res.status !== 0 && res.foundOk !== false;
   const results = Array.isArray(res.results) ? res.results : [];
   const allDeletesOk = results.every((r) => Number(r?.status) >= 200 && Number(r?.status) < 300);
-  return { ...res, ok: res.status !== 0 && allDeletesOk };
+  return { ...res, ok: readOk && allDeletesOk };
 }
 
 // Read the open Tradovate position (for the IN-TRADE / ORDERS display + to
@@ -191,17 +194,31 @@ async function readTradovateQuote(instrument) {
 export async function cancelTradovateOrders() {
   const t = getTradovate();
   if (!t.host || !t.accountId || !t.token) return { ok: false, error: "tradovate_not_connected" };
-  const orders = await readTradovateOrders();
   const base = `${t.host}/accounts/${t.accountId}/orders`;
+  // Read the working orders INSIDE the expr so we know whether the GET itself
+  // succeeded — reading on the JS side (readTradovateOrders) returns [] on a
+  // failed read (expired token), which is indistinguishable from "no orders" and
+  // would report ok:true for a still-working order (audit review — same false-
+  // flat pattern fixed on the close side).
   const expr = `(async () => {
     const auth = { headers: { authorization: ${JSON.stringify("Bearer " + t.token)} }, credentials: "include" };
-    const ids = ${JSON.stringify(orders.map((o) => o.id))};
+    const or = await fetch(${JSON.stringify(base + "?locale=en")}, auth);
+    const foundOk = or.ok;
+    let list = []; try { const j = await or.json(); list = Array.isArray(j) ? j : (j && j.d) || []; } catch (e) {}
+    const isWorking = (o) => { const s = String(o.ordStatus ?? o.status ?? o.orderStatus ?? "").toLowerCase(); return s === "" || s.includes("work") || s.includes("pend") || s.includes("accept"); };
+    const ids = list.filter(isWorking).map((o) => o.id ?? o.orderId).filter((x) => x != null);
     const out = [];
     for (const id of ids) { try { const r = await fetch(${JSON.stringify(base)} + "/" + id + "?locale=en", { method: "DELETE", ...auth }); out.push({ id, status: r.status }); } catch (e) { out.push({ id, status: 0, error: String(e) }); } }
-    return { results: out };
+    return { foundOk, results: out };
   })()`;
   const res = await evaluate(expr);
-  return { ok: (res?.results?.length ?? 0) >= 0, cancelled: res?.results?.length ?? 0, results: res?.results ?? [] };
+  // ok requires BOTH the orders read succeeding AND every DELETE acking. A failed
+  // read (foundOk false) is NOT "flat" — it's unknown, so ok:false. Empty results
+  // on a successful read = no working orders = a valid no-op success.
+  const readOk = res?.foundOk !== false;
+  const results = res?.results ?? [];
+  const inRange = (r) => Number(r?.status) >= 200 && Number(r?.status) < 300;
+  return { ok: readOk && results.every(inRange), cancelled: results.filter(inRange).length, results, readOk };
 }
 
 // Pick which working stop order to reprice. Priority: an explicit orderId, then

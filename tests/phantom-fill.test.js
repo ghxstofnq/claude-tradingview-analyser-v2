@@ -1,0 +1,82 @@
+// Regression for the 2026-07-02 live phantom fill: a bearish setup was accepted
+// but its order failed to place (symbol-less packet → null order ids), yet the
+// grader still marked it FILLED against price bars — a journal position with
+// nothing at the broker. The fix: a failed order writes an INVALIDATED outcome
+// so foldOpenTrades closes the trade and tickTrades can never fill it.
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { foldOpenTrades, tickTrades } from "../cli/lib/trade-outcomes.js";
+import { __test as bc } from "../app/main/bar-close.js";
+
+const ACCEPT = { type: "accept", id: "T-1", side: "short", entry: 29819, stop: 29934, invalidation: 29934, tp1: 29274, size: { contracts: 1 } };
+// A bar whose range includes the short entry (29819) but not the stop/invalidation (29934) — a clean fill.
+const fillBar = { open: 29822, high: 29825, low: 29815, close: 29817, ts: "2026-07-02T15:03:00.000Z" };
+
+describe("phantom fill (failed order must not fill)", () => {
+  it("CONTROL: an accepted setup with no failure marker DOES get filled (the bug)", () => {
+    const open = foldOpenTrades([ACCEPT]);
+    assert.equal(open.length, 1);
+    const { transitions } = tickTrades(open, fillBar);
+    assert.ok(transitions.some((t) => t.status === "FILLED"), "an accept alone phantom-fills when price crosses entry");
+  });
+
+  it("FIX: a failed order writes INVALIDATED → trade is closed → never filled", () => {
+    const events = [ACCEPT, { type: "outcome", id: "T-1", status: "INVALIDATED", source: "order-place-failed" }];
+    const open = foldOpenTrades(events);
+    assert.equal(open.length, 0, "an invalidated trade is not in the open set");
+    const { transitions } = tickTrades(open, fillBar);
+    assert.equal(transitions.length, 0, "no FILLED transition for a failed-order trade");
+  });
+
+  it("FIX: missing-symbol invalidation also closes the trade", () => {
+    const events = [ACCEPT, { type: "outcome", id: "T-1", status: "INVALIDATED", source: "missing-symbol" }];
+    assert.equal(foldOpenTrades(events).length, 0);
+  });
+
+  // Defense-in-depth: even with NO INVALIDATED outcome, a failed tranche_orders
+  // marker voids the trade (covers a throw that pre-empts the INVALIDATED write).
+  it("FIX: a paper tranche_orders with both ids null voids the trade (no INVALIDATED needed)", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "paper", setup_id: "T-1", stopOrderId: null, limitOrderId: null }];
+    assert.equal(foldOpenTrades(events).length, 0);
+  });
+  it("FIX: a tranche_orders with an error field voids the trade", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "paper", setup_id: "T-1", error: "entry_place_failed" }];
+    assert.equal(foldOpenTrades(events).length, 0);
+  });
+  it("FIX: a tradovate tranche_orders with ok:false voids the trade", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "tradovate", setup_id: "T-1", orderId: null, ok: false }];
+    assert.equal(foldOpenTrades(events).length, 0);
+  });
+  it("a SUCCESSFUL tranche_orders leaves the trade open (real ids present)", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "paper", setup_id: "T-1", stopOrderId: 11, limitOrderId: 22 }];
+    assert.equal(foldOpenTrades(events).length, 1, "a real open must still be tracked");
+  });
+
+  // The exact 2026-07-02 live journal shape: accept → failed tranche_orders →
+  // a STALE FILLED (written by the old code before the failure was known). The
+  // failed order voids it and the stale FILLED must not re-open it.
+  it("FIX: the real-incident journal (failed order + stale FILLED) folds to 0 open", () => {
+    const events = [
+      { type: "accept", id: "T-1", side: "short", entry: 29819, stop: 29934, invalidation: 29934, tp1: 29274 },
+      { type: "tranche_orders", broker: "paper", setup_id: "T-1", stopOrderId: null, limitOrderId: null },
+      { type: "outcome", id: "T-1", status: "FILLED", fill_price: 29819 },
+    ];
+    assert.equal(foldOpenTrades(events).length, 0, "no phantom position survives");
+  });
+});
+
+describe("symbol propagation (root cause of the failed order)", () => {
+  const packet = { model: "MSS", side: "short", entry: { price: 29819 }, stop: { price: 29934 }, tp1: { price: 29274 } };
+  it("normalizes the exchange-prefixed event symbol to the canonical form", () => {
+    const p = bc.deterministicPacketToSurfacePayload(packet, { symbol: "CME_MINI:MNQ1!", ts: "2026-07-02T15:02:00.000Z" });
+    assert.equal(p.symbol, "MNQ1!");
+  });
+  it("prefers a symbol already carried on the packet", () => {
+    const p = bc.deterministicPacketToSurfacePayload({ ...packet, symbol: "MES1!" }, { symbol: "CME_MINI:MNQ1!" });
+    assert.equal(p.symbol, "MES1!");
+  });
+  it("null when nothing supplies a symbol (so the order guard can block it)", () => {
+    const p = bc.deterministicPacketToSurfacePayload(packet, {});
+    assert.equal(p.symbol, null);
+  });
+});
