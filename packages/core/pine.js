@@ -522,6 +522,13 @@ export async function smartCompile() {
     has_errors: errors?.length > 0,
     errors: errors || [],
     study_added: studyAdded,
+    // I31: a compile that ADDED a study (instead of updating in place) left a
+    // duplicate on the chart. Surface it loudly so the deploy path removes the
+    // stale instance rather than leaving two evidence tables (the parser's
+    // freshest-emit disambiguation, audit I29, is the read-side backstop).
+    duplicate_warning: studyAdded === true
+      ? 'compile ADDED a new study instance (duplicate) — remove the stale one; deploy should Update-on-chart, not Add-to-chart'
+      : null,
   };
 }
 
