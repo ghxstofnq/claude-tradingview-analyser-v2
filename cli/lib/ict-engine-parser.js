@@ -63,6 +63,7 @@ const ROW_FIELD_TYPES = {
   swing: { price: 'num', bar_ms: 'num', swept: 'bool', swept_ms: 'num', significant: 'bool' },
   structure: {
     level: 'num', broken_swing_ms: 'num', confirmed_ms: 'num', displacement: 'bool', disp_pts: 'num',
+    disp_atr: 'num', // I27: reversal-leg magnitude in ATRs (for the MSS speed-match gate)
   },
   liquidity: { price: 'num', swept: 'bool' },
   // V2 dropped has_chop, added session (str default). atr_14/17 stay num.

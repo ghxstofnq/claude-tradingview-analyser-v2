@@ -73,7 +73,10 @@ SWEEP_REJECTION_BARS = 3
 //     with ranging and fired on perfectly fine charts.
 QUALITY_ATR_LEN     = 14       // ATR length (still used by FVG size classifier)
 QUALITY_RANGE_HOURS = 3
-QUALITY_GOOD_PCT    = 0.003    // 3h range >= 0.3% of close -> "good"
+QUALITY_RANGE_ATR_MULT = 10    // I22: 3h range >= 10x ATR(14) -> "good" (vs the
+                               // instrument's OWN volatility, not a fixed % of price).
+                               // Calibration knob (~= the old 0.3%-of-price boundary
+                               // in ATR terms; refine via forward-fold).
 QUALITY_DISP_BARS   = 6        // window for displacement clean-bar count
 QUALITY_DISP_CLEAN  = 3        // >=3 clean bars -> "clean"
 QUALITY_DISP_ACCEPT = 2        // >=2 clean bars -> "acceptable"
@@ -377,10 +380,17 @@ var array<Bpr> bprs = array.new<Bpr>()
 var float priorSwingHigh = na
 var float priorSwingLow = na
 
-// Body ratio of the displacement candle (the [1] bar).
+// Displacement score of the middle candle (the [1] bar). I24: Lanto's
+// displacement is a "large body of gap", not just a clean one — so weight the
+// body-RATIO (cleanliness) by the body's SIZE in ATRs (magnitude). A big clean
+// body ranks highest; a clean-but-tiny body ranks low. Ranking-only downstream,
+// so the changed scale is safe.
 disp2() =>
     rng = high[1] - low[1]
-    rng > 0 ? math.abs(close[1] - open[1]) / rng : 0.0
+    bodyPts = math.abs(close[1] - open[1])
+    bodyRatio = rng > 0 ? bodyPts / rng : 0.0
+    sizeAtr = na(atr14) or atr14 <= 0 ? 1.0 : bodyPts / atr14
+    bodyRatio * sizeAtr
 
 // Classify an FVG's width vs ATR(14): "tiny" / "normal" / "large".
 // Returns "unknown" when ATR is unavailable (early bars) — keeps the field
@@ -671,12 +681,15 @@ trackTier(array<Swing> arr, string tier, int len, float topPx, float btmPx, int 
     var float priorLow = na
     if not na(topPx)
         kind = na(priorHigh) or topPx > priorHigh ? "HH" : "LH"
-        sigH = (high[len] - low[len]) > 0 and (high[len] - math.max(open[len], close[len])) >= 0.5 * (high[len] - low[len])
+        // I87: significance is liquidity relevance, not wick shape. An external
+        // (swing-tier) pivot IS a significant liquidity level; an internal pivot
+        // qualifies only with a genuine rejection wick.
+        sigH = tier == "swing" or ((high[len] - low[len]) > 0 and (high[len] - math.max(open[len], close[len])) >= 0.5 * (high[len] - low[len]))
         array.push(arr, Swing.new(kind, topPx, time[len], tier, true, false, sigH))
         priorHigh := topPx
     if not na(btmPx)
         kind = na(priorLow) or btmPx > priorLow ? "HL" : "LL"
-        sigL = (high[len] - low[len]) > 0 and (math.min(open[len], close[len]) - low[len]) >= 0.5 * (high[len] - low[len])
+        sigL = tier == "swing" or ((high[len] - low[len]) > 0 and (math.min(open[len], close[len]) - low[len]) >= 0.5 * (high[len] - low[len]))
         array.push(arr, Swing.new(kind, btmPx, time[len], tier, false, false, sigL))
         priorLow := btmPx
     if array.size(arr) > maxLen
@@ -885,7 +898,7 @@ qPrevRng = high[1] - low[1]
 qEngulfing = bar_index >= 2 and not na(qPrevRng) and qPrevRng > 0 and high[1] >= high[2] and low[1] <= low[2] and math.abs(close[1] - open[1]) / qPrevRng >= QUALITY_CLEAN_BODY
 
 // Verdicts.
-qRangeQuality = bar_index < qRangeBars or na(close) or close <= 0 ? "na" : qRange3h >= close * QUALITY_GOOD_PCT ? "good" : "tight"
+qRangeQuality = bar_index < qRangeBars or na(atr14) or atr14 <= 0 ? "na" : qRange3h >= atr14 * QUALITY_RANGE_ATR_MULT ? "good" : "tight"
 qDisplacement = bar_index < QUALITY_DISP_BARS ? "na" : qCleanRecent >= QUALITY_DISP_CLEAN ? "clean" : qCleanRecent >= QUALITY_DISP_ACCEPT ? "acceptable" : "weak"
 qCandle = qDojiWickRecent > 0 ? "doji_wick" : qEngulfing ? "engulfing" : "normal"
 
@@ -1025,7 +1038,11 @@ emitStructure(int row, Structure s) =>
               "|displacement=" + (s.displacement ? "1" : "0") +
               "|tier=" + s.tier +
               "|validation=" + s.validation +
-              "|disp_pts=" + str.tostring(s.dispPts, format.mintick)
+              "|disp_pts=" + str.tostring(s.dispPts, format.mintick) +
+              // I27: reversal-leg magnitude in ATRs — Lanto validates an MSS when
+              // the reversal displacement MATCHES the speed of the move that took
+              // the liquidity. Additive evidence; the walker does the comparison.
+              "|disp_atr=" + str.tostring(na(atr14) or atr14 <= 0 ? na : s.dispPts / atr14, "#.##")
     table.cell(evidence, 0, row, "structure")
     table.cell(evidence, 1, row, payload)
     row + 1
