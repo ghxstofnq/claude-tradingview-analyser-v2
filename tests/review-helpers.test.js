@@ -19,13 +19,18 @@ import {
 describe("todayBadge", () => {
   // The library row shape is { date, session, grade, stats:{ net_r, setups } }.
   // The old badge read today.total_r / today.setups (top-level) → always 0.
-  it("reads net_r + setups from the row's stats block", () => {
-    const b = todayBadge([{ date: "2026-06-16", session: "ny-pm", stats: { net_r: 10.12, setups: 6 } }]);
+  it("reads net_r + setups from the row's stats block when the row IS today", () => {
+    const b = todayBadge([{ date: "2026-06-16", session: "ny-pm", stats: { net_r: 10.12, setups: 6 } }], "2026-06-16");
     assert.equal(b.totalR, 10.12);
     assert.equal(b.setups, 6);
   });
+  it("C33: a prior day's row shows NO R (dim setup-count only), never labeled today", () => {
+    const b = todayBadge([{ date: "2026-06-16", session: "ny-pm", stats: { net_r: 10.12, setups: 6 } }], "2026-06-17");
+    assert.equal(b.totalR, null, "yesterday's +10.12R must not render as today's session");
+    assert.equal(b.setups, 6);
+  });
   it("a 0R day reports totalR 0 (dim count), not null", () => {
-    const b = todayBadge([{ stats: { net_r: 0, setups: 3 } }]);
+    const b = todayBadge([{ stats: { net_r: 0, setups: 3 } }], "2026-06-16");
     assert.equal(b.totalR, 0);
     assert.equal(b.setups, 3);
   });
