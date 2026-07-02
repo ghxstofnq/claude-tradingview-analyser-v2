@@ -82,6 +82,7 @@ QUALITY_CANDLE_BARS = 3        // window for doji/wick detection
 QUALITY_DOJI_BODY   = 0.25     // body/range < 25% AND...
 QUALITY_DOJI_WICK   = 0.60     // ...max wick/range > 60% -> doji_wick
 QUALITY_COH_HOURS   = 1.5      // directional-coherence (efficiency-ratio) window
+OVERNIGHT_CHOP_FRAC = 0.25     // I23: |overnight net| < 25% of overnight range -> chop
 
 // Entry-model evidence tuning. The strategy waits for a 1m/5m candle-close
 // confirmation after a PD-array tap/retest, and blocks if price chops inside
@@ -334,7 +335,7 @@ ovNet = na(ovOpen) or na(ovClose) ? na : ovClose - ovOpen
 ovHi = na(asiaH) ? lonH : na(lonH) ? asiaH : math.max(asiaH, lonH)
 ovLo = na(asiaL) ? lonL : na(lonL) ? asiaL : math.min(asiaL, lonL)
 ovRange = na(ovHi) or na(ovLo) ? na : ovHi - ovLo
-ovDir = na(ovNet) or na(ovRange) or ovRange <= 0 ? "na" : math.abs(ovNet) < 0.25 * ovRange ? "chop" : ovNet > 0 ? "bull" : "bear"
+ovDir = na(ovNet) or na(ovRange) or ovRange <= 0 ? "na" : math.abs(ovNet) < OVERNIGHT_CHOP_FRAC * ovRange ? "chop" : ovNet > 0 ? "bull" : "bear"
 // NY open-reaction window — first 30 min of ny_am: range high/low + which
 // overnight level got swept in the window (the reaction off the open Lanto reads).
 OR_WINDOW_MS = 30 * 60 * 1000
@@ -567,11 +568,13 @@ if barstate.isconfirmed
                     f.reacted := true
                     f.reactionDir := "bear"
             if f.entered and not f.confirmClose and not f.chop15 and f.ceHeld and zoneMinutes <= ENTRY_CONFIRM_MAX_MINUTES and currentCleanBody() and not currentDojiWick()
-                if f.dir == "bull" and close > f.top and close > open
+                // I25: confirm on a close back through the CE / midpoint (the
+                // spec's confirmation), not all the way through the zone edge.
+                if f.dir == "bull" and close > (f.top + f.bottom) / 2 and close > open
                     f.confirmClose := true
                     f.confirmDir := "bull"
                     f.confirmMs := time
-                else if f.dir == "bear" and close < f.bottom and close < open
+                else if f.dir == "bear" and close < (f.top + f.bottom) / 2 and close < open
                     f.confirmClose := true
                     f.confirmDir := "bear"
                     f.confirmMs := time
@@ -1087,6 +1090,9 @@ if barstate.islast
     nyamState = inNyam ? "forming" : "complete"
     nypmState = inNypm ? "forming" : "complete"
     int row = 1
+    // C18: clear the data region before rewriting so a shrink can't leave stale
+    // tail rows from a prior larger emit for the parser to read.
+    table.clear(evidence, 0, 1, 1, MAX_ROWS)
     row := emitLevelAndSweep(row, "AS.H", asiaH, asiaState, asiaHMs, true, asiaHSwept, asiaHSweptMs, asiaHRej)
     row := emitLevelAndSweep(row, "AS.L", asiaL, asiaState, asiaLMs, false, asiaLSwept, asiaLSweptMs, asiaLRej)
     row := emitLevelAndSweep(row, "LO.H", lonH, lonState, lonHMs, true, lonHSwept, lonHSweptMs, lonHRej)
