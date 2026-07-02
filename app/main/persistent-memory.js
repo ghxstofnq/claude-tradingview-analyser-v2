@@ -103,6 +103,22 @@ function serializeEntries(entries) {
   return entries.join(ENTRY_DELIMITER);
 }
 
+// Prompt-injection guard for memory (audit C28). Memory is LLM-written and
+// re-injected into every future system prompt inside a <persistent_memory>
+// fence. An entry carrying the fence tokens (or the system-note marker) could
+// break out of the fence and plant a standing instruction that hijacks all
+// later turns. Reject such entries on store, and neutralize any residual token
+// on injection (belt-and-braces for entries written before this guard existed).
+const MEMORY_DELIMITER_RE = /<\/?persistent_memory\b|\[System note/i;
+export function containsPromptDelimiter(text) {
+  return MEMORY_DELIMITER_RE.test(String(text || ""));
+}
+export function neutralizePromptDelimiters(text) {
+  return String(text || "")
+    .replace(/<(\/?)persistent_memory\b/gi, "($1persistent_memory")
+    .replace(/\[System note/gi, "(System note");
+}
+
 /**
  * Render one target's snapshot block for the system prompt. Returns the
  * empty string when there are no entries — so the SDK can omit the entire
@@ -111,7 +127,9 @@ function serializeEntries(entries) {
  */
 function renderBlock(target, entries, charLimit) {
   if (!entries || entries.length === 0) return "";
-  const content = serializeEntries(entries);
+  // Neutralize any residual fence token so a pre-existing entry can't break out
+  // of the <persistent_memory> fence at injection time (audit C28).
+  const content = neutralizePromptDelimiters(serializeEntries(entries));
   const current = content.length;
   const pct = Math.min(100, Math.floor((current / charLimit) * 100));
   const usage = `${pct}% — ${current.toLocaleString()}/${charLimit.toLocaleString()} chars`;
@@ -230,6 +248,9 @@ export class PersistentMemory {
         error: `invalid target '${target}' — use 'memory' or 'user'`,
       };
     }
+    if (containsPromptDelimiter(trimmed)) {
+      return { success: false, error: "entry rejected: contains a reserved prompt delimiter (<persistent_memory> / [System note)" };
+    }
 
     const driftBak = await this._detectExternalDrift(target);
     if (driftBak) return this._driftError(target, driftBak);
@@ -281,6 +302,9 @@ export class PersistentMemory {
     }
     if (target !== "memory" && target !== "user") {
       return { success: false, error: `invalid target '${target}'` };
+    }
+    if (containsPromptDelimiter(newTrim)) {
+      return { success: false, error: "entry rejected: contains a reserved prompt delimiter (<persistent_memory> / [System note)" };
     }
 
     const driftBak = await this._detectExternalDrift(target);

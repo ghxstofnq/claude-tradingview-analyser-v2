@@ -25,6 +25,8 @@ import {
   surfaceLtfBias,
   surfaceSessionSummary,
   surfaceLeaderDecision,
+  setCurrentTurnPurpose,
+  clearTurnAuditState,
 } from "./tools/surface.js";
 import { getPersistentMemory, setBacktestContext, clearBacktestContext } from "./persistent-memory.js";
 import { setBacktestSessionContext, clearBacktestSessionContext } from "./sessions.js";
@@ -198,8 +200,37 @@ async function loadSystemPrompt(purpose) {
 // two reflective phases.
 const PURPOSES_WITH_MEMORY_WRITE = new Set(["chat", "wrap", "review"]);
 
-function buildAllowedToolNames(purpose) {
-  const base = ["Read", "Glob", ..._allowedToolNames];
+// Live-chain purposes — the only turns during which the deterministic packet is
+// legitimately armed. Non-chain turns clear it so a stale packet can't leak into
+// e.g. a chat turn (audit C27).
+const CHAIN_PURPOSES = new Set(["bar-close", "catch-up"]);
+
+// Per-purpose tool allow-list (audit C26). The walker chain is the ONLY setup
+// producer, so surface_setup/no_trade + the chain handoffs are reachable only
+// from the live-chain purposes; brief/wrap own exactly their one summary tool;
+// chat authors alerts only; review authors nothing. tv_analyze_* are read-only
+// captures. This mirrors what each phase prompt already states ("skip
+// surface_setup/no_trade") but enforces it in code so a drifting or injected
+// prompt cannot reach a tool it isn't the owner of. The surface functions carry
+// a second, independent owner-purpose guard (assertOwnerPurpose) as belt-and-
+// braces. Shorthand names (without the mcp__tv__ prefix).
+const ANALYZE_TOOLS = ["tv_analyze_fast", "tv_analyze_full"];
+const ALERT_TOOLS = ["tv_alert_create", "tv_alert_list", "tv_alert_delete"];
+const CHAIN_SURFACE = ["surface_setup", "surface_no_trade", "surface_ltf_bias", "surface_leader_decision", "surface_open_reaction"];
+export const TOOLS_BY_PURPOSE = {
+  "bar-close": [...ANALYZE_TOOLS, ...ALERT_TOOLS, ...CHAIN_SURFACE],
+  "catch-up": [...ANALYZE_TOOLS, ...CHAIN_SURFACE],
+  brief: [...ANALYZE_TOOLS, ...ALERT_TOOLS, "surface_session_brief"],
+  wrap: ["surface_session_summary"],
+  chat: [...ALERT_TOOLS],
+  review: [],
+};
+
+export function buildAllowedToolNames(purpose) {
+  // Unknown purpose → read-only captures only (fail-safe: never expose a
+  // state-authoring tool to an unmapped purpose).
+  const allowedShort = new Set(TOOLS_BY_PURPOSE[purpose] ?? ANALYZE_TOOLS);
+  const base = ["Read", "Glob", ..._allowedToolNames.filter((full) => allowedShort.has(full.replace(/^mcp__tv__/, "")))];
   if (_memoryToolName && PURPOSES_WITH_MEMORY_WRITE.has(purpose)) {
     base.push(_memoryToolName);
   }
@@ -971,6 +1002,13 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, provi
   // eslint-disable-next-line no-console
   console.log("[sdk] userTurn start", { purpose, textLen: text.length, resuming: !!resumeId, timeoutMs });
 
+  // Tell the surface tools which purpose is running so their owner-purpose guard
+  // can reject a tool the turn isn't the owner of (audit C26/C27). A non-chain
+  // turn also clears any deterministic packet the last bar armed so it can't
+  // leak into e.g. a chat surface_setup.
+  setCurrentTurnPurpose(purpose);
+  if (!CHAIN_PURPOSES.has(purpose)) clearTurnAuditState();
+
   let q;
   try {
     q = query({ prompt: text, options: opts });
@@ -1028,6 +1066,7 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, provi
   } finally {
     clearTimeout(timeoutHandle);
     _currentCancel = null;
+    setCurrentTurnPurpose(null); // reset so a later direct JS chain call isn't gated (audit C26)
     _broadcastActivity({ type: "activity_end", purpose, provider: provider.name, ts: Date.now() });
   }
 }

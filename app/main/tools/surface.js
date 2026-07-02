@@ -10,6 +10,7 @@ import { writePairDecision } from "../../../cli/lib/pair-decision.js";
 import { writeBrief, readMemory, writeAtomic } from "../session-memory.js";
 import { PAIR_PRIMARY, PAIR_SECONDARY } from "../config.js";
 import { record as recordMetric } from "../metrics.js";
+import { verifyCitations } from "../../../cli/lib/cite-check.js";
 
 // Symbols allowed in surface_session_brief.symbol. Anything else is a typo /
 // hallucination and should fail loudly rather than write a brief-XYZ.json
@@ -107,6 +108,35 @@ export function clearTurnAuditState() {
   _currentDeterministicPacket = null;
 }
 
+// Owner-purpose guard (audit C26/C27). The walker chain is the ONLY setup
+// producer; brief/wrap own exactly their one summary tool; chat/review author
+// no state. This enforces in CODE what the phase prompts state ("skip
+// surface_setup/no_trade") so a confused or prompt-injected turn cannot write a
+// tool it isn't the owner of. `_currentTurnPurpose` is set by the SDK at the
+// top of each LLM turn and cleared between turns; a null purpose means a direct
+// JS call from the deterministic chain (bar-close.js calls surfaceSetup itself)
+// — always allowed.
+let _currentTurnPurpose = null;
+export function setCurrentTurnPurpose(purpose) {
+  _currentTurnPurpose = purpose ?? null;
+}
+export const SURFACE_OWNERS = {
+  surface_setup: new Set(["bar-close", "catch-up"]),
+  surface_no_trade: new Set(["bar-close", "catch-up"]),
+  surface_ltf_bias: new Set(["bar-close", "catch-up"]),
+  surface_leader_decision: new Set(["bar-close", "catch-up"]),
+  surface_open_reaction: new Set(["bar-close", "catch-up"]),
+  surface_session_brief: new Set(["brief"]),
+  surface_session_summary: new Set(["wrap"]),
+};
+export function assertOwnerPurpose(tool) {
+  if (_currentTurnPurpose == null) return; // direct JS/chain call
+  const owners = SURFACE_OWNERS[tool];
+  if (owners && !owners.has(_currentTurnPurpose)) {
+    throw new Error(`${tool} is not callable from a '${_currentTurnPurpose}' turn (owner: ${[...owners].join("/")})`);
+  }
+}
+
 export function validateSetupAgainstDeterministicPacket(payload, packet) {
   const errors = [];
   if (!packet || packet.status !== 'executable' || packet.finalVerdict !== 'manual_candidate') {
@@ -132,18 +162,19 @@ export function validateSetupAgainstDeterministicPacket(payload, packet) {
 
 
 export async function surfaceSetup(payload) {
+  assertOwnerPurpose("surface_setup");
   // #32 A+ requires pillar_breakdown — these setups carry the most risk
   // and the trader needs the alignment view. Reject A+ without it
   // so Claude retries with the missing field.
   if (payload.grade === "A+" && (!Array.isArray(payload.pillar_breakdown) || payload.pillar_breakdown.length < 2)) {
     throw new Error("surface_setup: grade A+ requires pillar_breakdown with at least 2 pillars");
   }
-  // Deterministic audit: when the walker chain produced a packet for this
-  // bar, any surfaced setup must match it exactly. Strict (reject) mode —
-  // the chain decides; callers narrate.
-  if (_currentDeterministicPacket) {
-    validateSetupAgainstDeterministicPacket(payload, _currentDeterministicPacket);
-  }
+  // Deterministic audit: the walker chain is the ONLY setup producer, so every
+  // surfaced setup MUST match the packet the chain armed for this bar. Fail
+  // closed (audit C27): with no armed packet — e.g. a chat/injected turn — this
+  // throws instead of silently accepting an LLM-authored setup. The chain arms
+  // the packet before its own turn, so a legitimate matching setup still passes.
+  validateSetupAgainstDeterministicPacket(payload, _currentDeterministicPacket);
   const dir = await activeSessionDir();
   const file = path.join(dir, "setups.jsonl");
   const id = payload.id || `S-${Date.now().toString(36)}`;
@@ -200,6 +231,7 @@ export async function surfaceNoTrade({
   evidenceRefs,
   eventTimeUtc,
 } = {}) {
+  assertOwnerPurpose("surface_no_trade");
   if (_currentDeterministicPacket?.status === 'executable' && _currentDeterministicPacket?.finalVerdict === 'manual_candidate') {
     throw new Error('surface_no_trade: executable deterministic packet is active. Use surface_setup with the deterministic packet values; no-trade would hide packet truth.');
   }
@@ -270,6 +302,7 @@ async function briefDirFor(session) {
 // Renderer side picks: useSessionBrief prefers per-symbol files when
 // available, falling back to brief.json.
 export async function surfaceSessionBrief(payload) {
+  assertOwnerPurpose("surface_session_brief");
   // Validate symbol against the pair allow-list. Without this, Claude can
   // hallucinate symbol="MNQ" (no !) and the file lands as brief-MNQ.json
   // — invisible to the UI, no error.
@@ -343,6 +376,21 @@ export async function surfaceSessionBrief(payload) {
   const dir = await briefDirFor(payload.session);
   const ts = new Date().toISOString();
   const record = { ...payload, ts };
+  // Live cite-check (audit C29): resolve every cited price in the brief's prose
+  // against the bundle it was built from, using the SAME resolver as the fixture
+  // harness. Default-off (GOFNQ_LIVE_CITE_CHECK=1 to enable) + flag-only —
+  // paired bundles cite per-symbol paths, so this must be validated live before
+  // it can hard-reject. A mismatch surfaces as app:error + a cite_warnings note.
+  if (process.env.GOFNQ_LIVE_CITE_CHECK === "1") {
+    try {
+      const bundleRaw = await fs.readFile(path.join(REPO_ROOT, "state", "last-analyze.json"), "utf8");
+      const { violations } = verifyCitations(JSON.stringify(record), JSON.parse(bundleRaw));
+      if (violations.length) {
+        record.cite_warnings = violations;
+        _send?.("app:error", { source: "surface_session_brief", level: "warn", message: `${violations.length} unresolved price citation(s) in the ${payload.symbol ?? ""} brief — possible hallucinated level(s)` });
+      }
+    } catch { /* no bundle on disk / unresolvable — skip (best-effort flag) */ }
+  }
   // session-memory.writeBrief handles atomic writes (.tmp + rename) and
   // the brief.json mirror policy (PRIMARY only, not last-written).
   await writeBrief(dir, record);
@@ -365,6 +413,7 @@ const OPEN_REACTION_DEDUP_MS = 30_000;
 let _lastOpenReaction = { ts: 0, key: null };
 
 export async function surfaceOpenReaction(payload) {
+  assertOwnerPurpose("surface_open_reaction");
   const dedupeKey = `${payload.minutes_into_phase}-${payload.bias_direction}`;
   const sinceLast = Date.now() - _lastOpenReaction.ts;
   if (_lastOpenReaction.key === dedupeKey && sinceLast < OPEN_REACTION_DEDUP_MS) {
@@ -466,6 +515,7 @@ ${priorBlock}
 // Finalized LTF bias, written at +14m of the open-reaction window. JSON
 // sidecar is the source of truth for the renderer; markdown is the human view.
 export async function surfaceLtfBias(payload) {
+  assertOwnerPurpose("surface_ltf_bias");
   // Cross-check entry_model_priority against the deterministic resolver.
   // Catches model errors silently violating the decision tree. We don't
   // throw — the model's "undecided" is always honored — but we log a
@@ -525,6 +575,7 @@ ${record.reasoning || "_no reasoning provided_"}
 // folder of the just-completed session via payload.session — not the active
 // clock, which by then has rolled to inter-session/idle.
 export async function surfaceSessionSummary(payload) {
+  assertOwnerPurpose("surface_session_summary");
   const dir = await briefDirFor(payload.session);
   const record = { ...payload, ts: new Date().toISOString() };
   await persistRecord(dir, "summary", record, renderSummaryMd);
@@ -570,6 +621,7 @@ ${watch || "- _no watchlist provided_"}
 // open-reaction phase. Once this file exists, tv analyze --pair short-
 // circuits to single-symbol on the leader for the rest of the session.
 export async function surfaceLeaderDecision(payload) {
+  assertOwnerPurpose("surface_leader_decision");
   const { primary, secondary, leader, evidence, reason, session } = payload;
   if (!primary || !secondary) throw new Error("surface_leader_decision requires primary and secondary");
   if (!session) throw new Error("surface_leader_decision requires session ('london' | 'ny-am' | 'ny-pm')");
