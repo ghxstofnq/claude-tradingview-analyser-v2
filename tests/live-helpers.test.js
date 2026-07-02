@@ -186,6 +186,18 @@ describe("liveGridFromTrade", () => {
     assert.match(grid.toTp1.v, /^40/);
   });
 
+  it("C35: a pending_entry order shows PENDING P&L, not a fabricated live R", () => {
+    const grid = liveGridFromTrade({ ...longTrade, state: "pending_entry" }, 21300);
+    assert.equal(grid.pnl.v, "PENDING");
+    assert.equal(grid.pnl.sub, "awaiting fill");
+    assert.equal(grid.pnl.tone, "");
+  });
+  it("C35: a filled order still shows the live unrealized R", () => {
+    const grid = liveGridFromTrade({ ...longTrade, state: "filled" }, 21358.25);
+    assert.match(grid.pnl.v, /R$/);
+    assert.equal(grid.pnl.sub, "unrealized");
+  });
+
   it("returns em-dash placeholders when lastClose is missing", () => {
     const grid = liveGridFromTrade(longTrade, null);
     assert.equal(grid.price.v, "—");

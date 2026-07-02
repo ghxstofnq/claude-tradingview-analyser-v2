@@ -342,7 +342,7 @@ function TrackRecordView({ library }) {
     <div className="work-scroll">
       <AccountLedger />
       <div className="section">
-        <div className="sect-hd"><span>PERFORMANCE</span><span className="meta">{A.n_sessions} SESSION{A.n_sessions === 1 ? "" : "S"} · REAL FILLS</span></div>
+        <div className="sect-hd"><span>PERFORMANCE</span><span className="meta">{A.n_sessions} SESSION{A.n_sessions === 1 ? "" : "S"} · JOURNAL R (SIMULATED)</span></div>
         <div className="an-hero">
           <div className="htile">
             <span className="k">CUMULATIVE R</span>

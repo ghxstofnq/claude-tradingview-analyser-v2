@@ -90,31 +90,53 @@ export async function closeTradovatePosition(/* { instrument } */ arg = {}) {
     } catch (e) { return { status: 0, body: "fetch failed: " + String(e) }; }
   })()`;
   const res = await evaluate(expr);
-  return { ...res, ok: (res.closed ?? 0) >= 0 && res.status !== 0 };
+  // ok must reflect the per-position DELETE acks, not just the positions-list
+  // GET — a rejected close (e.g. 400) previously still reported ok:true, so the
+  // IN-TRADE failure banner (audit C34) never fired on the Tradovate path.
+  // Empty targets (already flat) = a valid successful flatten.
+  const results = Array.isArray(res.results) ? res.results : [];
+  const allDeletesOk = results.every((r) => Number(r?.status) >= 200 && Number(r?.status) < 300);
+  return { ...res, ok: res.status !== 0 && allDeletesOk };
 }
 
 // Read the open Tradovate position (for the IN-TRADE / ORDERS display + to
 // enable Flatten). Node-side fetch with the sniffed Bearer token — the
 // position WS/feed is TV-paper-only, so Tradovate's position comes from its
 // REST API. Returns { symbol, side, qty, avgFill, uPnlUsd, broker } | null.
-export async function readTradovatePosition() {
+// Discriminated read: { ok, position }. ok:false means the account read FAILED
+// (not configured / network / non-200 / parse) — the caller MUST NOT infer
+// "flat" from it (audit C11: a transient REST failure was read as a close and
+// booked a phantom fill, abandoning a live position). ok:true + position:null
+// is a CONFIRMED flat.
+export async function readTradovatePositionSafe() {
   const t = getTradovate();
-  if (!t.host || !t.accountId || !t.token) return null;
+  if (!t.host || !t.accountId || !t.token) return { ok: false, position: null, reason: "not_configured" };
   try {
     const r = await fetch(`${t.host}/accounts/${t.accountId}/positions?locale=en`, { headers: { authorization: `Bearer ${t.token}` } });
+    if (!r.ok) return { ok: false, position: null, reason: `http_${r.status}` };
     const j = await r.json();
     const list = Array.isArray(j) ? j : (j?.d || []);
     const p = list.find((x) => Number(x.netPos ?? x.qty ?? 0) !== 0);
-    if (!p) return null;
+    if (!p) return { ok: true, position: null };
     return {
-      symbol: p.instrument || p.symbol || null,
-      side: p.side || (Number(p.netPos ?? p.qty) < 0 ? "sell" : "buy"),
-      qty: Math.abs(Number(p.netPos ?? p.qty)),
-      avgFill: p.avgPrice ?? p.avg_price ?? null,
-      uPnlUsd: p.unrealizedPl ?? p.openPl ?? null,
-      broker: "tradovate",
+      ok: true,
+      position: {
+        symbol: p.instrument || p.symbol || null,
+        side: p.side || (Number(p.netPos ?? p.qty) < 0 ? "sell" : "buy"),
+        qty: Math.abs(Number(p.netPos ?? p.qty)),
+        avgFill: p.avgPrice ?? p.avg_price ?? null,
+        uPnlUsd: p.unrealizedPl ?? p.openPl ?? null,
+        broker: "tradovate",
+      },
     };
-  } catch { return null; }
+  } catch (e) { return { ok: false, position: null, reason: String(e?.message || e) }; }
+}
+
+// Back-compat thin wrapper — callers that only need "is there a position"
+// (they already treat null as no-position). The fill poller uses the Safe
+// variant so it can tell an error from a flat.
+export async function readTradovatePosition() {
+  return (await readTradovatePositionSafe()).position;
 }
 
 // Read the working orders on the Tradovate account (the position's bracket:

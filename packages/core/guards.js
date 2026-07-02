@@ -34,6 +34,20 @@ export class GuardError extends Error {
   }
 }
 
+// Bare deadline wrapper (no retry, no circuit) — safe for NON-idempotent calls
+// where a retry could double-apply (order POST, replay.start, pine deploy). A
+// CDP evaluate cannot be cancelled, so the underlying eval keeps running until
+// the page resolves it or goes away; this only stops the CALLER waiting forever
+// (audit C22/C23 — the whole bridge previously had no deadline anywhere).
+// Rejects with GuardError('timeout') when `promise` doesn't settle in `ms`.
+export function withTimeout(promise, ms, label = 'operation') {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new GuardError('timeout', `${label} stalled (>${ms}ms)`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 function getCircuit(toolName) {
   let s = circuits.get(toolName);
   if (!s) {
