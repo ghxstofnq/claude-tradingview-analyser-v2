@@ -33,6 +33,25 @@ Per-lever, flags-on:
 
 **Interpretation:** on the available corpus the levers are almost entirely inert — they preserve every oracle-verified grade and don't fire on the quiet live sessions. That proves **safety** but the corpus is too small/quiet to exercise the conditions each lever targets (a divergent 2/3 day, a micro-stop, a wide non-inversion stop, a swing-grab retrace). The June 9/11 micro-pivots and divergent days that motivated the findings are not in these 6 tapes.
 
+## Fold #2 — fresh oracle corpus (PR #188), MNQ + MES
+
+After the initial write-up, the fresh-oracle corpus from PR #188 (`tests/tapes/fresh-oracle/`, 22 capture-only tapes = 11 dates × MNQ + MES, 01-29 → 06-25) was folded via `scripts/inspect-fresh-oracle-tapes.mjs` (rebuilds the deterministic brief context from each tape's anchor bundle, then folds the truth fn — env-flag-aware). Baseline (flags off) produces ~13 setups across both instruments. Each lever off-vs-on:
+
+| Lever | Sessions changed (of 22) | Detail |
+|-------|--------------------------|--------|
+| **C5** `GOFNQ_D5_ELEVATION_RESPECTS_CAP` | **1** | **02-09 MNQ**: `A+ Trend long → tp2_hit (+8.12R)` demotes to `B Trend long → tp1_hit (+2.35R)` — **−5.77R on that session** |
+| C6 `GOFNQ_LEGACY_GRADE_B_CAP` | 0 | inert — every fresh-oracle fold uses the nested-count path, never the legacy fallback |
+| C3 `GOFNQ_MIN_STOP_BAND` | 0 | inert — no setup has a < 0.35×ATR micro-pivot stop |
+| C4 `GOFNQ_WIDE_STOP_CAP_ALL_MODELS` | 0 | inert — no non-inversion setup has a > 5×ATR stop |
+| C2 `GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW` | 0 | inert — the one MSS setup (06-16 MNQ) isn't a swing-grab fallback |
+
+**The C5 case, and the judgment it needs (yours, not mine):**
+- 02-09 MNQ in the fresh capture is classified **divergent** (`htf_ltf_alignment=divergent`, `is_retrace_day=true`, `grade_cap=B`), yet the current code grades it **A+** via the elevation bypass. C5 makes the elevation respect the divergence cap → **B**. That demotion is exactly what daily-bias.md §1 requires ("elevate only an already-aligned day").
+- C5 correctly **spares** 06-25 MES (`aligned`, `grade_cap=A+`) — it stays A+.
+- **The tension:** 02-09 is the canonical flagship A+ multi-alignment day (the merged oracle, PR #177). But this fresh capture resolves 02-09 as *divergent*. So C5's demotion is correct *given the divergent input* — the real question is whether the fresh capture / open-reaction resolver is right to call 02-09 divergent, or whether it mis-graded a day the oracle says is aligned A+. (The old verified 02-09 tape resolved `aligned`; the fresh capture resolves `divergent` — same date, different captures.) That is a grading-discretion call for you.
+
+**Net:** on real MNQ+MES data, only C5 is live, and it costs R on the single session it touches by grading a divergent day more conservatively. C2/C3/C4/C6 remain unexercised (their target conditions aren't present in this corpus either). The corpus is still 22 NY-AM sessions, not the full 234-session year — the value read remains directional.
+
 ## Recommendation
 
 - Levers are safe to keep default-off in the tree.
