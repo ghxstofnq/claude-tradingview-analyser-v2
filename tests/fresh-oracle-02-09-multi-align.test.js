@@ -182,17 +182,23 @@ test("fresh 2026-02-09 MNQ folds to the approved multi-alignment Trend/iFVG-entr
   });
 
   const first = surfaced[0] ?? null;
-  assert.ok(first, "fresh fold should surface the approved multi-alignment Trend packet");
+  assert.ok(first, "fresh fold should surface the multi-alignment Trend packet");
   assert.equal(first.model, "Trend", "model");
   assert.equal(first.side, "long", "side");
-  assert.equal(first.grade, "A+", "grade");
+  // Grade B, not A+: the fresh capture resolves 02-09 as a DIVERGENT/retrace day
+  // (htf_ltf_alignment=divergent, is_retrace_day=true), and per user ruling
+  // 2026-07-02 that is the true reading — so the two-and-one elevation is held at
+  // B (daily-bias.md §1 "elevate only an already-aligned day"), which the
+  // default-on GOFNQ_D5_ELEVATION_RESPECTS_CAP lever enforces. The entry itself
+  // (multi-alignment Trend/iFVG long) is unchanged; only the grade + runner are.
+  assert.equal(first.grade, "B", "grade (divergent-day two-and-one held at B)");
   assert.equal(first.entry, 25632, "entry");
   assert.equal(first.stop_level, 25605, "structural stop anchor");
   assert.equal(first.stop, 25604.5, "execution stop");
   assert.equal(first.tp1, 25696.75, "tp1"); // no-lookahead packet-time NYAM.H; 25707 is not present in 09:54–09:56 closed-bar evidence
-  assert.equal(first.tp2, 25855.25, "tp2");
   assert.ok(["09:54", "09:55", "09:56"].includes(etMinute(first.event_ts)), "entry should surface in the documented 09:54–09:56 ET window");
   assert.equal(new Set(surfaced.map((s) => `${s.model}:${s.side}`)).size, 1, "one primary trade per session");
   assert.ok(!surfaced.some((s) => s.entry === 25562.5 || s.stop === 25492.75), "stale 14:36 expected values must not be treated as authority");
-  assert.ok(outcomes.some((e) => e.outcome === "tp2_hit"), "approved long should reach TP2 on the fresh tape");
+  // A B banks at TP1 (no runner to TP2), so the long resolves tp1_hit.
+  assert.ok(outcomes.some((e) => e.outcome === "tp1_hit"), "B long banks at TP1 on the fresh tape");
 });

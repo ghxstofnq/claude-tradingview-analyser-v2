@@ -643,16 +643,19 @@ function deriveGrade({ context, walker }) {
     if (!modelKnown || !sideAligned) return capGrade('B', chain.gradeCap);
     if (chain.aPlusEligible) return capGrade('A+', chain.gradeCap);
     // D5: a 2/3 (b_elevatable) day elevates to A+ via a multi-alignment entry —
-    // the "two-and-one". This LIFTS the bias-COUNT B cap (the elevation IS the
-    // A+ path). Lever C5 (GOFNQ_D5_ELEVATION_RESPECTS_CAP, default-off): apply
-    // the SAME cap the 3/3 path applies one line up — the elevation lifts the
-    // bias-count cap but must still respect a DIVERGENCE cap (chain.gradeCap='B'
-    // from a divergent/unclear open reaction). So an aligned 2/3 day still
-    // elevates (02-09 A+ preserved), but a divergent/retrace 2/3 day is held at
-    // B — matching daily-bias.md §1 "elevate only an already-aligned day" and
-    // removing the asymmetry with :644. Off = legacy raw 'A+'.
+    // the "two-and-one". This LIFTS the bias-COUNT 2/3→B cap (the elevation IS
+    // the A+ path). But daily-bias.md §1 says "elevate only an already-aligned
+    // day", so it must NOT elevate a DIVERGENT/retrace day. Gate on divergence
+    // DIRECTLY — not on chain.gradeCap, which conflates the (liftable) bias-count
+    // cap with the (binding) divergence cap; capping on gradeCap would wrongly
+    // block a legitimate two-and-one on a plain non-divergent 2/3 day.
+    // GOFNQ_D5_ELEVATION_RESPECTS_CAP DEFAULT-ON (user-approved 2026-07-02 after
+    // the fresh-oracle fold: 02-09 MNQ, a divergent/retrace day, A+→B). Opt out
+    // with =0 for the legacy raw 'A+' on divergent days.
     if (chain.bElevatable && chain.gradeCap !== 'no-trade' && hasMultiAlignment(context, walker)) {
-      return process.env.GOFNQ_D5_ELEVATION_RESPECTS_CAP === '1' ? capGrade('A+', chain.gradeCap) : 'A+';
+      const divergent = chain.htfLtfAlignment === 'divergent' || chain.isRetraceDay === true;
+      if (process.env.GOFNQ_D5_ELEVATION_RESPECTS_CAP !== '0' && divergent) return capGrade('B', chain.gradeCap);
+      return 'A+';
     }
     return capGrade('B', chain.gradeCap);
   }

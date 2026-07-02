@@ -52,6 +52,15 @@ After the initial write-up, the fresh-oracle corpus from PR #188 (`tests/tapes/f
 
 **Net:** on real MNQ+MES data, only C5 is live, and it costs R on the single session it touches by grading a divergent day more conservatively. C2/C3/C4/C6 remain unexercised (their target conditions aren't present in this corpus either). The corpus is still 22 NY-AM sessions, not the full 234-session year — the value read remains directional.
 
+## Decision (2026-07-02): C5 enabled default-on; 02-09 = B
+
+User ruling: **C5 is correct, and 02-09 is a divergent day → grade B** (the fresh capture's divergent classification is the true reading; the old aligned→A+ oracle is superseded).
+
+- **C5 `GOFNQ_D5_ELEVATION_RESPECTS_CAP` is now DEFAULT-ON** (opt out with `=0`). Implemented as a **divergence gate** (Option B), not a blunt `capGrade`: the two-and-one still lifts the *bias-count* 2/3→B cap on a plain 2/3 day, and is held at B only when `htf_ltf_alignment=divergent` or `is_retrace_day=true`. This preserves the legitimate bias-count elevation (the `derive-grade-nested` unit cases) while demoting the divergent 02-09.
+- The `fresh-oracle-02-09-multi-align` oracle test expectation is updated **A+ → B** (and outcome tp2_hit → tp1_hit, since a B banks at TP1). The entry (multi-alignment Trend/iFVG long) is unchanged; only the grade + runner.
+- **Follow-up:** the OLD verified tape `tests/tapes/2026-02-09-ny-am-replay.tape.json` still resolves *aligned* (grade_cap A+), so C5 doesn't touch it and it still folds A+. Under this ruling that capture's alignment is now known-misclassified; it should be re-recorded to the divergent reading (B) for consistency. Not changed here (forcing B while it folds A+ would fail the gate) — flagged.
+- C2/C3/C4/C6 remain **default-off** pending a full-corpus fold.
+
 ## Recommendation
 
 - Levers are safe to keep default-off in the tree.

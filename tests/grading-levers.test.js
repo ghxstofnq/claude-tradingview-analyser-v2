@@ -34,24 +34,22 @@ const multiAlignWalker = {
   evidence: { pdArray: { rawPayload: { bottom: 20950, top: 20970 } } },
 };
 
-describe("C5 GOFNQ_D5_ELEVATION_RESPECTS_CAP", () => {
-  it("OFF: an aligned 2/3 multi-alignment day is A+ (02-09 behavior preserved)", () => {
+// C5 is DEFAULT-ON (user-approved 2026-07-02). Default = elevation respects the
+// divergence cap; opt out with =0 for the legacy raw-A+ bypass.
+describe("C5 GOFNQ_D5_ELEVATION_RESPECTS_CAP (default-on)", () => {
+  it("default: an ALIGNED 2/3 day still elevates to A+ (cap is A+ → no change)", () => {
     assert.equal(deriveGrade({ context: twoOfThreeCtx("A+"), walker: multiAlignWalker }), "A+");
   });
-  it("ON: an ALIGNED 2/3 day still elevates to A+ (cap is A+ → no change)", () => {
-    process.env.GOFNQ_D5_ELEVATION_RESPECTS_CAP = "1";
+  it("default: a DIVERGENT 2/3 day is held at B (elevation respects the divergence cap)", () => {
+    assert.equal(deriveGrade({ context: twoOfThreeCtx("B"), walker: multiAlignWalker }), "B");
+  });
+  it("opt-out (=0): a DIVERGENT 2/3 day returns the legacy raw A+", () => {
+    process.env.GOFNQ_D5_ELEVATION_RESPECTS_CAP = "0";
+    assert.equal(deriveGrade({ context: twoOfThreeCtx("B"), walker: multiAlignWalker }), "A+");
+  });
+  it("opt-out (=0): an aligned 2/3 day is still A+", () => {
+    process.env.GOFNQ_D5_ELEVATION_RESPECTS_CAP = "0";
     assert.equal(deriveGrade({ context: twoOfThreeCtx("A+"), walker: multiAlignWalker }), "A+");
-  });
-  it("ON: a DIVERGENT 2/3 day is held at B (elevation respects the divergence cap)", () => {
-    process.env.GOFNQ_D5_ELEVATION_RESPECTS_CAP = "1";
-    const g = deriveGrade({ context: twoOfThreeCtx("B"), walker: multiAlignWalker });
-    assert.equal(g, "B");
-  });
-  it("OFF: a DIVERGENT 2/3 day still returns raw A+ (the finding's behavior)", () => {
-    // Only asserts the switch flips something on divergent days; the exact OFF
-    // value is 'A+' per the current bypass.
-    const g = deriveGrade({ context: twoOfThreeCtx("B"), walker: multiAlignWalker });
-    assert.equal(g, "A+");
   });
 });
 
