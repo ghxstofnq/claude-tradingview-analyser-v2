@@ -643,8 +643,17 @@ function deriveGrade({ context, walker }) {
     if (!modelKnown || !sideAligned) return capGrade('B', chain.gradeCap);
     if (chain.aPlusEligible) return capGrade('A+', chain.gradeCap);
     // D5: a 2/3 (b_elevatable) day elevates to A+ via a multi-alignment entry —
-    // the "two-and-one". This LIFTS the B cap (the elevation IS the A+ path).
-    if (chain.bElevatable && chain.gradeCap !== 'no-trade' && hasMultiAlignment(context, walker)) return 'A+';
+    // the "two-and-one". This LIFTS the bias-COUNT B cap (the elevation IS the
+    // A+ path). Lever C5 (GOFNQ_D5_ELEVATION_RESPECTS_CAP, default-off): apply
+    // the SAME cap the 3/3 path applies one line up — the elevation lifts the
+    // bias-count cap but must still respect a DIVERGENCE cap (chain.gradeCap='B'
+    // from a divergent/unclear open reaction). So an aligned 2/3 day still
+    // elevates (02-09 A+ preserved), but a divergent/retrace 2/3 day is held at
+    // B — matching daily-bias.md §1 "elevate only an already-aligned day" and
+    // removing the asymmetry with :644. Off = legacy raw 'A+'.
+    if (chain.bElevatable && chain.gradeCap !== 'no-trade' && hasMultiAlignment(context, walker)) {
+      return process.env.GOFNQ_D5_ELEVATION_RESPECTS_CAP === '1' ? capGrade('A+', chain.gradeCap) : 'A+';
+    }
     return capGrade('B', chain.gradeCap);
   }
 
@@ -655,7 +664,17 @@ function deriveGrade({ context, walker }) {
     ? htfDisp
     : context?.pillar2?.displacement;
   const qualityOk = ['clean', 'acceptable'].includes(String(dispSource ?? '').toLowerCase());
-  return capGrade(modelKnown && reactionConfirmed && qualityOk ? 'A+' : 'B', chain.gradeCap);
+  // Lever C6 (GOFNQ_LEGACY_GRADE_B_CAP, default-off): the legacy fallback (no
+  // nested drawBiasPillar count, no overnight vote) cannot establish either A+
+  // path — a verified 3/3 bias OR a two-and-one entry — so it awards A+ off a
+  // displacement PROXY, which daily-bias.md §1 explicitly disqualifies ("single
+  // clean strongly-displaced entry — good but NOT an A+ elevator"). When on, the
+  // legacy path caps at B; A+ comes only from the nested-grade path above. Off =
+  // legacy displacement-proxy A+. (Live grading uses the nested path; this
+  // affects the fallback, exercised mainly on field-less tapes/older bundles.)
+  const legacyAPlus = modelKnown && reactionConfirmed && qualityOk
+    && process.env.GOFNQ_LEGACY_GRADE_B_CAP !== '1';
+  return capGrade(legacyAPlus ? 'A+' : 'B', chain.gradeCap);
 }
 
 function packetEntryAudit(confirmationPayload, confirmation) {
@@ -724,11 +743,45 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
   } : null;
 
   const stopAudit = entryPrice == null ? { selected: null, rejected: [] } : stopCandidatesWithAudit(context, side, entryPrice);
-  const stopCandidate = explicitStopCandidate ?? ((entryPrice == null ? null : (
+  let stopCandidate = explicitStopCandidate ?? ((entryPrice == null ? null : (
     inversionStructuralStop(walker, side, entryPrice, context)
     ?? trendStructuralStop(walker, side, entryPrice, context)
     ?? mssStructuralStop(walker, side, entryPrice, context)
   )) ?? stopAudit.selected);
+
+  // ── Stop-band levers (default-off; audit C4 then C3) ────────────────────
+  // C4 first (widen-cap can tighten a too-wide stop), then C3 (block if the
+  // result is still a noise-level micro-stop). Both volatility-relative (Wilder
+  // ATR from pillar2), never fixed point bands.
+  if (stopCandidate && entryPrice != null) {
+    const atr14 = numberOrNull(context?.pillar2?.atr14);
+    // C4 (GOFNQ_WIDE_STOP_CAP_ALL_MODELS): the Inversion path already caps a wide
+    // failed-leg stop at WIDE_LEG_ATR_MULT×ATR; MSS/Trend/generic have no
+    // backstop, so a big-displacement session can pick a sub-1R stop far from
+    // entry. When on, for non-inversion models, if the stop is wider than the
+    // cap prefer the nearest valid same-side pool anchor when it's tighter.
+    // risk-and-management.md per-model stops anchor near the entry zone.
+    if (process.env.GOFNQ_WIDE_STOP_CAP_ALL_MODELS === '1'
+      && normalizeModelName(walker?.model) !== 'inversion'
+      && atr14 != null && atr14 > 0
+      && Math.abs(entryPrice - stopCandidate.price) > 5 * atr14) {
+      const alt = stopAudit.selected;
+      const altCorrectSide = alt && (side === 'long' ? alt.price < entryPrice : side === 'short' ? alt.price > entryPrice : false);
+      if (altCorrectSide && Math.abs(entryPrice - alt.price) < Math.abs(entryPrice - stopCandidate.price)) {
+        stopCandidate = alt;
+      }
+    }
+    // C3 (GOFNQ_MIN_STOP_BAND): a structural anchor tighter than MIN_STOP_ATR_FRAC
+    // of ATR isn't a real invalidation — it's a micro-pivot noise will hit,
+    // producing an absurd-R:R "setup" (June 9 2.75pt / June 11 1.5pt on ~13-19pt
+    // ATR ≈ 0.15-0.2 ATR). When on, block it rather than fire. The 0.35 fraction
+    // is the calibration knob. risk-and-management.md "Stops (structural)".
+    if (process.env.GOFNQ_MIN_STOP_BAND === '1'
+      && atr14 != null && atr14 > 0
+      && Math.abs(entryPrice - stopCandidate.price) < 0.35 * atr14) {
+      blockers.push('stop_too_tight');
+    }
+  }
   if (!stopCandidate) blockers.push('missing_structural_stop');
   const executionStopPrice = stopCandidate
     ? bufferedStopPrice({ symbol: context?.market, side, levelPrice: stopCandidate.price, bufferTicks: STOP_BUFFER_TICKS })

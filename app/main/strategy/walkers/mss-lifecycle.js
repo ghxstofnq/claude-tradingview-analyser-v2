@@ -207,7 +207,23 @@ export function buildMssWalkerKillRequests(context, walkers = []) {
   const requests = [];
   for (const walker of walkers) {
     if (walker?.model !== 'MSS' || !MSS_PRE_CONFIRM_STAGES.has(walker?.stage)) continue;
-    const sweepPrice = Number(walker?.evidence?.sweep?.rawPayload?.price);
+    let sweepPrice = Number(walker?.evidence?.sweep?.rawPayload?.price);
+    // Lever C2 (GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW, default-off): a swing-grab MSS
+    // (source==='swept_swing') synthesizes its sweep price from the failure_swing
+    // LEVEL — the broken lower-high (bullish) — so the dead-premise kill fires as
+    // soon as price dips below the LH, i.e. during the NORMAL retrace to the entry
+    // FVG, killing valid reversals mid-retrace. entry-models.md §4 kills the
+    // premise only when price makes a NEW low (closes back through the grab); §6
+    // anchors invalidation at the FVG protective edge. When on, anchor the kill on
+    // the reversal FVG's protective edge (below the FVG low for a long / above the
+    // FVG high for a short) — well below the LH, so the walker survives the retrace
+    // INTO the FVG and dies only if price closes beyond it. Off = legacy LH anchor.
+    if (process.env.GOFNQ_MSS_KILL_ANCHOR_SWEPT_LOW === '1'
+      && walker?.evidence?.sweep?.rawPayload?.source === 'swept_swing') {
+      const pd = walker?.evidence?.pdArray?.rawPayload ?? {};
+      const edge = walker.side === 'long' ? Number(pd.bottom) : Number(pd.top);
+      if (Number.isFinite(edge)) sweepPrice = edge;
+    }
     if (!Number.isFinite(sweepPrice)) continue;
     const dead = walker.side === 'long' ? close < sweepPrice : close > sweepPrice;
     if (!dead) continue;
