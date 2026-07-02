@@ -1275,18 +1275,31 @@ function bridgeEngineEvidence(engine, { lastClose = null } = {}) {
   }
 
   if (!Array.isArray(p3.structural_stops) || p3.structural_stops.length === 0) {
-    const pivotStops = (tier) => ((p3.swings ?? {})[tier] ?? [])
-      .filter((s) => Number.isFinite(Number(s?.price)))
-      .map((s, i) => ({
-        kind: s.is_high ? 'swing_high' : 'swing_low',
-        price: Number(s.price),
-        tier,
-        bar_ms: s.bar_ms ?? null,
-        // swept-ness disqualifies a pivot as a TARGET (no resting liquidity)
-        // — carried through so the target pool can filter; stops ignore it.
-        swept: s.swept === true,
-        evidenceRef: `gates.engine.pillar3.swings.${tier}[${i}]`,
-      }));
+    const pivotStops = (tier) => {
+      const all = ((p3.swings ?? {})[tier] ?? [])
+        .filter((s) => Number.isFinite(Number(s?.price)))
+        .map((s, i) => ({
+          kind: s.is_high ? 'swing_high' : 'swing_low',
+          price: Number(s.price),
+          tier,
+          bar_ms: s.bar_ms ?? null,
+          // swept-ness disqualifies a pivot as a TARGET (no resting liquidity)
+          // — carried through so the target pool can filter; stops ignore it.
+          swept: s.swept === true,
+          // I87: significance = real liquidity level (external swing or rejection
+          // wick). Carried through so stop selection can prefer it.
+          significant: s.significant === true,
+          evidenceRef: `gates.engine.pillar3.swings.${tier}[${i}]`,
+        }));
+      // I87: when on, anchor stops on SIGNIFICANT swings (real liquidity) only —
+      // never on noise. Falls back to the full set if none are significant so a
+      // stop pool is never emptied. Default-off (behavioral; needs a fold).
+      if (process.env.GOFNQ_STRUCT_STOP_SIGNIFICANT === '1') {
+        const sig = all.filter((s) => s.significant);
+        if (sig.length) return sig;
+      }
+      return all;
+    };
     // Session levels (NYAM.H, LO.H, PDH, ...) are structural highs/lows the
     // engine tracks LIVE — pivot confirmation lags several bars (June 9: the
     // 29847 high printed 09:49, became a confirmed pivot only at 09:56,
