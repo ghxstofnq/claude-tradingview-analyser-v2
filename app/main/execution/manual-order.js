@@ -2,12 +2,10 @@
 // Pure logic for the ORDERS manual ticket. No IO. Gathers structural stop
 // candidates + untaken draws from a tv analyze bundle's engine gates, then
 // computes the auto-stop, the TP draw list, sizing (sizing-core), and R:R.
-import { sizeFromStop, tickSize } from "./sizing-core.js";
+import { bufferedStopPrice, sizeFromStop, STOP_BUFFER_TICKS } from "./sizing-core.js";
 
-export const STOP_BUFFER_TICKS = 2; // place the stop this many ticks beyond the level
 const num = (v) => { if (v == null || v === "") return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 const isLong = (side) => side === "buy" || side === "long";
-function roundToTick(v, tick) { const t = tick || 0.25; return Math.round(v / t) * t; }
 // A long's stop sits below a swing/leg/session LOW; a short's above a HIGH
 // (entry-models.md stop placement). Generic session levels (no H/L suffix) are
 // eligible either side. This is why a short's auto stop is a swing HIGH, not
@@ -58,10 +56,16 @@ export function untakenDraws(bundle) {
 // nearest-first, each with the buffered stopPrice the picker would use.
 export function stopSideOptions({ side, entry, candidates, symbol }) {
   const e = num(entry); if (e == null || !Array.isArray(candidates)) return [];
-  const tick = tickSize(symbol); const buf = STOP_BUFFER_TICKS * tick; const long = isLong(side);
+  const long = isLong(side);
   const beyond = candidates.filter((c) => stopKindOk(c.kind, long) && (long ? c.price < e : c.price > e));
   beyond.sort((a, b) => (long ? b.price - a.price : a.price - b.price));
-  return beyond.map((c) => ({ kind: c.kind, name: c.name, levelPrice: c.price, stopPrice: roundToTick(long ? c.price - buf : c.price + buf, tick), ref: c.ref }));
+  return beyond.map((c) => ({
+    kind: c.kind,
+    name: c.name,
+    levelPrice: c.price,
+    stopPrice: bufferedStopPrice({ symbol, side, levelPrice: c.price, bufferTicks: STOP_BUFFER_TICKS }),
+    ref: c.ref,
+  }));
 }
 
 export function pickAutoStop({ side, entry, candidates, symbol }) {

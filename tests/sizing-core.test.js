@@ -1,7 +1,7 @@
 // tests/sizing-core.test.js
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { sizeFromStop, pointValue, tickSize } from "../app/main/execution/sizing-core.js";
+import { bufferedStopPrice, sizeFromStop, pointValue, tickSize } from "../app/main/execution/sizing-core.js";
 
 // Oracle = the ORIGINAL tranche-manager.sizePacket formula, inlined.
 function oracle({ symbol, entry, stop, target }) {
@@ -15,7 +15,12 @@ function oracle({ symbol, entry, stop, target }) {
 }
 
 describe("sizing-core", () => {
-  it("pointValue + tickSize", () => {
+  it("buffers executable stops two ticks beyond the structural level", () => {
+    assert.equal(bufferedStopPrice({ symbol: "MES1!", side: "long", levelPrice: 7626.5 }), 7626);
+    assert.equal(bufferedStopPrice({ symbol: "MNQ1!", side: "short", levelPrice: 30904.5 }), 30905);
+  });
+
+  it("point values", () => {
     assert.equal(pointValue("MNQ1!"), 2);
     assert.equal(pointValue("MES1!"), 5);
     assert.equal(tickSize("MNQ1!"), 0.25);

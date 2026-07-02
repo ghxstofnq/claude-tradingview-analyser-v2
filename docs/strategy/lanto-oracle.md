@@ -153,8 +153,9 @@ not a fabricated tick.
 - **Entry (1m-pinned): ~25630–25635** — the 1m bullish-inversion close on the reclaim (~09:54–09:56)
   inside the 5m bull FVG, after the **swing-tier bull MSS 09:47** (25665) and the **5m FVG CE-tap** at
   the **25611** pullback (09:53). The two imbalances in one: 5m bull FVG rebalance + the 1m bearish FVGs
-  (≈25610–25631) inverting bullish on the reclaim. **Stop ~25605** (below the 25611 reclaim/inversion
-  low; structural alt ~25575 below the 25581 dip) → **1R ≈ 28 pts.**
+  (≈25610–25631) inverting bullish on the reclaim. **Structural stop anchor ~25605** (below the 25611 reclaim/inversion
+  low; structural alt ~25575 below the 25581 dip). Executable broker stop **25604.50** after
+  the universal two-tick buffer → packet risk ≈ **27.5 pts**.
 - **Draws (untaken buy-side above):** Lanto's target cluster is **NYAM.H ~25707 / LO.H 25723 (~2.6–3.0R)**;
   the deterministic no-lookahead packet uses the closed-bar packet-time **NYAM.H 25696.75** because `25707`
   is not present in the 09:54–09:56 evidence window. **TP2 = AS.H 25855.25 (~7.3R — HIT**, price ran
@@ -170,9 +171,10 @@ not a fabricated tick.
 - **Model / side:** **Inversion short** — the bullish FVGs **29743–29776** violated to bearish
   (inverted) on the retrace into the bear FVGs; the 1m violation close confirms.
 - **Entry: 29760** — the first evidence-backed 1m inversion confirmation close after stale 10:00 ET
-  low-coherence inversions are suppressed. **Stop: 29818.75** (failed-leg extreme from the visible 1m
-  bars at packet time). **1R = 58.75 pts.**
-- **Draws (untaken sell-side below):** **TP1 = AS.L 29595.25 (2.80R)** — nearest sell-side draw;
+  low-coherence inversions are suppressed. **Structural stop anchor: 29818.75** (failed-leg extreme from the visible 1m
+  bars at packet time). Executable broker stop **29819.25** after the universal two-tick
+  buffer. **1R = 59.25 pts.**
+- **Draws (untaken sell-side below):** **TP1 = AS.L 29595.25 (~2.78R on the buffered stop)** — nearest sell-side draw;
   **TP2 = PDL 29113.75 (11.00R)** then **PWL 29071.25 (11.73R)** — the ultimate HTF draw (price hit
   29154 ≈ PDL). **BE → entry (29760) when TP1 fills**.
 - **Grade B — aligned bearish inversion, but no verified two-and-one.** The tape supports the
@@ -360,12 +362,12 @@ lesson below.
   the structure over-read); NY-open bull (shallow dip 30402 → bull BoS 10:25 → higher highs to 30646,
   swept LO.H+PDH). Model/side: **Continuation (Trend), long.**
 - **Exact entry:** ~**30452.75** (CE of the dip-reclaim bull FVG **30448.25–30457.25**, formed 09:45,
-  took-liq, ds 0.82; long the 1m reclaim ~09:46). **Stop 30400** (below the 30402.5 dip low; risk
-  ≈ 52.75). **TP1 30615** (NYAM.H — the only untaken draw above; ≈ +162 / **~3.1R**) — **filled**
+  took-liq, ds 0.82; long the 1m reclaim ~09:46). **Structural stop anchor 30400** (below the 30402.5 dip low); executable broker stop **30399.50**
+  after the universal two-tick buffer (risk ≈ 53.25). **TP1 30615** (NYAM.H — the only untaken draw above; ≈ +162 / **~3.0R**) — **filled**
   (ran to 30646). TP2 = trail to the next HTF draw.
 - **Why B not A+ (and near no-trade):** the 3/3 bias is A+-*grade*, but the entry is marginal —
   not in-money-fast (−34 pt drawdown to 30418 before working), the entry FVG **invalidated** mid-trade
-  (structural stop 30400 held), the window is choppy (FVGs print "invalidated" bar-after-bar), the open
+  (structural anchor 30400 / executable stop 30399.50 held), the window is choppy (FVGs print "invalidated" bar-after-bar), the open
   dip **swept no significant low** (NYAM.L 30392 never reached), and the structure breaks are weak
   (internal-tier, dp ~24-25). Caps at B.
 - **Discriminator + lesson:** an aligned-bias trend day with a tradeable-but-sloppy entry = B, not A+.
@@ -404,24 +406,26 @@ lesson below.
 - **Verdict: approve MES B Inversion short.** The correct lesson is to allow the clean MES short packet
   while preserving the null leader evidence as a caution, not as a standalone leader-selection rule.
 
-**E7 · 2026-06-15 NY-AM — MES B Trend long, stopped/wickout  ·  status: graded (user-corrected)**
+**E7 · 2026-06-15 NY-AM — MES B Trend long, buffered-stop TP1  ·  status: graded (user-corrected)**
 - **Approved instrument:** MES only. MNQ fresh fold had **no setup** with clean context; keep the MNQ label
   neutral/unknown as paired context.
 - **Pair/leader read:** displacement leader **null** (MNQ `0.91`, MES `0.92`, margin `0.01` below the
   `0.10` threshold) and SMT leader **null** (`no_divergence_measured`). This is an MES packet approval,
   not a pair-leader rule.
 - **Packet:** **B Trend long** at **11:24 ET** from `zone:7627.75-7629.75` / `trend_wick_tap_confirm`.
-  Entry **7630.5**. User-corrected stop **7626.50** = first FVG candle low (`c1l`), not the older
-  `7627.00` full1m fallback. User-corrected TP1 **7641.50** = H4 bearish FVG first-candle high
+  Entry **7630.5**. User-corrected structural stop anchor **7626.50** = first FVG candle low (`c1l`),
+  not the older `7627.00` full1m fallback. Executable broker stop uses the universal two-tick buffer:
+  **7626.00**. User-corrected TP1 **7641.50** = H4 bearish FVG first-candle high
   (`engine_by_tf.h4.fvgs[15].c1h`), not the generic `7640.00` psych fallback. TP2 **7650**.
-- **Outcome path:** corrected stop hit first at **11:33 ET** on a wick; corrected TP1 was reached later at
-  **11:50 ET** after the stop. Risk **4.0 points**; TP1 would have paid **2.75R** if held/re-entered.
-- **Second-entry note:** no clean second long surfaced after the stop before TP1. The current engine also
-  latches the NY-AM session after the first `packet_ready`; a retry-after-stop rule is a separate future
-  implementation/risk question, not oracle truth for this row.
-- **Verdict: approve MES B Trend long as a valid setup with losing/wickout outcome.** Do not relabel as
-  no-trade just because TP1 printed after the stop; the corrected executable fields are the packet-time
-  evidence above.
+- **Outcome path:** the structural anchor **7626.50** was wicked at **11:33 ET**, but the buffered
+  executable stop **7626.00** was not hit; corrected TP1 **7641.50** was reached at **11:50 ET**.
+  Execution risk **4.5 points**; TP1 pays **2.44R**.
+- **Second-entry note:** no retry is needed for this row under the buffered-stop rule. Controlled
+  retry-after-true-execution-stop remains a separate future implementation/risk question, not oracle truth
+  for this row.
+- **Verdict: approve MES B Trend long as a valid setup with buffered-stop TP1 outcome.** The structural
+  anchor remains the strategy invalidation level; execution, sizing, brackets, and grading use the buffered
+  broker stop.
 
 ---
 

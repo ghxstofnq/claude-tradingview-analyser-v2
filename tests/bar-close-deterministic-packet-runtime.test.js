@@ -67,7 +67,10 @@ test('buildDeterministicPacketTruthFromInputs promotes confirmed walker into sur
   assert.equal(truth.finalVerdict, 'manual_candidate');
   assert.equal(truth.bestPacket.status, 'executable');
   assert.equal(truth.surfacePayload.entry, 21000);
-  assert.equal(truth.surfacePayload.stop, 20990);
+  assert.equal(truth.surfacePayload.stop_level, 20990);
+  assert.equal(truth.surfacePayload.invalidation, 20990);
+  assert.equal(truth.surfacePayload.stop, 20989.5);
+  assert.equal(truth.surfacePayload.stop_buffer_ticks, 2);
   assert.equal(truth.surfacePayload.tp1, 21050);
   assert.equal(truth.surfacePayload.model, 'MSS');
   assert.equal(truth.surfacePayload.side, 'long');
@@ -313,7 +316,9 @@ test('live-shaped bundle: V2 confirmed zone bridges a confirmation row and the p
   // invalidation — low/high of PD array or swing"): the Inversion stop is
   // the structural swing high beyond the violated zone (29847), not the
   // zone top and not the nearest micro pivot.
-  assert.equal(truth.surfacePayload.stop, 29847);
+  assert.equal(truth.surfacePayload.stop_level, 29847);
+  assert.equal(truth.surfacePayload.invalidation, 29847);
+  assert.equal(truth.surfacePayload.stop, 29847.5);
   assert.equal(truth.surfacePayload.tp1, 29302.5);
 });
 
@@ -387,7 +392,8 @@ test("bridge: a close through an inverted zone synthesizes the confirmation row 
   // GXNQ ruling 2026-06-12 + risk-and-management.md: the Inversion
   // stop is the structural swing high beyond the violated zone — here the
   // 29847 pivot, matching the hand-verified June 9 snapshot case.
-  assert.equal(truth.surfacePayload.stop, 29847);
+  assert.equal(truth.surfacePayload.stop_level, 29847);
+  assert.equal(truth.surfacePayload.stop, 29847.5);
 });
 
 test("bridge: a stale opposite-direction inverted zone cannot mask the bar's real confirmation", () => {
@@ -537,7 +543,8 @@ test("bridge: inversion stop ignores micro pivots inside the violated structure 
   assert.ok(truth.bestPacket, `no packet: ${JSON.stringify(truth.blockers)}`);
   // micro pivot 29722 is below the entry side requirement anyway; zone top
   // is the documented fallback (entry-models.md Inversion §5)
-  assert.equal(truth.surfacePayload.stop, 29759.75);
+  assert.equal(truth.surfacePayload.stop_level, 29759.75);
+  assert.equal(truth.surfacePayload.stop, 29760.25);
 });
 
 test("bridge: session-level high (NYAM.H) anchors the inversion stop when pivot confirmation lags", () => {
@@ -564,7 +571,8 @@ test("bridge: session-level high (NYAM.H) anchors the inversion stop when pivot 
   assert.ok(truth.bestPacket, `no packet: ${JSON.stringify(truth.blockers)}`);
   // nearest structural high beyond the zone: NYAM.H 29847, not PWH 30807.75,
   // and never NYAM.L
-  assert.equal(truth.surfacePayload.stop, 29847);
+  assert.equal(truth.surfacePayload.stop_level, 29847);
+  assert.equal(truth.surfacePayload.stop, 29847.5);
 });
 
 test("bridge: V3 leg_high (running extreme since last structure break) joins the structural stop pool", () => {
@@ -600,5 +608,6 @@ test("bridge: V3 leg_high (running extreme since last structure break) joins the
   assert.ok(truth.bestPacket, `no packet: ${JSON.stringify(truth.blockers)}`);
   // leg_high 29820 beats NYAM.H 29847 (nearer beyond-zone structural high)
   // and never the zone top fallback 29759.75
-  assert.equal(truth.surfacePayload.stop, 29820);
+  assert.equal(truth.surfacePayload.stop_level, 29820);
+  assert.equal(truth.surfacePayload.stop, 29820.5);
 });

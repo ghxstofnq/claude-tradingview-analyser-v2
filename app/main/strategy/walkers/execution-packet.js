@@ -1,15 +1,13 @@
 import { sizeFor, dayOfWeek } from '../../../../cli/lib/sizing.js';
 import { psychLevelsAbove, psychLevelsBelow } from './psych-levels.js';
+import { bufferedStopPrice, STOP_BUFFER_TICKS } from '../../execution/sizing-core.js';
 
 const TICK_SIZE = 0.25;
 
-// Structural cushion above/below an MSS reversal FVG invalidation point
-// (entry-models.md MSS §6: "below the FVG low ... structural invalidation";
-// A+ ex.: "a few ticks below the MSS low"). User correction 2026-07-01:
-// 06-16 MNQ invalidates at the FIRST FVG candle's wick, buffered by two ticks
-// (c1h 30904.50 → stop 30905.00), not the tighter far-edge proxy.
-const MSS_FVG_FIRST_CANDLE_STOP_BUFFER = 0.5;
-const MSS_FVG_FAR_EDGE_FALLBACK_BUFFER = 1.75;
+// Structural stop selectors below return the invalidation ANCHOR. The executable
+// broker stop is applied once in buildExecutionPacketForWalker via the shared
+// two-tick buffer (longs below, shorts above). This preserves strategy evidence
+// while sizing/grading/brackets use the actual resting stop.
 
 function roundTick(value) {
   return Math.round(value / TICK_SIZE) * TICK_SIZE;
@@ -359,31 +357,24 @@ function mssStructuralStop(walker, side, entry, context) {
   }
 
   // EM MSS §6: with no explicit MSS pivot, a liquidity-taking reversal FVG's
-  // structural invalidation is the candle that CREATED the FVG — a reclaim
-  // through that wick unwinds the reversal. User correction 2026-07-01 for
-  // 06-16 MNQ: first FVG candle high 30904.50 + two ticks = 30905.00. Prefer
-  // that over the older buffered far-edge proxy; fall back to the far edge only
-  // when the engine row lacks c1h/c1l.
+  // structural invalidation ANCHOR is the candle that CREATED the FVG — a
+  // reclaim through that wick unwinds the reversal. User correction 2026-07-01
+  // for 06-16 MNQ: anchor = first FVG candle high 30904.50; the executable stop
+  // is the shared two-tick buffer above it (30905.00). Prefer that anchor over
+  // the older far-edge proxy; fall back to the far edge only when the engine row
+  // lacks c1h/c1l.
   const tookLiq = pd.took_liq === true || pd.took_liq === 1;
   const firstCandleExtreme = side === 'long' ? numberOrNull(pd.c1l) : numberOrNull(pd.c1h);
-  if (tookLiq && firstCandleExtreme != null) {
-    const buffered = side === 'long'
-      ? firstCandleExtreme - MSS_FVG_FIRST_CANDLE_STOP_BUFFER
-      : firstCandleExtreme + MSS_FVG_FIRST_CANDLE_STOP_BUFFER;
-    if (correctSide(buffered)) {
-      return {
-        kind: 'mss_fvg_first_candle',
-        price: buffered,
-        evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray'),
-      };
-    }
+  if (tookLiq && firstCandleExtreme != null && correctSide(firstCandleExtreme)) {
+    return {
+      kind: 'mss_fvg_first_candle',
+      price: firstCandleExtreme,
+      evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray'),
+    };
   }
   const farEdge = side === 'long' ? zoneBottom : zoneTop;
-  if (tookLiq && farEdge != null) {
-    const buffered = side === 'long' ? farEdge - MSS_FVG_FAR_EDGE_FALLBACK_BUFFER : farEdge + MSS_FVG_FAR_EDGE_FALLBACK_BUFFER;
-    if (correctSide(buffered)) {
-      return { kind: 'mss_fvg_far_edge', price: buffered, evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray') };
-    }
+  if (tookLiq && farEdge != null && correctSide(farEdge)) {
+    return { kind: 'mss_fvg_far_edge', price: farEdge, evidenceRef: refOf(walker?.evidence?.pdArray, walker?.pdArrayRef ?? 'walker.pdArray') };
   }
 
   const beyondZone = pool
@@ -679,7 +670,7 @@ function packetEntryAudit(confirmationPayload, confirmation) {
   };
 }
 
-function packetStopAudit(stopCandidate, rejectedAlternatives = []) {
+function packetStopAudit(stopCandidate, rejectedAlternatives = [], executionStopPrice = null) {
   if (!stopCandidate) {
     return { selected: null, rejectedAlternatives };
   }
@@ -688,6 +679,8 @@ function packetStopAudit(stopCandidate, rejectedAlternatives = []) {
     evidenceRef: refOf(stopCandidate),
     rule: stopCandidate.kind ?? 'structural_stop',
     anchorPrice: stopCandidate.price,
+    executionPrice: executionStopPrice,
+    bufferTicks: STOP_BUFFER_TICKS,
     anchorTimeMs: stopCandidate.timeMs ?? stopCandidate.time_ms ?? null,
     anchorOhlc: stopCandidate.ohlc ?? null,
     rejectedAlternatives,
@@ -737,36 +730,40 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     ?? mssStructuralStop(walker, side, entryPrice, context)
   )) ?? stopAudit.selected);
   if (!stopCandidate) blockers.push('missing_structural_stop');
+  const executionStopPrice = stopCandidate
+    ? bufferedStopPrice({ symbol: context?.market, side, levelPrice: stopCandidate.price, bufferTicks: STOP_BUFFER_TICKS })
+    : null;
+  if (stopCandidate && executionStopPrice == null) blockers.push('missing_execution_stop');
 
   const explicitTarget = (priceField, labelField, evidenceField) => {
     const price = numberOrNull(confirmationPayload?.[priceField]);
-    if (price == null || entryPrice == null || !stopCandidate || !targetIsCorrectSide({ price }, entryPrice, side)) return null;
+    if (price == null || entryPrice == null || executionStopPrice == null || !targetIsCorrectSide({ price }, entryPrice, side)) return null;
     return {
       price,
       label: confirmationPayload?.[labelField] ?? null,
       name: confirmationPayload?.[labelField] ?? null,
       target_class: 'explicit',
       evidenceRef: confirmationPayload?.[evidenceField] ?? refOf(confirmation, walker?.confirmationRef ?? null),
-      rMultiple: computeRMultiple({ entry: entryPrice, stop: stopCandidate.price, target: price }),
+      rMultiple: computeRMultiple({ entry: entryPrice, stop: executionStopPrice, target: price }),
       rawPayload: confirmationPayload,
     };
   };
   const explicitTp1Candidate = explicitTarget('tp1_price', 'tp1_label', 'tp1_evidence_ref');
   const explicitTp2Candidate = explicitTarget('tp2_price', 'tp2_label', 'tp2_evidence_ref');
   const includeHtfFvgTargets = normalizeModelName(walker?.model) === 'trend';
-  const tp1Candidate = explicitTp1Candidate ?? (entryPrice == null || !stopCandidate ? null : selectTp1(context, side, entryPrice, stopCandidate.price, { includeHtfFvgTargets }));
+  const tp1Candidate = explicitTp1Candidate ?? (entryPrice == null || executionStopPrice == null ? null : selectTp1(context, side, entryPrice, executionStopPrice, { includeHtfFvgTargets }));
   if (!tp1Candidate) blockers.push('missing_side_consistent_tp1');
   // (D6: the 1.5R TP1 floor blocker is removed — Lanto takes TP1 at 1–1.5R,
   // risk-and-management §4.2 / RISK 01:54; the floor blocked the low end.)
-  const tp2Candidate = explicitTp2Candidate ?? (tp1Candidate == null || entryPrice == null || !stopCandidate
+  const tp2Candidate = explicitTp2Candidate ?? (tp1Candidate == null || entryPrice == null || executionStopPrice == null
     ? null
-    : selectTp2(context, side, entryPrice, stopCandidate.price, tp1Candidate, { includeHtfFvgTargets }));
+    : selectTp2(context, side, entryPrice, executionStopPrice, tp1Candidate, { includeHtfFvgTargets }));
   // First intraday objective — the scale-in green-light reference (opt-in via
   // TV_GREENLIGHT_INTRADAY in the backtest). Decouples add-timing from how far
   // the HTF draw sits. Null when there's no intraday objective.
-  const greenlightTarget = entryPrice == null || !stopCandidate
+  const greenlightTarget = entryPrice == null || executionStopPrice == null
     ? null
-    : nearestIntradayTarget(context, side, entryPrice, stopCandidate.price);
+    : nearestIntradayTarget(context, side, entryPrice, executionStopPrice);
 
   // (D6: the bot-specific late-session overlays with no transcript basis are
   // removed — the 15:32 ET entry cutoff, the 11:00 ET exhaustion-runner A+→B cap,
@@ -817,7 +814,22 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
       evidenceRef: refOf(confirmation, walker?.confirmationRef ?? null),
       rawPayload: confirmationPayload,
     },
-    stop: stopCandidate ? {
+    stop: stopCandidate && executionStopPrice != null ? {
+      // Executable/broker stop. R, sizing, brackets, live trade grading, and
+      // backtest outcomes use this buffered price.
+      price: roundTick(executionStopPrice),
+      // Structural invalidation anchor kept for evidence + pending-order
+      // invalidation. Longs place the broker stop two ticks below this anchor;
+      // shorts place it two ticks above.
+      anchorPrice: roundTick(stopCandidate.price),
+      levelPrice: roundTick(stopCandidate.price),
+      bufferTicks: STOP_BUFFER_TICKS,
+      bufferPoints: Math.abs(roundTick(executionStopPrice) - roundTick(stopCandidate.price)),
+      kind: stopCandidate.kind ?? 'structural_stop',
+      evidenceRef: refOf(stopCandidate),
+      rawPayload: stopCandidate,
+    } : null,
+    structuralStop: stopCandidate ? {
       price: roundTick(stopCandidate.price),
       kind: stopCandidate.kind ?? 'structural_stop',
       evidenceRef: refOf(stopCandidate),
@@ -846,7 +858,7 @@ export function buildExecutionPacketForWalker({ context, walker } = {}) {
     },
     evidenceAudit: {
       entry: packetEntryAudit(confirmationPayload, confirmation),
-      stop: packetStopAudit(stopCandidate, stopAudit.rejected),
+      stop: packetStopAudit(stopCandidate, stopAudit.rejected, executionStopPrice == null ? null : roundTick(executionStopPrice)),
       tp1: packetTp1Audit(tp1Candidate),
       gradeBlockers: blockers.filter((blocker) => blocker === 'grade_blocked' || blocker === 'tp1_below_1_5r'),
     },

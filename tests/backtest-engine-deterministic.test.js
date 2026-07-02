@@ -82,7 +82,8 @@ test("AUTO mode: June 9 tape folds to the Inversion short through the real chain
   // graded B; the A+ runner mechanic is covered by the 02-09 test below.
   assert.equal(surfaced[0].setup.grade, "B", "the Option A June 9 first reversal short grades B");
   assert.equal(surfaced[0].setup.entry, 29760, "entry");
-  assert.equal(surfaced[0].setup.stop, 29818.75, "stop");
+  assert.equal(surfaced[0].setup.stop_level, 29818.75, "structural stop anchor");
+  assert.equal(surfaced[0].setup.stop, 29819.25, "execution stop");
   assert.equal(surfaced[0].setup.tp1, 29595.25, "tp1");
   // The exact active oracle is locked by the day-tape gate; this backtest test
   // also ensures the full engine path surfaces the same load-bearing packet.

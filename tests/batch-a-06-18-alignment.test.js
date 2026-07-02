@@ -4,7 +4,7 @@
 // asserts it emits the user-approved oracle packet (docs/audits/recent-oracle-
 // packets/2026-06-18-ny-am.md; docs/strategy/lanto-oracle.md §2026-06-18 E2):
 //   Trend / Continuation long B · entry 30452.75 (CE of the dip-reclaim bull
-//   FVG 30448.25–30457.25) · stop 30400 (below the 30402.5 reclaim base) ·
+//   FVG 30448.25–30457.25) · execution stop 30399.5 (structural 30400 below the 30402.5 reclaim base) ·
 //   TP1 30615 (NYAM.H) · first packet on the ~09:46 ET 1m reclaim · one
 //   primary trade for the session.
 //
@@ -40,7 +40,7 @@ test("2026-06-18 NY-AM folds to the approved Trend reclaim-continuation long pac
   assert.equal(outcome.firstPacket?.model, "Trend", "model");
   assert.equal(outcome.firstPacket?.side, "long", "side");
   assert.equal(outcome.firstPacket?.entry, 30452.75, "entry");
-  assert.equal(outcome.firstPacket?.stop, 30400, "stop");
+  assert.equal(outcome.firstPacket?.stop, 30399.5, "execution stop");
   assert.equal(outcome.firstPacket?.tp1, 30615, "tp1");
   assert.equal(outcome.firstPacket?.grade, "B", "grade");
   assert.equal(outcome.firstPacketEventTs, "2026-06-18T13:46:00.000Z", "first_packet_event_ts");

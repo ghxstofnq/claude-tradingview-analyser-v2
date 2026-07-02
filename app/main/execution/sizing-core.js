@@ -10,8 +10,30 @@ export function pointValue(symbol) {
   // trading feed). MES $5/pt, MNQ $2/pt.
   return /MES/.test(String(symbol || "")) ? 5 : 2;
 }
+export const STOP_BUFFER_TICKS = 2;
+
 export function tickSize(/* symbol */) {
   return 0.25; // MNQ / MES tick
+}
+
+export function roundToTick(value, tick = 0.25) {
+  const n = Number(value);
+  const t = Number(tick) || 0.25;
+  return Math.round(n / t) * t;
+}
+
+export function bufferedStopPrice({ symbol, side, levelPrice, bufferTicks = STOP_BUFFER_TICKS } = {}) {
+  const level = Number(levelPrice);
+  if (!Number.isFinite(level)) return null;
+  const tick = tickSize(symbol);
+  const buffer = Number(bufferTicks) * tick;
+  if (!Number.isFinite(buffer) || buffer < 0) return null;
+  const value = (side === "long" || side === "buy")
+    ? level - buffer
+    : (side === "short" || side === "sell")
+      ? level + buffer
+      : null;
+  return value == null ? null : roundToTick(value, tick);
 }
 
 export function sizeFromStop({ symbol, entry, stop, riskUsd } = {}) {

@@ -100,7 +100,8 @@ test("fresh 2026-06-09 MNQ folds to the active Option-A Inversion short", async 
   assert.equal(first.model, "Inversion", "model");
   assert.equal(first.side, "short", "side");
   assert.equal(first.entry, 29760, "entry");
-  assert.equal(first.stop, 29818.75, "stop");
+  assert.equal(first.stop_level, 29818.75, "structural stop anchor");
+  assert.equal(first.stop, 29819.25, "execution stop");
   assert.equal(first.tp1, 29595.25, "tp1");
   assert.equal(first.grade, "B", "grade");
   assert.equal(first.event_ts, "2026-06-09T14:27:00.000Z", "first_packet_event_ts");
