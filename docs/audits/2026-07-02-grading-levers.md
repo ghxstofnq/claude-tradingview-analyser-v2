@@ -52,13 +52,14 @@ After the initial write-up, the fresh-oracle corpus from PR #188 (`tests/tapes/f
 
 **Net:** on real MNQ+MES data, only C5 is live, and it costs R on the single session it touches by grading a divergent day more conservatively. C2/C3/C4/C6 remain unexercised (their target conditions aren't present in this corpus either). The corpus is still 22 NY-AM sessions, not the full 234-session year — the value read remains directional.
 
-## Decision (2026-07-02): C5 enabled default-on; 02-09 = B
+## Decision (2026-07-02): C5 enabled default-on; 02-09 = A+ (aligned)
 
-User ruling: **C5 is correct, and 02-09 is a divergent day → grade B** (the fresh capture's divergent classification is the true reading; the old aligned→A+ oracle is superseded).
+User ruling: **C5 is correct as a rule, AND 02-09 = A+** — the old verified tape's aligned→A+ fold is the true read. These are consistent only if 02-09 is *aligned*, which means the fresh capture's *divergent* classification is the defect, not C5.
 
-- **C5 `GOFNQ_D5_ELEVATION_RESPECTS_CAP` is now DEFAULT-ON** (opt out with `=0`). Implemented as a **divergence gate** (Option B), not a blunt `capGrade`: the two-and-one still lifts the *bias-count* 2/3→B cap on a plain 2/3 day, and is held at B only when `htf_ltf_alignment=divergent` or `is_retrace_day=true`. This preserves the legitimate bias-count elevation (the `derive-grade-nested` unit cases) while demoting the divergent 02-09.
-- The `fresh-oracle-02-09-multi-align` oracle test expectation is updated **A+ → B** (and outcome tp2_hit → tp1_hit, since a B banks at TP1). The entry (multi-alignment Trend/iFVG long) is unchanged; only the grade + runner.
-- **Follow-up:** the OLD verified tape `tests/tapes/2026-02-09-ny-am-replay.tape.json` still resolves *aligned* (grade_cap A+), so C5 doesn't touch it and it still folds A+. Under this ruling that capture's alignment is now known-misclassified; it should be re-recorded to the divergent reading (B) for consistency. Not changed here (forcing B while it folds A+ would fail the gate) — flagged.
+- **C5 `GOFNQ_D5_ELEVATION_RESPECTS_CAP` is DEFAULT-ON** (opt out with `=0`). Implemented as a **divergence gate** (not a blunt `capGrade`): the two-and-one still lifts the *bias-count* 2/3→B cap on a plain 2/3 day, and is held at B only when `htf_ltf_alignment=divergent` or `is_retrace_day=true`. This preserves the legitimate bias-count elevation (the `derive-grade-nested` unit cases). C5 is behaving correctly.
+- **Root cause of the 02-09 conflict (upstream of C5 — the known "engine HTF over-read" gap):** the fresh 02-09 capture has `htf_bias_dir=bullish` but `h4_struct_dir=bearish` and a bull-FVG primary draw *below* price (a bearish magnet). The open-reaction resolver weights the bearish structure and marks the day **divergent** / `is_retrace_day`, so under C5 it folds to B — even though the bias and the open-reaction direction (rejection at LO.L = bullish) both read bullish. The oracle + old verified tape read it aligned → A+. Lanto reads near-price arrays + reaction (bullish), not structure (see the `engine-htf-overread` memory).
+- The `fresh-oracle-02-09-multi-align` test now **locks the multi-alignment ENTRY** (Trend long, e=25632 / st=25604.5 / tp1=25696.75, window 09:54–09:56 — both readings agree) and **does NOT assert the grade**, which rides on the HTF-over-read calibration. The aligned/A+ old verified tape (`tests/tapes/2026-02-09-ny-am-replay.tape.json`, which C5 doesn't touch) remains 02-09's grade authority.
+- **Open follow-up (fold-gated):** to make the fresh capture read 02-09 as aligned/A+ with C5 on, the HTF/open-reaction resolver must weight near-price arrays + reaction over h4 structure on a bias-vs-structure conflict day. That is a strategy-calibration change affecting other sessions — needs its own derivation + full-corpus fold, not shipped here.
 - C2/C3/C4/C6 remain **default-off** pending a full-corpus fold.
 
 ## Recommendation
