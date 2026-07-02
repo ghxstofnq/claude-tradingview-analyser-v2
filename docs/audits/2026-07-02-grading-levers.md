@@ -62,6 +62,25 @@ User ruling: **C5 is correct as a rule, AND 02-09 = A+** — the old verified ta
 - **Open follow-up (fold-gated):** to make the fresh capture read 02-09 as aligned/A+ with C5 on, the HTF/open-reaction resolver must weight near-price arrays + reaction over h4 structure on a bias-vs-structure conflict day. That is a strategy-calibration change affecting other sessions — needs its own derivation + full-corpus fold, not shipped here.
 - C2/C3/C4/C6 remain **default-off** pending a full-corpus fold.
 
+## HTF over-read lever (`GOFNQ_HTF_ARRAY_OVER_STRUCT`, default-off) — NOT enable-ready
+
+The 02-09 divergent misclassification was traced to the `GOFNQ_HTF_STRUCT_ALIGN` gate (live-ltf-resolver.js): it demotes to divergent when the LTF bias doesn't agree with **both** h4 and h1 *structure*. On 02-09: ltf_bias=bullish, h1=bullish, **h4=bearish** → divergent. That is the engine-HTF-over-read: h4 structure vetoing a bias the near-price arrays + reaction support.
+
+New default-off lever `GOFNQ_HTF_ARRAY_OVER_STRUCT`: when the resolved LTF bias AGREES with the near-price/reaction HTF read (`ltf_bias === htfBias`), h4/h1 structure does NOT veto it to divergent.
+
+**Grounding (transcripts):** the core rule is **clearly Lanto-faithful** — he forms HTF bias from FVG/liquidity arrays + the reject/invert reaction, never from h4/h1 MSS/BoS structure (How-I-Develop-Daily-Bias: BIAS 00:56 "mark out fair value gap… liquidity — that's it"; 11:14/25:44 "reject or invert will dictate my narrative"; 20:33 "it's the reaction"; structure appears only as reaction *confirmation*, BIAS 28:38). The 06-18 oracle even labels the opposing bearish read a "structure over-read." Caveat: "array *always* wins" over-reaches — Lanto still lets strongly-directional prevailing displacement / overnight override a lone array (BIAS 34:38, 30:39).
+
+**Fold over the fresh-oracle MNQ+MES corpus (off → on), 4/22 sessions change:**
+
+| Session | OFF (baseline) | ON | Verdict |
+|---------|----------------|-----|---------|
+| 02-09 MNQ | B Trend long → tp1 (+2.35R) | **A+ Trend long → tp2 (+8.12R)** | ✅ correct (the target fix) |
+| 06-18 MNQ | B Trend long → tp1 (**+3.05R**) | B **Inversion** long → stop (**−1R**) | ❌ **regresses the verified oracle** (06-18 = Trend long, aligned, B, user-approved 2026-06-29) |
+| 01-29 MES | no-trade (divergent) | no-trade (open_unclear) | label only |
+| 06-17 MNQ | no-trade (divergent) | no-trade (clean) | label only |
+
+Net +1.72R on the corpus, **but** the lever is **not grade-only** — flipping alignment also flips `is_retrace_day` / `entry_model_priority`, which on 06-18 changes the fired MODEL (Trend → Inversion) and breaks the verified oracle. **So it is NOT enable-ready as-is.** To ship it, it must be narrowed so the alignment fix does not alter trade selection (Trend↔Inversion), then re-folded (ideally full-year, since it weakens the full-year-validated HTF_STRUCT_ALIGN). Kept **default-off** pending that work + your call.
+
 ## Recommendation
 
 - Levers are safe to keep default-off in the tree.
