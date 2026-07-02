@@ -10,6 +10,7 @@ import { computeLeader } from '../lib/compute-leader.js';
 import { buildLeaderEvidence } from '../lib/smt-leader-evidence.js';
 import { readPairDecision } from '../lib/pair-decision.js';
 import { buildBriefDigest } from '../lib/brief-digest.js';
+import { isHolidayClosed } from '../lib/market-calendar.js';
 import { captureMultiTfWithHealth, applyBaselineFallback, tfMatchesMeta } from '../lib/tf-capture.js';
 
 /**
@@ -66,7 +67,12 @@ export function computeSessionGate({ quote, replayStatus }) {
   const isDailyBreak =
     !isSaturday && !isFridayAfterClose && !isSundayBeforeOpen
     && etMinutesTotal >= 17 * 60 && etMinutesTotal < 18 * 60;
-  const isMarketClosed = isSaturday || isFridayAfterClose || isSundayBeforeOpen || isDailyBreak;
+  // CME equity-index holidays + early closes (audit C8): a weekday holiday is
+  // otherwise invisible here, so the gate would report the market open and the
+  // chain would hunt on stale/thin data (the documented Juneteenth break).
+  const etDate = `${parts.year}-${parts.month}-${parts.day}`;
+  const isHoliday = isHolidayClosed(etDate, etMinutesTotal);
+  const isMarketClosed = isSaturday || isFridayAfterClose || isSundayBeforeOpen || isDailyBreak || isHoliday;
 
   const inRange = (start, end) => etMinutesTotal >= start && etMinutesTotal < end;
   const NY_OPEN_WINDOW = [9 * 60 + 30, 10 * 60];

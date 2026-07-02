@@ -6,6 +6,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isHolidayClosed } from "../../cli/lib/market-calendar.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -27,9 +28,11 @@ function nyParts(date = new Date()) {
 
 export function currentSession() {
   const { date, hour, minute, weekday } = nyParts();
+  const m = hour * 60 + minute;
   let session = "idle";
-  if (weekday !== "Sat" && weekday !== "Sun") {
-    const m = hour * 60 + minute;
+  // A holiday / early-close day resolves to idle so the live chain + supervisor
+  // never treat a closed or half-day market as a session (audit C8).
+  if (weekday !== "Sat" && weekday !== "Sun" && !isHolidayClosed(date, m)) {
     if (m >= 9 * 60 + 30 && m < 12 * 60) session = "ny-am";
     else if (m >= 13 * 60 && m < 16 * 60) session = "ny-pm";
     else if (m >= 3 * 60 && m < 6 * 60) session = "london";

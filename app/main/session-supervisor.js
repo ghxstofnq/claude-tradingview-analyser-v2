@@ -26,6 +26,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { isHolidayClosed } from "../../cli/lib/market-calendar.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -45,8 +46,9 @@ const SESSION_OPENS_ET = { london: 3 * 60, "ny-am": 9 * 60 + 30, "ny-pm": 13 * 6
  * Which session opens within the next `leadMinutes`? Null when none (mid-day,
  * mid-session, weekends). Drives the pre-open readiness check.
  */
-export function upcomingSession({ weekday, etMinutes, leadMinutes = READINESS_LEAD_MINUTES }) {
+export function upcomingSession({ weekday, etMinutes, date, leadMinutes = READINESS_LEAD_MINUTES }) {
   if (weekday === "Sat" || weekday === "Sun") return null;
+  if (isHolidayClosed(date, etMinutes)) return null; // no readiness on a closed / half day (C8)
   for (const [session, open] of Object.entries(SESSION_OPENS_ET)) {
     if (etMinutes >= open - leadMinutes && etMinutes < open) return session;
   }
@@ -125,7 +127,7 @@ export function createSessionSupervisor(deps) {
   async function maybeRunReadiness({ session, date, weekday, etMinutes }) {
     const target = session !== "idle"
       ? session
-      : upcomingSession({ weekday, etMinutes, leadMinutes: READINESS_LEAD_MINUTES });
+      : upcomingSession({ weekday, etMinutes, date, leadMinutes: READINESS_LEAD_MINUTES });
     if (!target) return;
     const key = keyFor(date, target);
     if (state.readinessCheckedKey === key || state.readinessInFlight) return;
