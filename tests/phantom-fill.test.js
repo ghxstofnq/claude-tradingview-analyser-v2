@@ -32,6 +32,25 @@ describe("phantom fill (failed order must not fill)", () => {
     const events = [ACCEPT, { type: "outcome", id: "T-1", status: "INVALIDATED", source: "missing-symbol" }];
     assert.equal(foldOpenTrades(events).length, 0);
   });
+
+  // Defense-in-depth: even with NO INVALIDATED outcome, a failed tranche_orders
+  // marker voids the trade (covers a throw that pre-empts the INVALIDATED write).
+  it("FIX: a paper tranche_orders with both ids null voids the trade (no INVALIDATED needed)", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "paper", setup_id: "T-1", stopOrderId: null, limitOrderId: null }];
+    assert.equal(foldOpenTrades(events).length, 0);
+  });
+  it("FIX: a tranche_orders with an error field voids the trade", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "paper", setup_id: "T-1", error: "entry_place_failed" }];
+    assert.equal(foldOpenTrades(events).length, 0);
+  });
+  it("FIX: a tradovate tranche_orders with ok:false voids the trade", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "tradovate", setup_id: "T-1", orderId: null, ok: false }];
+    assert.equal(foldOpenTrades(events).length, 0);
+  });
+  it("a SUCCESSFUL tranche_orders leaves the trade open (real ids present)", () => {
+    const events = [ACCEPT, { type: "tranche_orders", broker: "paper", setup_id: "T-1", stopOrderId: 11, limitOrderId: 22 }];
+    assert.equal(foldOpenTrades(events).length, 1, "a real open must still be tracked");
+  });
 });
 
 describe("symbol propagation (root cause of the failed order)", () => {

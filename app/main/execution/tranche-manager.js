@@ -94,8 +94,19 @@ export async function runTrancheManager(ctx = {}, deps) {
     if (!gate.ok) { await d.recordSkip(`blocked:${gate.code}`); return { action: `blocked:${gate.code}`, gate }; }
     const accepted = await d.accept({ ...bestPacket, tranche_role: "anchor" });
     if (!accepted?.id) { await d.recordSkip("accept_failed"); return { action: "accept_failed", accepted }; }
-    const ids = await d.openTrancheOrders({ packet: bestPacket, contracts: sizing.contracts, trancheId: accepted.id });
-    return { action: "open_anchor", accepted, ids };
+    // The accept is now on disk as a pending_entry trade. If the order call
+    // THROWS (unconfigured endpoint, CDP hiccup, unresolvable instrument), the
+    // in-function INVALIDATED guards never run — so void the trade here too, or
+    // the grader phantom-FILLS it (2026-07-02 review). Both the throw path and
+    // the return-{ok:false} path now write INVALIDATED.
+    try {
+      const ids = await d.openTrancheOrders({ packet: bestPacket, contracts: sizing.contracts, trancheId: accepted.id });
+      return { action: "open_anchor", accepted, ids };
+    } catch (err) {
+      await d.invalidateTrade?.(accepted.id, "order-throw");
+      await d.recordSkip(`order_throw:${String(err?.message || err)}`);
+      return { action: "open_anchor_failed", accepted, error: String(err?.message || err) };
+    }
   }
   if (decision.action === "surface" || decision.action === "none") return decision;
   await d.recordSkip(decision.reason);
@@ -230,6 +241,11 @@ async function buildRealDeps() {
         const dir = await sessions.activeSessionDir();
         await fs.appendFile(path.join(dir, "setups.jsonl"), JSON.stringify({ type: "tranche_skip", reason, ts: new Date().toISOString() }) + "\n", "utf8");
       } catch { /* best-effort */ }
+    },
+    // Void an accepted trade whose order call THREW — writes the INVALIDATED
+    // outcome the grader needs so the pending_entry can't phantom-fill.
+    invalidateTrade: async (id, source) => {
+      try { await appendTrade({ type: "outcome", id, status: "INVALIDATED", source, ts: new Date().toISOString() }); } catch { /* best-effort */ }
     },
   };
 }

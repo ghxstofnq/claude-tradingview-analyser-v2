@@ -261,6 +261,21 @@ export function foldOpenTrades(events) {
   for (const ev of events) {
     if (ev.type === "accept") {
       byId.set(ev.id, { ...ev, state: "pending_entry" });
+    } else if (ev.type === "tranche_orders") {
+      // Order-aware defense (2026-07-02): a FAILED order placement voids the
+      // trade so the grader can never phantom-FILL a position the broker never
+      // got — belt-and-braces even if no INVALIDATED outcome was written (e.g. a
+      // throw pre-empted it). A SUCCESSFUL open carries real order ids and is
+      // left untouched. Backtest folds carry no tranche_orders events, so this
+      // never affects backtest≡live parity.
+      const t = byId.get(ev.setup_id);
+      if (!t || t.state !== "pending_entry") continue;
+      const paperFailed = ev.broker === "paper" && ev.stopOrderId == null && ev.limitOrderId == null;
+      const tradovateFailed = ev.broker === "tradovate" && ev.ok === false;
+      if (ev.error || paperFailed || tradovateFailed) {
+        t.state = "closed";
+        t.outcome = "INVALIDATED";
+      }
     } else if (ev.type === "outcome") {
       const t = byId.get(ev.id);
       if (!t) continue;
