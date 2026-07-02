@@ -1446,6 +1446,12 @@ function deterministicSetupId(packet, ev) {
 function deterministicPacketToSurfacePayload(packet, ev) {
   return {
     id: deterministicSetupId(packet, ev),
+    // Instrument for sizing + order routing — taken from the bar-close event
+    // (always present, e.g. "CME_MINI:MNQ1!") and normalized to the canonical
+    // "MNQ1!" the config/adapters use. Without this the surfaced setup carried
+    // no symbol, so auto-orders POSTed with no instrument → rejected → phantom
+    // fill (2026-07-02 live). packet.symbol/market wins if the packet set one.
+    symbol: packet.symbol ?? packet.market ?? (ev?.symbol ? String(ev.symbol).split(":").pop() : null),
     model: packet.model,
     // Lanto's model CLASS (Reversal/Continuation) — computed in execution-packet.js
     // from leg direction, distinct from the lifecycle name. Surfaced so the UI

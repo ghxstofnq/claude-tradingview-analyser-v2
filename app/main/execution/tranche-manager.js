@@ -165,10 +165,25 @@ async function buildRealDeps() {
       // market order via its REST adapter; TV paper uses the 3-leg standalone
       // (netting workaround). Guardrails already ran upstream in runTrancheManager.
       const broker = active.getActiveAccount()?.broker ?? null;
+      // An order with no instrument cannot place (the POST is rejected → null
+      // ids → a phantom fill). Fail LOUD and invalidate rather than route a
+      // symbol-less order (2026-07-02 live root cause).
+      if (!packet.symbol) {
+        _send?.("app:error", { source: "tranche-manager", level: "error", message: `No symbol on the packet for ${trancheId} — cannot place an order; trade invalidated.` });
+        await appendTrade({ type: "tranche_orders", broker: broker ?? "paper", setup_id: trancheId, stopOrderId: null, limitOrderId: null, error: "missing_symbol", ts: new Date().toISOString() });
+        await appendTrade({ type: "outcome", id: trancheId, status: "INVALIDATED", source: "missing-symbol", ts: new Date().toISOString() });
+        return { error: "missing_symbol" };
+      }
       if (broker === "tradovate") {
         const { placeTradovateOrder } = await import("./tradovate-adapter.js");
         const r = await placeTradovateOrder(tradovateOrderFromPacket(packet, contracts));
         await appendTrade({ type: "tranche_orders", broker: "tradovate", setup_id: trancheId, orderId: r?.orderId ?? null, ok: !!r?.ok, ts: new Date().toISOString() });
+        // Tradovate order rejected → no position; invalidate so the grader can't
+        // phantom-fill the accepted trade.
+        if (!r?.ok) {
+          _send?.("app:error", { source: "tranche-manager", level: "error", message: `Tradovate order FAILED for ${trancheId} — no position opened; trade invalidated.` });
+          await appendTrade({ type: "outcome", id: trancheId, status: "INVALIDATED", source: "order-place-failed", ts: new Date().toISOString() });
+        }
         return { broker: "tradovate", orderId: r?.orderId ?? null, ok: !!r?.ok };
       }
       const { tvAdapter } = await import("./tv-adapter.js");
@@ -178,8 +193,20 @@ async function buildRealDeps() {
       });
       const results = [];
       for (const a of actions) results.push(await tvAdapter.placeStandalone(a));
-      const { stopOrderId, limitOrderId, naked, authLost } = evaluateBracketResults(results);
+      const { stopOrderId, limitOrderId, entryOk, naked, authLost } = evaluateBracketResults(results);
       if (authLost) _send?.("app:error", { source: "tranche-manager", level: "error", message: `Broker rejected the bracket as logged-out (401/403) for ${trancheId} — re-auth the TradingView/broker session; auto-entries will keep failing until then` });
+      // The ENTRY order itself never placed (missing/invalid symbol, logged-out,
+      // rejected). No position exists at the broker. Do NOT leave a pending_entry
+      // trade — the grader would phantom-FILL it against price bars, so the
+      // journal/REVIEW would show a position that isn't real. Surface loudly and
+      // INVALIDATE the journal trade. (2026-07-02 live: a symbol-less packet
+      // POSTed with no instrument → all order ids null → phantom fill.)
+      if (!entryOk) {
+        _send?.("app:error", { source: "tranche-manager", level: "error", message: `Order placement FAILED for ${trancheId} (entry rejected — check broker login / symbol). No position opened; trade invalidated.` });
+        await appendTrade({ type: "tranche_orders", broker: "paper", setup_id: trancheId, stopOrderId: null, limitOrderId: null, error: "entry_place_failed", ts: new Date().toISOString() });
+        await appendTrade({ type: "outcome", id: trancheId, status: "INVALIDATED", source: "order-place-failed", ts: new Date().toISOString() });
+        return { stopOrderId: null, limitOrderId: null, error: "entry_place_failed" };
+      }
       // A filled entry with no working protective stop is the worst money-path
       // state (audit C13). Flatten the just-opened entry immediately, surface
       // it, and never persist a naked entry as if it were bracketed.
