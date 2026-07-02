@@ -242,7 +242,17 @@ export function deriveLtfBiasContext({ bundle, brief, session, eventTs, windowCl
   // (e.g. an LLM-written brief without the field) = graceful no-op.
   if (process.env.GOFNQ_HTF_STRUCT_ALIGN !== "0" && verdict.ltf_bias) {
     const present = [brief?.h1_struct_dir, brief?.h4_struct_dir].filter(Boolean);
-    if (present.length) {
+    // Lever GOFNQ_HTF_ARRAY_OVER_STRUCT (default-off): Lanto reads HTF bias off
+    // near-price ARRAYS (FVG/iFVG + liquidity) + the REACTION, not h4/h1
+    // STRUCTURE (MSS/BoS) — see the engine-htf-overread note. So when the
+    // resolved LTF bias AGREES with the near-price/reaction HTF read (htfBias),
+    // a higher-TF structure pointing the other way must NOT veto it to divergent:
+    // the day is aligned. (02-09: bias + open-reaction both bullish, h4 structure
+    // bearish → aligned/A+, not divergent/B.) Structure still gates a genuine
+    // bias-vs-LTF conflict (ltf_bias !== htfBias), preserving HTF_STRUCT_ALIGN's
+    // demotion there. Grade-only, like HTF_STRUCT_ALIGN itself.
+    const arrayOverStruct = process.env.GOFNQ_HTF_ARRAY_OVER_STRUCT === "1" && verdict.ltf_bias === htfBias;
+    if (present.length && !arrayOverStruct) {
       const aligned = present.every((d) => d === verdict.ltf_bias);
       verdict = {
         ...verdict,
