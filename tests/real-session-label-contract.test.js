@@ -175,6 +175,84 @@ test('06-22 approved MES short keeps MNQ no-setup pair context and no leader-rul
   assert.match(label.oracle_context?.paired_mnq_context?.fresh_fold ?? '', /no setup/);
 });
 
+
+test('06-24 approved MNQ B long is a stopped first trade and documents the blocked second long', () => {
+  const label = readStageGLabel('2026-06-24-mnq-ny-am.label.json');
+
+  assert.equal(label.label_status, 'labeled');
+  assert.deepEqual(label.expected, {
+    outcome: 'trade',
+    model: 'Inversion',
+    side: 'long',
+    grade: 'B',
+    entry: 29722.25,
+    stop: 29563.5,
+    stop_level: 29564,
+    invalidation: 29564,
+    stop_buffer_ticks: 2,
+    tp1: 29843.5,
+    tp2: 29874,
+  });
+  assert.equal(label.oracle_context?.decision, 'approve_mnq_b_inversion_long_stopped');
+  assert.equal(label.oracle_context?.event_time_et, '2026-06-24T09:51:00-04:00');
+  assert.equal(label.oracle_context?.stop_time_et, '2026-06-24T10:20:00-04:00');
+  assert.equal(label.oracle_context?.later_tp1_time_et, '2026-06-24T10:46:00-04:00');
+  assert.equal(label.oracle_context?.later_tp2_time_et, '2026-06-24T10:48:00-04:00');
+  assert.equal(label.oracle_context?.outcome, 'stop_hit');
+  assert.equal(label.oracle_context?.second_entry_review?.actual_best_packet_count, 1);
+  assert.equal(label.oracle_context?.second_entry_review?.packet_ready_count, 1);
+  assert.equal(label.oracle_context?.second_entry_review?.session_primary_already_taken_count, 14);
+  assert.match(label.oracle_context?.second_entry_review?.why_no_second_trade ?? '', /one-primary-packet NY-AM session latch/);
+  assert.equal(label.oracle_context?.second_entry_review?.blocked_later_candidates?.[0]?.time_et, '2026-06-24T10:32:00-04:00');
+  assert.equal(label.oracle_context?.second_entry_review?.blocked_later_candidates?.[0]?.blocker, 'session_primary_already_taken');
+  assert.match(label.oracle_context?.second_entry_review?.probable_valid_second_entry_note ?? '', /probably have been valid and won/);
+});
+
+test('04-06 MNQ packet remains packet-only unresolved review evidence, not R-scored oracle truth', () => {
+  const label = readStageGLabel('2026-04-06-mnq-ny-am.label.json');
+
+  assert.equal(label.label_status, 'unlabeled');
+  assert.equal(label.expected?.outcome, 'unknown');
+  assert.equal(label.oracle_context?.decision, 'keep_packet_only_unresolved');
+  assert.equal(label.oracle_context?.not_oracle_truth, true);
+  assert.equal(label.oracle_context?.not_scored_in_r, true);
+  assert.deepEqual(label.oracle_context?.review_packet, {
+    symbol: 'MNQ',
+    model: 'Inversion',
+    side: 'short',
+    grade: 'B',
+    event_time_et: '2026-04-06T10:04:00-04:00',
+    entry: 24625,
+    stop: 24746.25,
+    stop_level: 24745.75,
+    stop_buffer_ticks: 2,
+    tp1: 24337,
+    tp2: 24273.75,
+    outcome: 'unresolved_in_ny_am_tape',
+    post_entry_max_high: 24684,
+    post_entry_max_high_time_et: '2026-04-06T10:21:00-04:00',
+    post_entry_min_low: 24545.25,
+    post_entry_min_low_time_et: '2026-04-06T11:33:00-04:00',
+  });
+  assert.equal(label.oracle_context?.second_entry_review?.session_primary_already_taken_count, 7);
+});
+
+test('01-29 approved no-trade records no actual setup despite MES displacement leadership', () => {
+  const label = readStageGLabel('2026-01-29-mnq-ny-am-no-trade.label.json');
+
+  assert.equal(label.label_status, 'labeled');
+  assert.deepEqual(label.expected, {
+    outcome: 'no_trade',
+    side: null,
+  });
+  assert.equal(label.oracle_context?.decision, 'stand_aside_no_setup');
+  assert.equal(label.oracle_context?.pair_leader?.evidence_leader, 'MES1!');
+  assert.equal(label.oracle_context?.pair_leader?.smt_leader, null);
+  assert.match(label.oracle_context?.mnq_context?.fresh_fold ?? '', /no setup/);
+  assert.match(label.oracle_context?.mes_context?.fresh_fold ?? '', /no setup/);
+  assert.match(label.oracle_context?.no_trade_reason ?? '', /No bestPacket \/ packet_ready on either instrument/);
+});
+
 test('06-17 MES counterpart remains rejected provenance under approved MNQ no-trade', () => {
   const label = readStageGLabel('2026-06-17-mes-ny-am.label.json');
 

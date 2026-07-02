@@ -18,5 +18,11 @@
     "stop": null,
     "tp1": null,
     "tp2": null
+  },
+  "oracle_context": {
+    "decision": "paired_context_only_no_setup",
+    "not_oracle_truth": true,
+    "fresh_fold": "context none / no setup; brief reason no_bias; pillar2 marginal",
+    "paired_mnq_review": "MNQ has a packet-only unresolved B Inversion short; not R-scored."
   }
 }

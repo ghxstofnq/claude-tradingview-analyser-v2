@@ -427,6 +427,47 @@ lesson below.
   anchor remains the strategy invalidation level; execution, sizing, brackets, and grading use the buffered
   broker stop.
 
+
+**E8 · 2026-06-24 NY-AM — MNQ B Inversion long, stopped; second-entry policy blocker  ·  status: graded (user-confirmed)**
+- **Approved instrument:** MNQ only. MES fresh fold had **no context / no setup** (`no_bias`, marginal
+  price quality) and remains neutral paired context.
+- **Pair/leader read:** displacement leader **null** (MNQ `0.86`, MES `0.88`, margin `0.02` below the
+  `0.10` threshold). SMT showed divergence with **MNQ1!** as leader but `bias_dir=short`, so this is not
+  a clean pair-leader long rule.
+- **Packet:** **B Inversion long** at **09:51 ET**. Entry **29722.25**; structural stop anchor **29564**;
+  executable broker stop **29563.5** after the universal two-tick buffer; TP1 **29843.5**; TP2 **29874**.
+- **Outcome path:** executable stop hit first at **10:20 ET**. TP1 was reached later at **10:46 ET** and
+  TP2 at **10:48 ET**, so the approved first trade scores as a **loss / -1R**.
+- **Second-entry lesson:** trace shows **one** actual `packet_ready`/`bestPacket`, then **14** later
+  confirmed walkers killed by `session_primary_already_taken`. The key likely retry was a later
+  **Inversion long confirmed at 10:32 ET**, after the stop and before the 10:46/10:48 target run; user
+  notes it would probably have been valid and won. Treat this as future `retry_after_true_execution_stop`
+  design work, not as a rewrite of the first trade's outcome.
+- **Verdict: approve MNQ B Inversion long as a valid losing setup and preserve the second-entry issue as
+  implementation-review evidence.**
+
+**E9 · 2026-04-06 NY-AM — MNQ B Inversion short packet-only / unresolved  ·  status: review evidence (not scored)**
+- **Packet:** fresh MNQ direct-brief fold surfaced **B Inversion short** at **10:04 ET**: entry **24625**,
+  structural stop anchor **24745.75**, executable stop **24746.25**, TP1 **24337**, TP2 **24273.75**.
+- **Outcome path in NY-AM tape:** stop was not hit; TP1/TP2 were not hit. Post-entry max high was
+  **24684** at **10:21 ET**; post-entry min low was **24545.25** at **11:33 ET**. The row is unresolved
+  inside the tape window and is **not R-scored**.
+- **Pair context:** displacement leader **null** (`0.98` vs `0.96`, margin `0.02`); SMT leader **MES1!**
+  with `bias_dir=short`; MES had no context/no setup (`no_bias`, marginal price quality).
+- **Verdict: preserve as packet-only unresolved review evidence.** Do not promote to a scored trade or
+  no-trade without extended replay/user review.
+
+**E10 · 2026-01-29 NY-AM — no-trade / stand-aside  ·  status: graded (user-confirmed)**
+- **MNQ:** context built and chain status was clean; open reaction read AS.L rejection -> bullish aligned,
+  A+ cap; nevertheless no actual `bestPacket` / `packet_ready` formed.
+- **MES:** displacement leader signal was present, but MES had poor Pillar 2 and divergent context; no
+  actual `bestPacket` / `packet_ready` formed.
+- **Pair/leader read:** displacement leader **MES1!** (`secondary_higher_disp_score`, margin `0.18` above
+  threshold); SMT leader **null** (`no_divergence_measured`). Leader evidence alone is not tradable
+  without price quality and a setup.
+- **Verdict: approve no-trade / stand-aside.** No setup on either instrument; do not promote the MES
+  leader signal into a standalone rule.
+
 ---
 
 ## Pass bar

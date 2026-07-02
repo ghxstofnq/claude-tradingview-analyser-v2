@@ -18,5 +18,11 @@
     "stop": null,
     "tp1": null,
     "tp2": null
+  },
+  "oracle_context": {
+    "decision": "superseded_by_approved_no_trade_label",
+    "approved_label": "tests/fixtures/stage-g-sessions/2026-01-29-mnq-ny-am-no-trade.label.json",
+    "fresh_fold": "no setup on both instruments",
+    "not_oracle_truth": true
   }
 }

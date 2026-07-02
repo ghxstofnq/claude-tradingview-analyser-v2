@@ -1,0 +1,45 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-01-29-mnq-ny-am-no-trade",
+  "fixtureSource": "real",
+  "label_status": "labeled",
+  "reviewer": "GXNQ-approval-2026-07-02",
+  "source_message": "Oracle 01-29 NY-AM: approved no-trade / stand-aside. Fresh fold has no actual packet on MNQ or MES. MES displacement leader exists but MES has poor price action and no setup; MNQ context is clean/aligned at open but still no executable packet forms. Do not promote the pair-leader signal alone.",
+  "trade_date": "2026-01-29",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "no_trade",
+    "side": null
+  },
+  "oracle_context": {
+    "decision": "stand_aside_no_setup",
+    "approval_note": "User approved final cleanup 2026-07-02: no actual setup on either instrument; pair-leader signal alone is insufficient.",
+    "mnq_context": {
+      "fresh_fold": "no setup; chain_status clean",
+      "brief_reason": "open_unconfirmed",
+      "htf_bias": "bearish",
+      "pillar2": "marginal",
+      "open_reaction": "AS.L rejection -> bullish aligned; A+ cap"
+    },
+    "mes_context": {
+      "fresh_fold": "no setup; chain_status divergent",
+      "brief_reason": "pillar2_poor",
+      "htf_bias": "bearish",
+      "pillar2": "poor",
+      "open_reaction": "AS.L pending/continuation -> bearish divergent; B cap"
+    },
+    "pair_leader": {
+      "evidence_leader": "MES1!",
+      "displacement_reason": "secondary_higher_disp_score",
+      "primary_disp_score": 0.79,
+      "secondary_disp_score": 0.97,
+      "margin": 0.18,
+      "threshold": 0.1,
+      "smt_leader": null,
+      "smt_reason": "no_divergence_measured"
+    },
+    "no_trade_reason": "No bestPacket / packet_ready on either instrument; MES leader signal is not tradable without price quality and a setup."
+  }
+}
