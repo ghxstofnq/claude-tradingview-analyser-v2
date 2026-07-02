@@ -42,15 +42,35 @@ export function currentSession() {
 // 13:00 ET, activeSessionDir wrote to ny-am/ even though that session
 // just ended — mixing post-AM activity (e.g. trade outcomes from a
 // position open at the close) with the AM session log.
+// Returns { session, dayOffset } — dayOffset is 0 for today's most-recent
+// session, -1 when the most-recent session actually closed on the PRIOR ET day
+// (the overnight window). C7: a 00:00-02:59 ET idle write used to land in
+// <today>/ny-pm, an orphan folder, instead of yesterday's real PM session.
 function mostRecentSession(hour, minute) {
   const m = hour * 60 + minute;
-  if (m >= 16 * 60) return "ny-pm";        // post-PM
-  if (m >= 13 * 60) return "ny-pm";        // during PM (handled by currentSession, just defensive)
-  if (m >= 12 * 60) return "ny-am";        // inter-session 12:00-13:00
-  if (m >= 9 * 60 + 30) return "ny-am";    // during AM (defensive)
-  if (m >= 6 * 60) return "london";        // post-London
-  if (m >= 3 * 60) return "london";        // during London (defensive)
-  return "ny-pm";                          // overnight / pre-London — last NY PM
+  if (m >= 13 * 60) return { session: "ny-pm", dayOffset: 0 };     // during/after PM (today)
+  if (m >= 12 * 60) return { session: "ny-am", dayOffset: 0 };     // inter-session 12:00-13:00
+  if (m >= 9 * 60 + 30) return { session: "ny-am", dayOffset: 0 }; // during AM (defensive)
+  if (m >= 6 * 60) return { session: "london", dayOffset: 0 };     // post-London (today)
+  if (m >= 3 * 60) return { session: "london", dayOffset: 0 };     // during London (defensive)
+  return { session: "ny-pm", dayOffset: -1 };                      // overnight 00:00-02:59 — YESTERDAY's PM
+}
+
+// Shift a plain ET date string (YYYY-MM-DD) by whole days. UTC arithmetic on a
+// date-only value is DST-safe (no wall-clock hour involved).
+function shiftDate(ymd, days) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Pure resolver for the session folder + date, given a currentSession() result.
+// Exported for tests (activeSessionDir wraps it with the live clock + mkdir).
+export function resolveSessionFolder({ date, session, et_hour, et_minute }) {
+  if (session !== "idle") return { date, folder: session };
+  const { session: folder, dayOffset } = mostRecentSession(et_hour, et_minute);
+  return { date: dayOffset ? shiftDate(date, dayOffset) : date, folder };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -86,10 +106,7 @@ export async function activeSessionDir() {
     await fs.mkdir(dir, { recursive: true });
     return dir;
   }
-  const { date, session, et_hour, et_minute } = currentSession();
-  const folder = session === "idle"
-    ? mostRecentSession(et_hour, et_minute)
-    : session;
+  const { date, folder } = resolveSessionFolder(currentSession());
   const dir = path.join(stateRoot(), "session", date, folder);
   await fs.mkdir(dir, { recursive: true });
   return dir;

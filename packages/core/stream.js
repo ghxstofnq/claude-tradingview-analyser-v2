@@ -4,7 +4,7 @@
  */
 import { evaluate } from './connection.js';
 import { writeFileSync, mkdirSync, renameSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 // ET date helper for state/session/<YYYY-MM-DD>/ paths.
 function nowETDate() {
@@ -15,7 +15,12 @@ function nowETDate() {
   return fmt.format(new Date()); // en-CA gives YYYY-MM-DD
 }
 
-const HEARTBEAT_PATH = 'state/session/detector-heartbeat.json';
+// Honor GOFNQ_STATE_DIR so the detector's heartbeat + events land in the SAME
+// state root the app reads from (sessions.js stateRoot). A cwd-relative literal
+// diverged under a relocated state dir → the watchdog never saw a fresh
+// heartbeat and false-restarted the detector (audit I15).
+const STATE_ROOT = process.env.GOFNQ_STATE_DIR || 'state';
+const HEARTBEAT_PATH = join(STATE_ROOT, 'session', 'detector-heartbeat.json');
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 const MODEL = `${CHART_API}._chartWidget.model()`;
@@ -228,7 +233,7 @@ export async function streamBarClose() {
   // call); we accept it as below the cost of fully-locked writes.
   function persistEvent(event) {
     try {
-      const path = `state/session/${nowETDate()}/bar-close-events.jsonl`;
+      const path = join(STATE_ROOT, 'session', nowETDate(), 'bar-close-events.jsonl');
       mkdirSync(dirname(path), { recursive: true });
       const line = JSON.stringify(event) + '\n';
       // Defensive size guard — keep lines under PIPE_BUF for atomicity.
