@@ -243,7 +243,9 @@ export function registerExecutionIpc() {
           return { ok: result?.ok === true, broker: "tradovate", result };
         }
         const result = await tvAdapter[verb](payload);
-        return { ok: result?.ok === true || result?.status === 200, broker: "paper", result };
+        // Trust the adapter's body-aware ok — a TV rejection can be HTTP 200 with
+        // an error body, so `|| status===200` would mask a rejected close (C34).
+        return { ok: result?.ok === true, broker: "paper", result };
       } catch (e) { return { ok: false, error: String(e?.message || e) }; }
     });
   }
@@ -271,7 +273,7 @@ export function registerExecutionIpc() {
       const pos = getTradingState().position;
       if (!pos) return { ok: false, error: "no open position" };
       const r = await tvAdapter.modifyPosition({ symbol: pos.symbol, sl: tick(pos.avgFill), tp: pos.tp });
-      return { ok: r?.status === 200, result: r };
+      return { ok: r?.ok === true, result: r };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
@@ -312,7 +314,7 @@ export function registerExecutionIpc() {
         else sl = Math.min(sl, entry - Math.max(0, (entry - price) * 0.5));
       }
       const r = await tvAdapter.modifyPosition({ symbol: pos.symbol, sl: tick(sl), tp: pos.tp });
-      return { ok: r?.status === 200, result: r, newSl: tick(sl) };
+      return { ok: r?.ok === true, result: r, newSl: tick(sl) };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
@@ -330,7 +332,7 @@ export function registerExecutionIpc() {
       const results = [];
       for (const o of wos) results.push(await tvAdapter.cancelOrder({ id: o.id }));
       // ok only when EVERY cancel acked — a partial cancel must surface (C34).
-      const cancelled = results.filter((r) => r?.ok === true || r?.status === 200).length;
+      const cancelled = results.filter((r) => r?.ok === true).length;
       return { ok: cancelled === results.length, cancelled, result: results };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
