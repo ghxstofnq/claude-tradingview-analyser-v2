@@ -96,7 +96,13 @@ async function postTrading(host, pathPart, payload) {
         body: ${JSON.stringify(body)},
         credentials: "include",
       });
-      return { status: r.status, ok: r.ok, body: (await r.text()).slice(0, 800) };
+      const txt = (await r.text()).slice(0, 800);
+      // A TradingView trading-level rejection can come back HTTP 200 with an
+      // error body — derive ok from the body, not just the HTTP status, or a
+      // rejected order reads as placed (audit review).
+      let ok = r.ok;
+      try { const j = JSON.parse(txt); if (j && (j.s === "error" || j.error || j.errmsg || j.error_message)) ok = false; } catch (e) {}
+      return { status: r.status, ok, body: txt };
     } catch (e) { return { status: 0, ok: false, body: "fetch failed: " + String(e) }; }
   })()`;
   return evaluate(expr);
@@ -154,8 +160,12 @@ export async function modifyPosition({ symbol, sl, tp } = {}) {
 // Cancel a working order by id. M0 spike: POST /trading/cancel/<acct>
 // {id:<NUMBER>} → 200 (id must be numeric, not a string).
 export async function cancelOrder({ id } = {}) {
+  const n = Number(id);
+  // A non-numeric/undefined id becomes NaN → JSON null → the POST cancels
+  // NOTHING while still reporting the HTTP ok. Refuse it loudly (audit review).
+  if (!Number.isFinite(n)) return { ok: false, status: 0, body: `cancelOrder: invalid order id ${JSON.stringify(id)}`, accountId: null };
   const t = resolveTarget();
-  const res = await postTrading(t.host, `/trading/cancel/${t.accountId}`, { id: Number(id) });
+  const res = await postTrading(t.host, `/trading/cancel/${t.accountId}`, { id: n });
   return { ...res, accountId: t.accountId };
 }
 
