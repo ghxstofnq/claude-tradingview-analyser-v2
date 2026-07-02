@@ -41,6 +41,7 @@ import { readMemory } from "./session-memory.js";
 import { onModeChange, isLive } from "./mode.js";
 import { record as recordMetric } from "./metrics.js";
 import { foldOpenTrades, consecutiveLossStreak } from "../../cli/lib/trade-outcomes.js";
+import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
 import { buildWalkerInputsRecord } from "../../cli/lib/day-tape.js";
 // #65 Trade ticking + session-end audit live in trade-ticker now,
 // so this file is closer to pure orchestration.
@@ -913,9 +914,21 @@ async function runDeterministicPacketTruthForBar(ev, session) {
   let lossHalt = false;
   try {
     const txt = await fs.readFile(path.join(dir, "trades.jsonl"), "utf8");
-    const events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    lossHalt = consecutiveLossStreak(events) >= 3;
-  } catch { /* no trades file yet — not halted */ }
+    // Tolerant parse (C21): a torn tail line must not fail the streak OPEN. A
+    // single dropped line still lets the streak compute from the good lines.
+    const { records, dropped } = parseJsonlTolerant(txt);
+    if (dropped > 0) {
+      _send?.("app:error", { source: "bar-close", level: "warn", message: `trades.jsonl: ${dropped} corrupt line(s) skipped while computing the 3-loss halt` });
+    }
+    lossHalt = consecutiveLossStreak(records) >= 3;
+  } catch (err) {
+    // ENOENT = no trades yet (not halted). Any OTHER read failure on a money
+    // guardrail fails CLOSED — treat unreadable trade history as halted (C21).
+    if (err?.code !== "ENOENT") {
+      lossHalt = true;
+      _send?.("app:error", { source: "bar-close", level: "error", message: `trades.jsonl unreadable — failing CLOSED (loss halt ON): ${err?.message || err}` });
+    }
+  }
 
   if (bestPacket && !lossHalt) {
     await surfaceSetup(truth.surfacePayload);

@@ -9,6 +9,7 @@ import { getPersistentMemory } from "./persistent-memory.js";
 import { acceptSetup, rejectSetup } from "./trades.js";
 import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
+import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
 import { startAlertPolling, stopAlertPolling } from "./alerts.js";
 import { setMode } from "./mode.js";
 import { noteManualStop, noteManualStart } from "./session-supervisor.js";
@@ -245,7 +246,8 @@ export function registerIpc(win) {
       const dir = await activeSessionDir();
       const file = path.join(dir, "trades.jsonl");
       const txt = await fs.readFile(file, "utf8").catch(() => "");
-      const events = txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      // Tolerant parse (C20): a torn line must not blank the REVIEW/LIVE lists.
+      const { records: events } = parseJsonlTolerant(txt);
       return { ok: true, open: foldOpenTrades(events), events };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
