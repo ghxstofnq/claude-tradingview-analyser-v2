@@ -1693,9 +1693,14 @@ pSet(int col, int row, string txt, color tint = na, color bg = na, string tip = 
     table.cell(panel, col, row, txt == "" ? "" : " " + txt + " ", text_color = na(tint) ? baseCol : tint, text_size = PANEL_TXT, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_center : col == 2 ? text.align_right : text.align_left, bgcolor = bg, tooltip = tip, text_formatting = bold ? text.format_bold : text.format_none)
 
 pRow(int row, int stat, string name, string detail, string tip) =>
-    pSet(0, row, statGlyph(stat), statCol(stat), statBg(stat))
+    // Scanner treatment (LuxAlgo convention, user-picked): the DETAIL cell
+    // carries a solid state fill — pass teal / fail red / attention amber,
+    // pending stays quiet — and the glyph column calms down to a plain
+    // mark so the color lives in one place.
+    pSet(0, row, statGlyph(stat), statCol(stat))
     pSet(1, row, name, color(na), color(na), tip)
-    pSet(2, row, detail, stat == -1 ? color.new(colBear, 15) : color(na))
+    dBg = stat == 2 ? color.new(colBull, 20) : stat == -1 ? color.new(colBear, 20) : stat == 1 ? color.new(colLiq, 25) : color(na)
+    pSet(2, row, detail, stat == 0 ? color(na) : chart.bg_color, dBg)
 
 // One MTF heatmap cell (row 2): solid direction fill, theme-inverted
 // text — the fill is the information; neutral recedes to dim gray.
@@ -1781,7 +1786,10 @@ renderChecklist() =>
     Bpr candBpr = na
     if side != 0
         for f in fvgs
-            live = f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted"
+            // chop15 zones are excluded outright: an entry that fought
+            // >10-15 minutes in the zone is DEAD (confirmation.md) — the
+            // panel must move to the next array, not dwell on a corpse.
+            live = (f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted") and not f.chop15
             if live and f.dir == sideStr and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
                 sc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
                 if sc >= candScore
@@ -1789,7 +1797,7 @@ renderChecklist() =>
                     cand := f
         if na(cand)
             for b in bprs
-                if (b.state == "fresh" or b.state == "tapped") and b.dir == sideStr
+                if (b.state == "fresh" or b.state == "tapped") and not b.chop15 and b.dir == sideStr
                     candBpr := b
     // Hysteresis: keep the previous candidate while it remains live and
     // eligible unless a challenger beats it by a clear margin — a panel
@@ -1800,7 +1808,7 @@ renderChecklist() =>
     if side != 0 and not na(cand)
         if lockSide == side and not na(lockTop)
             for f in fvgs
-                fLive = f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted"
+                fLive = (f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted") and not f.chop15
                 if fLive and f.dir == sideStr and math.abs(f.top - lockTop) < syminfo.mintick and math.abs(f.bottom - lockBot) < syminfo.mintick and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
                     lockSc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
                     if lockSc >= candScore - 50.0
@@ -1868,10 +1876,10 @@ renderChecklist() =>
     countDots = count >= 3 ? "●●●" : count == 2 ? "●●○" : count == 1 ? "●○○" : "○○○"
     pSet(0, 1, countDots, countTint, handsOff or count >= 2 ? statBg(handsOff ? -1 : count >= 3 ? 2 : 1) : color(na), str.tostring(count) + "/3 bias components aligned")
     pSet(1, 1, "BIAS", color(na), color(na), "Count HTF + overnight + NY-open: 1/3 no-trade · 2/3 B · 3/3 A+ (daily-bias.md §1)")
-    pSet(2, 1, biasDetail, handsOff ? color.new(colBear, 15) : side == 0 ? color(na) : color.new(accent, 15))
+    pSet(2, 1, biasDetail, handsOff or side != 0 ? chart.bg_color : color(na), handsOff ? color.new(colBear, 20) : side == 0 ? color(na) : color.new(accent, 20))
 
     htfStat = voteStat(htfVote, side)
-    pSet(0, 2, statGlyph(htfStat), statCol(htfStat), statBg(htfStat))
+    pSet(0, 2, statGlyph(htfStat), statCol(htfStat))
     pSet(1, 2, "HTF", color(na), color(na), "Array lean per TF — gap respected or inverted, recency-weighted (daily-bias.md §2). Heatmap fill is the state; the bias vote counts 4H+1H only.")
     heatCell(2, "15", m15Lean)
     heatCell(3, "1H", h1Lean)
