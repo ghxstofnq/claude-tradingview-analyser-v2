@@ -46,6 +46,10 @@ function fmtCountdown(ms) {
   return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
 }
 
+// Signed USD — the realized P&L in the flatten toast is DATA from the IPC result,
+// never a literal (CLAUDE.md #7 no-LLM-arithmetic applies to display too).
+const fmtUsd = (n) => (n >= 0 ? "+$" : "-$") + Math.abs(n).toLocaleString("en-US");
+
 const PAGE_COMPONENTS = {
   briefing: BriefingPage, live: LivePage, review: ReviewPage,
   backtest: BacktestPage, agent: AgentPage, settings: SettingsPage, system: SystemShellPage,
@@ -122,9 +126,24 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const openFlatten = () => { closePalette(); setFlat({ open: true, hold: false }); };
   const closeFlatten = () => setFlat({ open: false, hold: false });
 
+  // esc — step out ONE level, deepest-first. The palette steps down internally
+  // (view/forced → query → close) before the page closes. Evidence/prep guards
+  // slot in at the top when those surfaces land (they only add a guard, never
+  // re-order the chain).
   const back = () => {
     if (flat.open) return closeFlatten();
-    if (pal.open) return closePalette();   // Esc closes the palette (matches the view's own esc chip)
+    if (pal.open) {
+      if (pal.forced) return setPal((p) => ({ ...p, forced: null, askQuery: null, sel: 0 })); // view → root
+      if (pal.query) return setPal((p) => ({ ...p, query: "", sel: 0 }));                      // query → empty
+      return closePalette();                                                                   // empty → close
+    }
+    if (page) return setPage(null);
+  };
+  // scrim click — dismiss the top overlay outright (no step-down); matches the
+  // prototype's dim-click (close palette if open, else close the page).
+  const dismiss = () => {
+    if (flat.open) return closeFlatten();
+    if (pal.open) return closePalette();
     if (page) return setPage(null);
   };
 
@@ -185,7 +204,12 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const fireFlatten = async () => {
     closeFlatten();
     const r = await window.api?.execution?.flatten?.({ symbol });
-    addToast(r?.ok ? `FLATTEN SENT · ${symbol}` : `FLATTEN FAILED · ${r?.error || ""}`, r?.ok ? "green" : "red");
+    if (r?.ok) {
+      const realized = Number.isFinite(r?.realized) ? ` · ${fmtUsd(r.realized)} realized` : "";
+      addToast(`Flattened ${symbol} @ market${realized}`, "green");
+    } else {
+      addToast(`FLATTEN FAILED · ${r?.error || ""}`, "red");
+    }
   };
   const cancelAllOrders = async () => {
     const r = await window.api?.execution?.cancel?.();
@@ -296,7 +320,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       </div>
 
       {(page || pal.open || flat.open) && (
-        <div className="shell-scrim" onClick={back}>
+        <div className="shell-scrim" onClick={dismiss}>
           {PageComp && <PageComp {...pageProps} />}
           {pal.open && (
             <Palette
