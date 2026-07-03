@@ -77,4 +77,38 @@ describe("runTrancheManager guardrail integration", () => {
     assert.equal(result.gate.code, "DAILY_HALT");
     assert.deepEqual(skips, ["blocked:DAILY_HALT"]);
   });
+
+  it("auto-fire blocks (fail-closed) when the trade store is unreadable", async () => {
+    const skips = [];
+    const result = await runTrancheManager({ bestPacket: { ...anchorPacket, symbol: "MNQ1!" } }, {
+      readExecConfig: () => ({ automationMode: "auto", guards: { perTradeMax: 1000, dailyLimit: 600 } }),
+      accountRoutable: () => ({ route: true }),
+      autoAllowed: () => true,
+      readJournal: async () => ({ events: [], open: [] }),
+      consecutiveLossStreak: () => 0,
+      dayFillsReadable: () => false, // genuine store read error
+      sizePacket: () => ({ contracts: 1, riskUsd: 250, withinTolerance: true }),
+      dayRealizedLossUsd: () => 0,
+      openLossUsd: async () => 0,
+      checkOrder,
+      recordSkip: async (reason) => { skips.push(reason); },
+      accept: async () => { throw new Error("accept must not run when the store is unreadable"); },
+      openTrancheOrders: async () => { throw new Error("orders must not open"); },
+    });
+    assert.equal(result.action, "blocked:FILLS_UNREADABLE");
+    assert.deepEqual(skips, ["blocked:FILLS_UNREADABLE"]);
+  });
+
+  it("suggest mode never fires — returns suggest before the account gate, no accept/order", async () => {
+    let accepted = false;
+    const r = await runTrancheManager({ bestPacket: { ...anchorPacket, symbol: "MNQ1!" } }, {
+      readExecConfig: () => ({ automationMode: "suggest", guards: {} }),
+      accountRoutable: () => { throw new Error("suggest must not reach the account gate"); },
+      accept: async () => { accepted = true; return { id: "x" }; },
+      openTrancheOrders: async () => { throw new Error("no order fires in suggest"); },
+      recordSkip: async () => {},
+    });
+    assert.equal(r.action, "suggest");
+    assert.equal(accepted, false);
+  });
 });

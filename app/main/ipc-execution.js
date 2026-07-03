@@ -41,6 +41,20 @@ async function openLossUsdNow() {
   } catch { return 0; }
 }
 
+// Is a position open on the RIGHT source for a given broker? A Tradovate
+// position lives only in its REST read; TV paper/live lives on the WS feed
+// (getTradingState). Returns true/false, or null on a read error (caller treats
+// null as "unknown" → fail-closed). Mirrors openLossUsdNow's Tradovate branch.
+async function positionOpenFor(broker) {
+  try {
+    if (broker === "tradovate") {
+      const { readTradovatePosition } = await import("./execution/tradovate-adapter.js");
+      return !!(await readTradovatePosition());
+    }
+    return !!getTradingState().position;
+  } catch { return null; }
+}
+
 async function guarded(payload) {
   // Fail-closed on a real trade-store read error: block rather than gate on
   // degraded counts (readFills returns [] for a legitimately-absent file, so a
@@ -52,9 +66,10 @@ async function guarded(payload) {
   // account's losses/count must not halt another.
   const acct = getActiveAccount();
   const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
-  // Count the currently-open (uncounted-until-close) entry against maxTrades.
-  // Unknown position state ⇒ assume open (fail-closed).
-  const openNow = (() => { try { return getTradingState().position ? 1 : 0; } catch { return 1; } })();
+  // Count the currently-open (uncounted-until-close) entry against maxTrades,
+  // read from the broker's real source (Tradovate REST, not the TV WS feed).
+  // true or null(unknown) ⇒ count it (fail-closed); only a confirmed-flat ⇒ 0.
+  const openNow = (await positionOpenFor(acct?.broker)) === false ? 0 : 1;
   const dayState = buildDayState({ fills, account, openNow, openLossUsd: await openLossUsdNow() });
   // Server-authoritative guards: NEVER trust renderer-supplied guards on the fire
   // path (closes the execution:place fail-open). Sizing/hasStop still describe the
@@ -108,14 +123,13 @@ export function registerExecutionIpc() {
       const revertingFromLive = confirmed?.type === "live" || active?.broker === "tradovate";
       let positionOpen = false;
       if (revertingFromLive && arg?.force !== true) {
-        try {
-          if (active?.broker === "tradovate") {
-            const { readTradovatePosition } = await import("./execution/tradovate-adapter.js");
-            positionOpen = !!(await readTradovatePosition());
-          } else {
-            positionOpen = !!getTradingState().position;
-          }
-        } catch { positionOpen = null; } // read failed → decision blocks (fail-closed)
+        // Key the read on the account we're reverting FROM, not just the current
+        // active one: a Tradovate live position lives in its REST read even after
+        // the on-screen active account has diverged to paper (a 12s traffic lull
+        // flips active.broker). Either confirmed OR active being tradovate ⇒ read
+        // Tradovate. positionOpenFor returns null on a read error → decision blocks.
+        const revertBroker = (confirmed?.broker === "tradovate" || active?.broker === "tradovate") ? "tradovate" : (active?.broker || null);
+        positionOpen = await positionOpenFor(revertBroker);
       }
       const d = revertSimDecision({ active, confirmed, config: cfg, positionOpen, force: arg?.force === true });
       if (d.block) return { ok: false, blocked: true, reason: d.reason };
@@ -144,7 +158,7 @@ export function registerExecutionIpc() {
       let fills; try { fills = readFills(tradesDir(), today()); } catch { fills = null; }
       const acct = getActiveAccount();
       const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
-      const openNow = (() => { try { return getTradingState().position ? 1 : 0; } catch { return 1; } })();
+      const openNow = (await positionOpenFor(acct?.broker)) === false ? 0 : 1;
       const ok = Array.isArray(fills);
       return {
         ok: true, guards,

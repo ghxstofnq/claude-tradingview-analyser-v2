@@ -18,12 +18,19 @@ export function useFixtures() {
     return r;
   }, []);
 
+  // Run each fixture through `run` so every row's pill reflects its real result
+  // (the aggregate run_all IPC returns totals only, leaving rows blank). Returns
+  // a { passed, total } aggregate; skipped (schema-only) fixtures don't count.
   const runAll = useCallback(async () => {
     setBusy(true);
-    const r = await window.api?.fixtures?.runAll?.().catch(() => ({ status: "fail" }));
+    let passed = 0, total = 0;
+    for (const f of fixtures) {
+      const r = await run(f.id);
+      if (r?.status && r.status !== "skipped") { total += 1; if (r.status === "pass") passed += 1; }
+    }
     setBusy(false);
-    return r;
-  }, []);
+    return { ok: passed === total, passed, total };
+  }, [fixtures, run]);
 
   return { fixtures, status, busy, run, runAll };
 }

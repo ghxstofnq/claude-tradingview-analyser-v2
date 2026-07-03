@@ -52,9 +52,15 @@ function SystemBody({ pushToast }) {
     : { t: "current", tone: "ok" };
 
   const supStop = () => { window.api?.detector?.stop?.().catch(() => {}); pushToast?.("Supervisor stopped", "red"); };
-  // RESTART kicks the supervisor watchdog (re-checks readiness, restarts a stale
-  // detector) — the real "restart supervision", not just detector.start.
-  const supRestart = () => { window.api?.supervisor?.nudge?.().catch(() => {}); pushToast?.("Supervisor nudged — re-checking now", "amber"); };
+  // RESTART must recover a detector that STOP just latched off: detector.start()
+  // clears the manual-stop latch (noteManualStart) + starts the detector, THEN
+  // the supervisor nudge re-runs the watchdog. Nudge alone no-ops on the
+  // manual_stop latch, so supervision would stay down while claiming to resume.
+  const supRestart = async () => {
+    const r = await window.api?.detector?.start?.().catch(() => ({ ok: false }));
+    window.api?.supervisor?.nudge?.().catch(() => {});
+    pushToast?.(r?.ok ? "Supervisor restarted — detector armed" : "Restart failed", r?.ok ? "amber" : "red");
+  };
   const resetLeader = async () => {
     const r = await window.api?.prep?.resetPairDecision?.().catch((e) => ({ ok: false, error: String(e) }));
     pushToast?.(r?.ok ? (r.deleted ? "Leader latch cleared — re-picks next bar" : "No leader latch set") : `Reset failed: ${r?.error || ""}`, r?.ok ? "amber" : "red");

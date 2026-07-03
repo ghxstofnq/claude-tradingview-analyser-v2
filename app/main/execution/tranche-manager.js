@@ -88,6 +88,13 @@ export async function runTrancheManager(ctx = {}, deps) {
   });
 
   if (decision.action === "open_anchor") {
+    // Store-level fail-closed, matching the manual path's FILLS_UNREADABLE: a
+    // genuine trade-store read error must BLOCK, not degrade the daily-loss gate
+    // to realized=0 (which, with maxTrades/maxConsec both unset, would fire uncapped).
+    if (d.dayFillsReadable && !d.dayFillsReadable()) {
+      await d.recordSkip("blocked:FILLS_UNREADABLE");
+      return { action: "blocked:FILLS_UNREADABLE" };
+    }
     const sizing = d.sizePacket(bestPacket, cfg);
     const openLossUsd = d.openLossUsd ? await d.openLossUsd() : 0;
     const gate = d.checkOrder({
@@ -161,6 +168,9 @@ async function buildRealDeps() {
     // Day-scoped trade count + consec-loss streak from the SAME store as the
     // manual path; +open counts the in-flight entry. NaN on error ⇒ checkOrder
     // blocks (fail-closed), so a read failure never lets an uncapped day run.
+    // True iff today's trade store reads cleanly (absent file reads as [] — that
+    // is a legitimate "no trades yet", not an error). A throw ⇒ false ⇒ block.
+    dayFillsReadable: () => { try { fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)); return true; } catch { return false; } },
     dayTradeCount: () => { try { const a = active.getActiveAccount(); const scope = a?.id ? { id: a.id, broker: a.broker ?? null } : null; const open = tradingFeed.getTradingState().position ? 1 : 0; return fills.dayTradeCount(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), scope) + open; } catch { return NaN; } },
     dayConsecLosses: () => { try { const a = active.getActiveAccount(); const scope = a?.id ? { id: a.id, broker: a.broker ?? null } : null; return fills.dayConsecutiveLossStreak(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), scope); } catch { return NaN; } },
     // Best-effort open drawdown for the predictive daily-loss gate. Same
