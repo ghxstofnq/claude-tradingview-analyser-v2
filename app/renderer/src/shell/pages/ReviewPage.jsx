@@ -10,19 +10,13 @@ import { clickable } from "../../a11y.js";
 import { useReview } from "../../hooks/useReview.js";
 import { useFills } from "../../hooks/useFills.js";
 import {
-  buildLedger, formatGradeShort, buildTrackRecordFromFills, degradedChainStages,
+  buildLedger, formatGradeShort, buildTrackRecordFromFills, degradedChainStages, computeFaithfulness,
 } from "../../Review.helpers.js";
 
 const TABS = [["SESSION", "SESSION"], ["JOURNAL", "JOURNAL"], ["STATS", "STATS"]];
 const gTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "dim");
-const stateTone = (st) => {
-  const s = (st || "").toUpperCase();
-  if (s.includes("TP") || s.includes("CONFIRM")) return "green";
-  if (s.includes("STOP")) return "red";
-  if (s.includes("INVALID") || s.includes("REJECT") || s.includes("NO")) return "dim";
-  return "amber";
-};
 const sessionShort = (s) => ({ "ny-am": "NY-AM", "ny-pm": "NY-PM", london: "LONDON" }[s] ?? (s ?? ""));
+const signed = (n) => (n > 0 ? "+" : "") + n; // no double sign on negatives
 
 function Card({ title, meta, right, className, children }) {
   return (
@@ -34,12 +28,13 @@ function Card({ title, meta, right, className, children }) {
 }
 
 // ── ledger row (shared by SESSION + JOURNAL) ───────────────────────────
-function LedgerRow({ row, expanded, onToggle }) {
+function LedgerRow({ row, brief, expanded, onToggle }) {
   const s = row.setup || {};
   const t = row.setup?.ts ? new Date(row.setup.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" }) : "—";
   const grade = formatGradeShort(s.grade || s.grade_capped);
   const side = (s.side || "").toUpperCase();
   const model = (s.model || "").toUpperCase();
+  const marks = computeFaithfulness(s, row.trade, brief).marks || ["na", "na", "na"];
   return (
     <>
       <div className={"rv-lrow" + (row.expandable ? " click" : "")} {...(row.expandable ? clickable(onToggle) : {})}>
@@ -48,7 +43,10 @@ function LedgerRow({ row, expanded, onToggle }) {
         <span className={"gr " + gTone(s.grade || s.grade_capped)}>{grade}</span>
         <span className={"side " + (side === "LONG" ? "up" : side === "SHORT" ? "down" : "")}>{side || "—"}</span>
         <span className="model">{model}</span>
-        <span className={"st " + stateTone(row.state)}>{row.state}</span>
+        <span className="fmark" title="faithfulness: bias · price action · entry model">
+          {marks.map((m, i) => <span key={i} className={"fseg " + (m || "na")} />)}
+        </span>
+        <span className={"st " + (row.state?.tone || "amber")}>{row.state?.label}</span>
         <span className="rsn">{row.reason}</span>
       </div>
       {expanded && row.trade && (
@@ -63,13 +61,13 @@ function LedgerRow({ row, expanded, onToggle }) {
   );
 }
 
-function Ledger({ ledger }) {
+function Ledger({ ledger, brief }) {
   const [open, setOpen] = useState(null);
   if (!ledger.length) return <div className="brf-empty">no candidates this session</div>;
   return (
     <div className="rv-ledger">
       {ledger.map((row, i) => (
-        <LedgerRow key={row.setup?.id ?? i} row={row} expanded={open === i} onToggle={() => setOpen(open === i ? null : i)} />
+        <LedgerRow key={row.setup?.id ?? i} row={row} brief={brief} expanded={open === i} onToggle={() => setOpen(open === i ? null : i)} />
       ))}
     </div>
   );
@@ -82,11 +80,12 @@ function SessionTab({ journal }) {
   const grade = journal.brief?.pillar_grade || "—";
   const accepted = ledger.filter((r) => r.setup?._disposition === "accepted").length;
   // journal trades carry a STATUS string (not R); the W/L tally comes from the
-  // ledger states. Realized $/R lives in the fills-based STATS tab.
-  const wins = ledger.filter((r) => /tp|confirm/i.test(r.state)).length;
-  const losses = ledger.filter((r) => /stop|invalid/i.test(r.state)).length;
+  // ledger state tone. Realized $/R lives in the fills-based STATS tab.
+  const wins = ledger.filter((r) => r.state?.tone === "green").length;
+  const losses = ledger.filter((r) => r.state?.tone === "red").length;
   const wrap = journal.summary?.bias_picture || journal.brief?.brief || "no wrap yet for this session.";
   const degraded = degradedChainStages(journal.summary?.chain_audit);
+  const onExport = () => window.api?.review?.exportSession?.(journal.date, journal.session).catch(() => {});
   const cells = [
     ["RESULT", `${wins}W · ${losses}L`, wins > losses ? "green" : losses > wins ? "red" : "value"],
     ["SETUPS", String(ledger.length), "value"],
@@ -104,8 +103,9 @@ function SessionTab({ journal }) {
       <Card title="CLAUDE'S WRAP" className="brf-prose-card">
         <p className="brf-prose">{wrap}</p>
       </Card>
-      <Card title="SETUPS · GRADED" meta={`${ledger.length} candidates`}>
-        <Ledger ledger={ledger} />
+      <Card title="SETUPS · GRADED" meta={`${ledger.length} candidates`}
+            right={<span className="pill interactive" {...clickable(onExport)}>EXPORT JSON</span>}>
+        <Ledger ledger={ledger} brief={journal.brief} />
       </Card>
     </div>
   );
@@ -117,7 +117,7 @@ function JournalTab({ journal }) {
   return (
     <div className="rv-dash">
       <Card title={`CANDIDATE LEDGER · ${sessionShort(journal?.session)} · ${journal?.date ?? ""}`} meta={`${ledger.length} rows`}>
-        <Ledger ledger={ledger} />
+        <Ledger ledger={ledger} brief={journal?.brief} />
       </Card>
     </div>
   );
@@ -170,10 +170,10 @@ function StatsTab({ fills }) {
       <Card title="EQUITY CURVE · CUMULATIVE R" meta={`max DD ${tr.max_drawdown_r}R`}>
         <EquityCurve fills={fills} />
         <div className="rv-eqfoot">
-          <span>best <b className="up">+{tr.best_r}R</b></span>
-          <span>worst <b className="down">{tr.worst_r}R</b></span>
-          <span>avg win <b>+{tr.avg_win}R</b></span>
-          <span>avg loss <b>{tr.avg_loss}R</b></span>
+          <span>best <b className="up">{signed(tr.best_r)}R</b></span>
+          <span>worst <b className="down">{signed(tr.worst_r)}R</b></span>
+          <span>avg win <b>{signed(tr.avg_win)}R</b></span>
+          <span>avg loss <b>{signed(tr.avg_loss)}R</b></span>
         </div>
       </Card>
     </div>

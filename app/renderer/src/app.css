@@ -4961,8 +4961,10 @@ button { border-radius: var(--r-sm); }
 
 /* candidate ledger */
 .rv-ledger { display: flex; flex-direction: column; }
-.rv-lrow { display: grid; grid-template-columns: 16px 46px 34px 46px 1fr 88px 1.4fr; align-items: center;
+.rv-lrow { display: grid; grid-template-columns: 16px 46px 34px 46px 1fr auto 88px 1.4fr; align-items: center;
   gap: 8px; padding: 6px 0; font-size: 11px; border-bottom: 1px solid color-mix(in srgb, var(--value-strong) 5%, transparent); }
+.rv-lrow .fmark { display: inline-flex; gap: 2px; }
+.rv-lrow .st.blue { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
 .rv-lrow.click { cursor: pointer; }
 .rv-lrow.click:hover { background: color-mix(in srgb, var(--blue) 4%, transparent); }
 .rv-lrow .car { color: var(--blue); font-size: 10px; text-align: center; }

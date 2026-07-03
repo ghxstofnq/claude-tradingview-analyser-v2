@@ -89,9 +89,12 @@ app.whenReady().then(async () => {
   // focus, renderer keydown never fires, so global shortcuts die. Forward only
   // the shell chord set (⌘K/⌘J/⇧⌘F/⌘1-7/Esc) from the guest to the renderer.
   win.webContents.on("did-attach-webview", (_e, guest) => {
-    guest.on("before-input-event", (_event, input) => {
+    guest.on("before-input-event", (event, input) => {
       const chord = shellChordFromInput(input);
-      if (chord) ipc.send("shell:key", chord);
+      if (chord) {
+        event.preventDefault(); // consume the chord — don't also fire TV's own shortcut
+        ipc.send("shell:key", chord);
+      }
     });
   });
   // Effective GOFNQ_* config snapshot — one-shot, read-only. Records the live

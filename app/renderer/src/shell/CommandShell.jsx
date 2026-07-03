@@ -218,7 +218,11 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       const t = e.target;
       const typing = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
       const paletteInputFocused = !!(t && t.dataset && t.dataset.cmdPalInput === "1");
-      const action = resolveKey(e, { paletteOpen: pal.open, flattenOpen: flat.open, page, typing, paletteInputFocused });
+      // resolveKey reads `typing` off its event arg — shape a plain object so
+      // the bare-key/`/` typing guard actually fires (a raw DOM event has no
+      // `.typing`). Same shape onShellKey uses.
+      const synth = { key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, repeat: e.repeat, typing };
+      const action = resolveKey(synth, { paletteOpen: pal.open, flattenOpen: flat.open, page, paletteInputFocused });
       if (!action) return;
       // Don't preventDefault plain typing keys — resolveKey already returns null
       // for those while typing.
