@@ -27,6 +27,10 @@ export function buildCommands(ctx = {}) {
       label: "Open briefing", action: { type: "page", page: "briefing" } });
   }
 
+  rows.push({ id: "start-prep", icon: "◔", tint: "blue", root: true,
+    label: "Start prep session", detail: "4-step pre-session checklist",
+    action: { type: "startPrep" } });
+
   for (const l of levels.slice(0, 2)) {
     rows.push({ id: `arm:${l.name}`, icon: "◈", tint: "amber", root: true,
       label: `Arm alert at ${l.name}`, detail: String(l.price),

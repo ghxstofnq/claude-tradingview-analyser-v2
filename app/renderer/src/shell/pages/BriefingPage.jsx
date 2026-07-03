@@ -250,7 +250,7 @@ function ClaudeCard({ brief, symbol, session, view }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-export function BriefingPage({ symbol, currentPrice, onClose }) {
+export function BriefingPage({ symbol, currentPrice, onStartPrep, onClose }) {
   const { brief, selectedSymbol, setSelectedSymbol, session, status, refresh } = useSessionBrief();
   const [view, setView] = useState("det");
   const [refreshing, setRefreshing] = useState(false);
@@ -298,6 +298,7 @@ export function BriefingPage({ symbol, currentPrice, onClose }) {
       {refreshing
         ? <span className="pill dim">REFRESHING…</span>
         : <span className="pill interactive" {...clickable(onRefresh, { label: "refresh brief" })}>↻</span>}
+      {onStartPrep && <span className="pill primary" {...clickable(onStartPrep, { label: "start prep session" })}>Start prep</span>}
     </>
   );
 

@@ -14,6 +14,7 @@ import { ErrorBoundary } from "../ErrorBoundary.jsx";
 import { TopBar } from "./TopBar.jsx";
 import { Palette } from "./Palette.jsx";
 import { FlattenConfirm } from "./FlattenConfirm.jsx";
+import { PrepWizard } from "./PrepWizard.jsx";
 import { Toasts, CoachChip } from "./Toasts.jsx";
 import { Page } from "./pages/Page.jsx";
 import { BriefingPage } from "./pages/BriefingPage.jsx";
@@ -83,6 +84,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const [page, setPage] = useState(null);
   const [pal, setPal] = useState({ open: false, query: "", sel: 0, forced: null, askQuery: null });
   const [flat, setFlat] = useState({ open: false, hold: false });
+  const [prep, setPrep] = useState({ open: false, step: 0 });
   const [toasts, setToasts] = useState([]);
   const [coach, setCoach] = useState(true);
 
@@ -151,9 +153,17 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   // ── palette open/close ────────────────────────────────────────────────
   const openPalette = (query = "") => setPal({ open: true, query, sel: 0, forced: null, askQuery: null });
   const closePalette = () => setPal((p) => ({ ...p, open: false, forced: null, askQuery: null }));
-  const openPage = (p) => { setPage(p); closePalette(); setFlat({ open: false, hold: false }); };
+  const openPage = (p) => { setPage(p); closePalette(); setFlat({ open: false, hold: false }); setPrep({ open: false, step: 0 }); };
   const openFlatten = () => { closePalette(); setFlat({ open: true, hold: false }); };
   const closeFlatten = () => setFlat({ open: false, hold: false });
+  // Prep wizard — the guided 4-step pre-session flow.
+  const startPrep = () => { closePalette(); setPage(null); setFlat({ open: false, hold: false }); setPrep({ open: true, step: 0 }); };
+  const closePrep = () => setPrep({ open: false, step: 0 });
+  const prepBack = () => setPrep((p) => ({ ...p, step: Math.max(0, p.step - 1) }));
+  const prepNext = () => {
+    if (prep.step >= 3) { setPrep({ open: false, step: 0 }); addToast("Prep complete — 4/4 · good hunting", "green"); }
+    else setPrep((p) => ({ ...p, step: p.step + 1 }));
+  };
 
   // esc — step out ONE level, deepest-first. The palette steps down internally
   // (view/forced → query → close) before the page closes. Evidence/prep guards
@@ -161,6 +171,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   // re-order the chain).
   const back = () => {
     if (flat.open) return closeFlatten();
+    if (prep.open) return closePrep();
     if (pal.open) {
       if (pal.forced) return setPal((p) => ({ ...p, forced: null, askQuery: null, sel: 0 })); // view → root
       if (pal.query) return setPal((p) => ({ ...p, query: "", sel: 0 }));                      // query → empty
@@ -172,6 +183,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   // prototype's dim-click (close palette if open, else close the page).
   const dismiss = () => {
     if (flat.open) return closeFlatten();
+    if (prep.open) return closePrep();
     if (pal.open) return closePalette();
     if (page) return setPage(null);
   };
@@ -203,6 +215,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         addToast(`Automation → ${a.mode.toUpperCase()}`, a.mode === "auto" ? "amber" : "blue");
       } return;
       case "theme": closePalette(); onToggleTheme?.(); return;
+      case "startPrep": startPrep(); return;
       default: return;
     }
   }, [symbol, detectorRunning, addToast, setSymbol, onToggleTheme]);
@@ -279,7 +292,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       if (!action) return;
       // Don't preventDefault plain typing keys — resolveKey already returns null
       // for those while typing.
-      if (action.type !== "back" || pal.open || flat.open || page) e.preventDefault();
+      if (action.type !== "back" || pal.open || flat.open || page || prep.open) e.preventDefault();
       dispatch(action);
     };
     const onKeyUp = (e) => { if (e.key === "Enter") setFlat((f) => (f.hold ? { ...f, hold: false } : f)); };
@@ -302,7 +315,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       offShellKey?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pal, flat, page, commands, runCommand]);
+  }, [pal, flat, page, prep, commands, runCommand]);
 
   // Refocus the renderer when the chrome is clicked so keyboard shortcuts keep
   // working after the TV webview has held focus (PR1 mitigation; PR3 forwards
@@ -327,11 +340,11 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const isAgent = page === "agent";
   const PageComp = page && !isAgent ? PAGE_COMPONENTS[page] : null;
   const pageProps = { onClose: () => setPage(null) };
-  if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice });
+  if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice, onStartPrep: startPrep });
   if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
   if (page === "settings") Object.assign(pageProps, { guards, setGuards, symbol, onToast: addToast });
   if (page === "system") Object.assign(pageProps, { pushToast: addToast });
-  const scrimShown = pal.open || flat.open || (page && !isAgent);
+  const scrimShown = pal.open || flat.open || prep.open || (page && !isAgent);
 
   return (
     <div className={"app shell" + (isAgent ? " sidecar-open" : "")} onMouseDownCapture={refocus}>
@@ -368,6 +381,10 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
               onRunCommand={runCommand} onDisarm={disarmAlert}
               onCancelAll={cancelAllOrders} onToast={addToast} onClose={closePalette} />
           )}
+          {prep.open && (
+            <PrepWizard step={prep.step} onNext={prepNext} onBack={prepBack} onClose={closePrep}
+                        guards={guards} setGuards={setGuards} />
+          )}
           {flat.open && (
             <FlattenConfirm
               hasPosition={hasPosition}
@@ -378,7 +395,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       )}
 
       <Toasts toasts={toasts} onDismiss={dismissToast} />
-      {coach && !page && !pal.open && !flat.open && <CoachChip onClose={() => setCoach(false)} />}
+      {coach && !page && !pal.open && !flat.open && !prep.open && <CoachChip onClose={() => setCoach(false)} />}
     </div>
   );
 }
