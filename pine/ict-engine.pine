@@ -209,8 +209,9 @@ showBprs       = input.bool(true,  "BPRs",               group = GRP_VIZ)
 showSwings     = input.bool(true,  "Swings",             group = GRP_VIZ)
 showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
 showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
-showQuality    = input.bool(true,  "Quality panel",      group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
+showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
+showSessShade  = input.bool(false, "Killzone shading",   group = GRP_VIZ)
 showInternal   = input.bool(false, "Show internal tier", group = GRP_VIZ)
 showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
 // Visual-only filter: tiny zones (width < 0.5x ATR14 at creation) stay in
@@ -220,6 +221,11 @@ hideTinyZones  = input.bool(true,  "Hide tiny zones (visual only)", group = GRP_
 // the most recent picture (premium toolkits default to ~5 visible zones).
 maxZonesDrawn  = input.int(8, "Max zones drawn per type", minval = 2, maxval = 24, group = GRP_VIZ)
 maxStructDrawn = input.int(6, "Max structure events drawn", minval = 2, maxval = 12, group = GRP_VIZ)
+// Checklist panel (premium-dashboard conventions: corner placement + size
+// presets + glyph status cells — LuxAlgo/TTrades pattern).
+showChecklist  = input.bool(true, "Checklist panel", group = GRP_VIZ)
+panelPosInp    = input.string("Top right", "Checklist position", options = ["Top right", "Top left", "Middle right", "Bottom right", "Bottom left"], group = GRP_VIZ, inline = "cpanel")
+panelSizeInp   = input.string("Tiny", "size", options = ["Tiny", "Small", "Normal"], group = GRP_VIZ, inline = "cpanel")
 
 GRP_COL = "Colors"
 // Two-accent system (premium-toolkit convention): every visual element
@@ -263,12 +269,61 @@ trackSession(string sess) =>
 [nypmH, nypmL, nypmHMs, nypmLMs, inNypm] = trackSession(SESS_NYPM)
 currentSession = inAsia ? "asia" : inLondon ? "london" : inNyam ? "ny_am" : inNypm ? "ny_pm" : "off"
 
+// Optional killzone wash. The premium norm is boxes/brackets over full
+// background shading, so this ships OFF and near-invisible when on.
+bgcolor(showSessShade and (inLondon or inNyam or inNypm) ? color.new(colNeutral, 97) : na, title = "Killzone shade")
+
 // Prior-day and prior-week highs/lows — the only request.security use.
 // `[1]` + lookahead_on is the non-repainting higher-timeframe pattern.
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
 pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+
+// ── HTF array lean (checklist Pillar-1 component 1 — visual only) ─────
+// Lanto keeps HTF simple: FVGs / inversions near price, read by REACTION
+// (daily-bias.md §2) — array-state keyed, NOT structure. Per HTF we track
+// the most recent bullish and bearish 3-candle gap and latch a lean off
+// the most recent array event: a respected bull gap or an inverted bear
+// gap -> bull; the mirror -> bear. `[1]` + lookahead = confirmed-bar
+// values only (the same non-repaint pattern as the PD/PW levels above).
+// Feeds ONLY the checklist panel; the evidence table is untouched — the
+// backend does its own HTF pass over engine_by_tf.
+htfLean() =>
+    var float bullTop = na
+    var float bullBot = na
+    var bool  bullDead = false
+    var float bearTop = na
+    var float bearBot = na
+    var bool  bearDead = false
+    var int   lean = 0
+    if low > high[2]
+        bullTop := low
+        bullBot := high[2]
+        bullDead := false
+    if high < low[2]
+        bearTop := low[2]
+        bearBot := high
+        bearDead := false
+    // Strict `<`/`>` on the tap: on the gap's own formation bar low ==
+    // bullTop, and formation is NOT a reaction — only a later retrace
+    // that dips in and closes back through the edge counts (§2/§4).
+    if not na(bullTop) and not bullDead
+        if close < bullBot
+            bullDead := true
+            lean := -1
+        else if low < bullTop and close > bullTop
+            lean := 1
+    if not na(bearTop) and not bearDead
+        if close > bearTop
+            bearDead := true
+            lean := 1
+        else if high > bearBot and close < bearBot
+            lean := -1
+    lean
+
+h4Lean = request.security(syminfo.tickerid, "240", htfLean()[1], lookahead = barmerge.lookahead_on)
+h1Lean = request.security(syminfo.tickerid, "60", htfLean()[1], lookahead = barmerge.lookahead_on)
 
 // ── Sweep tracking ───────────────────────────────────────────────────
 // Watches a completed level for a liquidity sweep. A high-side level is swept
@@ -1171,8 +1226,16 @@ RIGHT_PAD_MS = 5 * timeframe.in_seconds() * 1000
 var array<box> vizBoxes = array.new<box>()
 var array<line> vizLines = array.new<line>()
 var array<label> vizLabels = array.new<label>()
-// 2 cols × 7 rows: merged title + session/range/displacement/candle/structure/leg.
-var table qualityPanel = table.new(position.top_right, 2, 7, bgcolor = color.new(chart.bg_color, 18), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
+// Checklist panel: 3 cols (status glyph · step · detail) × 10 rows —
+// merged title, BIAS summary, the seven checklist steps, merged ENTRY
+// banner. Fixed shape: every cell is rewritten on each render, so the
+// table is never cleared (clearing would drop the merges).
+PANEL_POS = panelPosInp == "Top left" ? position.top_left :
+  panelPosInp == "Middle right" ? position.middle_right :
+  panelPosInp == "Bottom right" ? position.bottom_right :
+  panelPosInp == "Bottom left" ? position.bottom_left : position.top_right
+PANEL_TXT = panelSizeInp == "Normal" ? size.normal : panelSizeInp == "Small" ? size.small : size.tiny
+var table panel = table.new(PANEL_POS, 3, 10, bgcolor = color.new(chart.bg_color, 12), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
 
 clearViz() =>
     for b in vizBoxes
@@ -1210,7 +1273,9 @@ fade(color c, int delta) =>
 accentOf(string dir) =>
     dir == "bull" ? colBull : colBear
 
-zoneFill(color accent) => color.new(accent, 90)
+// Opacity is a freshness channel (premium convention): a virgin/just-
+// inverted zone sits slightly more present than one already tapped.
+zoneFill(color accent, string state) => color.new(accent, state == "fresh" or state == "inverted" ? 88 : 91)
 zoneBorder(color accent) => color.new(accent, 72)
 zoneText(color accent) => color.new(accent, 35)
 zoneCe(color accent) => color.new(accent, 80)
@@ -1268,6 +1333,15 @@ renderLeg() =>
         x2 = time + RIGHT_PAD_MS
         vizLine(legLowMs, legLow, x2, legLow, fade(colNeutral, 30), line.style_dotted, 1)
         vizLabel(x2, legLow, "·L", color(na), fade(colNeutral, 30), label.style_label_left, size.tiny)
+    // Equilibrium (CE) of the current dealing range — the retrace anchor
+    // the entries key off ("ideally the CE / midpoint", entry-models.md).
+    // A quiet guide line only: no gating, no premium/discount shading.
+    if showLegEq and not na(legHigh) and not na(legLow) and not na(legHighMs) and not na(legLowMs)
+        eq = (legHigh + legLow) / 2
+        x1 = math.min(legHighMs, legLowMs)
+        x2 = time + RIGHT_PAD_MS
+        vizLine(x1, eq, x2, eq, fade(colNeutral, 40), line.style_dotted, 1)
+        vizLabel(x2, eq, "EQ", color(na), fade(colNeutral, 40), label.style_label_left, size.tiny)
 
 // ── Zones ────────────────────────────────────────────────────────────
 entryMarkerText(bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
@@ -1282,11 +1356,11 @@ zoneTag(string base, string sizeQuality) =>
 // One ACTIVE zone: airy accent fill, hairline border, dotted CE midline,
 // entry marker at the right edge. iFVGs draw dashed (the inversion is the
 // strategy's zone — visually distinct from a virgin gap).
-drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
+drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld, string state = "fresh") =>
     accent = accentOf(dir)
     x2 = time + RIGHT_PAD_MS
     ce = (top + bottom) / 2
-    vizBox(leftMs, top, x2, bottom, zoneFill(accent), zoneBorder(accent), tag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+    vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), tag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
     vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
     mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
     if mk != ""
@@ -1318,7 +1392,7 @@ renderZones() =>
                 // Active. An iFVG re-anchors at its inversion bar; its
                 // pre-inversion life shows as a ghost behind it.
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
-                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality), isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld)
+                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality), isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state)
                 if isIfvg and showHistorical and not na(f.invertedMs)
                     drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
                 drawn += 1
@@ -1332,7 +1406,7 @@ renderBprs() =>
             if bDead and showHistorical
                 drawGhostZone(b.createdMs, b.top, b.bottom, not na(b.mitigatedMs) ? b.mitigatedMs : time)
             if not bDead and drawn < maxZonesDrawn
-                drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmClose, b.chop15, b.entered, b.ceHeld)
+                drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmClose, b.chop15, b.entered, b.ceHeld, b.state)
                 drawn += 1
 
 // ── Swings ───────────────────────────────────────────────────────────
@@ -1359,7 +1433,9 @@ drawStructure(Structure s) =>
     lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
     vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 20), lnStyle, s.displacement ? 2 : 1)
     midMs = s.brokenSwingMs + (s.confirmedMs - s.brokenSwingMs) / 2
-    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.validation == "sweep" ? "·s" : "")
+    // "+" marks the displacement-confirmed variant — same hue, one extra
+    // character (the LuxAlgo CHoCH+ convention), never a new color.
+    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "")
     y = s.dir == "bull" ? s.level + labelOff() * 0.7 : s.level - labelOff() * 0.7
     vizLabel(midMs, y, txt, color(na), accent, label.style_none, s.event == "mss" ? size.small : size.tiny)
 
@@ -1392,48 +1468,187 @@ renderLiquidity() =>
             vizLine(pl.createdMs, pl.price, x2, pl.price, colLiq, line.style_dotted, 1)
             vizLabel(x2, pl.price, pl.kind == "eqh" ? "EQH" : "EQL", color(na), colLiq, label.style_label_left, size.tiny)
 
-// ── Dashboard ────────────────────────────────────────────────────────
-qSet(int col, int row, string txt, color tint = na) =>
-    baseCol = col == 0 ? color.new(chart.fg_color, 42) : chart.fg_color
-    table.cell(qualityPanel, col, row, txt, text_color = na(tint) ? baseCol : tint, text_size = size.tiny, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_left : text.align_right)
+// ── Checklist panel ──────────────────────────────────────────────────
+// Lanto's sequence walked live, top to bottom (docs/strategy/README.md
+// 7-step + daily-bias.md §1): the three bias components are COUNTED —
+// 1/3 no-trade, 2/3 tradable capped at B, 3/3 A+-eligible. Price quality
+// gates the environment, and the entry chain (liquidity grab → PD-array
+// tap → deliberate 1m close) only lights the ENTRY banner when every row
+// above it passes. An open reaction that REVERSES an agreed bias is
+// hands off (daily-bias.md §4). VISUAL AID ONLY — the walker chain
+// remains the single live setup producer (CLAUDE.md 2026-06-29); nothing
+// here feeds the evidence table or the backend.
+//
+// status: 2 pass · 1 partial/attention · 0 pending · -1 fail
+statGlyph(int s) => s == 2 ? "✔" : s == 1 ? "◆" : s == -1 ? "✘" : "·"
+statCol(int s) => s == 2 ? colBull : s == 1 ? colLiq : s == -1 ? colBear : color.new(chart.fg_color, 58)
+arrowOf(int v) => v > 0 ? "↑" : v < 0 ? "↓" : "·"
+// A bias component passes when it votes WITH the working side, fails when
+// it opposes it, and stays pending while neutral (a non-vote, §1).
+voteStat(int v, int s) => s == 0 or v == 0 ? 0 : v == s ? 2 : -1
 
-qTone(string verdict) =>
-    verdict == "good" or verdict == "clean" or verdict == "engulfing" ? colBull :
-      verdict == "tight" or verdict == "weak" or verdict == "doji_wick" ? colBear :
-      verdict == "acceptable" ? colLiq : color(na)
+pSet(int col, int row, string txt, color tint = na, color bg = na, string tip = "", bool bold = false) =>
+    baseCol = col == 1 ? color.new(chart.fg_color, 35) : color.new(chart.fg_color, 20)
+    table.cell(panel, col, row, txt, text_color = na(tint) ? baseCol : tint, text_size = PANEL_TXT, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_center : col == 2 ? text.align_right : text.align_left, bgcolor = bg, tooltip = tip, text_formatting = bold ? text.format_bold : text.format_none)
 
-// Last external structure event, summarized for the card.
-structSummary() =>
-    string txt = "—"
-    color tint = na
-    n = array.size(structuresExt)
-    if n > 0
-        st = array.get(structuresExt, n - 1)
-        txt := (st.event == "mss" ? "MSS " : "BoS ") + (st.dir == "bull" ? "↑" : "↓") + (st.validation == "sweep" ? " ·s" : "")
-        tint := accentOf(st.dir)
-    [txt, tint]
+pRow(int row, int stat, string name, string detail, string tip) =>
+    pSet(0, row, statGlyph(stat), statCol(stat))
+    pSet(1, row, name, color(na), color(na), tip)
+    pSet(2, row, detail, stat == -1 ? color.new(colBear, 15) : color(na))
 
-renderQualityPanel() =>
-    table.cell(qualityPanel, 0, 0, "ICT ENGINE", text_color = color.new(chart.fg_color, 25), text_size = size.tiny, text_font_family = font.family_monospace, text_halign = text.align_center)
-    table.merge_cells(qualityPanel, 0, 0, 1, 0)
-    qSet(0, 1, "Session")
-    qSet(1, 1, currentSession)
-    qSet(0, 2, "Range 3h")
-    qSet(1, 2, str.tostring(qRange3h, format.mintick) + " · " + qRangeQuality, qTone(qRangeQuality))
-    qSet(0, 3, "Displacement")
-    qSet(1, 3, qDisplacement, qTone(qDisplacement))
-    qSet(0, 4, "Candle")
-    qSet(1, 4, qCandle, qTone(qCandle))
-    [stTxt, stCol] = structSummary()
-    qSet(0, 5, "Structure")
-    qSet(1, 5, stTxt, stCol)
-    qSet(0, 6, "Leg")
-    qSet(1, 6, na(legLow) or na(legHigh) ? "—" : str.tostring(legLow, format.mintick) + "–" + str.tostring(legHigh, format.mintick))
+renderChecklist() =>
+    // Initialize every cell of the two banner rows before merging them —
+    // merging uninitialized cells is a runtime error. The real writes to
+    // the merged anchors (0,0)/(0,9) below overwrite these placeholders.
+    var bool panelMerged = false
+    if not panelMerged
+        for c = 0 to 2
+            pSet(c, 0, "")
+            pSet(c, 9, "")
+        table.merge_cells(panel, 0, 0, 2, 0)
+        table.merge_cells(panel, 0, 9, 2, 9)
+        panelMerged := true
+
+    // 1–3 · bias component votes (daily-bias.md §1 — counted, in order)
+    htfVote = h4Lean != 0 and h1Lean != 0 ? (h4Lean == h1Lean ? h4Lean : 0) : (h4Lean != 0 ? h4Lean : h1Lean)
+    ovVote = ovDir == "bull" ? 1 : ovDir == "bear" ? -1 : 0
+    // NY-open reaction resolves from ~minute 15 (README step 4). Sweep
+    // rejection flags mature on their own latch, so this read is stateless:
+    // reject -> fade the level; acceptance through it -> continuation.
+    orLive = currentSession == "ny_am" or currentSession == "ny_pm"
+    orMin = orLive and not na(orStartMs) ? int(math.floor((time - orStartMs) / 60000.0)) : -1
+    orVote = not orLive ? 0 : orSwept == "AS.H" ? (asiaHRej ? -1 : 1) : orSwept == "AS.L" ? (asiaLRej ? 1 : -1) : orSwept == "LO.H" ? (lonHRej ? -1 : 1) : orSwept == "LO.L" ? (lonLRej ? 1 : -1) : 0
+    orRej = orSwept == "AS.H" ? asiaHRej : orSwept == "AS.L" ? asiaLRej : orSwept == "LO.H" ? lonHRej : orSwept == "LO.L" ? lonLRej : false
+    orPending = orMin < 0 or (orVote == 0 and orMin < 30)
+    // hands off: the open reverses an AGREED bias (daily-bias.md §4)
+    handsOff = htfVote != 0 and ovVote == htfVote and orVote != 0 and not orPending and orVote != htfVote
+    baseLean = htfVote != 0 and ovVote != 0 ? (htfVote == ovVote ? htfVote : 0) : (htfVote != 0 ? htfVote : ovVote)
+    side = orVote != 0 and not orPending ? orVote : baseLean
+    count = side == 0 ? 0 : (htfVote == side ? 1 : 0) + (ovVote == side ? 1 : 0) + (orVote == side and not orPending ? 1 : 0)
+    sideStr = side > 0 ? "bull" : "bear"
+    sideArrow = side > 0 ? "↑" : "↓"
+    accent = side == 0 ? colNeutral : accentOf(sideStr)
+
+    // 4 · price quality (price-action.md; regime folds range+displacement)
+    p2 = qRangeQuality == "na" or qDisplacement == "na" ? 0 : qRegime == "consolidation" ? -1 : qCandle == "doji_wick" ? 1 : 2
+
+    // 5 · liquidity taken on the stop side (entry-models.md MSS §2 — the
+    // grab must be significant: session/PD/PW levels, or the gap's own
+    // took-liq). Level latches reset when the level re-forms, so recency
+    // is inherent; the most recent sweep wins.
+    swMs = side > 0 ? array.from(asiaLSwept ? asiaLSweptMs : -1, lonLSwept ? lonLSweptMs : -1, nyamLSwept ? nyamLSweptMs : -1, nypmLSwept ? nypmLSweptMs : -1, pdlSwept ? pdlSweptMs : -1, pwlSwept ? pwlSweptMs : -1) : array.from(asiaHSwept ? asiaHSweptMs : -1, lonHSwept ? lonHSweptMs : -1, nyamHSwept ? nyamHSweptMs : -1, nypmHSwept ? nypmHSweptMs : -1, pdhSwept ? pdhSweptMs : -1, pwhSwept ? pwhSweptMs : -1)
+    swNm = side > 0 ? array.from("AS.L", "LO.L", "NYAM.L", "NYPM.L", "PDL", "PWL") : array.from("AS.H", "LO.H", "NYAM.H", "NYPM.H", "PDH", "PWH")
+    int gMs = -1
+    int gIdx = -1
+    for i = 0 to 5
+        m = array.get(swMs, i)
+        if not na(m) and m > gMs
+            gMs := m
+            gIdx := i
+    grabName = gIdx >= 0 ? array.get(swNm, gIdx) : ""
+
+    // 6 · the PD array in play — best live gap in the trade direction:
+    // fresh/inverted first, then took-liquidity, then displacement
+    // (entry-models.md "best-gap selection"); newest wins ties. BPR is
+    // the fallback array.
+    Fvg cand = na
+    float candScore = -1.0
+    Bpr candBpr = na
+    if side != 0
+        for f in fvgs
+            live = f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted"
+            if live and f.dir == sideStr and not (hideTinyZones and f.sizeQuality == "tiny")
+                sc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
+                if sc >= candScore
+                    candScore := sc
+                    cand := f
+        if na(cand)
+            for b in bprs
+                if (b.state == "fresh" or b.state == "tapped") and b.dir == sideStr
+                    candBpr := b
+    hasCand = not na(cand) or not na(candBpr)
+    candKind = not na(cand) ? cand.kind : not na(candBpr) ? "bpr" : ""
+    candTop = not na(cand) ? cand.top : not na(candBpr) ? candBpr.top : na
+    candBot = not na(cand) ? cand.bottom : not na(candBpr) ? candBpr.bottom : na
+    candEntered = not na(cand) ? cand.entered : not na(candBpr) ? candBpr.entered : false
+    candCeHeld = not na(cand) ? cand.ceHeld : not na(candBpr) ? candBpr.ceHeld : false
+    candConfirm = not na(cand) ? cand.confirmClose : not na(candBpr) ? candBpr.confirmClose : false
+    candConfirmDir = not na(cand) ? cand.confirmDir : not na(candBpr) ? candBpr.confirmDir : "none"
+    candChop = not na(cand) ? cand.chop15 : not na(candBpr) ? candBpr.chop15 : false
+    candTookLiq = not na(cand) ? cand.tookLiq : not na(candBpr) ? candBpr.tookLiq : false
+    kindLbl = candKind == "ifvg" ? "iFVG" : candKind == "bpr" ? "BPR" : "FVG"
+
+    grabOk = gMs > 0 or (hasCand and candTookLiq)
+    r5 = side == 0 ? 0 : grabOk ? 2 : 0
+    r6 = not hasCand ? 0 : candEntered ? (candCeHeld ? 2 : 1) : 1
+    // 7 · confirmation (confirmation.md): a deliberate 1m close in the
+    // trade direction; >15 minutes fighting in the zone kills it.
+    r7 = not hasCand or not candEntered ? 0 : candConfirm and candConfirmDir == sideStr ? 2 : candChop ? -1 : 1
+
+    // 8 · model read — swing-tier structure only (the internal tier
+    // over-fires). MSS in-dir = Reversal, BoS in-dir = Continuation; the
+    // MECHANISM comes from the array kind (entry-models.md: two models ×
+    // retrace / inversion).
+    string model = ""
+    if side != 0 and array.size(structuresExt) > 0
+        st = array.get(structuresExt, array.size(structuresExt) - 1)
+        if st.dir == sideStr
+            model := st.event == "mss" ? "MSS" : "TREND"
+
+    // grade (README: A+ = 3/3 bias AND good price AND clean entry; any
+    // weaker element -> B; conflict / <2 votes / bad price -> no trade)
+    biasOk = not handsOff and count >= 2
+    entryReady = hasCand and candEntered and r7 == 2 and model != ""
+    tradable = biasOk and p2 >= 1 and grabOk and entryReady
+    grade = not tradable ? "" : count >= 3 and p2 == 2 ? "A+" : "B"
+    stopPx = side > 0 ? candBot : candTop
+
+    // ── rows ──
+    secsLeft = math.max(0, int(math.floor((time_close - timenow) / 1000.0)))
+    cd = str.tostring(int(math.floor(secsLeft / 60.0))) + ":" + (secsLeft % 60 < 10 ? "0" : "") + str.tostring(secsLeft % 60)
+    sessTxt = currentSession == "ny_am" ? "NY AM" : currentSession == "ny_pm" ? "NY PM" : currentSession == "london" ? "LONDON" : currentSession == "asia" ? "ASIA" : "OFF"
+    pSet(0, 0, "ICT ENGINE · " + syminfo.ticker + " " + timeframe.period + " · " + sessTxt + " · " + cd, color.new(chart.fg_color, 25), color(na), "", true)
+
+    countTint = handsOff ? colBear : count >= 3 ? colBull : count == 2 ? colLiq : color.new(chart.fg_color, 50)
+    biasDetail = handsOff ? "conflict" : side == 0 ? "unclear" : (side > 0 ? "BULL ↑" : "BEAR ↓") + (count >= 3 ? " · A+ elig" : count == 2 ? " · B cap" : " · no-trade")
+    pSet(0, 1, str.tostring(count) + "/3", countTint)
+    pSet(1, 1, "BIAS", color(na), color(na), "Count HTF + overnight + NY-open: 1/3 no-trade · 2/3 B · 3/3 A+ (daily-bias.md §1)")
+    pSet(2, 1, biasDetail, handsOff ? color.new(colBear, 15) : side == 0 ? color(na) : color.new(accent, 15))
+
+    pRow(2, voteStat(htfVote, side), "HTF", "4H" + arrowOf(h4Lean) + " · 1H" + arrowOf(h1Lean), "4H/1H array lean — gap respected or inverted, recency-weighted (daily-bias.md §2)")
+    pRow(3, voteStat(ovVote, side), "Overnight", (ovDir == "na" ? "—" : ovDir) + (na(ovNet) ? "" : " " + (ovNet > 0 ? "+" : "") + str.tostring(ovNet, format.mintick)), "Asia+London direction; chop = non-vote (daily-bias.md §3)")
+    // In ny_pm the vote is the CARRIED morning reaction (the day's third
+    // component doesn't expire at noon; no fresh PM decisioning) — label it.
+    pRow(4, orPending ? 0 : voteStat(orVote, side), "NY open", orPending ? (orLive ? "… min " + str.tostring(math.max(orMin, 0)) : "awaits 09:30") : (orSwept != "none" ? orSwept + (orRej ? " rejected" : " accepted") : "quiet open") + (currentSession == "ny_pm" ? " (AM)" : ""), "Reject vs accept at the swept overnight level, minute 15–30 (daily-bias.md §4)")
+    pRow(5, p2, "Quality", (qDisplacement == "na" ? "—" : qDisplacement) + " · " + (qCandle == "doji_wick" ? "doji" : qCandle), "Displacement regime + candle anatomy — stand aside on consolidation (price-action.md)")
+    pRow(6, r5, "Liquidity", side == 0 ? "—" : grabOk ? (gMs > 0 ? grabName + " swept" : "gap took liq") : "none yet", "A significant grab on the stop side: session/PD level, or the gap took liquidity forming (entry-models.md MSS §2)")
+    pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") : side == 0 ? "—" : "none live", "Best live gap in-direction: fresh > took-liq > displacement (entry-models.md best-gap)")
+    pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone; dead if it fights >10–15m (confirmation.md)")
+
+    // ENTRY banner — saturated only when every row above it passes.
+    string bTxt = "no setup in play"
+    color bCol = color.new(chart.fg_color, 45)
+    color bBg = na
+    if handsOff
+        bTxt := "HANDS OFF · open reverses bias"
+        bCol := colBear
+        bBg := color.new(colBear, 88)
+    else if tradable
+        bTxt := "▸ " + grade + (side > 0 ? " LONG · " : " SHORT · ") + model + "·" + kindLbl + " · stop " + str.tostring(stopPx, format.mintick)
+        bCol := chart.bg_color
+        bBg := color.new(accent, 18)
+    else if side != 0 and model != "" and hasCand
+        blockTxt = count < 2 ? "bias " + str.tostring(count) + "/3" : p2 == -1 ? "bad price" : p2 == 0 ? "quality n/a" : not grabOk ? "no liquidity grab" : not candEntered ? "awaiting tap" : candChop ? "fought >15m · dead" : "awaiting 1m close"
+        bTxt := model + " " + sideArrow + " forming · " + blockTxt
+        bCol := color.new(accent, 25)
+    else if side != 0
+        bTxt := (side > 0 ? "lean LONG" : "lean SHORT") + " · bias " + str.tostring(count) + "/3"
+        bCol := color.new(accent, 35)
+    pSet(0, 9, bTxt, bCol, bBg, "Model · mechanism · structural stop at the zone edge (risk-and-management.md). Visual aid — the walker chain is the setup brain.", true)
 
 // ── Render dispatch ──────────────────────────────────────────────────
 if barstate.islast
     clearViz()
-    table.clear(qualityPanel, 0, 0, 1, 6)
     if showVisuals
         if showLevels
             renderLevels()
@@ -1449,5 +1664,5 @@ if barstate.islast
             renderStructures()
         if showLiquidity
             renderLiquidity()
-        if showQuality
-            renderQualityPanel()
+    if showChecklist
+        renderChecklist()
