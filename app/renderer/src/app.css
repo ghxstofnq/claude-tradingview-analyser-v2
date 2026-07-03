@@ -4598,7 +4598,7 @@ button { border-radius: var(--r-sm); }
 .cmd-news-t  { color: var(--amber); }
 .cmd-meter {
   width: 44px; height: 3px; border-radius: 2px; overflow: hidden;
-  background: color-mix(in srgb, var(--label-dim) 35%, transparent);
+  background: var(--cs-track);
 }
 .cmd-meter > span { display: block; height: 100%; background: var(--amber); }
 .cmd-meter > span.red { background: var(--red); }
@@ -4617,7 +4617,7 @@ button { border-radius: var(--r-sm); }
 .cmd-ver.bad  { color: var(--red);   letter-spacing: .05em; }
 .cmd-k-btn {
   display: flex; align-items: center; gap: 8px;
-  background: var(--surface-3); border-radius: var(--r-pill);
+  background: var(--cs-onfill); border-radius: var(--r-pill);
   padding: 4px 6px 4px 12px; cursor: pointer; color: var(--value); font-size: 10px;
 }
 .cmd-k-btn .kcap {
@@ -4639,15 +4639,16 @@ button { border-radius: var(--r-sm); }
   animation: cmd-dim-in .2s ease-out;
 }
 .shell-page {
-  /* Batch B — one geometry for every page: 980 × 82vh @ top:9vh, radius 16. */
+  /* Prototype geometry: 880 × 82vh @ top:9vh, radius 16 (Briefing/Review/
+     Backtest/Settings/System). Narrow pages (Live) use 620 @ top:11vh. */
   position: fixed; left: 50%; top: 9vh; transform: translateX(-50%);
-  width: min(980px, 94vw); max-height: 82vh; z-index: 66;
+  width: min(880px, 94vw); max-height: 82vh; z-index: 66;
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-xl);
   animation: cmd-page-in .28s cubic-bezier(.16,1,.3,1);
 }
-/* .wide is now an alias — kept so pages that still pass `wide` don't break. */
-.shell-page.wide { width: min(980px, 94vw); }
+.shell-page.wide { width: min(880px, 94vw); }
+.shell-page.narrow { width: min(620px, 94vw); top: 11vh; }
 
 /* Agent sidecar (Polish Plan / README §5): a flush right rail beside the chart —
    no scrim dim, chart shrinks (.sidecar-open). Not a floating card. */
