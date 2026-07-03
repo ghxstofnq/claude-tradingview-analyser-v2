@@ -27,6 +27,10 @@ export function buildCommands(ctx = {}) {
       label: "Open briefing", action: { type: "page", page: "briefing" } });
   }
 
+  rows.push({ id: "start-prep", icon: "◔", tint: "blue", root: true,
+    label: "Start prep session", detail: "4-step pre-session checklist",
+    action: { type: "startPrep" } });
+
   for (const l of levels.slice(0, 2)) {
     rows.push({ id: `arm:${l.name}`, icon: "◈", tint: "amber", root: true,
       label: `Arm alert at ${l.name}`, detail: String(l.price),
@@ -66,10 +70,15 @@ export function buildCommands(ctx = {}) {
       label: `Open ${PAGE_TITLES[p].toLowerCase()}`, action: { type: "page", page: p } });
   }
 
-  for (const [p, label] of [["prefs", "preferences"], ["health", "health"], ["risk", "risk"], ["fixtures", "fixtures"]]) {
+  for (const [p, label] of [["prefs", "preferences"], ["risk", "risk"]]) {
     rows.push({ id: `open:${p}`, icon: "⌗", tint: "mute", root: false,
       label: `Open ${label}`, action: { type: "page", page: p } });
   }
+  // "health" and "fixtures" were folded away: health now lives in System (⌘7),
+  // fixtures/fold-tests in Backtest (⌘4). Keep a "health" alias so the search
+  // still lands somewhere useful.
+  rows.push({ id: "open:health", icon: "✚", tint: "green", root: false,
+    label: "Open health", action: { type: "page", page: "system" } });
 
   rows.push({ id: "theme", icon: "◐", tint: "mute", root: false,
     label: "Toggle light / dark theme", action: { type: "theme" } });

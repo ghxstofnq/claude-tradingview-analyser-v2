@@ -18,6 +18,8 @@ import {
   normalizeSide,
   entryConfirmationVerdict,
   explainNoTradeReason,
+  liveGuardBudgets,
+  fillChips,
 } from "./Live.helpers.js";
 import { stripCitations, openReactionVerdict } from "./Prep.helpers.js";
 import { realAccountView } from "./Account.helpers.js";
@@ -35,6 +37,7 @@ import { useHealth } from "./hooks/useHealth.js";
 import { useChat } from "./hooks/useChat.js";
 import { useBacktestRunning } from "./hooks/useBacktest.js";
 import { useExecutionState } from "./hooks/useExecutionState.js";
+import { useFills } from "./hooks/useFills.js";
 import { useSessionBrief } from "./hooks/useSessionBrief.js";
 import { useOpenReaction } from "./hooks/useOpenReaction.js";
 import { useAiAnalysis } from "./hooks/useAiAnalysis.js";
@@ -746,15 +749,88 @@ function LiveCell({ guards, symbol }) {
   );
 }
 
-// ── LiveBody — the LIVE view without cell/float chrome, for the Command Shell
-// page frame (2026-07-03). Rendered inside a `.bt-popover.embedded` so every
-// existing LIVE style applies; the detector control + view tabs move from the
-// popover head into an embedded sub-header. PR1-transitional: shares the same
-// hooks as LiveCell but is the only path that renders once the shell lands
-// (LiveCell is retired from the UI). PR2 collapses the two.
+// Today's date (matches TopBar's guard-meter convention) for useFills.
+const LIVE_TODAY = () => new Date().toISOString().slice(0, 10);
+
+// NEXT-TURN detector strip (FEED only). The countdown is the seconds to the next
+// 1m bar close — bars close on the minute and the chain fires on that close, so
+// it's a real signal, not a fabricated ETA. Ticked locally so only this strip
+// re-renders each second (never the live P&L above it).
+function NextTurnStrip({ state, running, onToggle }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const h = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(h); }, []);
+  const secs = 60 - (Math.floor(now / 1000) % 60);
+  const val = running ? `bar close · ${secs}s` : state === "STALE" ? "detector stale" : "detector stopped";
+  return (
+    <div className="live-det-strip">
+      <span className="lbl">NEXT TURN</span>
+      <span className={"val " + (running ? "amber" : "red")}>{val}</span>
+      <span className="sp" style={{ flex: 1 }} />
+      <span className={"det-toggle " + (running ? "stop" : "start")} {...clickable(onToggle, { label: running ? "stop detector" : "start detector" })}>
+        {running ? "■ STOP" : "▶ START"}
+      </span>
+    </div>
+  );
+}
+
+// SESSION GUARDS — one real budget bar (daily-loss vs the enforced dailyLimit) +
+// plain counts for trades / consecutive losses. No fabricated "n/max" bars: the
+// app enforces no max-trades / max-consec guard, so a ceiling would be a lie.
+function SessionGuardsCard({ fills, guards }) {
+  const b = liveGuardBudgets(fills, guards);
+  const usd = (n) => Math.abs(n).toLocaleString("en-US");
+  return (
+    <div className="lv-box guard-budget">
+      <div className="lv-box-hd">SESSION GUARDS</div>
+      <div className="gb-row">
+        <span className="gb-name">Daily loss</span>
+        <span className={"gb-val" + (b.dailyLoss.tripped ? " bad" : b.dailyLoss.pct >= 70 ? " warn" : "")}>
+          −${usd(b.dailyLoss.used)}{b.dailyLoss.limit != null ? ` / −$${usd(b.dailyLoss.limit)}` : ""}
+        </span>
+      </div>
+      {b.dailyLoss.limit != null && (
+        <div className="gb-track"><span className={"gb-fill" + (b.dailyLoss.tripped ? " bad" : "")} style={{ width: `${b.dailyLoss.pct}%` }} /></div>
+      )}
+      <div className="gb-row"><span className="gb-name">Trades today</span><span className="gb-val">{b.trades}</span></div>
+      <div className="gb-row"><span className="gb-name">Consec. losses</span><span className={"gb-val" + (b.consecLosses >= 2 ? " warn" : "")}>{b.consecLosses}</span></div>
+    </div>
+  );
+}
+
+// TODAY'S FILLS — compact chips of the recorded fill tape (realized R / $).
+function TodaysFillsCard({ fills }) {
+  const chips = fillChips(fills);
+  return (
+    <div className="lv-box">
+      <div className="lv-box-hd">TODAY'S FILLS</div>
+      {chips.length
+        ? <div className="fill-chips">{chips.map((c, i) => (
+            <span key={i} className={"fill-chip " + (c.win ? "win" : "loss")}>{c.side}{c.qty ? ` ${c.qty}` : ""} · {c.r || c.usd || "—"}</span>
+          ))}</div>
+        : <div className="fill-empty">No fills yet today.</div>}
+    </div>
+  );
+}
+
+function LiveFlatEmpty() {
+  return (
+    <div className="live-flat-empty">
+      <div className="t">FLAT — no open position</div>
+      <div className="s">⌘K → “long 2 mnq @ fvg” opens a ticket</div>
+    </div>
+  );
+}
+
+// ── LiveBody — the LIVE page (2026-07-03 Command Shell). One page, a segmented
+// FEED | POSITIONS toggle (collapsing the old HUNT | TICKET | IN-TRADE tabs).
+// FEED hosts the candidate hunt (+ the ticket sub-state on accept) and the
+// detector strip; POSITIONS hosts the open-position card, session guards, and
+// today's fills. Rendered inside `.bt-popover.embedded` so every existing LIVE
+// style applies. Every order-flow handler is preserved verbatim.
 function LiveBody({ guards, symbol }) {
-  const [view, setView] = useState("hunt");
-  const [userPickedView, setUserPickedView] = useState(false);
+  const [seg, setSeg] = useState("feed");            // feed | positions
+  const [userPicked, setUserPicked] = useState(false);
+  const [ticketing, setTicketing] = useState(false); // ticket sub-state under FEED
   const [fireMsg, setFireMsg] = useState(null);
   const backtest = useBacktestRunning();
   const health = useHealth();
@@ -763,38 +839,36 @@ function LiveBody({ guards, symbol }) {
   const lastBar = useLastBar();
   const chat = useChat();
   const exec = useExecutionState();
+  const { fills } = useFills(LIVE_TODAY());
   const { brief, session } = useSessionBrief();
   const openReaction = useOpenReaction(session);
   const { acct } = useBrokerAccount();
   const accountType = realAccountView(acct).type;
 
   const hasPosition = !!exec.position || !!activeTrade;
-  const effectiveView = userPickedView ? view : (hasPosition ? "intrade" : "hunt");
+  const effectiveSeg = userPicked ? seg : (hasPosition ? "positions" : "feed");
 
-  // Snap back to HUNT when a fresh setup surfaces (LiveCell did this on the
-  // popover open; the shell opens the page separately, this covers the case
-  // where the page is already open on another tab). Ref-guarded so it fires
-  // once per setup id, never on unrelated re-renders.
+  // Snap to FEED when a fresh setup surfaces. Ref-guarded so it fires once per
+  // setup id, never on unrelated re-renders.
   const lastSurfaced = useRef(null);
   useEffect(() => {
     const id = activeSetup?.id;
-    if (id && id !== lastSurfaced.current) { lastSurfaced.current = id; setUserPickedView(true); setView("hunt"); }
+    if (id && id !== lastSurfaced.current) { lastSurfaced.current = id; setUserPicked(true); setSeg("feed"); setTicketing(false); }
     else if (!id) { lastSurfaced.current = null; }
   }, [activeSetup?.id]);
 
   const loopRunning = health?.loop === "healthy";
   const loopStale = health?.loop === "stale";
-  const detText = loopRunning ? "RUNNING" : loopStale ? "STALE" : "STOPPED";
+  const detState = loopRunning ? "RUNNING" : loopStale ? "STALE" : "STOPPED";
   const toggleDetector = async () => {
     try { if (loopRunning) await window.api?.detector?.stop?.(); else await window.api?.detector?.start?.(); } catch { /* best-effort */ }
   };
 
-  const pickView = (v) => { setUserPickedView(true); setView(v); };
   const lastPrice = lastBar?.close;
   const ticketSetup = activeSetup;
-  const TABS = [["hunt", "HUNT"], ["ticket", "TICKET"], ["intrade", "IN-TRADE"]];
+  const SEGS = [["feed", "FEED"], ["positions", "POSITIONS"]];
 
-  const onHuntAccept = () => { setUserPickedView(true); setView("ticket"); };
+  const onHuntAccept = () => { setUserPicked(true); setTicketing(true); };
   const onTicketFire = async (order) => {
     setFireMsg(null);
     try {
@@ -813,58 +887,54 @@ function LiveBody({ guards, symbol }) {
       setFireMsg(`ORDER NOT PLACED — ${String(e?.message || e)}`);
       return;
     }
-    setUserPickedView(true); setView("intrade");
+    setUserPicked(true); setSeg("positions"); setTicketing(false);
   };
 
   let body;
   if (backtest.running) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
-  } else if (effectiveView === "intrade") {
-    body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
-                     brief={brief} session={session} />
-      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
-  } else if (effectiveView === "ticket") {
-    body = ticketSetup
-      ? <TicketView setup={ticketSetup} account={accountType} guards={guards} symbol={symbol}
-                    onFire={onTicketFire} onCancel={() => pickView("hunt")} />
-      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no candidate to ticket ]</div>;
+  } else if (effectiveSeg === "positions") {
+    body = (
+      <div className="live-positions">
+        {(exec.position || activeTrade)
+          ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
+                         brief={brief} session={session} />
+          : <LiveFlatEmpty />}
+        <SessionGuardsCard fills={fills} guards={guards} />
+        <TodaysFillsCard fills={fills} />
+      </div>
+    );
   } else {
-    body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
-                          noTrade={noTrade} noTradeReason={noTradeReason}
-                          onAccept={onHuntAccept} onReject={() => pickView("hunt")}
-                          openReaction={openReaction} brief={brief} session={session} symbol={symbol} />;
+    body = (ticketing && ticketSetup)
+      ? <TicketView setup={ticketSetup} account={accountType} guards={guards} symbol={symbol}
+                    onFire={onTicketFire} onCancel={() => setTicketing(false)} />
+      : <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
+                       noTrade={noTrade} noTradeReason={noTradeReason}
+                       onAccept={onHuntAccept} onReject={() => setTicketing(false)}
+                       openReaction={openReaction} brief={brief} session={session} symbol={symbol} />;
   }
+
+  const showDetStrip = !backtest.running && effectiveSeg === "feed";
 
   return (
     <div className="bt-popover embedded">
       <div className="head live-head">
-        <span className="det">
-          <i className="dot" />
-          <span className="lbl">DETECTOR</span>
-          <span className={"run" + (loopRunning ? "" : loopStale ? " warn" : " off")}>{detText}</span>
-          <span className="stop" onClick={toggleDetector}>{loopRunning ? "STOP" : "START"}</span>
-        </span>
-        <span className="spacer" style={{ flex: 1 }} />
-        <div className="live-tabs">
-          {TABS.map(([v, l]) => (
-            <span key={v} className={"tab" + (effectiveView === v ? " on" : "")} onClick={() => pickView(v)}>{l}</span>
+        <div className="live-seg">
+          {SEGS.map(([v, l]) => (
+            <span key={v} className={"seg-tab" + (effectiveSeg === v ? " on" : "")}
+                  {...clickable(() => { setUserPicked(true); setSeg(v); }, { label: l })}>{l}</span>
           ))}
         </div>
+        <span className="spacer" style={{ flex: 1 }} />
       </div>
       <div className="body">
         {!exec.connected && !exec.loading && (
-          <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)",
-                        color: "var(--amber)", fontSize: 10.5, letterSpacing: ".14em" }}>
-            ⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders
-          </div>
+          <div className="live-banner amber">⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders</div>
         )}
         {fireMsg && (
-          <div onClick={() => setFireMsg(null)} style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)",
-                        background: "var(--surface-2)", color: "var(--red)", fontSize: 10.5, letterSpacing: ".14em", cursor: "pointer" }}>
-            ⚠ {fireMsg}
-          </div>
+          <div className="live-banner red" {...clickable(() => setFireMsg(null), { label: "dismiss error" })}>⚠ {fireMsg}</div>
         )}
+        {showDetStrip && <NextTurnStrip state={detState} running={loopRunning} onToggle={toggleDetector} />}
         {body}
       </div>
     </div>

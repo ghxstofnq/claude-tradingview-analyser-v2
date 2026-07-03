@@ -11,7 +11,63 @@ import {
   normalizeSide,
   entryConfirmationVerdict,
   explainNoTradeReason,
+  liveGuardBudgets,
+  fillChips,
 } from "../app/renderer/src/Live.helpers.js";
+
+describe("liveGuardBudgets", () => {
+  const fill = (usd) => ({ side: "long", qty: 1, actual: { usd, r: usd / 100 } });
+  it("net-loss day → daily-loss used + pct + tripped flags", () => {
+    const b = liveGuardBudgets([fill(-200), fill(-300)], { dailyLimit: 500 });
+    assert.equal(b.dailyLoss.used, 500);
+    assert.equal(b.dailyLoss.limit, 500);
+    assert.equal(b.dailyLoss.pct, 100);
+    assert.equal(b.dailyLoss.tripped, true);
+    assert.equal(b.trades, 2);
+  });
+  it("net-positive day → zero loss used, not tripped", () => {
+    const b = liveGuardBudgets([fill(300), fill(-100)], { dailyLimit: 500 });
+    assert.equal(b.dailyLoss.used, 0);
+    assert.equal(b.dailyLoss.tripped, false);
+    assert.equal(b.trades, 2);
+  });
+  it("consecutive losses counts back from the most recent, stops at a win", () => {
+    const b = liveGuardBudgets([fill(-50), fill(80), fill(-30), fill(-40)], { dailyLimit: 500 });
+    assert.equal(b.consecLosses, 2); // last two are losers
+  });
+  it("no dailyLimit → limit null, pct 0, never tripped (no fabricated denominator)", () => {
+    const b = liveGuardBudgets([fill(-100)], {});
+    assert.equal(b.dailyLoss.limit, null);
+    assert.equal(b.dailyLoss.pct, 0);
+    assert.equal(b.dailyLoss.tripped, false);
+  });
+  it("empty / non-array fills → zeros", () => {
+    const b = liveGuardBudgets(null, { dailyLimit: 500 });
+    assert.equal(b.trades, 0);
+    assert.equal(b.consecLosses, 0);
+    assert.equal(b.dailyLoss.used, 0);
+  });
+  it("ignores records without a numeric usd (open/pending fills)", () => {
+    const b = liveGuardBudgets([{ side: "long", actual: {} }, fill(-100)], { dailyLimit: 500 });
+    assert.equal(b.trades, 1);
+  });
+});
+
+describe("fillChips", () => {
+  it("prefers realized R, keeps side/qty, flags win/loss", () => {
+    const chips = fillChips([{ side: "short", qty: 2, actual: { usd: -120, r: -1 } }]);
+    assert.deepEqual(chips[0], { side: "SHORT", qty: 2, r: "-1R", usd: "−$120", win: false });
+  });
+  it("positive fill is a win with + signs", () => {
+    const chips = fillChips([{ side: "long", qty: 1, actual: { usd: 186, r: 1.5 } }]);
+    assert.equal(chips[0].win, true);
+    assert.equal(chips[0].r, "+1.5R");
+    assert.equal(chips[0].usd, "+$186");
+  });
+  it("drops records without actual", () => {
+    assert.equal(fillChips([{ side: "long" }, { side: "long", actual: { usd: 10, r: 0.1 } }]).length, 1);
+  });
+});
 
 describe("entryConfirmationVerdict", () => {
   it("all pass → CONFIRMED (green)", () => {

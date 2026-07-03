@@ -59,11 +59,9 @@ export function Palette({
                      onHover={onHover} onRun={onRunCommand} noResults={noResults} />
       )}
 
+      {/* Batch B palette diet: the 3-column grammar legend is gone — one folded
+          hint carries it. */}
       <div className="cmd-pal-foot">
-        <span>navigate <span className="cmd-kbd">↑↓</span></span>
-        <span>run <span className="cmd-kbd">⏎</span></span>
-        <span>ask <span className="cmd-kbd">tab</span></span>
-        <span className="sp" />
         <span>{intent === "filter" && noResults ? "⏎ asks Claude" : "verb runs · ? asks · noun browses"}</span>
       </div>
     </div>

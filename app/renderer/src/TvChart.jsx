@@ -158,50 +158,17 @@ function TvLoading() {
 }
 
 function TvFailed({ failure, onRetry }) {
+  // Compact Raycast card (the one white pill is the sole primary action). The
+  // debug line stays as a small secondary readout — useful, but no longer chrome.
   return (
-    <div style={{
-      position: "absolute", inset: 0,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      flexDirection: "column", gap: 10,
-      color: "var(--value)", fontFamily: "var(--mono)",
-      padding: 24, textAlign: "center",
-    }}>
-      <div style={{ color: "var(--red)", letterSpacing: ".22em", fontSize: 11 }}>
-        TRADINGVIEW · UNAVAILABLE
-      </div>
-      <div style={{ fontSize: 12, lineHeight: 1.6, maxWidth: 460 }}>
-        The TradingView webview could not load.
-      </div>
-      <div style={{
-        fontSize: 10.5, lineHeight: 1.5, maxWidth: 520,
-        color: "var(--label)", letterSpacing: ".02em",
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid var(--border, #1e2228)",
-        padding: "8px 12px",
-        textAlign: "left",
-        fontFamily: "var(--mono)",
-      }}>
-        <div>code: <span style={{ color: "var(--amber)" }}>{String(failure?.code)}</span></div>
-        <div>error: <span style={{ color: "var(--value)" }}>{failure?.desc || "n/a"}</span></div>
-        {failure?.url && <div style={{ overflowWrap: "anywhere" }}>url: {failure.url}</div>}
-        <div style={{ marginTop: 6, color: "var(--label)" }}>
-          (full event in the renderer console — Cmd+Opt+I)
-        </div>
-      </div>
-      <button onClick={onRetry}
-              style={{
-                marginTop: 6,
-                color: "var(--amber)",
-                background: "transparent",
-                border: "1px solid var(--amber)",
-                padding: "6px 14px",
-                fontFamily: "var(--mono)",
-                fontSize: 10.5,
-                letterSpacing: ".18em",
-                cursor: "pointer",
-              }}>
-        [ RETRY ]
-      </button>
+    <div className="cmd-tv-fail">
+      <span className="ic">▦</span>
+      <div className="t">TradingView failed to load</div>
+      <div className="s">webview crashed or network dropped — session state is safe</div>
+      <button className="pill primary" onClick={onRetry}>↻ RETRY</button>
+      {failure?.code != null && (
+        <div className="dbg">code {String(failure.code)}{failure?.desc ? ` · ${failure.desc}` : ""}</div>
+      )}
     </div>
   );
 }
@@ -214,36 +181,19 @@ function TvSignInBanner() {
     catch (e) { return false; }
   });
   if (dismissed) return null;
-  const dismiss = () => {
-    try { localStorage.setItem("tv-signin-dismissed", "1"); } catch (e) {}
+  const signIn = () => {
+    // No dedicated sign-in IPC — focus the webview (best-effort) so the trader
+    // can sign in inside the chart, then optimistically hide + remember the
+    // dismissal so the banner doesn't reappear once signed in.
+    try { window.focus(); } catch (e) { /* noop */ }
+    try { localStorage.setItem("tv-signin-dismissed", "1"); } catch (e) { /* noop */ }
     setDismissed(true);
   };
   return (
-    <div style={{
-      position: "absolute",
-      top: 12, left: 12,
-      background: "rgba(10,12,16,0.92)",
-      border: "1px solid var(--border)",
-      padding: "8px 12px 9px",
-      display: "flex", alignItems: "center", gap: 12,
-      fontFamily: "var(--mono)",
-      fontSize: 10.5,
-      zIndex: 6,
-      maxWidth: 460,
-    }}>
-      <span style={{
-        width: 7, height: 7,
-        background: "var(--amber)", display: "inline-block",
-      }}></span>
-      <span style={{ color: "var(--value)", letterSpacing: ".04em", lineHeight: 1.4, flex: 1 }}>
-        <span style={{ color: "var(--amber)", letterSpacing: ".18em" }}>NOT SIGNED IN</span>
-        <span style={{ color: "var(--label)", margin: "0 8px" }}>·</span>
-        Sign in inside the chart so saved layouts, indicators, and the broker
-        connection persist for execution.
-      </span>
-      <span onClick={dismiss}
-            style={{ color: "var(--label)", cursor: "pointer", fontSize: 13,
-                     padding: "0 4px", letterSpacing: 0 }}>×</span>
+    <div className="cmd-tv-signin">
+      <span className="d" />
+      <span className="m">TradingView session signed out — chart data is paused</span>
+      <button className="pill primary" onClick={signIn}>Sign in</button>
     </div>
   );
 }

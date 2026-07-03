@@ -1,15 +1,14 @@
-// AgentPage — ⌘5 / ⌘J. Hosts the unified CLAUDE / CODEX / BRAIN / WALKERS chat.
+// AgentPage — ⌘5 / ⌘J. Chat-only right-side sidecar (the one page that escapes
+// the centered frame + scrim): it pins flush to the right rail beside the chart,
+// which shrinks to make room. All chat logic lives in AgentBody + useChat.
 
 import React from "react";
-import { Page } from "./Page.jsx";
-import { PAGE_ICONS } from "../shell.constants.js";
-import { ChatBody } from "../../ChatPopover.jsx";
+import { AgentBody } from "../../ChatPopover.jsx";
 
 export function AgentPage({ chats, onClose }) {
   return (
-    <Page icon={PAGE_ICONS.agent} tint="blue" title="Agent" hosted onClose={onClose}
-          foot={<><span>⌘J / ⌘5 toggles · esc</span></>}>
-      <ChatBody chats={chats} />
-    </Page>
+    <div className="shell-sidecar" onClick={(e) => e.stopPropagation()}>
+      <AgentBody chats={chats} onClose={onClose} />
+    </div>
   );
 }
