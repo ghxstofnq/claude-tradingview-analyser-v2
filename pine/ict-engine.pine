@@ -215,13 +215,16 @@ showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
 showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
 showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
-showSessShade  = input.bool(false, "Killzone shading",   group = GRP_VIZ)
+showSessShade  = input.bool(true,  "Killzone boxes",     group = GRP_VIZ)
 showStructCandles = input.bool(false, "Structure-tinted candles", group = GRP_VIZ)
 showInternal   = input.bool(false, "Show internal tier", group = GRP_VIZ)
 showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
 // Visual-only filter: tiny zones (width < 0.5x ATR14 at creation) stay in
 // the evidence table but stop cluttering the chart.
 hideTinyZones  = input.bool(true,  "Hide tiny zones (visual only)", group = GRP_VIZ)
+// A live zone fully inside a larger live same-direction zone is noise —
+// the big zone IS the array (CandelaCharts "hide overlap"). Visual only.
+hideOverlapZones = input.bool(true, "Hide swallowed zones (visual only)", group = GRP_VIZ)
 // Draw caps — the evidence table keeps everything; the chart shows only
 // the most recent picture (premium toolkits default to ~5 visible zones).
 maxZonesDrawn  = input.int(8, "Max zones drawn per type", minval = 2, maxval = 24, group = GRP_VIZ)
@@ -274,9 +277,22 @@ trackSession(string sess) =>
 [nypmH, nypmL, nypmHMs, nypmLMs, inNypm] = trackSession(SESS_NYPM)
 currentSession = inAsia ? "asia" : inLondon ? "london" : inNyam ? "ny_am" : inNypm ? "ny_pm" : "off"
 
-// Optional killzone wash. The premium norm is boxes/brackets over full
-// background shading, so this ships OFF and near-invisible when on.
-bgcolor(showSessShade and (inLondon or inNyam or inNypm) ? color.new(colNeutral, 97) : na, title = "Killzone shade")
+// Session span anchors for the killzone range boxes (start latched on the
+// session's rising edge, end rides the last bar seen inside it). Each call
+// site gets its own var state.
+trackSpan(bool inSess) =>
+    var int startMs = na
+    var int endMs = na
+    if inSess
+        if not inSess[1]
+            startMs := time
+        endMs := time
+    [startMs, endMs]
+
+[asiaSpanStart, asiaSpanEnd] = trackSpan(inAsia)
+[lonSpanStart, lonSpanEnd] = trackSpan(inLondon)
+[nyamSpanStart, nyamSpanEnd] = trackSpan(inNyam)
+[nypmSpanStart, nypmSpanEnd] = trackSpan(inNypm)
 
 // Prior-day and prior-week highs/lows — the only request.security use.
 // `[1]` + lookahead_on is the non-repainting higher-timeframe pattern.
@@ -1311,6 +1327,28 @@ labelOff() =>
 // glyph — ✕ sweep, ◆ sweep that closed back through (rejected).
 // `labelCol` staggers long-horizon labels (PD/PW) into their own columns
 // so same-price levels never overlap.
+// Merge pool for completed unswept levels: levels within 0.1×ATR collapse
+// into ONE line labeled "NYAM.H = PDH" instead of stacking duplicate lines
+// and labels at the same price (anti-spaghetti convention).
+var array<float> lvlPx = array.new<float>()
+var array<string> lvlNm = array.new<string>()
+var array<int> lvlMs = array.new<int>()
+var array<int> lvlCol = array.new<int>()
+
+mergeLevel(float price, string name, int x1, int labelCol) =>
+    tol = na(atr14) or atr14 <= 0 ? syminfo.mintick * 2 : atr14 * LIQUIDITY_EQ_ATR_MULT
+    merged = false
+    if array.size(lvlPx) > 0
+        for i = 0 to array.size(lvlPx) - 1
+            if not merged and math.abs(array.get(lvlPx, i) - price) <= tol
+                array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name)
+                merged := true
+    if not merged
+        array.push(lvlPx, price)
+        array.push(lvlNm, name)
+        array.push(lvlMs, x1)
+        array.push(lvlCol, labelCol)
+
 drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, string name, bool forming = false, int labelCol = 0) =>
     if not na(price)
         x1 = (not na(formedMs) and formedMs > 0) ? formedMs : time - LEVEL_LINE_BARS * timeframe.in_seconds() * 1000
@@ -1319,13 +1357,18 @@ drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, str
             vizLine(x1, price, sweptMs, price, faded, line.style_solid, 1)
             vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
             vizLabel(sweptMs, price + labelOff() * 0.6, name, color(na), faded, label.style_none, size.tiny)
-        else
+        else if forming
             x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
-            vizLine(x1, price, x2, price, colNeutral, forming ? line.style_dashed : line.style_solid, 1)
-            lbl = forming ? name : name + "  " + str.tostring(price, format.mintick)
-            vizLabel(x2, price, lbl, color(na), colNeutral, label.style_label_left, size.small)
+            vizLine(x1, price, x2, price, colNeutral, line.style_dashed, 1)
+            vizLabel(x2, price, name, color(na), colNeutral, label.style_label_left, size.small)
+        else
+            mergeLevel(price, name, x1, labelCol)
 
 renderLevels() =>
+    array.clear(lvlPx)
+    array.clear(lvlNm)
+    array.clear(lvlMs)
+    array.clear(lvlCol)
     drawLevel(asiaH, asiaHMs, asiaHSwept, asiaHSweptMs, asiaHRej, "AS.H", inAsia)
     drawLevel(asiaL, asiaLMs, asiaLSwept, asiaLSweptMs, asiaLRej, "AS.L", inAsia)
     drawLevel(lonH, lonHMs, lonHSwept, lonHSweptMs, lonHRej, "LO.H", inLondon)
@@ -1338,6 +1381,13 @@ renderLevels() =>
     drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, "PDL", false, 1)
     drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, "PWH", false, 2)
     drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, "PWL", false, 2)
+    // Flush the merge pool: one line + one label per price cluster.
+    if array.size(lvlPx) > 0
+        for i = 0 to array.size(lvlPx) - 1
+            price = array.get(lvlPx, i)
+            x2 = time + RIGHT_PAD_MS * (1 + array.get(lvlCol, i) * 2)
+            vizLine(array.get(lvlMs, i), price, x2, price, colNeutral, line.style_solid, 1)
+            vizLabel(x2, price, array.get(lvlNm, i) + "  " + str.tostring(price, format.mintick), color(na), colNeutral, label.style_label_left, size.small)
 
 // The current leg's running extremes — quiet dotted guides for the live
 // structural invalidation anchors (strategy §6).
@@ -1399,6 +1449,29 @@ drawGhostZone(int leftMs, float top, float bottom, int deadMs) =>
     vizBox(leftMs, top, rightMs, bottom, GHOST_FILL(), GHOST_BORDER(), "", color(na), line.style_dotted)
 
 // FVGs + iFVGs from one pass over the engine array, newest first, capped.
+// True when a live zone sits fully inside a LARGER live same-direction
+// zone — the big zone is the array; drawing both just stacks fills.
+zoneSwallowed(float top, float bottom, string dir) =>
+    sw = false
+    for o in fvgs
+        oLive = o.state == "fresh" or o.state == "ce_tapped" or o.state == "inverted"
+        if oLive and o.dir == dir and o.top >= top and o.bottom <= bottom and (o.top - o.bottom) > (top - bottom) * 1.05
+            sw := true
+    sw
+
+// ── Killzone boxes ───────────────────────────────────────────────────
+// A hairline range box per session — the premium norm over a full-height
+// background wash. Level lines still carry the H/L detail.
+drawKillzoneBox(int startMs, int endMs, float hi, float lo) =>
+    if not na(startMs) and not na(endMs) and not na(hi) and not na(lo) and endMs > startMs
+        vizBox(startMs, hi, endMs, lo, color.new(colNeutral, 96), color.new(colNeutral, 86), "", color(na), line.style_solid)
+
+renderKillzones() =>
+    drawKillzoneBox(asiaSpanStart, asiaSpanEnd, asiaH, asiaL)
+    drawKillzoneBox(lonSpanStart, lonSpanEnd, lonH, lonL)
+    drawKillzoneBox(nyamSpanStart, nyamSpanEnd, nyamH, nyamL)
+    drawKillzoneBox(nypmSpanStart, nypmSpanEnd, nypmH, nypmL)
+
 renderZones() =>
     drawn = 0
     ghosts = 0
@@ -1415,7 +1488,7 @@ renderZones() =>
                 gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
                 drawGhostZone(gLeft, f.top, f.bottom, gDead)
                 ghosts += 1
-            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn
+            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
                 // Active. An iFVG re-anchors at its inversion bar; its
                 // pre-inversion life shows as a ghost behind it.
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
@@ -1432,7 +1505,7 @@ renderBprs() =>
             bDead = b.state == "invalidated"
             if bDead and showHistorical
                 drawGhostZone(b.createdMs, b.top, b.bottom, not na(b.mitigatedMs) ? b.mitigatedMs : time)
-            if not bDead and drawn < maxZonesDrawn
+            if not bDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(b.top, b.bottom, b.dir))
                 drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmClose, b.chop15, b.entered, b.ceHeld, b.state)
                 drawn += 1
 
@@ -1456,7 +1529,10 @@ renderSwings() =>
 // by a fraction of ATR so it never overlaps the line. Swing tier draws
 // solid; internal dashed. MSS reads bigger than BoS.
 drawStructure(Structure s, string suffix = "") =>
-    accent = accentOf(s.dir)
+    // Two-color structure convention: a reversal pops in its direction
+    // accent; continuation recedes to neutral — a turning market reads
+    // differently from a trending one at any distance.
+    accent = s.event == "mss" ? accentOf(s.dir) : colNeutral
     lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
     vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 20), lnStyle, s.displacement ? 2 : 1)
     midMs = s.brokenSwingMs + (s.confirmedMs - s.brokenSwingMs) / 2
@@ -1534,6 +1610,14 @@ pRow(int row, int stat, string name, string detail, string tip) =>
     pSet(1, row, name, color(na), color(na), tip)
     pSet(2, row, detail, stat == -1 ? color.new(colBear, 15) : color(na))
 
+// Age of a state as compact text ("34m", then "2h" past two hours).
+durTxt(int ms) =>
+    if na(ms)
+        ""
+    else
+        mins = int(math.floor((time - ms) / 60000.0))
+        mins < 120 ? str.tostring(mins) + "m" : str.tostring(int(math.floor(mins / 60.0))) + "h"
+
 renderChecklist() =>
     // Initialize every cell of the two banner rows before merging them —
     // merging uninitialized cells is a runtime error. The real writes to
@@ -1595,7 +1679,7 @@ renderChecklist() =>
     if side != 0
         for f in fvgs
             live = f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted"
-            if live and f.dir == sideStr and not (hideTinyZones and f.sizeQuality == "tiny")
+            if live and f.dir == sideStr and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
                 sc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
                 if sc >= candScore
                     candScore := sc
@@ -1628,10 +1712,12 @@ renderChecklist() =>
     // MECHANISM comes from the array kind (entry-models.md: two models ×
     // retrace / inversion).
     string model = ""
+    int modelMs = na
     if side != 0 and array.size(structuresExt) > 0
         st = array.get(structuresExt, array.size(structuresExt) - 1)
         if st.dir == sideStr
             model := st.event == "mss" ? "MSS" : "TREND"
+            modelMs := st.confirmedMs
 
     // grade (README: A+ = 3/3 bias AND good price AND clean entry; any
     // weaker element -> B; conflict / <2 votes / bad price -> no trade)
@@ -1644,8 +1730,12 @@ renderChecklist() =>
     // ── rows ──
     secsLeft = math.max(0, int(math.floor((time_close - timenow) / 1000.0)))
     cd = str.tostring(int(math.floor(secsLeft / 60.0))) + ":" + (secsLeft % 60 < 10 ? "0" : "") + str.tostring(secsLeft % 60)
+    // Countdown to the next 1H close (TTrades convention) — hour bars on
+    // these futures align to :00, so a modulo clock is exact.
+    h1Left = 3600 - int(math.floor(timenow / 1000.0)) % 3600
+    h1Cd = str.tostring(int(math.floor(h1Left / 60.0))) + ":" + (h1Left % 60 < 10 ? "0" : "") + str.tostring(h1Left % 60)
     sessTxt = currentSession == "ny_am" ? "NY AM" : currentSession == "ny_pm" ? "NY PM" : currentSession == "london" ? "LONDON" : currentSession == "asia" ? "ASIA" : "OFF"
-    pSet(0, 0, syminfo.ticker + " " + timeframe.period + " · " + sessTxt + " · " + cd, color.new(chart.fg_color, 25), color.new(chart.fg_color, 90), "", true)
+    pSet(0, 0, syminfo.ticker + " " + timeframe.period + " · " + sessTxt + " · " + cd + (timeframe.period == "60" ? "" : " · 1H " + h1Cd), color.new(chart.fg_color, 25), color.new(chart.fg_color, 90), "", true)
 
     countTint = handsOff ? colBear : count >= 3 ? colBull : count == 2 ? colLiq : color.new(chart.fg_color, 50)
     biasDetail = handsOff ? "conflict" : side == 0 ? "unclear" : (side > 0 ? "BULL ↑" : "BEAR ↓") + (count >= 3 ? " · A+ elig" : count == 2 ? " · B cap" : " · wait")
@@ -1682,7 +1772,7 @@ renderChecklist() =>
         bBg := color.new(accent, 15)
     else if side != 0 and model != "" and hasCand
         blockTxt = count < 2 ? "bias " + str.tostring(count) + "/3" : p2 == -1 ? "bad price" : p2 == 0 ? "quality n/a" : not grabOk ? "no liquidity grab" : not candEntered ? "awaiting tap" : candChop ? "fought >15m · dead" : "awaiting 1m close"
-        bTxt := model + " " + sideArrow + " forming · " + blockTxt
+        bTxt := model + " " + sideArrow + " forming " + durTxt(modelMs) + " · " + blockTxt
         bCol := color.new(accent, 20)
         bBg := color.new(accent, 90)
     else if side != 0
@@ -1695,6 +1785,8 @@ renderChecklist() =>
 if barstate.islast
     clearViz()
     if showVisuals
+        if showSessShade
+            renderKillzones()
         if showLevels
             renderLevels()
         if showLeg
