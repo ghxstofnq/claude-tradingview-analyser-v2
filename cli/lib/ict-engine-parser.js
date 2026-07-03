@@ -45,6 +45,10 @@ const ROW_FIELD_TYPES = {
     took_liq: 'bool', disp_score: 'num', reacted: 'bool',
     entered_ms: 'num', bars_in_zone: 'num', minutes_in_zone: 'num',
     ce_held: 'bool', confirm_close: 'bool', confirm_ms: 'num', chop_15m: 'bool',
+    // Lanto-strict confirmation (additive): tap on a PRIOR bar + engulfing
+    // close. confirm_close keeps the old semantics; the walker may adopt
+    // strict later behind a flag + full-corpus fold.
+    confirm_strict: 'bool',
     wick_tapped: 'bool', // schema 4: a wick has entered the zone (Lanto's tap)
     inverted_ms: 'num', // V3: when the FVG flipped to iFVG (violating close)
     // V3: the 3 forming candles' OHLC (c1 oldest [2], c2 displacement [1], c3 newest [0])
@@ -57,6 +61,7 @@ const ROW_FIELD_TYPES = {
     took_liq: 'bool', reacted: 'bool',
     entered_ms: 'num', bars_in_zone: 'num', minutes_in_zone: 'num',
     ce_held: 'bool', confirm_close: 'bool', confirm_ms: 'num', chop_15m: 'bool', wick_tapped: 'bool',
+    confirm_strict: 'bool',
   },
   // schema 4: swept_ms = WHEN the swing was swept (the internal-swing sweep is
   // the stop-anchoring liquidity grab that precedes a valid inversion).

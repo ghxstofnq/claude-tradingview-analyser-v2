@@ -118,10 +118,19 @@ type Fvg
     bool confirmClose = false
     string confirmDir = "none"
     int confirmMs = na
+    // Lanto-strict confirmation: the tap landed on a PRIOR bar (a discrete
+    // retrace test, then the close acts on it) and the confirming close is
+    // engulfing (body >= the prior bar's). confirm_close keeps its old
+    // semantics for the live chain; strict is additive evidence.
+    bool confirmStrict = false
     bool chop15 = false
     int invertedMs = na
     int mitigatedMs = na
     bool wickTapped = false
+    // Deepest penetration into the zone (split-fill mitigation render):
+    // for a bull zone the lowest low reached inside it, for a bear zone the
+    // highest high. Visual only — never emitted.
+    float deepPx = na
     // The 3 candles that form the FVG (c1 = oldest [2], c2 = displacement [1],
     // c3 = newest [0]) captured at the formation bar — OHLC each.
     float c1o = na
@@ -155,6 +164,7 @@ type Bpr
     bool confirmClose = false
     string confirmDir = "none"
     int confirmMs = na
+    bool confirmStrict = false
     bool chop15 = false
     int mitigatedMs = na
     bool wickTapped = false
@@ -209,17 +219,29 @@ showBprs       = input.bool(true,  "BPRs",               group = GRP_VIZ)
 showSwings     = input.bool(true,  "Swings",             group = GRP_VIZ)
 showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
 showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
-showQuality    = input.bool(true,  "Quality panel",      group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
+showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
+showSessShade  = input.bool(false, "Killzone boxes",     group = GRP_VIZ)
+showStructCandles = input.bool(false, "Structure-tinted candles", group = GRP_VIZ)
 showInternal   = input.bool(false, "Show internal tier", group = GRP_VIZ)
 showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
 // Visual-only filter: tiny zones (width < 0.5x ATR14 at creation) stay in
 // the evidence table but stop cluttering the chart.
 hideTinyZones  = input.bool(true,  "Hide tiny zones (visual only)", group = GRP_VIZ)
-// Draw caps — the evidence table keeps everything; the chart shows only
-// the most recent picture (premium toolkits default to ~5 visible zones).
-maxZonesDrawn  = input.int(8, "Max zones drawn per type", minval = 2, maxval = 24, group = GRP_VIZ)
-maxStructDrawn = input.int(6, "Max structure events drawn", minval = 2, maxval = 12, group = GRP_VIZ)
+// A live zone fully inside a larger live same-direction zone is noise —
+// the big zone IS the array (CandelaCharts "hide overlap"). Visual only.
+hideOverlapZones = input.bool(true, "Hide swallowed zones (visual only)", group = GRP_VIZ)
+// Named density preset over magic-number caps (premium-settings
+// convention). Caps how many zones / structure events draw at once; the
+// evidence table always keeps everything.
+chartDetail = input.string("Balanced", "Chart detail", options = ["Focused", "Balanced", "Everything"], group = GRP_VIZ)
+maxZonesDrawn = chartDetail == "Focused" ? 4 : chartDetail == "Everything" ? 14 : 8
+maxStructDrawn = chartDetail == "Focused" ? 2 : chartDetail == "Everything" ? 8 : 4
+// Checklist panel (premium-dashboard conventions: corner placement + size
+// presets + glyph status cells — LuxAlgo/TTrades pattern).
+showChecklist  = input.bool(true, "Checklist panel", group = GRP_VIZ)
+panelPosInp    = input.string("Top right", "Checklist position", options = ["Top right", "Top left", "Middle right", "Bottom right", "Bottom left"], group = GRP_VIZ, inline = "cpanel")
+panelSizeInp   = input.string("Small", "size", options = ["Tiny", "Small", "Normal"], group = GRP_VIZ, inline = "cpanel")
 
 GRP_COL = "Colors"
 // Two-accent system (premium-toolkit convention): every visual element
@@ -263,12 +285,121 @@ trackSession(string sess) =>
 [nypmH, nypmL, nypmHMs, nypmLMs, inNypm] = trackSession(SESS_NYPM)
 currentSession = inAsia ? "asia" : inLondon ? "london" : inNyam ? "ny_am" : inNypm ? "ny_pm" : "off"
 
+// Session span anchors for the killzone range boxes (start latched on the
+// session's rising edge, end rides the last bar seen inside it). Each call
+// site gets its own var state.
+trackSpan(bool inSess) =>
+    var int startMs = na
+    var int endMs = na
+    if inSess
+        if not inSess[1]
+            startMs := time
+        endMs := time
+    [startMs, endMs]
+
+[asiaSpanStart, asiaSpanEnd] = trackSpan(inAsia)
+[lonSpanStart, lonSpanEnd] = trackSpan(inLondon)
+[nyamSpanStart, nyamSpanEnd] = trackSpan(inNyam)
+[nypmSpanStart, nypmSpanEnd] = trackSpan(inNypm)
+
 // Prior-day and prior-week highs/lows — the only request.security use.
 // `[1]` + lookahead_on is the non-repainting higher-timeframe pattern.
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
 pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+
+// ── HTF array lean (checklist Pillar-1 component 1 — visual only) ─────
+// Lanto keeps HTF simple: FVGs / inversions near price, read by REACTION
+// (daily-bias.md §2) — array-state keyed, NOT structure. Per HTF we track
+// the most recent bullish and bearish 3-candle gap and latch a lean off
+// the most recent array event: a respected bull gap or an inverted bear
+// gap -> bull; the mirror -> bear. `[1]` + lookahead = confirmed-bar
+// values only (the same non-repaint pattern as the PD/PW levels above).
+// Feeds ONLY the checklist panel; the evidence table is untouched — the
+// backend does its own HTF pass over engine_by_tf.
+htfLean() =>
+    var float bullTop = na
+    var float bullBot = na
+    var bool  bullDead = false
+    var float bearTop = na
+    var float bearBot = na
+    var bool  bearDead = false
+    var int   lean = 0
+    var int   leanBar = na
+    if low > high[2]
+        bullTop := low
+        bullBot := high[2]
+        bullDead := false
+    if high < low[2]
+        bearTop := low[2]
+        bearBot := high
+        bearDead := false
+    // Strict `<`/`>` on the tap: on the gap's own formation bar low ==
+    // bullTop, and formation is NOT a reaction — only a later retrace
+    // that dips in and closes back through the edge counts (§2/§4).
+    if not na(bullTop) and not bullDead
+        if close < bullBot
+            bullDead := true
+            lean := -1
+            leanBar := bar_index
+        else if low < bullTop and close > bullTop
+            lean := 1
+            leanBar := bar_index
+    if not na(bearTop) and not bearDead
+        if close > bearTop
+            bearDead := true
+            lean := 1
+            leanBar := bar_index
+        else if high > bearBot and close < bearBot
+            lean := -1
+            leanBar := bar_index
+    // Recency-weighted but not immortal: an array event older than 20
+    // bars of this TF no longer votes (daily-bias.md §3 recency) — a
+    // days-old lean contradicting the visible chart reads as broken.
+    leanOut = na(leanBar) or bar_index - leanBar > 20 ? 0 : lean
+    // Return everything one bar back ([1] + lookahead at the call site =
+    // confirmed-bar values): the lean, plus the live gap edges so the
+    // chart TF can read reject-vs-invert AT the HTF array (§4).
+    [leanOut[1], bullTop[1], bullBot[1], bullDead[1], bearTop[1], bearBot[1], bearDead[1]]
+
+[h4Lean, _h4a, _h4b, _h4c, _h4d, _h4e, _h4f] = request.security(syminfo.tickerid, "240", htfLean(), lookahead = barmerge.lookahead_on)
+[h1Lean, h1BullTop, h1BullBot, h1BullDead, h1BearTop, h1BearBot, h1BearDead] = request.security(syminfo.tickerid, "60", htfLean(), lookahead = barmerge.lookahead_on)
+// MTF strip: 15m is context-only; D/4H/1H carry the HTF vote (§2 works
+// Daily -> 4H -> 1H top-down, majority wins).
+[m15Lean, _m15a, _m15b, _m15c, _m15d, _m15e, _m15f] = request.security(syminfo.tickerid, "15", htfLean(), lookahead = barmerge.lookahead_on)
+[dLean, _dA, _dB, _dC, _dD, _dE, _dF] = request.security(syminfo.tickerid, "D", htfLean(), lookahead = barmerge.lookahead_on)
+
+// Origin timestamps for the prior-period extremes, tracked on the chart
+// TF (the security call above gives the VALUE, not when it printed).
+// Visual only: pdh/pdl/pwh/pwl values stay security-sourced so the
+// emitted levels are byte-identical; these Ms anchors just let the
+// level line trace back to the exact high/low bar it came from.
+trackPrior(simple string tf) =>
+    var float curH = na
+    var float curL = na
+    var int curHMs = na
+    var int curLMs = na
+    var int prevHMs = na
+    var int prevLMs = na
+    if timeframe.change(tf)
+        prevHMs := curHMs
+        prevLMs := curLMs
+        curH := high
+        curL := low
+        curHMs := time
+        curLMs := time
+    else
+        if na(curH) or high > curH
+            curH := high
+            curHMs := time
+        if na(curL) or low < curL
+            curL := low
+            curLMs := time
+    [prevHMs, prevLMs]
+
+[pdhMs, pdlMs] = trackPrior("D")
+[pwhMs, pwlMs] = trackPrior("W")
 
 // ── Sweep tracking ───────────────────────────────────────────────────
 // Watches a completed level for a liquidity sweep. A high-side level is swept
@@ -356,6 +487,39 @@ else if inNyam and not na(orStartMs) and time - orStartMs <= OR_WINDOW_MS
     orLow := math.min(orLow, low)
 if orSwept == "none" and not na(orStartMs)
     orSwept := not na(asiaHSweptMs) and asiaHSweptMs >= orStartMs and asiaHSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.H" : not na(asiaLSweptMs) and asiaLSweptMs >= orStartMs and asiaLSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.L" : not na(lonHSweptMs) and lonHSweptMs >= orStartMs and lonHSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.H" : not na(lonLSweptMs) and lonLSweptMs >= orStartMs and lonLSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.L" : "none"
+
+// §4's other reaction site: the key HTF gap — "whatever we do off this
+// hourly — reject or invert — will dictate my narrative". Inside the
+// opening window, a tap of the confirmed 1H array that closes back out
+// is a reject (vote = the bounce direction); a close THROUGH it is an
+// invert (vote flips through). The panel's NY-open vote takes whichever
+// event — level sweep or gap reaction — happened most recently.
+var int orGapVote = 0
+var int orGapMs = na
+var bool orGapInvert = false
+if inNyam and not inNyam[1]
+    orGapVote := 0
+    orGapMs := na
+    orGapInvert := false
+if barstate.isconfirmed and inNyam and not na(orStartMs) and time - orStartMs <= OR_WINDOW_MS
+    if not na(h1BullTop) and not h1BullDead
+        if close < h1BullBot
+            orGapVote := -1
+            orGapMs := time
+            orGapInvert := true
+        else if low < h1BullTop and close > h1BullTop
+            orGapVote := 1
+            orGapMs := time
+            orGapInvert := false
+    if not na(h1BearTop) and not h1BearDead
+        if close > h1BearTop
+            orGapVote := 1
+            orGapMs := time
+            orGapInvert := true
+        else if high > h1BearBot and close < h1BearBot
+            orGapVote := -1
+            orGapMs := time
+            orGapInvert := false
 
 // ── Shared ATR ───────────────────────────────────────────────────────
 // 17-period ATR — the structure break/sweep band, the FVG/BPR reaction
@@ -535,6 +699,7 @@ if barstate.isconfirmed
                 f.confirmMs := na
                 f.chop15 := false
                 f.wickTapped := false
+                f.deepPx := na
                 f.invertedMs := time
             else
                 newState = fvgFillState(f)
@@ -555,6 +720,10 @@ if barstate.isconfirmed
             ce = (f.top + f.bottom) / 2
             if not f.wickTapped and high >= f.bottom and low <= f.top
                 f.wickTapped := true
+            // Split-fill mitigation: remember how deep price has traded
+            // into the zone (bull: lowest low, bear: highest high).
+            if high >= f.bottom and low <= f.top
+                f.deepPx := f.dir == "bull" ? math.max(f.bottom, math.min(nz(f.deepPx, f.top), low)) : math.min(f.top, math.max(nz(f.deepPx, f.bottom), high))
             inZone = meaningfulZoneTouch(f.top, f.bottom, ce)
             if inZone
                 if not f.entered
@@ -588,6 +757,10 @@ if barstate.isconfirmed
                     f.confirmClose := true
                     f.confirmDir := "bear"
                     f.confirmMs := time
+                // Strict variant (confirmation.md): tap on a PRIOR bar +
+                // an engulfing close (body >= the previous bar's body).
+                if f.confirmClose and f.confirmMs == time
+                    f.confirmStrict := not na(f.enteredMs) and f.enteredMs < time and math.abs(close - open) >= math.abs(close[1] - open[1])
 
 // ── BPR mitigation lifecycle ─────────────────────────────────────────
 // A balanced price range advances fresh -> tapped (price wicks back into the
@@ -647,6 +820,8 @@ if barstate.isconfirmed
                 b.confirmClose := true
                 b.confirmDir := "bear"
                 b.confirmMs := time
+            if b.confirmClose and b.confirmMs == time
+                b.confirmStrict := not na(b.enteredMs) and b.enteredMs < time and math.abs(close - open) >= math.abs(close[1] - open[1])
 
 // ── Swing-point detection ────────────────────────────────────────────
 // Two pivot tiers via the LuxAlgo SMC rolling-extreme machine: external (long
@@ -867,6 +1042,12 @@ if barstate.isconfirmed
             legLow := low
             legLowMs := time
 
+// LuxAlgo-style structure-state candles (default OFF — overrides the
+// chart's own candle colors): full accent while an MSS regime is active,
+// muted while a BoS continuation is active. Swing tier only.
+Structure lastExtStruct = array.size(structuresExt) > 0 ? array.get(structuresExt, array.size(structuresExt) - 1) : na
+barcolor(showStructCandles and not na(lastExtStruct) ? color.new(lastExtStruct.dir == "bull" ? colBull : colBear, lastExtStruct.event == "mss" ? 0 : 45) : na, title = "Structure candles")
+
 // ── Quality metrics (Pillar 2) ────────────────────────────────────────
 // docs/strategy/trading-strategy-2026.md §3 + Step 3 checklist:
 //   1. Range        — 3-hour range size, % of price (TF-independent).
@@ -972,6 +1153,7 @@ emitFvg(int row, Fvg f) =>
               "|confirm_close=" + (f.confirmClose ? "1" : "0") +
               "|confirm_dir=" + f.confirmDir +
               "|confirm_ms=" + str.tostring(na(f.confirmMs) ? 0 : f.confirmMs) +
+              "|confirm_strict=" + (f.confirmStrict ? "1" : "0") +
               "|inverted_ms=" + str.tostring(na(f.invertedMs) ? 0 : f.invertedMs) +
               "|c1o=" + str.tostring(f.c1o, format.mintick) +
               "|c1h=" + str.tostring(f.c1h, format.mintick) +
@@ -1010,7 +1192,8 @@ emitBpr(int row, Bpr b) =>
               "|ce_held=" + (b.entered and b.ceHeld ? "1" : "0") +
               "|confirm_close=" + (b.confirmClose ? "1" : "0") +
               "|confirm_dir=" + b.confirmDir +
-              "|confirm_ms=" + str.tostring(na(b.confirmMs) ? 0 : b.confirmMs)
+              "|confirm_ms=" + str.tostring(na(b.confirmMs) ? 0 : b.confirmMs) +
+              "|confirm_strict=" + (b.confirmStrict ? "1" : "0")
     table.cell(evidence, 0, row, "bpr")
     table.cell(evidence, 1, row, payload)
     row + 1
@@ -1171,8 +1354,19 @@ RIGHT_PAD_MS = 5 * timeframe.in_seconds() * 1000
 var array<box> vizBoxes = array.new<box>()
 var array<line> vizLines = array.new<line>()
 var array<label> vizLabels = array.new<label>()
-// 2 cols × 7 rows: merged title + session/range/displacement/candle/structure/leg.
-var table qualityPanel = table.new(position.top_right, 2, 7, bgcolor = color.new(chart.bg_color, 18), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
+// Checklist panel: 3 cols (status glyph · step · detail) × 10 rows —
+// merged title, BIAS summary, the seven checklist steps, merged ENTRY
+// banner. Fixed shape: every cell is rewritten on each render, so the
+// table is never cleared (clearing would drop the merges).
+PANEL_POS = panelPosInp == "Top left" ? position.top_left :
+  panelPosInp == "Middle right" ? position.middle_right :
+  panelPosInp == "Bottom right" ? position.bottom_right :
+  panelPosInp == "Bottom left" ? position.bottom_left : position.top_right
+PANEL_TXT = panelSizeInp == "Normal" ? size.normal : panelSizeInp == "Small" ? size.small : size.tiny
+// 6 columns: glyph · label · 4 detail cells. Normal rows merge the last
+// four into one detail cell; the HTF row uses them as the MTF heatmap
+// (LuxAlgo scanner convention — the solid fill IS the state).
+var table panel = table.new(PANEL_POS, 6, 10, bgcolor = color.new(chart.bg_color, 12), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
 
 clearViz() =>
     for b in vizBoxes
@@ -1210,17 +1404,15 @@ fade(color c, int delta) =>
 accentOf(string dir) =>
     dir == "bull" ? colBull : colBear
 
-zoneFill(color accent) => color.new(accent, 90)
+// Opacity is a freshness channel (premium convention): a virgin/just-
+// inverted zone sits slightly more present than one already tapped —
+// but every fill stays faint enough that candles read through it.
+zoneFill(color accent, string state) => color.new(accent, state == "fresh" or state == "inverted" ? 90 : 92)
 zoneBorder(color accent) => color.new(accent, 72)
 zoneText(color accent) => color.new(accent, 35)
 zoneCe(color accent) => color.new(accent, 80)
 GHOST_FILL() => color.new(colNeutral, 92)
 GHOST_BORDER() => color.new(colNeutral, 78)
-
-// Label offset so text never sits on its reference line (ATR-scaled —
-// readable at any zoom on any instrument).
-labelOff() =>
-    na(atr14) ? syminfo.mintick * 10 : atr14 * 0.3
 
 // ── Levels ───────────────────────────────────────────────────────────
 // Untaken levels are the actionable draws: solid neutral line extending
@@ -1229,21 +1421,56 @@ labelOff() =>
 // glyph — ✕ sweep, ◆ sweep that closed back through (rejected).
 // `labelCol` staggers long-horizon labels (PD/PW) into their own columns
 // so same-price levels never overlap.
+// Merge pool for completed unswept levels: levels within 0.1×ATR collapse
+// into ONE line labeled "NYAM.H = PDH" instead of stacking duplicate lines
+// and labels at the same price (anti-spaghetti convention).
+var array<float> lvlPx = array.new<float>()
+var array<string> lvlNm = array.new<string>()
+var array<int> lvlMs = array.new<int>()
+var array<int> lvlCol = array.new<int>()
+
+mergeLevel(float price, string name, int x1, int labelCol) =>
+    tol = na(atr14) or atr14 <= 0 ? syminfo.mintick * 2 : atr14 * LIQUIDITY_EQ_ATR_MULT
+    merged = false
+    if array.size(lvlPx) > 0
+        for i = 0 to array.size(lvlPx) - 1
+            if not merged and math.abs(array.get(lvlPx, i) - price) <= tol
+                array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name)
+                // Trace the merged line back to the OLDEST member's origin.
+                array.set(lvlMs, i, math.min(array.get(lvlMs, i), x1))
+                merged := true
+    if not merged
+        array.push(lvlPx, price)
+        array.push(lvlNm, name)
+        array.push(lvlMs, x1)
+        array.push(lvlCol, labelCol)
+
 drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, string name, bool forming = false, int labelCol = 0) =>
     if not na(price)
         x1 = (not na(formedMs) and formedMs > 0) ? formedMs : time - LEVEL_LINE_BARS * timeframe.in_seconds() * 1000
-        if swept and not na(sweptMs) and sweptMs > 0
+        isSwept = swept and not na(sweptMs) and sweptMs > 0
+        if isSwept
             faded = fade(colNeutral, 45)
             vizLine(x1, price, sweptMs, price, faded, line.style_solid, 1)
+            // Glyph only at the sweep point — the checklist's Liquidity row
+            // names the level; repeating the name mid-chart is text noise.
             vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
-            vizLabel(sweptMs, price + labelOff() * 0.6, name, color(na), faded, label.style_none, size.tiny)
-        else
+        else if forming
             x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
-            vizLine(x1, price, x2, price, colNeutral, forming ? line.style_dashed : line.style_solid, 1)
-            lbl = forming ? name : name + "  " + str.tostring(price, format.mintick)
-            vizLabel(x2, price, lbl, color(na), colNeutral, label.style_label_left, size.small)
+            vizLine(x1, price, x2, price, colNeutral, line.style_dashed, 1)
+            vizLabel(x2, price, name, color(na), colNeutral, label.style_label_left, size.small)
+        // Completed unswept levels route through the merge pool. This sits
+        // OUTSIDE the if/else above: Pine requires all if/else branches to
+        // share a return type, and mergeLevel is void while the label
+        // branches are not (CE10235).
+        if not isSwept and not forming
+            mergeLevel(price, name, x1, labelCol)
 
 renderLevels() =>
+    array.clear(lvlPx)
+    array.clear(lvlNm)
+    array.clear(lvlMs)
+    array.clear(lvlCol)
     drawLevel(asiaH, asiaHMs, asiaHSwept, asiaHSweptMs, asiaHRej, "AS.H", inAsia)
     drawLevel(asiaL, asiaLMs, asiaLSwept, asiaLSweptMs, asiaLRej, "AS.L", inAsia)
     drawLevel(lonH, lonHMs, lonHSwept, lonHSweptMs, lonHRej, "LO.H", inLondon)
@@ -1252,29 +1479,72 @@ renderLevels() =>
     drawLevel(nyamL, nyamLMs, nyamLSwept, nyamLSweptMs, nyamLRej, "NYAM.L", inNyam)
     drawLevel(nypmH, nypmHMs, nypmHSwept, nypmHSweptMs, nypmHRej, "NYPM.H", inNypm)
     drawLevel(nypmL, nypmLMs, nypmLSwept, nypmLSweptMs, nypmLRej, "NYPM.L", inNypm)
-    drawLevel(pdh, na, pdhSwept, pdhSweptMs, pdhRej, "PDH", false, 1)
-    drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, "PDL", false, 1)
-    drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, "PWH", false, 2)
-    drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, "PWL", false, 2)
+    drawLevel(pdh, pdhMs, pdhSwept, pdhSweptMs, pdhRej, "PDH", false, 1)
+    drawLevel(pdl, pdlMs, pdlSwept, pdlSweptMs, pdlRej, "PDL", false, 1)
+    drawLevel(pwh, pwhMs, pwhSwept, pwhSweptMs, pwhRej, "PWH", false, 2)
+    drawLevel(pwl, pwlMs, pwlSwept, pwlSweptMs, pwlRej, "PWL", false, 2)
+    // Flush the merge pool: one line + one label per price cluster.
+    if array.size(lvlPx) > 0
+        for i = 0 to array.size(lvlPx) - 1
+            price = array.get(lvlPx, i)
+            x2 = time + RIGHT_PAD_MS * (1 + array.get(lvlCol, i) * 2)
+            vizLine(array.get(lvlMs, i), price, x2, price, colNeutral, line.style_solid, 1)
+            vizLabel(x2, price, array.get(lvlNm, i) + "  " + str.tostring(price, format.mintick), color(na), colNeutral, label.style_label_left, size.small)
 
 // The current leg's running extremes — quiet dotted guides for the live
 // structural invalidation anchors (strategy §6).
 renderLeg() =>
+    // Strong/weak extremes (the SMC convention): the extreme that PRODUCED
+    // the last swing-tier break is strong — protected, "should not be
+    // taken out" — and the one that failed to break anything is weak, the
+    // expected target. Bear break -> Strong High / Weak Low; bull break ->
+    // Strong Low / Weak High. Strong draws solid and more present, weak
+    // stays dotted; anonymous dotted guides until the leg has a break.
+    string hiTag = ""
+    string loTag = ""
+    bool hiStrong = false
+    bool loStrong = false
+    if not na(lastExtStruct)
+        if lastExtStruct.dir == "bear"
+            hiTag := "SH"
+            loTag := "WL"
+            hiStrong := true
+        else
+            hiTag := "WH"
+            loTag := "SL"
+            loStrong := true
+    x2 = time + RIGHT_PAD_MS
     if not na(legHigh) and not na(legHighMs)
-        x2 = time + RIGHT_PAD_MS
-        vizLine(legHighMs, legHigh, x2, legHigh, fade(colNeutral, 30), line.style_dotted, 1)
-        vizLabel(x2, legHigh, "·H", color(na), fade(colNeutral, 30), label.style_label_left, size.tiny)
+        vizLine(legHighMs, legHigh, x2, legHigh, fade(colNeutral, hiStrong ? 22 : 38), hiStrong ? line.style_solid : line.style_dotted, 1)
+        if hiTag != ""
+            vizLabel(x2, legHigh, hiTag, color(na), fade(colNeutral, hiStrong ? 22 : 38), label.style_label_left, size.tiny)
     if not na(legLow) and not na(legLowMs)
-        x2 = time + RIGHT_PAD_MS
-        vizLine(legLowMs, legLow, x2, legLow, fade(colNeutral, 30), line.style_dotted, 1)
-        vizLabel(x2, legLow, "·L", color(na), fade(colNeutral, 30), label.style_label_left, size.tiny)
+        vizLine(legLowMs, legLow, x2, legLow, fade(colNeutral, loStrong ? 22 : 38), loStrong ? line.style_solid : line.style_dotted, 1)
+        if loTag != ""
+            vizLabel(x2, legLow, loTag, color(na), fade(colNeutral, loStrong ? 22 : 38), label.style_label_left, size.tiny)
+    // Equilibrium (CE) of the current dealing range — the retrace anchor
+    // the entries key off ("ideally the CE / midpoint", entry-models.md).
+    // A quiet guide line only: no gating, no premium/discount shading.
+    if showLegEq and not na(legHigh) and not na(legLow) and not na(legHighMs) and not na(legLowMs)
+        eq = (legHigh + legLow) / 2
+        eqX1 = math.min(legHighMs, legLowMs)
+        vizLine(eqX1, eq, x2, eq, fade(colNeutral, 40), line.style_dotted, 1)
+        vizLabel(x2, eq, "EQ", color(na), fade(colNeutral, 40), label.style_label_left, size.tiny)
 
 // ── Zones ────────────────────────────────────────────────────────────
+// Chop is deliberately NOT marked on the chart (the amber "CHOP" tag was
+// noise) — the checklist's Confirm row still reports ">15m in zone".
+// The marker keys on confirm_close (which already enforces the deliberate
+// close: clean body, no doji, CE held, 10-min window) and says "confirm",
+// never "entry". SAME-CANDLE tap-and-close is VALID — the hand-graded
+// record's winning entries are same-candle (06-16 tape, 07-02 live); the
+// strict prior-bar-tap variant folded NEGATIVE on 2026-07-03 and lives on
+// only as emit evidence (confirm_strict).
 entryMarkerText(bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
-    confirmClose ? "✓ entry" : chop15 ? "CHOP" : entered and not ceHeld ? "✗ CE" : ""
+    confirmClose ? "✓ confirm" : chop15 ? "" : entered and not ceHeld ? "✗ CE" : ""
 
 entryMarkerColor(bool confirmClose, bool chop15, bool entered, bool ceHeld, color accent) =>
-    confirmClose ? accent : chop15 ? colLiq : entered and not ceHeld ? colBear : color(na)
+    confirmClose ? accent : entered and not ceHeld ? colBear : color(na)
 
 zoneTag(string base, string sizeQuality) =>
     sizeQuality == "large" ? base + "+" : sizeQuality == "tiny" ? "" : base
@@ -1282,11 +1552,22 @@ zoneTag(string base, string sizeQuality) =>
 // One ACTIVE zone: airy accent fill, hairline border, dotted CE midline,
 // entry marker at the right edge. iFVGs draw dashed (the inversion is the
 // strategy's zone — visually distinct from a virgin gap).
-drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
+drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld, string state = "fresh", float deepPx = na) =>
     accent = accentOf(dir)
     x2 = time + RIGHT_PAD_MS
     ce = (top + bottom) / 2
-    vizBox(leftMs, top, x2, bottom, zoneFill(accent), zoneBorder(accent), tag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+    // Split-fill mitigation (premium convention): the traded-through part
+    // of the zone fades to a ghost; only the untouched remainder keeps the
+    // full fill, and the tag gains the consumed percentage (only when the
+    // zone carries a tag at all — a bare percentage floats meaninglessly).
+    height = top - bottom
+    frac = na(deepPx) or height <= 0 ? 0.0 : math.min(1.0, math.max(0.0, dir == "bull" ? (top - deepPx) / height : (deepPx - bottom) / height))
+    zTag = tag != "" and frac >= 0.05 and frac < 1.0 ? tag + " · " + str.tostring(int(math.round(frac * 100))) + "%" : tag
+    if frac >= 0.05 and frac < 0.98
+        vizBox(leftMs, top, x2, bottom, color.new(accent, 95), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+        vizBox(leftMs, dir == "bull" ? deepPx : top, x2, dir == "bull" ? bottom : deepPx, zoneFill(accent, state), color.new(accent, 100), "", color(na), line.style_solid)
+    else
+        vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
     vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
     mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
     if mk != ""
@@ -1298,6 +1579,29 @@ drawGhostZone(int leftMs, float top, float bottom, int deadMs) =>
     vizBox(leftMs, top, rightMs, bottom, GHOST_FILL(), GHOST_BORDER(), "", color(na), line.style_dotted)
 
 // FVGs + iFVGs from one pass over the engine array, newest first, capped.
+// True when a live zone sits fully inside a LARGER live same-direction
+// zone — the big zone is the array; drawing both just stacks fills.
+zoneSwallowed(float top, float bottom, string dir) =>
+    sw = false
+    for o in fvgs
+        oLive = o.state == "fresh" or o.state == "ce_tapped" or o.state == "inverted"
+        if oLive and o.dir == dir and o.top >= top and o.bottom <= bottom and (o.top - o.bottom) > (top - bottom) * 1.05
+            sw := true
+    sw
+
+// ── Killzone boxes ───────────────────────────────────────────────────
+// A hairline range box per session — the premium norm over a full-height
+// background wash. Level lines still carry the H/L detail.
+drawKillzoneBox(int startMs, int endMs, float hi, float lo) =>
+    if not na(startMs) and not na(endMs) and not na(hi) and not na(lo) and endMs > startMs
+        vizBox(startMs, hi, endMs, lo, color.new(colNeutral, 97), color.new(colNeutral, 78), "", color(na), line.style_solid)
+
+renderKillzones() =>
+    drawKillzoneBox(asiaSpanStart, asiaSpanEnd, asiaH, asiaL)
+    drawKillzoneBox(lonSpanStart, lonSpanEnd, lonH, lonL)
+    drawKillzoneBox(nyamSpanStart, nyamSpanEnd, nyamH, nyamL)
+    drawKillzoneBox(nypmSpanStart, nypmSpanEnd, nypmH, nypmL)
+
 renderZones() =>
     drawn = 0
     ghosts = 0
@@ -1314,11 +1618,14 @@ renderZones() =>
                 gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
                 drawGhostZone(gLeft, f.top, f.bottom, gDead)
                 ghosts += 1
-            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn
+            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
                 // Active. An iFVG re-anchors at its inversion bar; its
                 // pre-inversion life shows as a ghost behind it.
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
-                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality), isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld)
+                // Only zones that have earned attention carry text: large,
+                // inverted, or already interacting with price.
+                zTagTxt = f.sizeQuality == "large" or f.entered or f.wickTapped or isIfvg ? zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality) : ""
+                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zTagTxt, isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
                 if isIfvg and showHistorical and not na(f.invertedMs)
                     drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
                 drawn += 1
@@ -1331,8 +1638,8 @@ renderBprs() =>
             bDead = b.state == "invalidated"
             if bDead and showHistorical
                 drawGhostZone(b.createdMs, b.top, b.bottom, not na(b.mitigatedMs) ? b.mitigatedMs : time)
-            if not bDead and drawn < maxZonesDrawn
-                drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmClose, b.chop15, b.entered, b.ceHeld)
+            if not bDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(b.top, b.bottom, b.dir))
+                drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmClose, b.chop15, b.entered, b.ceHeld, b.state)
                 drawn += 1
 
 // ── Swings ───────────────────────────────────────────────────────────
@@ -1340,8 +1647,10 @@ renderBprs() =>
 // pivot, neutral by design — structure carries the directional color.
 drawSwingLabel(Swing sw) =>
     txtCol = sw.swept ? fade(colNeutral, 45) : fade(colNeutral, 15)
-    y = sw.isHigh ? sw.price + labelOff() : sw.price - labelOff()
-    vizLabel(sw.barMs, y, sw.kind, color(na), txtCol, label.style_none, sw.tier == "swing" ? size.small : size.tiny)
+    // Style-based side anchoring (same as structure labels): anchor AT the
+    // pivot, label_down above highs / label_up below lows — pixel gap,
+    // zoom-stable, no ATR offset.
+    vizLabel(sw.barMs, sw.price, sw.kind, color(na), txtCol, sw.isHigh ? label.style_label_down : label.style_label_up, sw.tier == "swing" ? size.small : size.tiny)
 
 renderSwings() =>
     for sw in swingsExt
@@ -1354,28 +1663,48 @@ renderSwings() =>
 // Premium convention: the label floats CENTERED on the break line, offset
 // by a fraction of ATR so it never overlaps the line. Swing tier draws
 // solid; internal dashed. MSS reads bigger than BoS.
-drawStructure(Structure s) =>
-    accent = accentOf(s.dir)
+drawStructure(Structure s, string suffix = "", int age = 0) =>
+    // Two-color structure convention: a reversal pops in its direction
+    // accent; continuation recedes to neutral — a turning market reads
+    // differently from a trending one at any distance. Age fades each
+    // older event a step further (opacity encodes recency).
+    accent = s.event == "mss" ? accentOf(s.dir) : colNeutral
+    ageFade = math.min(age * 12, 36)
     lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
-    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 20), lnStyle, s.displacement ? 2 : 1)
     midMs = s.brokenSwingMs + (s.confirmedMs - s.brokenSwingMs) / 2
-    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.validation == "sweep" ? "·s" : "")
-    y = s.dir == "bull" ? s.level + labelOff() * 0.7 : s.level - labelOff() * 0.7
-    vizLabel(midMs, y, txt, color(na), accent, label.style_none, s.event == "mss" ? size.small : size.tiny)
+    // "+" marks the displacement-confirmed variant — same hue, one extra
+    // character (the LuxAlgo CHoCH+ convention), never a new color.
+    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "") + suffix
+    // Continuous line; the label anchors AT the level and the label STYLE
+    // picks the side (the LuxAlgo SMC pattern): label_down renders the
+    // text above the anchor for bullish, label_up below it for bearish.
+    // The gap is pixel-geometry, so it is identical at every zoom — a
+    // price-unit (ATR) offset is not, which is why it rendered wrong.
+    // Balloon is transparent; only the text shows.
+    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 38 + ageFade), lnStyle, s.displacement ? 2 : 1)
+    vizLabel(midMs, s.level, txt, color(na), fade(accent, 22 + ageFade), s.dir == "bull" ? label.style_label_down : label.style_label_up, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
+    // Consecutive same-direction BoS streak ending at the latest event —
+    // annotates the newest label ("BoS+ ×3") so trend persistence reads
+    // at a glance (premium-dashboard convention).
+    streak = 0
+    if array.size(structuresExt) > 0
+        lastDir = array.get(structuresExt, array.size(structuresExt) - 1).dir
+        for st in structuresExt
+            streak := st.event == "bos" and st.dir == lastDir ? streak + 1 : 0
     drawn = 0
     if array.size(structuresExt) > 0
         for i = array.size(structuresExt) - 1 to 0
             if drawn < maxStructDrawn
-                drawStructure(array.get(structuresExt, i))
+                drawStructure(array.get(structuresExt, i), i == array.size(structuresExt) - 1 and streak >= 2 ? " ×" + str.tostring(streak) : "", drawn)
                 drawn += 1
     if showInternal
         drawnInt = 0
         if array.size(structuresInt) > 0
             for i = array.size(structuresInt) - 1 to 0
                 if drawnInt < maxStructDrawn
-                    drawStructure(array.get(structuresInt, i))
+                    drawStructure(array.get(structuresInt, i), "", drawnInt)
                     drawnInt += 1
 
 // ── Liquidity pools ──────────────────────────────────────────────────
@@ -1392,49 +1721,312 @@ renderLiquidity() =>
             vizLine(pl.createdMs, pl.price, x2, pl.price, colLiq, line.style_dotted, 1)
             vizLabel(x2, pl.price, pl.kind == "eqh" ? "EQH" : "EQL", color(na), colLiq, label.style_label_left, size.tiny)
 
-// ── Dashboard ────────────────────────────────────────────────────────
-qSet(int col, int row, string txt, color tint = na) =>
-    baseCol = col == 0 ? color.new(chart.fg_color, 42) : chart.fg_color
-    table.cell(qualityPanel, col, row, txt, text_color = na(tint) ? baseCol : tint, text_size = size.tiny, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_left : text.align_right)
+// ── Checklist panel ──────────────────────────────────────────────────
+// Lanto's sequence walked live, top to bottom (docs/strategy/README.md
+// 7-step + daily-bias.md §1): the three bias components are COUNTED —
+// 1/3 no-trade, 2/3 tradable capped at B, 3/3 A+-eligible. Price quality
+// gates the environment, and the entry chain (liquidity grab → PD-array
+// tap → deliberate 1m close) only lights the ENTRY banner when every row
+// above it passes. An open reaction that REVERSES an agreed bias is
+// hands off (daily-bias.md §4). VISUAL AID ONLY — the walker chain
+// remains the single live setup producer (CLAUDE.md 2026-06-29); nothing
+// here feeds the evidence table or the backend.
+//
+// status: 2 pass · 1 partial/attention · 0 pending · -1 fail
+statGlyph(int s) => s == 2 ? "✔" : s == 1 ? "◆" : s == -1 ? "✘" : "·"
+statCol(int s) => s == 2 ? colBull : s == 1 ? colLiq : s == -1 ? colBear : color.new(chart.fg_color, 58)
+// Status cells carry a tinted background (hue at ~86, glyph at full) —
+// the colored-cell convention that makes the card read at a glance.
+statBg(int s) => s == 0 ? color(na) : color.new(s == 2 ? colBull : s == 1 ? colLiq : colBear, 86)
+arrowOf(int v) => v > 0 ? "↑" : v < 0 ? "↓" : "·"
+// A bias component passes when it votes WITH the working side, fails when
+// it opposes it, and stays pending while neutral (a non-vote, §1).
+voteStat(int v, int s) => s == 0 or v == 0 ? 0 : v == s ? 2 : -1
 
-qTone(string verdict) =>
-    verdict == "good" or verdict == "clean" or verdict == "engulfing" ? colBull :
-      verdict == "tight" or verdict == "weak" or verdict == "doji_wick" ? colBear :
-      verdict == "acceptable" ? colLiq : color(na)
+pSet(int col, int row, string txt, color tint = na, color bg = na, string tip = "", bool bold = false) =>
+    baseCol = col == 1 ? color.new(chart.fg_color, 35) : color.new(chart.fg_color, 20)
+    // One space of padding on both sides — cells need air, and it widens
+    // the tinted glyph cells into proper status chips.
+    table.cell(panel, col, row, txt == "" ? "" : " " + txt + " ", text_color = na(tint) ? baseCol : tint, text_size = PANEL_TXT, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_center : col == 2 ? text.align_right : text.align_left, bgcolor = bg, tooltip = tip, text_formatting = bold ? text.format_bold : text.format_none)
 
-// Last external structure event, summarized for the card.
-structSummary() =>
-    string txt = "—"
-    color tint = na
-    n = array.size(structuresExt)
-    if n > 0
-        st = array.get(structuresExt, n - 1)
-        txt := (st.event == "mss" ? "MSS " : "BoS ") + (st.dir == "bull" ? "↑" : "↓") + (st.validation == "sweep" ? " ·s" : "")
-        tint := accentOf(st.dir)
-    [txt, tint]
+pRow(int row, int stat, string name, string detail, string tip) =>
+    // Scanner treatment (LuxAlgo convention, user-picked): the DETAIL cell
+    // carries a solid state fill — pass teal / fail red / attention amber,
+    // pending stays quiet — and the glyph column calms down to a plain
+    // mark so the color lives in one place.
+    pSet(0, row, statGlyph(stat), statCol(stat))
+    pSet(1, row, name, color(na), color(na), tip)
+    dBg = stat == 2 ? color.new(colBull, 20) : stat == -1 ? color.new(colBear, 20) : stat == 1 ? color.new(colLiq, 25) : color(na)
+    pSet(2, row, detail, stat == 0 ? color(na) : chart.bg_color, dBg)
 
-renderQualityPanel() =>
-    table.cell(qualityPanel, 0, 0, "ICT ENGINE", text_color = color.new(chart.fg_color, 25), text_size = size.tiny, text_font_family = font.family_monospace, text_halign = text.align_center)
-    table.merge_cells(qualityPanel, 0, 0, 1, 0)
-    qSet(0, 1, "Session")
-    qSet(1, 1, currentSession)
-    qSet(0, 2, "Range 3h")
-    qSet(1, 2, str.tostring(qRange3h, format.mintick) + " · " + qRangeQuality, qTone(qRangeQuality))
-    qSet(0, 3, "Displacement")
-    qSet(1, 3, qDisplacement, qTone(qDisplacement))
-    qSet(0, 4, "Candle")
-    qSet(1, 4, qCandle, qTone(qCandle))
-    [stTxt, stCol] = structSummary()
-    qSet(0, 5, "Structure")
-    qSet(1, 5, stTxt, stCol)
-    qSet(0, 6, "Leg")
-    qSet(1, 6, na(legLow) or na(legHigh) ? "—" : str.tostring(legLow, format.mintick) + "–" + str.tostring(legHigh, format.mintick))
+// One MTF heatmap cell (row 2): solid direction fill, theme-inverted
+// text — the fill is the information; neutral recedes to dim gray.
+heatCell(int col, string tf, int lean) =>
+    bg = lean > 0 ? color.new(colBull, 20) : lean < 0 ? color.new(colBear, 20) : color.new(chart.fg_color, 88)
+    tx = lean == 0 ? color.new(chart.fg_color, 45) : chart.bg_color
+    table.cell(panel, col, 2, " " + tf + arrowOf(lean) + " ", text_color = tx, text_size = PANEL_TXT, text_font_family = font.family_monospace, text_halign = text.align_center, bgcolor = bg)
+
+// Age of a state as compact text ("34m", then "2h" past two hours).
+durTxt(int ms) =>
+    if na(ms)
+        ""
+    else
+        mins = int(math.floor((time - ms) / 60000.0))
+        mins < 120 ? str.tostring(mins) + "m" : str.tostring(int(math.floor(mins / 60.0))) + "h"
+
+renderChecklist() =>
+    // Initialize every cell before merging — merging uninitialized cells
+    // is a runtime error. Real writes below overwrite the placeholders.
+    // Merges: title + banner span all 6; every detail row merges cols 2-5
+    // into one cell EXCEPT row 2, whose four cells are the MTF heatmap.
+    var bool panelMerged = false
+    if not panelMerged
+        for r = 0 to 9
+            for c = 0 to 5
+                pSet(c, r, "")
+        table.merge_cells(panel, 0, 0, 5, 0)
+        table.merge_cells(panel, 0, 9, 5, 9)
+        table.merge_cells(panel, 2, 1, 5, 1)
+        for r = 3 to 8
+            table.merge_cells(panel, 2, r, 5, r)
+        panelMerged := true
+
+    // 1–3 · bias component votes (daily-bias.md §1 — counted, in order)
+    // HTF vote = majority of Daily / 4H / 1H (§2 works top-down); 15m is
+    // context only.
+    htfBulls = (dLean > 0 ? 1 : 0) + (h4Lean > 0 ? 1 : 0) + (h1Lean > 0 ? 1 : 0)
+    htfBears = (dLean < 0 ? 1 : 0) + (h4Lean < 0 ? 1 : 0) + (h1Lean < 0 ? 1 : 0)
+    htfVote = htfBulls > htfBears ? 1 : htfBears > htfBulls ? -1 : 0
+    ovVote = ovDir == "bull" ? 1 : ovDir == "bear" ? -1 : 0
+    // NY-open reaction resolves from ~minute 15 (README step 4). Two
+    // reaction sites compete on recency (§4): the swept overnight level
+    // (reject vs accept) and the key 1H gap (reject vs invert).
+    orLive = currentSession == "ny_am" or currentSession == "ny_pm"
+    orMin = orLive and not na(orStartMs) ? int(math.floor((time - orStartMs) / 60000.0)) : -1
+    orLvlVote = orSwept == "AS.H" ? (asiaHRej ? -1 : 1) : orSwept == "AS.L" ? (asiaLRej ? 1 : -1) : orSwept == "LO.H" ? (lonHRej ? -1 : 1) : orSwept == "LO.L" ? (lonLRej ? 1 : -1) : 0
+    orLvlMs = orSwept == "AS.H" ? asiaHSweptMs : orSwept == "AS.L" ? asiaLSweptMs : orSwept == "LO.H" ? lonHSweptMs : orSwept == "LO.L" ? lonLSweptMs : na
+    useGap = orGapVote != 0 and (orLvlVote == 0 or (not na(orGapMs) and not na(orLvlMs) and orGapMs > orLvlMs))
+    orVote = not orLive ? 0 : useGap ? orGapVote : orLvlVote
+    orRej = orSwept == "AS.H" ? asiaHRej : orSwept == "AS.L" ? asiaLRej : orSwept == "LO.H" ? lonHRej : orSwept == "LO.L" ? lonLRej : false
+    orPending = orMin < 0 or (orVote == 0 and orMin < 30)
+    // hands off: the open reverses an AGREED bias (daily-bias.md §4)
+    handsOff = htfVote != 0 and ovVote == htfVote and orVote != 0 and not orPending and orVote != htfVote
+    baseLean = htfVote != 0 and ovVote != 0 ? (htfVote == ovVote ? htfVote : 0) : (htfVote != 0 ? htfVote : ovVote)
+    side = orVote != 0 and not orPending ? orVote : baseLean
+    count = side == 0 ? 0 : (htfVote == side ? 1 : 0) + (ovVote == side ? 1 : 0) + (orVote == side and not orPending ? 1 : 0)
+    sideStr = side > 0 ? "bull" : "bear"
+    sideArrow = side > 0 ? "↑" : "↓"
+    accent = side == 0 ? colNeutral : accentOf(sideStr)
+
+    // 4 · price quality (price-action.md; regime folds range+displacement)
+    p2 = qRangeQuality == "na" or qDisplacement == "na" ? 0 : qRegime == "consolidation" ? -1 : qCandle == "doji_wick" ? 1 : 2
+
+    // 5 · liquidity taken on the stop side (entry-models.md MSS §2 — the
+    // grab must be significant: session/PD/PW levels, or the gap's own
+    // took-liq). Level latches reset when the level re-forms, so recency
+    // is inherent; the most recent sweep wins.
+    swMs = side > 0 ? array.from(asiaLSwept ? asiaLSweptMs : -1, lonLSwept ? lonLSweptMs : -1, nyamLSwept ? nyamLSweptMs : -1, nypmLSwept ? nypmLSweptMs : -1, pdlSwept ? pdlSweptMs : -1, pwlSwept ? pwlSweptMs : -1) : array.from(asiaHSwept ? asiaHSweptMs : -1, lonHSwept ? lonHSweptMs : -1, nyamHSwept ? nyamHSweptMs : -1, nypmHSwept ? nypmHSweptMs : -1, pdhSwept ? pdhSweptMs : -1, pwhSwept ? pwhSweptMs : -1)
+    swNm = side > 0 ? array.from("AS.L", "LO.L", "NYAM.L", "NYPM.L", "PDL", "PWL") : array.from("AS.H", "LO.H", "NYAM.H", "NYPM.H", "PDH", "PWH")
+    // Only THIS trading day's sweeps count as the grab (anchored at the
+    // 18:00 Asia open): yesterday's NYAM.L sweep still latching overnight
+    // is not today's liquidity story — that stale read was the panel's
+    // top reliability defect.
+    dayAnchor = not na(asiaSpanStart) ? asiaSpanStart : time - 24 * 60 * 60 * 1000
+    int gMs = -1
+    int gIdx = -1
+    for i = 0 to 5
+        m = array.get(swMs, i)
+        if not na(m) and m >= dayAnchor and m > gMs
+            gMs := m
+            gIdx := i
+    grabName = gIdx >= 0 ? array.get(swNm, gIdx) : ""
+
+    // 6 · the PD array in play — best live gap in the trade direction:
+    // fresh/inverted first, then took-liquidity, then displacement
+    // (entry-models.md "best-gap selection"); newest wins ties. BPR is
+    // the fallback array.
+    Fvg cand = na
+    float candScore = -1.0
+    Bpr candBpr = na
+    // Near price = a realistic destination TODAY (daily-bias §2: "near
+    // price ideally is where I look"): arrays beyond ~8 ATR are map
+    // context, not entry candidates — this is what killed the 5h zombie.
+    nearLim = na(atr14) or atr14 <= 0 ? syminfo.mintick * 200 : atr14 * 8.0
+    if side != 0
+        for f in fvgs
+            // chop15 zones are excluded outright: an entry that fought
+            // >10-15 minutes in the zone is DEAD (confirmation.md) — the
+            // panel must move to the next array, not dwell on a corpse.
+            live = (f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted") and not f.chop15
+            fDist = close > f.top ? close - f.top : close < f.bottom ? f.bottom - close : 0.0
+            if live and f.dir == sideStr and fDist <= nearLim and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+                sc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
+                if sc >= candScore
+                    candScore := sc
+                    cand := f
+        if na(cand)
+            for b in bprs
+                bDist = close > b.top ? close - b.top : close < b.bottom ? b.bottom - close : 0.0
+                if (b.state == "fresh" or b.state == "tapped") and not b.chop15 and b.dir == sideStr and bDist <= nearLim
+                    candBpr := b
+    // Hysteresis: keep the previous candidate while it remains live and
+    // eligible unless a challenger beats it by a clear margin — a panel
+    // that re-targets the ◈ on every score tie reads as broken.
+    var float lockTop = na
+    var float lockBot = na
+    var int lockSide = 0
+    if side != 0 and not na(cand)
+        if lockSide == side and not na(lockTop)
+            for f in fvgs
+                fLive = (f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted") and not f.chop15
+                lockDist = close > f.top ? close - f.top : close < f.bottom ? f.bottom - close : 0.0
+                if fLive and f.dir == sideStr and lockDist <= nearLim and math.abs(f.top - lockTop) < syminfo.mintick and math.abs(f.bottom - lockBot) < syminfo.mintick and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+                    lockSc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
+                    if lockSc >= candScore - 50.0
+                        cand := f
+        lockTop := cand.top
+        lockBot := cand.bottom
+        lockSide := side
+    else if side == 0
+        lockTop := na
+        lockBot := na
+        lockSide := 0
+    hasCand = not na(cand) or not na(candBpr)
+    candKind = not na(cand) ? cand.kind : not na(candBpr) ? "bpr" : ""
+    candTop = not na(cand) ? cand.top : not na(candBpr) ? candBpr.top : na
+    candBot = not na(cand) ? cand.bottom : not na(candBpr) ? candBpr.bottom : na
+    candEntered = not na(cand) ? cand.entered : not na(candBpr) ? candBpr.entered : false
+    candCeHeld = not na(cand) ? cand.ceHeld : not na(candBpr) ? candBpr.ceHeld : false
+    candConfirm = not na(cand) ? cand.confirmClose : not na(candBpr) ? candBpr.confirmClose : false
+    candConfirmDir = not na(cand) ? cand.confirmDir : not na(candBpr) ? candBpr.confirmDir : "none"
+    candChop = not na(cand) ? cand.chop15 : not na(candBpr) ? candBpr.chop15 : false
+    candTookLiq = not na(cand) ? cand.tookLiq : not na(candBpr) ? candBpr.tookLiq : false
+    candEnteredMs = not na(cand) ? cand.enteredMs : not na(candBpr) ? candBpr.enteredMs : na
+    candBornMs = not na(cand) ? (cand.kind == "ifvg" and not na(cand.invertedMs) ? cand.invertedMs : cand.createdMs) : not na(candBpr) ? candBpr.createdMs : na
+    kindLbl = candKind == "ifvg" ? "iFVG" : candKind == "bpr" ? "BPR" : "FVG"
+
+    grabOk = gMs > 0 or (hasCand and candTookLiq)
+    r5 = side == 0 ? 0 : grabOk ? 2 : 0
+    r6 = not hasCand ? 0 : candEntered ? (candCeHeld ? 2 : 1) : 1
+    // 7 · confirmation (confirmation.md): a deliberate 1m close in the
+    // trade direction. SAME-CANDLE tap-and-close is valid — the hand-
+    // graded record's winning entries are same-candle (2026-07-03 fold);
+    // >15 minutes fighting in the zone kills it.
+    r7 = not hasCand or not candEntered ? 0 : candConfirm and candConfirmDir == sideStr ? 2 : candChop ? -1 : 1
+    // Multi-alignment (ENTRY 27:05): two imbalances confirming one move —
+    // the candidate plus another live, engaged, in-direction zone
+    // overlapping it. On an aligned 2/3 day with good price this elevates
+    // the grade to A+ (daily-bias.md §1; the 02-09 ruling).
+    multiAlign = false
+    if hasCand and not na(cand)
+        for o in fvgs
+            oLive = (o.state == "fresh" or o.state == "ce_tapped" or o.state == "inverted") and not o.chop15
+            if oLive and o.dir == sideStr and o.entered and not (o.top == cand.top and o.bottom == cand.bottom) and o.top >= candBot and o.bottom <= candTop
+                multiAlign := true
+        for b2 in bprs
+            if (b2.state == "fresh" or b2.state == "tapped") and b2.dir == sideStr and b2.entered and b2.top >= candBot and b2.bottom <= candTop
+                multiAlign := true
+
+    // 8 · model read — swing-tier structure only (the internal tier
+    // over-fires). MSS in-dir = Reversal, BoS in-dir = Continuation; the
+    // MECHANISM comes from the array kind (entry-models.md: two models ×
+    // retrace / inversion).
+    string model = ""
+    int modelMs = na
+    if side != 0 and array.size(structuresExt) > 0
+        st = array.get(structuresExt, array.size(structuresExt) - 1)
+        if st.dir == sideStr
+            model := st.event == "mss" ? "MSS" : "TREND"
+            modelMs := st.confirmedMs
+
+    // grade (README: A+ = 3/3 bias AND good price AND clean entry; any
+    // weaker element -> B; conflict / <2 votes / bad price -> no trade)
+    biasOk = not handsOff and count >= 2
+    entryReady = hasCand and candEntered and r7 == 2 and model != ""
+    tradable = biasOk and p2 >= 1 and grabOk and entryReady
+    // A+ via 3/3 bias OR via multi-alignment on an aligned 2/3 day —
+    // price quality must be fully good either way (README grade nesting).
+    grade = not tradable ? "" : (count >= 3 or (count >= 2 and multiAlign)) and p2 == 2 ? "A+" : "B"
+    stopPx = side > 0 ? candBot : candTop
+
+    // ── rows ──
+    secsLeft = math.max(0, int(math.floor((time_close - timenow) / 1000.0)))
+    cd = str.tostring(int(math.floor(secsLeft / 60.0))) + ":" + (secsLeft % 60 < 10 ? "0" : "") + str.tostring(secsLeft % 60)
+    // Countdown to the next 1H close (TTrades convention) — hour bars on
+    // these futures align to :00, so a modulo clock is exact.
+    h1Left = (3600 - int(math.floor(timenow / 1000.0)) % 3600) % 3600
+    h1Cd = str.tostring(int(math.floor(h1Left / 60.0))) + ":" + (h1Left % 60 < 10 ? "0" : "") + str.tostring(h1Left % 60)
+    sessTxt = currentSession == "ny_am" ? "NY AM" : currentSession == "ny_pm" ? "NY PM" : currentSession == "london" ? "LONDON" : currentSession == "asia" ? "ASIA" : "OFF"
+    pSet(0, 0, syminfo.ticker + " " + timeframe.period + " · " + sessTxt + " · " + cd + (timeframe.period == "60" ? "" : " · 1H " + h1Cd), color.new(chart.fg_color, 25), color.new(chart.fg_color, 90), "", true)
+
+    countTint = handsOff ? colBear : count >= 3 ? colBull : count == 2 ? colLiq : color.new(chart.fg_color, 50)
+    biasDetail = handsOff ? "conflict" : side == 0 ? "unclear" : (side > 0 ? "BULL ↑" : "BEAR ↓") + (count >= 3 ? " · A+ elig" : count == 2 ? " · B cap" : " · wait")
+    countDots = count >= 3 ? "●●●" : count == 2 ? "●●○" : count == 1 ? "●○○" : "○○○"
+    pSet(0, 1, countDots, countTint, handsOff or count >= 2 ? statBg(handsOff ? -1 : count >= 3 ? 2 : 1) : color(na), str.tostring(count) + "/3 bias components aligned")
+    pSet(1, 1, "BIAS", color(na), color(na), "Count HTF + overnight + NY-open: 1/3 no-trade · 2/3 B · 3/3 A+ (daily-bias.md §1)")
+    pSet(2, 1, biasDetail, handsOff or side != 0 ? chart.bg_color : color(na), handsOff ? color.new(colBear, 20) : side == 0 ? color(na) : color.new(accent, 20))
+
+    htfStat = voteStat(htfVote, side)
+    pSet(0, 2, statGlyph(htfStat), statCol(htfStat))
+    pSet(1, 2, "HTF", color(na), color(na), "Array lean per TF — gap respected or inverted, recency-weighted (daily-bias.md §2). Heatmap fill is the state; the vote is the majority of D/4H/1H, 15m is context.")
+    heatCell(2, "15", m15Lean)
+    heatCell(3, "1H", h1Lean)
+    heatCell(4, "4H", h4Lean)
+    heatCell(5, "D", dLean)
+    pRow(3, voteStat(ovVote, side), "Overnight", (ovDir == "na" ? "—" : ovDir) + (na(ovNet) ? "" : " " + (ovNet > 0 ? "+" : "") + str.tostring(math.round(ovNet))), "Asia+London direction; chop = non-vote (daily-bias.md §3)")
+    // In ny_pm the vote is the CARRIED morning reaction (the day's third
+    // component doesn't expire at noon; no fresh PM decisioning) — label it.
+    orDetail = orPending ? (orLive ? "… min " + str.tostring(math.max(orMin, 0)) : "awaits 09:30") : (useGap ? "1H gap " + (orGapInvert ? "inverted" : "rejected") : orSwept != "none" ? orSwept + (orRej ? " rejected" : " accepted") : "quiet open") + (currentSession == "ny_pm" ? " (AM)" : "")
+    pRow(4, orPending ? 0 : voteStat(orVote, side), "NY open", orDetail, "Reject vs accept at the swept overnight level OR the key 1H gap, minute 15–30 — most recent event wins (daily-bias.md §4)")
+    // Fail-reason-first: a red glyph must name the failing dimension, not
+    // echo the passing ones (a tight range with clean displacement showed
+    // "✘ clean · normal" — contradictory at a glance).
+    qDetail = p2 == 0 ? "—" : p2 == -1 ? (qRangeQuality == "tight" ? "range tight" : "disp " + qDisplacement) : p2 == 1 ? "doji candles" : qDisplacement + " · " + qCandle
+    pRow(5, p2, "Quality", qDetail, "Displacement regime + candle anatomy — stand aside on consolidation (price-action.md)")
+    pRow(6, r5, "Liquidity", side == 0 ? "—" : grabOk ? (gMs > 0 ? grabName + " swept" : "gap took liq") : "none yet", "A significant grab on the stop side: session/PD level, or the gap took liquidity forming (entry-models.md MSS §2)")
+    // Age rides the detail: since the tap when price is working the zone
+    // (the 10–15m rule made visible), since birth while waiting.
+    candAge = candEntered and not na(candEnteredMs) ? " " + durTxt(candEnteredMs) : not na(candBornMs) ? " " + durTxt(candBornMs) : ""
+    pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") + candAge : side == 0 ? "—" : "none near", "Best NEAR live gap in-direction (within ~8 ATR — near price is the realistic draw, daily-bias.md §2): fresh > took-liq > displacement. Age = since tap when entered, since birth otherwise.")
+    pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone in the trade direction (confirmation.md). Same-candle tap-and-close is valid — the hand-graded winners are same-candle. Dead if it fights >10–15m.")
+
+    // ENTRY banner — always a tinted band (the card's one high-presence
+    // element); fully saturated only when every row above it passes.
+    string bTxt = "▸ no setup in play"
+    color bCol = color.new(chart.fg_color, 45)
+    color bBg = color.new(chart.fg_color, 92)
+    if handsOff
+        bTxt := "▸ HANDS OFF · open reverses bias"
+        bCol := colBear
+        bBg := color.new(colBear, 85)
+    else if tradable
+        bTxt := "▸ " + grade + (multiAlign and count == 2 and grade == "A+" ? "·2×1" : "") + (side > 0 ? " LONG · " : " SHORT · ") + model + "·" + kindLbl + " · stop " + str.tostring(stopPx, format.mintick)
+        bCol := chart.bg_color
+        bBg := color.new(accent, 15)
+    else if side != 0 and model != "" and hasCand
+        blockTxt = count < 2 ? "bias " + str.tostring(count) + "/3" : p2 == -1 ? "bad price" : p2 == 0 ? "quality n/a" : not grabOk ? "no liquidity grab" : not candEntered ? "awaiting tap" : candChop ? "fought >15m · dead" : "awaiting 1m close"
+        bTxt := "▸ " + model + " " + sideArrow + " forming " + durTxt(modelMs) + " · " + blockTxt
+        bCol := color.new(accent, 15)
+        bBg := color.new(accent, 88)
+    else if side != 0
+        bTxt := "▸ " + (side > 0 ? "lean LONG" : "lean SHORT") + " · bias " + str.tostring(count) + "/3"
+        bCol := color.new(accent, 25)
+        bBg := color.new(accent, 91)
+    pSet(0, 9, bTxt, bCol, bBg, "Model · mechanism · structural stop at the zone edge (risk-and-management.md). Visual aid — the walker chain is the setup brain.", true)
+
+    // Spotlight the tracked PD array — an accent outline + ◈ marker tie
+    // the panel's PD-array row to the exact zone it means on the chart.
+    // Everything else recedes; the one zone that matters pops.
+    if hasCand and showVisuals and not na(candBornMs)
+        vizBox(candBornMs, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
+        vizLabel(time + RIGHT_PAD_MS, candTop, "◈", color(na), accent, label.style_label_left, size.tiny)
 
 // ── Render dispatch ──────────────────────────────────────────────────
 if barstate.islast
     clearViz()
-    table.clear(qualityPanel, 0, 0, 1, 6)
     if showVisuals
+        if showSessShade
+            renderKillzones()
         if showLevels
             renderLevels()
         if showLeg
@@ -1449,5 +2041,5 @@ if barstate.islast
             renderStructures()
         if showLiquidity
             renderLiquidity()
-        if showQuality
-            renderQualityPanel()
+    if showChecklist
+        renderChecklist()
