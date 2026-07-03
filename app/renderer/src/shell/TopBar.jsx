@@ -9,6 +9,7 @@ import { useVersion } from "../hooks/useVersion.js";
 import { useLastBar } from "../hooks/useLastBar.js";
 import { useHealth } from "../hooks/useHealth.js";
 import { useFills } from "../hooks/useFills.js";
+import { useClock } from "../hooks/useClock.js";
 import { liveGridFromTrade } from "../Live.helpers.js";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
@@ -33,6 +34,7 @@ export function TopBar({
   const lastBar = useLastBar();
   const health = useHealth();
   const { fills } = useFills(TODAY());
+  const clock = useClock();
   const ver = verView(version);
 
   const loop = health?.loop;
@@ -68,6 +70,8 @@ export function TopBar({
           ))}
         </span>
         <span className="sp" />
+        {clock?.phase && <span className="cmd-phase" title="session phase">{clock.phase}</span>}
+        {clock?.killzone && <span className="cmd-kz" title="killzone">{clock.killzone}</span>}
         <span className="cmd-lastbar" title="last bar">{lastBar?.hhmm || "—"} · {lastBar?.age_label || "—"}</span>
         <span className={"cmd-health " + healthCls} title={healthTitle} />
       </div>

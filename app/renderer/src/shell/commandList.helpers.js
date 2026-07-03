@@ -52,7 +52,8 @@ export function buildCommands(ctx = {}) {
     detail: detectorRunning ? "no scheduled turns until restarted" : "next turn on bar close",
     action: { type: "detector" } });
 
-  for (const m of ["manual", "suggest", "auto"]) {
+  // Only the modes the execution engine recognizes (config.js: manual | auto).
+  for (const m of ["manual", "auto"]) {
     rows.push({ id: `auto:${m}`, icon: "⚙", tint: "amber", root: false,
       label: `Automation → ${m.toUpperCase()}`,
       detail: automationMode === m ? "current" : `currently ${automationMode.toUpperCase()}`,
@@ -65,9 +66,9 @@ export function buildCommands(ctx = {}) {
       label: `Open ${PAGE_TITLES[p].toLowerCase()}`, action: { type: "page", page: p } });
   }
 
-  for (const p of ["health", "risk", "fixtures"]) {
+  for (const [p, label] of [["prefs", "preferences"], ["health", "health"], ["risk", "risk"], ["fixtures", "fixtures"]]) {
     rows.push({ id: `open:${p}`, icon: "⌗", tint: "mute", root: false,
-      label: `Open ${p}`, action: { type: "page", page: p } });
+      label: `Open ${label}`, action: { type: "page", page: p } });
   }
 
   rows.push({ id: "theme", icon: "◐", tint: "mute", root: false,
@@ -83,7 +84,7 @@ const VERB_SHORTCUTS = [
   [/^be\b|^break/, (c) => c.id === "be"],
   [/^trail/, (c) => c.id === "trail"],
   [/^arm\b/, (c) => c.id.startsWith("arm:")],
-  [/^(manual|suggest|auto)\b/, (c, m) => c.id === `auto:${m[1]}`],
+  [/^(manual|auto)\b/, (c, m) => c.id === `auto:${m[1]}`],
   [/^(detector|start|stop)\b/, (c) => c.id === "detector"],
 ];
 

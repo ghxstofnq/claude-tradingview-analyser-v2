@@ -29,14 +29,25 @@ test("bare / and 1-7 only when not typing and no overlay", () => {
   assert.deepEqual(resolveKey(ev("2"), { page: "briefing" }), { type: "open-page", page: "live" });
 });
 
-test("palette-open branch: arrows / tab / enter, bare keys suppressed", () => {
-  const s = { paletteOpen: true };
-  assert.deepEqual(resolveKey(ev("ArrowDown"), s), { type: "sel", delta: 1 });
-  assert.deepEqual(resolveKey(ev("ArrowUp"), s), { type: "sel", delta: -1 });
-  assert.deepEqual(resolveKey(ev("Tab"), s), { type: "force-ask" });
-  assert.deepEqual(resolveKey(ev("Enter"), s), { type: "palette-enter" });
-  assert.equal(resolveKey(ev("1"), s), null);
-  assert.equal(resolveKey(ev("/"), s), null);
+test("palette command-line keys apply only when the main input is focused", () => {
+  const focused = { paletteOpen: true, paletteInputFocused: true };
+  assert.deepEqual(resolveKey(ev("ArrowDown"), focused), { type: "sel", delta: 1 });
+  assert.deepEqual(resolveKey(ev("ArrowUp"), focused), { type: "sel", delta: -1 });
+  assert.deepEqual(resolveKey(ev("Tab"), focused), { type: "force-ask" });
+  assert.deepEqual(resolveKey(ev("Enter"), focused), { type: "palette-enter" });
+  assert.equal(resolveKey(ev("1"), focused), null);
+  assert.equal(resolveKey(ev("/"), focused), null);
+});
+
+test("palette open but focus in a hosted input leaves cursor keys alone", () => {
+  // e.g. the ticket's risk field — Enter/arrows must NOT be hijacked
+  const nested = { paletteOpen: true, paletteInputFocused: false };
+  assert.equal(resolveKey(ev("Enter"), nested), null);
+  assert.equal(resolveKey(ev("ArrowDown"), nested), null);
+  assert.equal(resolveKey(ev("Tab"), nested), null);
+  // meta chords + Esc still work from a hosted input
+  assert.deepEqual(resolveKey(ev("k", { metaKey: true }), nested), { type: "toggle-palette" });
+  assert.deepEqual(resolveKey(ev("Escape"), nested), { type: "back" });
 });
 
 test("flatten-open branch: Enter starts the hold, repeats ignored", () => {

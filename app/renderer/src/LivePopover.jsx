@@ -738,6 +738,17 @@ function LiveBody({ guards, symbol }) {
   const hasPosition = !!exec.position || !!activeTrade;
   const effectiveView = userPickedView ? view : (hasPosition ? "intrade" : "hunt");
 
+  // Snap back to HUNT when a fresh setup surfaces (LiveCell did this on the
+  // popover open; the shell opens the page separately, this covers the case
+  // where the page is already open on another tab). Ref-guarded so it fires
+  // once per setup id, never on unrelated re-renders.
+  const lastSurfaced = useRef(null);
+  useEffect(() => {
+    const id = activeSetup?.id;
+    if (id && id !== lastSurfaced.current) { lastSurfaced.current = id; setUserPickedView(true); setView("hunt"); }
+    else if (!id) { lastSurfaced.current = null; }
+  }, [activeSetup?.id]);
+
   const loopRunning = health?.loop === "healthy";
   const loopStale = health?.loop === "stale";
   const detText = loopRunning ? "RUNNING" : loopStale ? "STALE" : "STOPPED";

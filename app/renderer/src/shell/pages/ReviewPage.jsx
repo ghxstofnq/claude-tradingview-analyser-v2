@@ -10,7 +10,9 @@ const TABS = [["SESSION", "SESSION"], ["TRACK", "TRACK RECORD"], ["LIBRARY", "LI
 
 export function ReviewPage({ onClose }) {
   const [view, setView] = useState("SESSION");
-  const [picked, setPicked] = useState(null);
+  // {} not null — ReviewBody → useReview(picked) destructures {date,session};
+  // its `= {}` default only fires for undefined, so null would throw.
+  const [picked, setPicked] = useState({});
   const tabs = TABS.map(([v, l]) => (
     <span key={v} className={"pill interactive" + (view === v ? " active" : "")}
           onClick={() => setView(v)}>{l}</span>

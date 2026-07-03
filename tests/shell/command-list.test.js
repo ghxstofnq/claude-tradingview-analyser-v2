@@ -50,7 +50,7 @@ test("verb shortcuts jump to their command", () => {
   assert.equal(visibleRows(all, "fla")[0].id, "flatten");
   assert.equal(visibleRows(all, "be")[0].id, "be");
   assert.equal(visibleRows(all, "trail")[0].id, "trail");
-  assert.equal(visibleRows(all, "suggest")[0].id, "auto:suggest");
+  assert.equal(visibleRows(all, "auto")[0].id, "auto:auto");
   assert.equal(visibleRows(all, "manual")[0].id, "auto:manual");
 });
 

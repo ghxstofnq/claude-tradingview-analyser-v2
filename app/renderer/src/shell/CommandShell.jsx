@@ -23,7 +23,7 @@ import { BacktestPage } from "./pages/BacktestPage.jsx";
 import { AgentPage } from "./pages/AgentPage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
 import { SystemShellPage } from "./pages/SystemPage.jsx";
-import { HealthShellPage, RiskShellPage, FixturesShellPage } from "./pages/UtilPages.jsx";
+import { HealthShellPage, RiskShellPage, FixturesShellPage, PrefsShellPage } from "./pages/UtilPages.jsx";
 import { resolveKey } from "./keymap.helpers.js";
 import { buildCommands } from "./commandList.helpers.js";
 import { detectIntent } from "./paletteIntent.helpers.js";
@@ -32,6 +32,7 @@ import { visibleRows } from "./commandList.helpers.js";
 import { useExecutionState } from "../hooks/useExecutionState.js";
 import { useHealth } from "../hooks/useHealth.js";
 import { useSessionBrief } from "../hooks/useSessionBrief.js";
+import { useActiveSetup } from "../hooks/useActiveSetup.js";
 import {
   useAlertStateListener, useAlertFiredListener, normalizeArmed, armAlertReal, disarmAlertReal,
 } from "../hooks/useAlerts.js";
@@ -58,7 +59,7 @@ function fmtCountdown(ms) {
 const PAGE_COMPONENTS = {
   briefing: BriefingPage, live: LivePage, review: ReviewPage,
   backtest: BacktestPage, agent: AgentPage, settings: SettingsPage, system: SystemShellPage,
-  health: HealthShellPage, risk: RiskShellPage, fixtures: FixturesShellPage,
+  health: HealthShellPage, risk: RiskShellPage, fixtures: FixturesShellPage, prefs: PrefsShellPage,
 };
 
 export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, currentPrice, onToggleTheme }) {
@@ -98,6 +99,22 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     window.api?.execution?.config?.get?.().then((r) => { if (r?.ok) setAutomationMode(r.config?.automationMode ?? "manual"); }).catch(() => {});
   }, []);
 
+  // Auto-surface a newly detected setup for accept/reject — the LiveCell used to
+  // pop itself open on a fresh setup; in the shell that becomes opening the LIVE
+  // page (LiveBody mounts in HUNT) + a toast. Guard on the setup id so it fires
+  // once per setup, never on unrelated re-renders.
+  const { activeSetup } = useActiveSetup();
+  const lastSurfaced = useRef(null);
+  useEffect(() => {
+    const id = activeSetup?.id;
+    if (id && id !== lastSurfaced.current) {
+      lastSurfaced.current = id;
+      setPage("live");
+      setPal((p) => ({ ...p, open: false }));
+      addToast(`New setup — ${(activeSetup.side || "").toUpperCase()} ${activeSetup.model || ""}`.trim(), "blue");
+    }
+  }, [activeSetup?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── command context + list ────────────────────────────────────────────
   const levels = useMemo(
     () => (brief?.key_levels || []).filter((l) => l.state === "untaken" || !l.state).map((l) => ({ name: l.name, price: l.price })),
@@ -117,10 +134,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
 
   const back = () => {
     if (flat.open) return closeFlatten();
-    if (pal.open) {
-      if (pal.forced) return setPal((p) => ({ ...p, forced: null, askQuery: null }));
-      return closePalette();
-    }
+    if (pal.open) return closePalette();   // Esc closes the palette (matches the view's own esc chip)
     if (page) return setPage(null);
   };
 
@@ -183,9 +197,14 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     const r = await window.api?.execution?.flatten?.({ symbol });
     addToast(r?.ok ? `FLATTEN SENT · ${symbol}` : `FLATTEN FAILED · ${r?.error || ""}`, r?.ok ? "green" : "red");
   };
-  const cancelOrder = async (id) => {
-    const r = await window.api?.execution?.cancel?.({ id });
-    addToast(r?.ok ? "Order cancelled" : "Cancel failed", r?.ok ? "amber" : "red");
+  const cancelAllOrders = async () => {
+    const r = await window.api?.execution?.cancel?.();
+    addToast(r?.ok ? "Working orders cancelled" : "Cancel failed", r?.ok ? "amber" : "red");
+  };
+  const disarmAlert = async (id) => {
+    setAlerts((s) => ({ ...s, armed: s.armed.filter((a) => a.id !== id) })); // optimistic; alerts:state reconciles
+    const r = await disarmAlertReal(id);
+    addToast(r?.ok ? "Alert disarmed" : "Disarm failed", r?.ok ? "amber" : "red");
   };
 
   // ── keyboard ──────────────────────────────────────────────────────────
@@ -193,7 +212,8 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     const onKey = (e) => {
       const t = e.target;
       const typing = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
-      const action = resolveKey(e, { paletteOpen: pal.open, flattenOpen: flat.open, page, typing });
+      const paletteInputFocused = !!(t && t.dataset && t.dataset.cmdPalInput === "1");
+      const action = resolveKey(e, { paletteOpen: pal.open, flattenOpen: flat.open, page, typing, paletteInputFocused });
       if (!action) return;
       // Don't preventDefault plain typing keys — resolveKey already returns null
       // for those while typing.
@@ -254,7 +274,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         onOpenAlerts={() => openPalette("alerts")}
         onVerClick={cycleVer} />
 
-      <div className="chart-host full">
+      <div className="chart-host">
         <div className="chart-body">
           <ErrorBoundary label="CHART">
             <TradingViewChart symbol={symbol} />
@@ -273,8 +293,8 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
               forcedView={pal.forced} askQuery={pal.askQuery}
               commands={commands} symbol={symbol} chat={chats?.claude}
               alerts={alerts} events={events} workingOrders={exec?.workingOrders || []}
-              onRunCommand={runCommand} onDisarm={(id) => disarmAlertReal(id)}
-              onCancelOrder={cancelOrder} onToast={addToast} onClose={closePalette} />
+              onRunCommand={runCommand} onDisarm={disarmAlert}
+              onCancelAll={cancelAllOrders} onToast={addToast} onClose={closePalette} />
           )}
           {flat.open && (
             <FlattenConfirm

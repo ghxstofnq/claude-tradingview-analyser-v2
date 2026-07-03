@@ -18,7 +18,7 @@ import { OrdersView } from "./palette/OrdersView.jsx";
 export function Palette({
   query, onQuery, sel, onHover, forcedView, askQuery,
   commands, symbol, chat, alerts, events, workingOrders,
-  onRunCommand, onDisarm, onCancelOrder, onToast, onClose,
+  onRunCommand, onDisarm, onCancelAll, onToast, onClose,
 }) {
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -38,7 +38,7 @@ export function Palette({
       {showInput && (
         <div className="cmd-pal-input">
           <span className="glass">⌕</span>
-          <input ref={inputRef} type="text" value={query}
+          <input ref={inputRef} type="text" value={query} data-cmd-pal-input="1"
                  onChange={(e) => onQuery(e.target.value)} autoFocus
                  placeholder="Type a command, a price, or a question…" />
           <span className="cmd-kbd" {...clickable(onClose)}>esc</span>
@@ -53,7 +53,7 @@ export function Palette({
         <BrowseAlertsView armed={alerts.armed} fired={alerts.fired} onDisarm={onDisarm} />
       )}
       {intent === "news" && <NewsView events={events} />}
-      {intent === "orders" && <OrdersView symbol={symbol} orders={workingOrders} onCancel={onCancelOrder} />}
+      {intent === "orders" && <OrdersView symbol={symbol} orders={workingOrders} onCancelAll={onCancelAll} />}
       {(intent === "root" || intent === "filter") && (
         <PaletteList rows={rows} sel={sel} sectionLabel={query.trim() ? "MATCHES" : "SUGGESTED"}
                      onHover={onHover} onRun={onRunCommand} noResults={noResults} />
