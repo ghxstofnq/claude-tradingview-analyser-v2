@@ -4946,3 +4946,56 @@ button { border-radius: var(--r-sm); }
 .tp-labels .tgt b { color: var(--green); }
 .tp-labels .now { color: var(--label); }
 .tp-labels .now b { color: var(--value-strong); }
+
+/* ═══ Command Shell · native Review dashboard (PR3) ════════════════════════ */
+.rv-dash { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
+
+/* summary cells */
+.rv-cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.rv-cells.six { grid-template-columns: repeat(6, 1fr); }
+.rv-cell { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 12px 14px; }
+.rv-cell .k { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.rv-cell .v { font: 500 18px var(--mono); color: var(--value-strong); margin-top: 5px; }
+.rv-cell .v.green { color: var(--green); } .rv-cell .v.red { color: var(--red); }
+.rv-cell .v.amber { color: var(--amber); } .rv-cell .v.dim { color: var(--label); }
+
+/* candidate ledger */
+.rv-ledger { display: flex; flex-direction: column; }
+.rv-lrow { display: grid; grid-template-columns: 16px 46px 34px 46px 1fr auto 88px 1.4fr; align-items: center;
+  gap: 8px; padding: 6px 0; font-size: 11px; border-bottom: 1px solid color-mix(in srgb, var(--value-strong) 5%, transparent); }
+.rv-lrow .fmark { display: inline-flex; gap: 2px; }
+.rv-lrow .st.blue { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
+.rv-lrow.click { cursor: pointer; }
+.rv-lrow.click:hover { background: color-mix(in srgb, var(--blue) 4%, transparent); }
+.rv-lrow .car { color: var(--blue); font-size: 10px; text-align: center; }
+.rv-lrow .car.dim { color: var(--label-dim); }
+.rv-lrow .ts { font: 400 10px var(--mono); color: var(--label); }
+.rv-lrow .gr { font: 500 10px var(--mono); }
+.rv-lrow .gr.green { color: var(--green); } .rv-lrow .gr.amber { color: var(--amber); } .rv-lrow .gr.dim { color: var(--label-dim); }
+.rv-lrow .side { font-size: 9px; letter-spacing: .06em; }
+.rv-lrow .side.up { color: var(--green); } .rv-lrow .side.down { color: var(--red); }
+.rv-lrow .model { font-size: 10px; color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-lrow .st { font-size: 8.5px; letter-spacing: .05em; padding: 1px 7px; border-radius: var(--r-xs); justify-self: start; }
+.rv-lrow .st.green { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.rv-lrow .st.red { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.rv-lrow .st.amber { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.rv-lrow .st.dim { color: var(--label); background: var(--surface-3); }
+.rv-lrow .rsn { font-size: 10px; color: var(--label-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-lexp { display: flex; gap: 16px; padding: 6px 0 10px 24px; font: 400 10.5px var(--mono); color: var(--label);
+  animation: fbreak-in 160ms ease-out; }
+.rv-lexp b { color: var(--value-strong); font-weight: 500; }
+.rv-lexp b.up { color: var(--green); } .rv-lexp b.down { color: var(--red); }
+
+/* equity curve */
+.rv-equity { height: 140px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1); overflow: hidden; margin-top: 4px; }
+.rv-equity svg { width: 100%; height: 100%; }
+.rv-equity .line { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.rv-equity .line.up { stroke: var(--green); } .rv-equity .line.down { stroke: var(--red); }
+.rv-equity .area.up { fill: color-mix(in srgb, var(--green) 7%, transparent); }
+.rv-equity .area.down { fill: color-mix(in srgb, var(--red) 7%, transparent); }
+.rv-eqfoot { display: flex; gap: 18px; margin-top: 8px; font-size: 10px; color: var(--label); }
+.rv-eqfoot b { font-family: var(--mono); color: var(--value); font-weight: 500; }
+.rv-eqfoot b.up { color: var(--green); } .rv-eqfoot b.down { color: var(--red); }
+
+/* Review recent-session picker (PR3) */
+.rv-picker { display: flex; gap: 4px; flex-wrap: wrap; padding: 12px 16px 0; }

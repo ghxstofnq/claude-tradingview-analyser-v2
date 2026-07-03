@@ -72,6 +72,13 @@ const SAMPLES = [
   ["brf-cal-row.hot",  ".brf-cal-row.hot"],
   ["tp-bar fill",      ".tp-bar .fill"],
   ["tp price up",      ".tp-bar .price-marker.up"],
+  // ── native Review dashboard (PR3) ──
+  ["rv-cell",          ".rv-cell"],
+  ["rv-cell .v.green", ".rv-cell .v.green"],
+  ["rv-lrow st.green", ".rv-lrow .st.green"],
+  ["rv-lrow st.red",   ".rv-lrow .st.red"],
+  ["rv-equity",        ".rv-equity"],
+  ["rv-equity line up", ".rv-equity .line.up"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report

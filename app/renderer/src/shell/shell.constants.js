@@ -1,10 +1,10 @@
 // shell.constants — Command Shell page order + shared constants.
 //
-// Keyboard caveat: window-level keydown does NOT fire while the TradingView
-// <webview> has DOM focus (same limitation the old statusline hotkeys had).
-// PR1 mitigation: every shell affordance is mouse-operable and clicking any
-// chrome refocuses the renderer window. The real fix (main-process
-// before-input-event forwarding from the webview guest) is scoped to PR3.
+// Keyboard note: window-level keydown does not fire while the TradingView
+// <webview> holds DOM focus, so main forwards the global chord set from the
+// guest's before-input-event to the renderer as `shell:key` (see
+// app/main/shell-keys.js + CommandShell's onShellKey). Clicking chrome also
+// refocuses the window as a belt-and-suspenders fallback.
 
 export const PAGE_ORDER = [
   "briefing", "live", "review", "backtest", "agent", "settings", "system",

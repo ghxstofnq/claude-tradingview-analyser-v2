@@ -199,15 +199,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
 
   // ── keyboard ──────────────────────────────────────────────────────────
   useEffect(() => {
-    const onKey = (e) => {
-      const t = e.target;
-      const typing = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
-      const paletteInputFocused = !!(t && t.dataset && t.dataset.cmdPalInput === "1");
-      const action = resolveKey(e, { paletteOpen: pal.open, flattenOpen: flat.open, page, typing, paletteInputFocused });
-      if (!action) return;
-      // Don't preventDefault plain typing keys — resolveKey already returns null
-      // for those while typing.
-      if (action.type !== "back" || pal.open || flat.open || page) e.preventDefault();
+    const dispatch = (action) => {
       switch (action.type) {
         case "toggle-palette": pal.open ? closePalette() : openPalette(); break;
         case "open-palette": openPalette(); break;
@@ -222,10 +214,40 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         default: break;
       }
     };
+    const onKey = (e) => {
+      const t = e.target;
+      const typing = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
+      const paletteInputFocused = !!(t && t.dataset && t.dataset.cmdPalInput === "1");
+      // resolveKey reads `typing` off its event arg — shape a plain object so
+      // the bare-key/`/` typing guard actually fires (a raw DOM event has no
+      // `.typing`). Same shape onShellKey uses.
+      const synth = { key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, repeat: e.repeat, typing };
+      const action = resolveKey(synth, { paletteOpen: pal.open, flattenOpen: flat.open, page, paletteInputFocused });
+      if (!action) return;
+      // Don't preventDefault plain typing keys — resolveKey already returns null
+      // for those while typing.
+      if (action.type !== "back" || pal.open || flat.open || page) e.preventDefault();
+      dispatch(action);
+    };
     const onKeyUp = (e) => { if (e.key === "Enter") setFlat((f) => (f.hold ? { ...f, hold: false } : f)); };
+    // Chords forwarded from the TV webview guest (main) arrive as IPC, not DOM
+    // keydown — shape a synthetic event, resolve it against the same pure keymap,
+    // and dispatch. No overlay is focused in this path (the chart had focus), so
+    // typing/paletteInputFocused are false.
+    const onShellKey = (ev) => {
+      const synth = { key: ev.key, metaKey: !!(ev.meta || ev.control), ctrlKey: !!ev.control,
+                      shiftKey: !!ev.shift, repeat: !!ev.repeat, typing: false };
+      const action = resolveKey(synth, { paletteOpen: pal.open, flattenOpen: flat.open, page, typing: false, paletteInputFocused: false });
+      if (action) dispatch(action);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); };
+    const offShellKey = window.api?.shellKeys?.onKey?.(onShellKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      offShellKey?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pal, flat, page, commands, runCommand]);
 
