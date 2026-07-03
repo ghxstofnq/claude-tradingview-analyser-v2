@@ -35,6 +35,36 @@ export function targetFor(confirmed, config = {}) {
   return null;
 }
 
+// Build the paper account to confirm on a revert-to-sim. Reuse the live active
+// account ONLY when it's already paper (so resolveAccountGate routes at once);
+// otherwise synthesize a paper target from config. NEVER returns live/tradovate —
+// so realAccountView reports paper (it falls back to active when confirmed is
+// null, which is why revert must set a paper confirmed account, not null).
+export function paperConfirmTarget({ active, config = {} } = {}) {
+  if (active && active.type === "paper") return active;
+  const id = config.paperAccountId != null ? String(config.paperAccountId) : null;
+  return { id, type: "paper", name: "Paper Trading", broker: "paper", host: config.paperHost ?? null };
+}
+
+// Pure revert-to-sim decision. Revert is a ROUTING change, not a flatten — so if
+// a live position is open, re-routing to sim would strand it (flatten would then
+// target paper). Fail-closed: block unless forced; `positionOpen === null` means
+// the read failed → block too. Returns { block, reason } or { writePatch,
+// clearAutoResumed, warned }. Caller resolves positionOpen from real sources.
+export function revertSimDecision({ active, confirmed, config = {}, positionOpen, force = false } = {}) {
+  const revertingFromLive = confirmed?.type === "live" || active?.broker === "tradovate";
+  if (revertingFromLive && !force) {
+    if (positionOpen == null) return { block: true, reason: "position_read_failed" };
+    if (positionOpen) return { block: true, reason: "live_position_open" };
+  }
+  return {
+    block: false,
+    writePatch: { confirmedAccount: paperConfirmTarget({ active, config }) },
+    clearAutoResumed: true,
+    warned: (revertingFromLive && force) ? "live_position_open_stranded" : null,
+  };
+}
+
 // Shape the active account from live inputs. Pure.
 // - A live Tradovate broker (sniffed from the webview's REST traffic) takes
 //   precedence — it's a separate broker with its own account id + host, typed

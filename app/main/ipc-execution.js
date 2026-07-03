@@ -10,7 +10,7 @@ import { readFills, dayRealizedLossUsd, dayTradeCount, dayConsecutiveLossStreak,
 import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
 import { getActiveAccount } from "./execution/active-account.js";
-import { resolveAccountGate } from "./execution/account-gate.js";
+import { resolveAccountGate, revertSimDecision } from "./execution/account-gate.js";
 import { setAutoResumed, getAutoResumed } from "./execution/auto-resume.js";
 
 function tradesDir() { return TRADES_DIR; }
@@ -94,6 +94,35 @@ export function registerExecutionIpc() {
   ipcMain.handle("execution:resumeAuto", async () => {
     setAutoResumed(true);
     return { ok: true, autoResumed: true };
+  });
+
+  // Revert routing to SIM: clear the live confirmation (arm a PAPER confirmed
+  // account) + drop live-auto arming. A routing change, NOT a flatten — so it
+  // BLOCKS when a live position is open (re-routing would strand it), unless
+  // {force:true} (which returns a loud `warned`). Never places/closes an order.
+  ipcMain.handle("execution:revertSim", async (_e, arg = {}) => {
+    try {
+      const active = getActiveAccount();
+      const cfg = readExecConfig();
+      const confirmed = cfg.confirmedAccount;
+      const revertingFromLive = confirmed?.type === "live" || active?.broker === "tradovate";
+      let positionOpen = false;
+      if (revertingFromLive && arg?.force !== true) {
+        try {
+          if (active?.broker === "tradovate") {
+            const { readTradovatePosition } = await import("./execution/tradovate-adapter.js");
+            positionOpen = !!(await readTradovatePosition());
+          } else {
+            positionOpen = !!getTradingState().position;
+          }
+        } catch { positionOpen = null; } // read failed → decision blocks (fail-closed)
+      }
+      const d = revertSimDecision({ active, confirmed, config: cfg, positionOpen, force: arg?.force === true });
+      if (d.block) return { ok: false, blocked: true, reason: d.reason };
+      writeExecConfig(d.writePatch);
+      if (d.clearAutoResumed) setAutoResumed(false);
+      return { ok: true, warned: d.warned, ...accountState() };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
   // Automation mode + risk knobs + guardrails. The settings popover reads on
