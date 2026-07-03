@@ -215,7 +215,7 @@ showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
 showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
 showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
-showSessShade  = input.bool(true,  "Killzone boxes",     group = GRP_VIZ)
+showSessShade  = input.bool(false, "Killzone boxes",     group = GRP_VIZ)
 showStructCandles = input.bool(false, "Structure-tinted candles", group = GRP_VIZ)
 showInternal   = input.bool(false, "Show internal tier", group = GRP_VIZ)
 showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
@@ -228,7 +228,7 @@ hideOverlapZones = input.bool(true, "Hide swallowed zones (visual only)", group 
 // Draw caps — the evidence table keeps everything; the chart shows only
 // the most recent picture (premium toolkits default to ~5 visible zones).
 maxZonesDrawn  = input.int(8, "Max zones drawn per type", minval = 2, maxval = 24, group = GRP_VIZ)
-maxStructDrawn = input.int(6, "Max structure events drawn", minval = 2, maxval = 12, group = GRP_VIZ)
+maxStructDrawn = input.int(4, "Max structure events drawn", minval = 2, maxval = 12, group = GRP_VIZ)
 // Checklist panel (premium-dashboard conventions: corner placement + size
 // presets + glyph status cells — LuxAlgo/TTrades pattern).
 showChecklist  = input.bool(true, "Checklist panel", group = GRP_VIZ)
@@ -1254,6 +1254,12 @@ if barstate.islast
 
 LEVEL_LINE_BARS = 30
 RIGHT_PAD_MS = 5 * timeframe.in_seconds() * 1000
+// Recent-window rendering: a session-old zone or level otherwise renders
+// as a chart-wide slab/line. Only the last N bars carry visual weight —
+// zones keep a border-only whisper over their older span, levels become
+// right-edge stubs. Bars (not minutes) so it scales with the chart TF.
+ZONE_FILL_BARS = 36
+LEVEL_STUB_BARS = 48
 
 var array<box> vizBoxes = array.new<box>()
 var array<line> vizLines = array.new<line>()
@@ -1356,11 +1362,13 @@ drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, str
         if isSwept
             faded = fade(colNeutral, 45)
             vizLine(x1, price, sweptMs, price, faded, line.style_solid, 1)
+            // Glyph only at the sweep point — the checklist's Liquidity row
+            // names the level; repeating the name mid-chart is text noise.
             vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
-            vizLabel(sweptMs, price + labelOff() * 0.6, name, color(na), faded, label.style_none, size.tiny)
         else if forming
             x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
-            vizLine(x1, price, x2, price, colNeutral, line.style_dashed, 1)
+            xs = math.max(x1, time - LEVEL_STUB_BARS * timeframe.in_seconds() * 1000)
+            vizLine(xs, price, x2, price, colNeutral, line.style_dashed, 1)
             vizLabel(x2, price, name, color(na), colNeutral, label.style_label_left, size.small)
         // Completed unswept levels route through the merge pool. This sits
         // OUTSIDE the if/else above: Pine requires all if/else branches to
@@ -1391,20 +1399,23 @@ renderLevels() =>
         for i = 0 to array.size(lvlPx) - 1
             price = array.get(lvlPx, i)
             x2 = time + RIGHT_PAD_MS * (1 + array.get(lvlCol, i) * 2)
-            vizLine(array.get(lvlMs, i), price, x2, price, colNeutral, line.style_solid, 1)
+            // Right-edge stub: a reference level's history adds nothing —
+            // only where it sits NOW matters.
+            xs = math.max(array.get(lvlMs, i), time - LEVEL_STUB_BARS * timeframe.in_seconds() * 1000)
+            vizLine(xs, price, x2, price, colNeutral, line.style_solid, 1)
             vizLabel(x2, price, array.get(lvlNm, i) + "  " + str.tostring(price, format.mintick), color(na), colNeutral, label.style_label_left, size.small)
 
 // The current leg's running extremes — quiet dotted guides for the live
 // structural invalidation anchors (strategy §6).
 renderLeg() =>
+    // Lines only for the leg extremes — the dotted guides are self-evident;
+    // their text labels were pure noise. EQ keeps its tag (it's the anchor).
     if not na(legHigh) and not na(legHighMs)
         x2 = time + RIGHT_PAD_MS
         vizLine(legHighMs, legHigh, x2, legHigh, fade(colNeutral, 30), line.style_dotted, 1)
-        vizLabel(x2, legHigh, "·H", color(na), fade(colNeutral, 30), label.style_label_left, size.tiny)
     if not na(legLow) and not na(legLowMs)
         x2 = time + RIGHT_PAD_MS
         vizLine(legLowMs, legLow, x2, legLow, fade(colNeutral, 30), line.style_dotted, 1)
-        vizLabel(x2, legLow, "·L", color(na), fade(colNeutral, 30), label.style_label_left, size.tiny)
     // Equilibrium (CE) of the current dealing range — the retrace anchor
     // the entries key off ("ideally the CE / midpoint", entry-models.md).
     // A quiet guide line only: no gating, no premium/discount shading.
@@ -1432,18 +1443,25 @@ drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool
     accent = accentOf(dir)
     x2 = time + RIGHT_PAD_MS
     ce = (top + bottom) / 2
+    // Recent-window clip: the fill lives only in the last ZONE_FILL_BARS;
+    // the older span renders as a border-only whisper so the origin stays
+    // traceable without the slab.
+    fillStart = math.max(leftMs, time - ZONE_FILL_BARS * timeframe.in_seconds() * 1000)
+    if fillStart > leftMs
+        vizBox(leftMs, top, fillStart, bottom, color.new(accent, 100), fade(accent, 86), "", color(na), line.style_solid)
     // Split-fill mitigation (premium convention): the traded-through part
     // of the zone fades to a ghost; only the untouched remainder keeps the
-    // full fill, and the tag gains the consumed percentage.
+    // full fill, and the tag gains the consumed percentage (only when the
+    // zone carries a tag at all — a bare percentage floats meaninglessly).
     height = top - bottom
     frac = na(deepPx) or height <= 0 ? 0.0 : math.min(1.0, math.max(0.0, dir == "bull" ? (top - deepPx) / height : (deepPx - bottom) / height))
-    zTag = frac >= 0.05 and frac < 1.0 ? tag + " · " + str.tostring(int(math.round(frac * 100))) + "%" : tag
+    zTag = tag != "" and frac >= 0.05 and frac < 1.0 ? tag + " · " + str.tostring(int(math.round(frac * 100))) + "%" : tag
     if frac >= 0.05 and frac < 0.98
-        vizBox(leftMs, top, x2, bottom, color.new(accent, 95), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
-        vizBox(leftMs, dir == "bull" ? deepPx : top, x2, dir == "bull" ? bottom : deepPx, zoneFill(accent, state), color.new(accent, 100), "", color(na), line.style_solid)
+        vizBox(fillStart, top, x2, bottom, color.new(accent, 95), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+        vizBox(fillStart, dir == "bull" ? deepPx : top, x2, dir == "bull" ? bottom : deepPx, zoneFill(accent, state), color.new(accent, 100), "", color(na), line.style_solid)
     else
-        vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
-    vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
+        vizBox(fillStart, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+    vizLine(fillStart, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
     mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
     if mk != ""
         vizLabel(x2, ce, mk, color(na), entryMarkerColor(confirmClose, chop15, entered, ceHeld, accent), label.style_label_left, size.tiny)
@@ -1478,33 +1496,51 @@ renderKillzones() =>
     drawKillzoneBox(nypmSpanStart, nypmSpanEnd, nypmH, nypmL)
 
 renderZones() =>
-    drawn = 0
     ghosts = 0
     if array.size(fvgs) > 0
-        for i = array.size(fvgs) - 1 to 0
-            f = array.get(fvgs, i)
+        // Dead-zone ghosts (off by default) keep recency order.
+        if showHistorical
+            for i = array.size(fvgs) - 1 to 0
+                f = array.get(fvgs, i)
+                isIfvg = f.kind == "ifvg"
+                wantKind = isIfvg ? showIfvgs : showFvgs
+                skipTiny = hideTinyZones and f.sizeQuality == "tiny"
+                isDead = f.state == "invalidated" or f.state == "filled"
+                if wantKind and not skipTiny and isDead and ghosts < maxZonesDrawn
+                    gLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
+                    gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
+                    drawGhostZone(gLeft, f.top, f.bottom, gDead)
+                    ghosts += 1
+        // Active zones draw NEAREST-TO-PRICE first, not newest-first:
+        // relevance on an execution chart is distance — a band 400 points
+        // away is furniture. Eligible zones get a distance score; the K
+        // closest render.
+        n = array.size(fvgs)
+        array<float> zDist = array.new<float>()
+        for f in fvgs
             isIfvg = f.kind == "ifvg"
             wantKind = isIfvg ? showIfvgs : showFvgs
-            skipTiny = hideTinyZones and f.sizeQuality == "tiny"
-            isDead = f.state == "invalidated" or f.state == "filled"
-            if wantKind and not skipTiny and isDead and showHistorical and ghosts < maxZonesDrawn
-                // Dead: ghost from creation (or inversion) to mitigation.
-                gLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
-                gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
-                drawGhostZone(gLeft, f.top, f.bottom, gDead)
-                ghosts += 1
-            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
-                // Active. An iFVG re-anchors at its inversion bar; its
-                // pre-inversion life shows as a ghost behind it.
+            live = f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted"
+            eligible = wantKind and live and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+            array.push(zDist, eligible ? (close > f.top ? close - f.top : close < f.bottom ? f.bottom - close : 0.0) : 1.0e12)
+        for k = 1 to maxZonesDrawn
+            bestI = -1
+            float bestD = 1.0e11
+            for i = 0 to n - 1
+                if array.get(zDist, i) < bestD
+                    bestD := array.get(zDist, i)
+                    bestI := i
+            if bestI >= 0
+                array.set(zDist, bestI, 1.0e12)
+                f = array.get(fvgs, bestI)
+                isIfvg = f.kind == "ifvg"
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
                 // Only zones that have earned attention carry text: large,
-                // inverted, or already interacting with price. Small virgin
-                // gaps stay silent — the fill is enough.
-                zTagTxt = f.sizeQuality == "large" or f.entered or isIfvg ? zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality) : ""
+                // inverted, or already interacting with price.
+                zTagTxt = f.sizeQuality == "large" or f.entered or f.wickTapped or isIfvg ? zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality) : ""
                 drawActiveZone(zLeft, f.top, f.bottom, f.dir, zTagTxt, isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
                 if isIfvg and showHistorical and not na(f.invertedMs)
                     drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
-                drawn += 1
 
 renderBprs() =>
     drawn = 0
@@ -1800,7 +1836,10 @@ renderChecklist() =>
     // Everything else recedes; the one zone that matters pops.
     if hasCand and showVisuals
         candLeft = not na(cand) ? (cand.kind == "ifvg" and not na(cand.invertedMs) ? cand.invertedMs : cand.createdMs) : candBpr.createdMs
-        vizBox(candLeft, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
+        // Same recent-window clip as the zone fill — the spotlight outlines
+        // the ribbon, not the historical slab.
+        spotStart = math.max(candLeft, time - ZONE_FILL_BARS * timeframe.in_seconds() * 1000)
+        vizBox(spotStart, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
         vizLabel(time + RIGHT_PAD_MS, candTop, "◈", color(na), accent, label.style_label_left, size.tiny)
 
 // ── Render dispatch ──────────────────────────────────────────────────
