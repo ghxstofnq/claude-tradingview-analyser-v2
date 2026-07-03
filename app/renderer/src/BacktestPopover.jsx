@@ -282,7 +282,7 @@ function IdleBody({ state, actions, symbolView }) {
   const run = () => { if (canRun) actions.startStudy(jobs); };
 
   return (
-    <>
+    <div className="bt-cols">
       <div className="section">
         <div className="sect-hd"><span>CONFIGURE RECORD</span><span className="meta">records from the chart</span></div>
 
@@ -335,10 +335,13 @@ function IdleBody({ state, actions, symbolView }) {
             : <>▸ <b>{symLabel}</b> · <b>{selected.map((s) => s[1]).join(" + ")}</b> · {start} → {end} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} to record</>}
         </div>
         <div className="cfg-cost">
-          drives the chart session-by-session · pauses the live loop while it records, then live re-arms
+          pauses the live loop while recording, then re-arms
         </div>
 
-        <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RECORD</button>
+        <div className="start-row">
+          <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RECORD</button>
+          {mode === "pause" && <span className="cfg-hint">you grade in RECORD</span>}
+        </div>
       </div>
 
       <div className="section">
@@ -358,7 +361,7 @@ function IdleBody({ state, actions, symbolView }) {
           VIEW BASELINE · {symRuns.length} RUNS  →
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -495,8 +498,9 @@ function DoneBody({ state, actions }) {
   const runId = state.currentRun?.runId;
   const reRun = () => actions.start({ date: s.date, session: s.session, mode: s.mode });
   const discard = async () => { if (runId) await actions.deleteRun(runId); actions.runAnother(); };
+  const hasSetups = (state.currentRun?.setups?.length ?? 0) > 0;
   return (
-    <>
+    <div className={hasSetups ? "bt-cols" : ""}>
       <div className="section">
         <div className="sect-hd">
           <span>{s.date} · {sessionLabel(s.session)} · {(s.mode ?? "").toUpperCase()}</span>
@@ -532,7 +536,7 @@ function DoneBody({ state, actions }) {
         </div>
       </div>
 
-      {(state.currentRun?.setups?.length ?? 0) > 0 && (
+      {hasSetups && (
         <div className="section">
           <div className="sect-hd">
             <span>SETUPS</span>
@@ -543,7 +547,7 @@ function DoneBody({ state, actions }) {
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -673,10 +677,8 @@ function TestsBody({ symbolView }) {
       {lastError && <div className="ft-err">fold failed — {lastError}</div>}
 
       {!loading && tests.length === 0 && !running && (
-        <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 2px", lineHeight: 1.5 }}>
-          no tests yet — name a change, set its gate (e.g. <code>GOFNQ_X=1</code>), and RUN FOLD TEST to
-          fold it over the corpus and diff it against the accepted baseline. A blank gate folds the current
-          working tree.
+        <div className="ft-empty">
+          name a change, set its gate, RUN FOLD TEST — folds over the corpus vs baseline.
         </div>
       )}
 

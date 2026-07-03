@@ -992,6 +992,12 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .body { flex: 1; overflow-y: auto; background: var(--surface-0); }
 .bt-popover .section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .bt-popover .section:last-child { border-bottom: 0; }
+/* Batch C — balanced 1:1 config/compare grid on the RECORD + DONE states. */
+.bt-popover .bt-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.bt-popover .bt-cols > .section { border-bottom: 0; }
+.bt-popover .start-row { display: flex; align-items: center; gap: 10px; }
+.bt-popover .cfg-hint { font-size: 9.5px; color: var(--label-dim); white-space: nowrap; }
+.bt-popover .ft-empty { color: var(--label-dim); font-size: 11px; padding: 8px 2px; line-height: 1.5; }
 .bt-popover .sect-hd { color: var(--label); letter-spacing: 0.07em; font-size: 9.5px;
   margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
 .bt-popover .sect-hd .meta { color: var(--label-dim); font-size: 9.5px; }
@@ -2376,6 +2382,12 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .body { flex: 1; overflow-y: auto; background: var(--surface-0); }
 .bt-popover .section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .bt-popover .section:last-child { border-bottom: 0; }
+/* Batch C — balanced 1:1 config/compare grid on the RECORD + DONE states. */
+.bt-popover .bt-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.bt-popover .bt-cols > .section { border-bottom: 0; }
+.bt-popover .start-row { display: flex; align-items: center; gap: 10px; }
+.bt-popover .cfg-hint { font-size: 9.5px; color: var(--label-dim); white-space: nowrap; }
+.bt-popover .ft-empty { color: var(--label-dim); font-size: 11px; padding: 8px 2px; line-height: 1.5; }
 .bt-popover .sect-hd { color: var(--label); letter-spacing: 0.07em; font-size: 9.5px;
   margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
 .bt-popover .sect-hd .meta { color: var(--label-dim); font-size: 9.5px; }
