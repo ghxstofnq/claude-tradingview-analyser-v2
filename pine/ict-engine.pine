@@ -122,6 +122,10 @@ type Fvg
     int invertedMs = na
     int mitigatedMs = na
     bool wickTapped = false
+    // Deepest penetration into the zone (split-fill mitigation render):
+    // for a bull zone the lowest low reached inside it, for a bear zone the
+    // highest high. Visual only — never emitted.
+    float deepPx = na
     // The 3 candles that form the FVG (c1 = oldest [2], c2 = displacement [1],
     // c3 = newest [0]) captured at the formation bar — OHLC each.
     float c1o = na
@@ -212,6 +216,7 @@ showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
 showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
 showSessShade  = input.bool(false, "Killzone shading",   group = GRP_VIZ)
+showStructCandles = input.bool(false, "Structure-tinted candles", group = GRP_VIZ)
 showInternal   = input.bool(false, "Show internal tier", group = GRP_VIZ)
 showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
 // Visual-only filter: tiny zones (width < 0.5x ATR14 at creation) stay in
@@ -590,6 +595,7 @@ if barstate.isconfirmed
                 f.confirmMs := na
                 f.chop15 := false
                 f.wickTapped := false
+                f.deepPx := na
                 f.invertedMs := time
             else
                 newState = fvgFillState(f)
@@ -610,6 +616,10 @@ if barstate.isconfirmed
             ce = (f.top + f.bottom) / 2
             if not f.wickTapped and high >= f.bottom and low <= f.top
                 f.wickTapped := true
+            // Split-fill mitigation: remember how deep price has traded
+            // into the zone (bull: lowest low, bear: highest high).
+            if high >= f.bottom and low <= f.top
+                f.deepPx := f.dir == "bull" ? math.max(f.bottom, math.min(nz(f.deepPx, f.top), low)) : math.min(f.top, math.max(nz(f.deepPx, f.bottom), high))
             inZone = meaningfulZoneTouch(f.top, f.bottom, ce)
             if inZone
                 if not f.entered
@@ -921,6 +931,12 @@ if barstate.isconfirmed
         if na(legLow) or low < legLow
             legLow := low
             legLowMs := time
+
+// LuxAlgo-style structure-state candles (default OFF — overrides the
+// chart's own candle colors): full accent while an MSS regime is active,
+// muted while a BoS continuation is active. Swing tier only.
+Structure lastExtStruct = array.size(structuresExt) > 0 ? array.get(structuresExt, array.size(structuresExt) - 1) : na
+barcolor(showStructCandles and not na(lastExtStruct) ? color.new(lastExtStruct.dir == "bull" ? colBull : colBear, lastExtStruct.event == "mss" ? 0 : 45) : na, title = "Structure candles")
 
 // ── Quality metrics (Pillar 2) ────────────────────────────────────────
 // docs/strategy/trading-strategy-2026.md §3 + Step 3 checklist:
@@ -1356,11 +1372,21 @@ zoneTag(string base, string sizeQuality) =>
 // One ACTIVE zone: airy accent fill, hairline border, dotted CE midline,
 // entry marker at the right edge. iFVGs draw dashed (the inversion is the
 // strategy's zone — visually distinct from a virgin gap).
-drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld, string state = "fresh") =>
+drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld, string state = "fresh", float deepPx = na) =>
     accent = accentOf(dir)
     x2 = time + RIGHT_PAD_MS
     ce = (top + bottom) / 2
-    vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), tag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+    // Split-fill mitigation (premium convention): the traded-through part
+    // of the zone fades to a ghost; only the untouched remainder keeps the
+    // full fill, and the tag gains the consumed percentage.
+    height = top - bottom
+    frac = na(deepPx) or height <= 0 ? 0.0 : math.min(1.0, math.max(0.0, dir == "bull" ? (top - deepPx) / height : (deepPx - bottom) / height))
+    zTag = frac >= 0.05 and frac < 1.0 ? tag + " · " + str.tostring(int(math.round(frac * 100))) + "%" : tag
+    if frac >= 0.05 and frac < 0.98
+        vizBox(leftMs, top, x2, bottom, color.new(accent, 95), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+        vizBox(leftMs, dir == "bull" ? deepPx : top, x2, dir == "bull" ? bottom : deepPx, zoneFill(accent, state), color.new(accent, 100), "", color(na), line.style_solid)
+    else
+        vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
     vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
     mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
     if mk != ""
@@ -1392,7 +1418,7 @@ renderZones() =>
                 // Active. An iFVG re-anchors at its inversion bar; its
                 // pre-inversion life shows as a ghost behind it.
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
-                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality), isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state)
+                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality), isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
                 if isIfvg and showHistorical and not na(f.invertedMs)
                     drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
                 drawn += 1
@@ -1428,23 +1454,31 @@ renderSwings() =>
 // Premium convention: the label floats CENTERED on the break line, offset
 // by a fraction of ATR so it never overlaps the line. Swing tier draws
 // solid; internal dashed. MSS reads bigger than BoS.
-drawStructure(Structure s) =>
+drawStructure(Structure s, string suffix = "") =>
     accent = accentOf(s.dir)
     lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
     vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 20), lnStyle, s.displacement ? 2 : 1)
     midMs = s.brokenSwingMs + (s.confirmedMs - s.brokenSwingMs) / 2
     // "+" marks the displacement-confirmed variant — same hue, one extra
     // character (the LuxAlgo CHoCH+ convention), never a new color.
-    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "")
+    txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "") + suffix
     y = s.dir == "bull" ? s.level + labelOff() * 0.7 : s.level - labelOff() * 0.7
     vizLabel(midMs, y, txt, color(na), accent, label.style_none, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
+    // Consecutive same-direction BoS streak ending at the latest event —
+    // annotates the newest label ("BoS+ ×3") so trend persistence reads
+    // at a glance (premium-dashboard convention).
+    streak = 0
+    if array.size(structuresExt) > 0
+        lastDir = array.get(structuresExt, array.size(structuresExt) - 1).dir
+        for st in structuresExt
+            streak := st.event == "bos" and st.dir == lastDir ? streak + 1 : 0
     drawn = 0
     if array.size(structuresExt) > 0
         for i = array.size(structuresExt) - 1 to 0
             if drawn < maxStructDrawn
-                drawStructure(array.get(structuresExt, i))
+                drawStructure(array.get(structuresExt, i), i == array.size(structuresExt) - 1 and streak >= 2 ? " ×" + str.tostring(streak) : "")
                 drawn += 1
     if showInternal
         drawnInt = 0
