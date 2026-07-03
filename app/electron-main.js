@@ -23,6 +23,7 @@ import { startSessionSupervisor } from "./main/session-supervisor.js";
 import { createVersionPoll } from "./main/version-status.js";
 import { stateRoot } from "./main/sessions.js";
 import { writeEnvSnapshotFile } from "./main/env-snapshot.js";
+import { shellChordFromInput } from "./main/shell-keys.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -84,6 +85,18 @@ if (!gotLock) {
 app.whenReady().then(async () => {
   const win = createWindow();
   const ipc = registerIpc(win);
+  // Command Shell keyboard forwarder: when the TradingView <webview> holds
+  // focus, renderer keydown never fires, so global shortcuts die. Forward only
+  // the shell chord set (⌘K/⌘J/⇧⌘F/⌘1-7/Esc) from the guest to the renderer.
+  win.webContents.on("did-attach-webview", (_e, guest) => {
+    guest.on("before-input-event", (event, input) => {
+      const chord = shellChordFromInput(input);
+      if (chord) {
+        event.preventDefault(); // consume the chord — don't also fire TV's own shortcut
+        ipc.send("shell:key", chord);
+      }
+    });
+  });
   // Effective GOFNQ_* config snapshot — one-shot, read-only. Records the live
   // levers in effect at boot so a live run can be diffed against a backtest run
   // (which writes the same file into its run folder) for parity auditing.

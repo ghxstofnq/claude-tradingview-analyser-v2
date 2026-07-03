@@ -251,6 +251,37 @@ function TicketView({ setup, account, guards, symbol, onFire, onCancel }) {
 }
 
 // ── IN-TRADE — live grid + risk plan + manage + brain ───────────────────
+// TradeProgress — the prototype's stop→target position bar. Purely visual;
+// derives everything from values already in scope, no money-path logic.
+// Renders nothing unless entry/stop/tp1/price are all finite and the stop is on
+// the correct side of the target.
+function TradeProgress({ side, entry, stop, tp1, price, tp1Hit }) {
+  const nums = [entry, stop, tp1, price].map(Number);
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  const [e, s, tp, p] = nums;
+  const isLong = side === "long";
+  const range = isLong ? tp - s : s - tp;
+  if (!(range > 0)) return null;
+  const frac = (v) => Math.max(0, Math.min(1, (isLong ? v - s : s - v) / range));
+  const pricePct = frac(p) * 100;
+  const entryPct = frac(e) * 100;
+  const inProfit = isLong ? p >= e : p <= e;
+  return (
+    <div className="trade-prog" title="position between stop and target">
+      <div className="tp-bar">
+        <span className="fill" style={{ transform: `scaleX(${pricePct / 100})` }} />
+        <span className="entry-tick" style={{ left: entryPct + "%" }} title="entry" />
+        <span className={"price-marker" + (inProfit ? " up" : " down")} style={{ left: pricePct + "%" }} />
+      </div>
+      <div className="tp-labels">
+        <span className="stop">STOP <b>{stop}</b></span>
+        <span className="now">{tp1Hit ? "TP1 ✓" : "NOW"} <b>{price}</b></span>
+        <span className="tgt">TARGET <b>{tp1}</b></span>
+      </div>
+    </div>
+  );
+}
+
 function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, brief, session }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
@@ -325,6 +356,8 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
           <div className="lcell"><span className="k">→ TP1</span><span className={"v " + grid.toTp1.tone}><Px v={grid.toTp1.v} /></span><span className="sub">{grid.toTp1.sub}</span></div>
           <div className="lcell"><span className="k">→ STOP</span><span className={"v " + grid.toStop.tone}><Px v={grid.toStop.v} /></span><span className="sub">{grid.toStop.sub}</span></div>
         </div>
+
+        <TradeProgress side={side} entry={entry} stop={stop} tp1={tp1} price={livePrice} tp1Hit={t.tp1_hit} />
 
         <div className="lv-box plan-rows">
           <div className="lv-box-hd">RISK PLAN</div>

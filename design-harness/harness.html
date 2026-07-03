@@ -473,6 +473,68 @@
     </div>
   </div>
 
+  <!-- BRIEFING dashboard (PR2): decision hero + card + trade progress -->
+  <div class="brf-dash">
+    <div class="brf-decision">
+      <span class="brf-grade amber">B?</span>
+      <div class="brf-decision-main">
+        <div class="hd"><span class="bias ok">LEANING BULL</span><span class="cast">2/3 components</span><span class="brf-chip warn">degraded:htf_partial</span></div>
+        <div class="reason">pending open reaction · B-capable · price quality marginal</div>
+      </div>
+      <div class="brf-draw"><span class="l">PRIMARY DRAW</span><span class="v">h1 bull FVG · 21520</span></div>
+    </div>
+    <div class="brf-grid">
+      <div class="brf-col">
+        <div class="brf-card">
+          <div class="brf-card-hd"><span class="t">CALENDAR · ET</span></div>
+          <div class="brf-cal-row hot"><span class="ts">08:30</span><span class="ev">CPI m/m</span><span class="imp high">HIGH</span></div>
+          <div class="brf-cal-row"><span class="ts">10:00</span><span class="ev">ISM Services PMI</span><span class="imp medium">MED</span></div>
+          <div class="brf-cal-rule">no entries ±10 min around HIGH impact</div>
+        </div>
+      </div>
+      <div class="brf-col">
+        <div class="brf-card">
+          <div class="brf-card-hd"><span class="t">BIAS</span><span class="meta">2/3 components</span></div>
+          <div class="brf-row"><span class="k">HTF vote</span><span class="v ok">BULL</span></div>
+          <div class="brf-row"><span class="k">Overnight vote</span><span class="v bad">BEAR</span></div>
+        </div>
+      </div>
+      <div class="brf-col">
+        <div class="brf-card">
+          <div class="brf-card-hd"><span class="t">LEVELS IN PLAY</span><span class="meta">untaken</span></div>
+          <div class="brf-lvl"><span class="name">PDH</span><span class="price">21502.25</span><span class="bell armed">◈</span></div>
+          <div class="brf-lvl"><span class="name">ONL</span><span class="price">21404.50</span><span class="bell">◇</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="trade-prog">
+      <div class="tp-bar"><span class="fill" style="transform:scaleX(0.62)"></span><span class="entry-tick" style="left:30%"></span><span class="price-marker up" style="left:62%"></span></div>
+      <div class="tp-labels"><span class="stop">STOP <b>21414</b></span><span class="now">NOW <b>21446</b></span><span class="tgt">TARGET <b>21486.50</b></span></div>
+    </div>
+  </div>
+
+  <!-- REVIEW dashboard (PR3): summary cells + ledger row + equity curve -->
+  <div class="rv-dash">
+    <div class="rv-cells">
+      <div class="rv-cell"><div class="k">NET R</div><div class="v green">+1.9</div></div>
+      <div class="rv-cell"><div class="k">SETUPS</div><div class="v">3</div></div>
+      <div class="rv-cell"><div class="k">ACCEPTED</div><div class="v">2</div></div>
+      <div class="rv-cell"><div class="k">GRADE</div><div class="v green">A+</div></div>
+    </div>
+    <div class="brf-card">
+      <div class="brf-card-hd"><span class="t">SETUPS · GRADED</span><span class="meta">3 candidates</span></div>
+      <div class="rv-ledger">
+        <div class="rv-lrow click"><span class="car">▸</span><span class="ts">09:36</span><span class="gr green">A+</span><span class="side up">LONG</span><span class="model">MSS</span><span class="st green">TP1</span><span class="rsn">confirmed 09:36</span></div>
+        <div class="rv-lrow"><span class="car dim">·</span><span class="ts">09:24</span><span class="gr amber">B</span><span class="side down">SHORT</span><span class="model">INVERSION</span><span class="st red">STOPPED</span><span class="rsn">invalidated on close</span></div>
+      </div>
+    </div>
+    <div class="brf-card">
+      <div class="brf-card-hd"><span class="t">EQUITY CURVE · CUMULATIVE R</span><span class="meta">max DD -0.6R</span></div>
+      <div class="rv-equity"><svg viewBox="0 0 1000 140" preserveAspectRatio="none"><polygon points="0,140 0,90 500,40 1000,20 1000,140" class="area up"></polygon><polyline points="0,90 500,40 1000,20" class="line up"></polyline></svg></div>
+      <div class="rv-eqfoot"><span>best <b class="up">+1.9R</b></span><span>worst <b class="down">-0.6R</b></span></div>
+    </div>
+  </div>
+
   <!-- token rail (keep for palette regression) -->
   <div class="pill-rail">
     <span class="grade-pill green">A+</span>
