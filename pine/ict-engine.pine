@@ -1583,18 +1583,12 @@ drawStructure(Structure s, string suffix = "", int age = 0) =>
     // "+" marks the displacement-confirmed variant — same hue, one extra
     // character (the LuxAlgo CHoCH+ convention), never a new color.
     txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "") + suffix
-    // The line BREAKS around the centered label — two segments with a
-    // character-scaled gap, so the text sits in the line, not on it.
+    // Continuous line; label horizontally centered at the midpoint and
+    // hugging the line — bullish just above it, bearish just below.
     // Softened to the zones' airy weight (transparency does the work).
-    lc = fade(accent, 38 + ageFade)
-    lw = s.displacement ? 2 : 1
-    barMs = timeframe.in_seconds() * 1000
-    gapHalf = int(math.round(str.length(txt) * (s.event == "mss" ? 0.6 : 0.45) * barMs / 2))
-    if midMs - gapHalf > s.brokenSwingMs
-        vizLine(s.brokenSwingMs, s.level, midMs - gapHalf, s.level, lc, lnStyle, lw)
-    if midMs + gapHalf < s.confirmedMs
-        vizLine(midMs + gapHalf, s.level, s.confirmedMs, s.level, lc, lnStyle, lw)
-    vizLabel(midMs, s.level, txt, color(na), fade(accent, 22 + ageFade), label.style_none, s.event == "mss" ? size.small : size.tiny)
+    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 38 + ageFade), lnStyle, s.displacement ? 2 : 1)
+    y = s.dir == "bull" ? s.level + labelOff() * 0.4 : s.level - labelOff() * 0.4
+    vizLabel(midMs, y, txt, color(na), fade(accent, 22 + ageFade), label.style_none, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
     // Consecutive same-direction BoS streak ending at the latest event —
