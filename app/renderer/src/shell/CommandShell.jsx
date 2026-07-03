@@ -292,15 +292,19 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     return (events || []).filter((ev) => { const dt = new Date(ev?.ts).getTime(); return Number.isFinite(dt) && dt > now; }).length;
   }, [events]);
 
-  const PageComp = page ? PAGE_COMPONENTS[page] : null;
+  // Agent is the sidecar exception — it pins right of the chart with NO dim
+  // scrim (the chart shrinks via `.sidecar-open`), so it renders as a sibling of
+  // the chart-host, outside the scrim block, and never as a scrim PageComp.
+  const isAgent = page === "agent";
+  const PageComp = page && !isAgent ? PAGE_COMPONENTS[page] : null;
   const pageProps = { onClose: () => setPage(null) };
   if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice });
   if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
-  if (page === "agent") Object.assign(pageProps, { chats });
   if (page === "settings") Object.assign(pageProps, { guards, setGuards });
+  const scrimShown = pal.open || flat.open || (page && !isAgent);
 
   return (
-    <div className="app shell" onMouseDownCapture={refocus}>
+    <div className={"app shell" + (isAgent ? " sidecar-open" : "")} onMouseDownCapture={refocus}>
       <TopBar
         symbol={symbol} setSymbol={setSymbol} guards={guards} exec={exec}
         alertCount={alerts.armed.length + alerts.fired.length}
@@ -319,7 +323,9 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         </div>
       </div>
 
-      {(page || pal.open || flat.open) && (
+      {isAgent && <AgentPage chats={chats} onClose={() => setPage(null)} />}
+
+      {scrimShown && (
         <div className="shell-scrim" onClick={dismiss}>
           {PageComp && <PageComp {...pageProps} />}
           {pal.open && (

@@ -21,7 +21,9 @@ const CHANNELS = [
 ];
 
 // Interactive channel (CLAUDE / CODEX) — wired to a real useChat() provider.
-function ChatChannel({ chat, provider, label }) {
+// `hideControls` omits the inline STOP/RESET (the Agent sidecar hoists them to
+// its header; ChatBody/ChatCell keep them inline).
+function ChatChannel({ chat, provider, label, hideControls }) {
   const feedRef = useRef(null);
   const [input, setInput] = useState("");
   const messages = chat?.messages || [];
@@ -56,10 +58,12 @@ function ChatChannel({ chat, provider, label }) {
       <form className="claude-compose" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <span className="prompt">&gt;</span>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={`ask ${label.toLowerCase()}…`} />
-        <span className="claude-controls">
-          {chat?.typing && <span className="ctl red" onClick={(e) => { e.preventDefault(); chat?.cancel?.(); }}>[ STOP ]</span>}
-          <span className="ctl" onClick={(e) => { e.preventDefault(); chat?.reset?.(); }}>[ RESET ]</span>
-        </span>
+        {!hideControls && (
+          <span className="claude-controls">
+            {chat?.typing && <span className="ctl red" onClick={(e) => { e.preventDefault(); chat?.cancel?.(); }}>[ STOP ]</span>}
+            <span className="ctl" onClick={(e) => { e.preventDefault(); chat?.reset?.(); }}>[ RESET ]</span>
+          </span>
+        )}
       </form>
     </div>
   );
@@ -134,6 +138,52 @@ function ChatPeek({ ch, setCh, brainEntries, walkers }) {
       <span className="pk-b">▸ {w.stage}</span>
       <span className="pk-go">▸ OPEN</span>
     </div>
+  );
+}
+
+// ── AgentBody — the Agent sidecar internals (⌘5 / ⌘J). Same channel switch as
+// ChatBody, but the chrome matches the right-rail sidecar: agent-dot + title +
+// borderless provider pills + header-level RESET/STOP + esc, and a status
+// footer. The inline per-channel STOP/RESET are hidden (hoisted to the header).
+export function AgentBody({ chats, onClose }) {
+  const [ch, setCh] = useState("claude");
+  const walkers = useWalkers();
+  const brainEntries = useDeterministicBrain();
+  const claude = chats?.claude;
+  const codex = chats?.codex;
+  const interactive = ch === "claude" || ch === "codex";
+  const active = ch === "claude" ? claude : ch === "codex" ? codex : null;
+  const streaming = !!(claude?.typing || codex?.typing);
+  const footLeft = interactive ? `CHAT · ${ch.toUpperCase()}` : `FEED · ${ch.toUpperCase()} · READ-ONLY`;
+  return (
+    <>
+      <div className="head">
+        <span className={"agent-dot " + (streaming ? "blue" : "green")} />
+        <span className="t">Agent</span>
+        <div className="seg">
+          {CHANNELS.map((c) => (
+            <span key={c.k} className={"seg-pill" + (ch === c.k ? " on" : "")} onClick={() => setCh(c.k)}>{c.l}</span>
+          ))}
+        </div>
+        <span className="sp" style={{ flex: 1 }} />
+        <span className={"ctl reset" + (interactive ? "" : " disabled")}
+              onClick={interactive ? () => active?.reset?.() : undefined}>RESET</span>
+        <span className={"ctl stop" + (active?.typing ? "" : " idle")}
+              onClick={active?.typing ? () => active?.cancel?.() : undefined}>STOP</span>
+        <span className="esc cmd-kbd" onClick={onClose}>esc</span>
+      </div>
+      <div className="body chat-body">
+        {ch === "claude" && <ChatChannel chat={claude} provider="claude" label="CLAUDE" hideControls />}
+        {ch === "codex" && <ChatChannel chat={codex} provider="codex" label="CODEX" hideControls />}
+        {ch === "brain" && <BrainChannel entries={brainEntries} />}
+        {ch === "walkers" && <WalkersChannel walkers={walkers} />}
+      </div>
+      <div className="foot">
+        <span>{footLeft}</span>
+        <span className="sp" style={{ flex: 1 }} />
+        <span>⌘J / ⌘5 toggles · esc</span>
+      </div>
+    </>
   );
 }
 
