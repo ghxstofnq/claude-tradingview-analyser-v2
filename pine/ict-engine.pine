@@ -1583,12 +1583,14 @@ drawStructure(Structure s, string suffix = "", int age = 0) =>
     // "+" marks the displacement-confirmed variant — same hue, one extra
     // character (the LuxAlgo CHoCH+ convention), never a new color.
     txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "") + suffix
-    // Continuous line; label horizontally centered at the midpoint and
-    // hugging the line — bullish just above it, bearish just below.
-    // Softened to the zones' airy weight (transparency does the work).
+    // Continuous line; the label anchors AT the level and the label STYLE
+    // picks the side (the LuxAlgo SMC pattern): label_down renders the
+    // text above the anchor for bullish, label_up below it for bearish.
+    // The gap is pixel-geometry, so it is identical at every zoom — a
+    // price-unit (ATR) offset is not, which is why it rendered wrong.
+    // Balloon is transparent; only the text shows.
     vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 38 + ageFade), lnStyle, s.displacement ? 2 : 1)
-    y = s.dir == "bull" ? s.level + labelOff() * 0.4 : s.level - labelOff() * 0.4
-    vizLabel(midMs, y, txt, color(na), fade(accent, 22 + ageFade), label.style_none, s.event == "mss" ? size.small : size.tiny)
+    vizLabel(midMs, s.level, txt, color(na), fade(accent, 22 + ageFade), s.dir == "bull" ? label.style_label_down : label.style_label_up, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
     // Consecutive same-direction BoS streak ending at the latest event —
