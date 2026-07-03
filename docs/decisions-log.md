@@ -399,3 +399,18 @@ on the AM side (carryEntries reads the ny-pm tape's bars, not the PM context).
 exactly the removed PM trades); 45→32 trades; win% 40.9→46.9; the one −3R day
 (06-17) eliminated; AM side untouched.** Tests: +3 unit (gate on/off/AM-safe);
 full suite 1576/0; day-tapes 6/6 (parity holds); smoke 22/22.
+
+## 2026-07-03 — same-candle confirmation is canonical; strict variant rejected by fold
+
+The Lanto confirmation is a deliberate 1m close (clean body, no doji, CE
+held, ≤10-min window, 15-min fight kill) — and the tap MAY be the same
+candle's wick (oracle: 06-16 verified MSS, 07-02 live winner, June 9 trade
+7). The strict prior-bar-tap variant (with or without an engulf-vs-prev-bar
+compare) folded negative on all available evidence and is NOT adopted; it
+ships only as dormant additive emit evidence (`confirm_strict`, parser-typed)
+for cheap future re-tests. The engulf-vs-previous-bar compare is explicitly
+NOT part of the strategy (Lanto's "engulfing" = candle anatomy). Indicator
+visuals (checklist panel + ✓ confirm marker) key on confirm_close and carry
+a visual-aid-only disclaimer — the walker chain remains the single setup
+brain. Fold caveat: backtest corpus currently 1 run (wiped in cleanup);
+re-record requires the app stopped.

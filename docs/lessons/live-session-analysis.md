@@ -93,3 +93,32 @@ Outcome: 0 trades — a chop day. Five candidates flagged (2× Trend, 2× MSS, 1
 ## 2026-06-13 — hand-graded numbers beat doc prose for encoding a rule
 
 Signal: the user corrected two Inversion stops (29714.25 / 29526.25) with a label ("Inversion candle close high") that matched neither of two defensible readings of entry-models.md §5 — the confirmation bar and the inverted_ms violating bar both produced wrong prices. Action: when a hand grade disagrees with every doc reading, stop interpreting the words — locate the exact bars carrying the user's prices in the tape and infer the rule from the data. Here all three stops (including the uncorrected 29847) sat at the failed-leg extreme = max high of the visible 1m bars at packet time; one tick of residual difference is feed jitter, not a rule mismatch.
+
+## 2026-07-03 — indicator checklist campaign (PR #198)
+
+- Signal: the strict prior-bar-tap confirmation reading (mine + initially the
+  user's) folded NEGATIVE — the hand-graded record's winning entries ARE
+  same-candle tap-and-close (06-16 tape's verified B MSS, 07-02 live +0.77R,
+  the June 9 trade-7 wick-tap precedent). Action: treat any confirmation-
+  discipline tightening as the −55R 5m-confirmation family; fold before
+  believing a plausible transcript reading, and check the tapes FIRST — two
+  hand-verified counterexamples end the argument. Lanto's "engulfing" is
+  candle ANATOMY (flush, full-bodied), not the two-candle pattern; the only
+  relative phrasing is "stronger than the pullback candles" (Trend §4).
+- Signal: the fold corpus can vanish — the May–June 58-run corpus was wiped
+  in the audit-era state cleanup and the 2026-07-02 full-year re-record died
+  on app contention after 2 sessions (record-corpus.log). Action: before any
+  fold, `ls state/backtest` + check index.json run count; re-record needs the
+  app STOPPED (sole CDP driver).
+- Signal: Pine table gotchas that cost paste-iterations — merging
+  uninitialized cells is a runtime error (init every cell in range first,
+  never table.clear a merged fixed-shape table); all if/else branches must
+  share a return type (CE10235 — a void mergeLevel branch can't share an
+  if/else with label-returning branches); price-offset (ATR) label placement
+  renders zoom-dependent — anchor AT the level and pick the side with
+  label.style_label_up/down (pixel geometry, the LuxAlgo pattern). Action:
+  reuse these patterns; the panel is a fixed-shape rewrite-every-cell table.
+- Signal: the checklist panel and the walker chain share raw evidence but
+  compute conclusions independently; users read panel output as bot output.
+  Action: keep the visual-aid disclaimer; roadmap item accepted 2026-07-03 —
+  surface the walker's ACTUAL live verdict on-chart via an app-side bridge.
