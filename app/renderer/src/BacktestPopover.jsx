@@ -83,6 +83,36 @@ export function BacktestCell() {
   );
 }
 
+// ── BacktestBody — the BACKTEST view without cell/float chrome, for the
+// Command Shell page frame (2026-07-03). Rendered inside `.bt-popover.embedded`
+// so every existing backtest style applies. onClose closes the hosting page.
+// PR1-transitional (shares useBacktest with BacktestCell; PR2 collapses).
+export function BacktestBody({ onClose }) {
+  const { state, actions } = useBacktest();
+  const [symbolView, setSymbolView] = useState("MNQ1!");
+  return (
+    <div className="bt-popover embedded">
+      <Header state={state} actions={actions} onClose={onClose || (() => {})} float={null} />
+      {state.ui !== "DETAIL" && <CorpusStatus runs={state.library.runs} symbolView={symbolView} />}
+      {state.ui === "LIBRARY" && (
+        <div className="bt-sym-bar">
+          <span className="bt-sym-label">INSTRUMENT</span>
+          <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
+        </div>
+      )}
+      <div className="body">
+        {state.ui === "IDLE" && <IdleBody state={state} actions={actions} symbolView={symbolView} />}
+        {state.ui === "AUTO_RUNNING" && <RunningBody state={state} actions={actions} />}
+        {state.ui === "PAUSE_AWAITING" && <PauseBody state={state} actions={actions} />}
+        {state.ui === "DONE" && <DoneBody state={state} actions={actions} />}
+        {state.ui === "LIBRARY" && <LibraryBody state={state} actions={actions} symbolView={symbolView} />}
+        {state.ui === "TESTS" && <TestsBody symbolView={symbolView} />}
+        {state.ui === "DETAIL" && <DetailBody state={state} actions={actions} />}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Header — varies by state.ui
 // ─────────────────────────────────────────────────────────────────────

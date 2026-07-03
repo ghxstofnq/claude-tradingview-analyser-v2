@@ -60,3 +60,12 @@ test("plain queries substring-filter labels", () => {
   assert.ok(hits.length >= 1);
   assert.ok(hits.every((r) => r.label.toLowerCase().includes("switch")));
 });
+
+test("theme toggle is a non-root command reachable by search", () => {
+  const all = buildCommands({});
+  const theme = byId(all, "theme");
+  assert.ok(theme && theme.root === false);
+  assert.equal(theme.action.type, "theme");
+  assert.ok(!visibleRows(all, "").some((r) => r.id === "theme"));
+  assert.equal(visibleRows(all, "theme")[0].id, "theme");
+});

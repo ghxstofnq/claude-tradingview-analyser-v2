@@ -137,6 +137,37 @@ function ChatPeek({ ch, setCh, brainEntries, walkers }) {
   );
 }
 
+// ── ChatBody — the CHAT view without cell/float chrome, for the Command Shell
+// AGENT page frame (2026-07-03). Rendered inside `.bt-popover.embedded` so every
+// existing chat style applies. Channel tabs render as a sub-header.
+// PR1-transitional (shares CHANNELS with ChatCell; PR2 collapses).
+export function ChatBody({ chats }) {
+  const [ch, setCh] = useState("claude");
+  const walkers = useWalkers();
+  const brainEntries = useDeterministicBrain();
+  const claude = chats?.claude;
+  const codex = chats?.codex;
+  return (
+    <div className="bt-popover embedded chat-pop">
+      <div className="head">
+        <span className="spacer" style={{ flex: 1 }} />
+        <div className="live-tabs">
+          {CHANNELS.map((c) => (
+            <span key={c.k} className={"tab" + (ch === c.k ? " on" : "")} onClick={() => setCh(c.k)}>{c.l}</span>
+          ))}
+        </div>
+      </div>
+      <div className="body chat-body">
+        <ChatPeek ch={ch} setCh={setCh} brainEntries={brainEntries} walkers={walkers} />
+        {ch === "claude" && <ChatChannel chat={claude} provider="claude" label="CLAUDE" />}
+        {ch === "codex" && <ChatChannel chat={codex} provider="codex" label="CODEX" />}
+        {ch === "brain" && <BrainChannel entries={brainEntries} />}
+        {ch === "walkers" && <WalkersChannel walkers={walkers} />}
+      </div>
+    </div>
+  );
+}
+
 export function ChatCell({ chats }) {
   const [open, setOpen] = useState(false);
   const float = useFloat();

@@ -65,6 +65,14 @@ export function buildCommands(ctx = {}) {
       label: `Open ${PAGE_TITLES[p].toLowerCase()}`, action: { type: "page", page: p } });
   }
 
+  for (const p of ["health", "risk", "fixtures"]) {
+    rows.push({ id: `open:${p}`, icon: "⌗", tint: "mute", root: false,
+      label: `Open ${p}`, action: { type: "page", page: p } });
+  }
+
+  rows.push({ id: "theme", icon: "◐", tint: "mute", root: false,
+    label: "Toggle light / dark theme", action: { type: "theme" } });
+
   return rows;
 }
 
