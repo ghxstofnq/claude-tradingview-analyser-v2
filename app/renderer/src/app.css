@@ -4718,6 +4718,50 @@ button { border-radius: var(--r-sm); }
 /* Agent sidecar open → shrink the chart so the sidecar sits beside it, not over it. */
 .app.shell.sidecar-open .chart-host { right: 420px; }
 
+/* Raycast single white CTA — the one white pill allowed per surface. */
+.pill.primary { color: #000; background: #fff; border: 0; }
+
+/* ── Settings page (⌘6) — 2-col card grid ─────────────────────────────── */
+.cmd-set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px 18px; }
+.cmd-set-prefs { grid-column: 1 / -1; }
+.cmd-set-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; }
+.cmd-set-card.live { border-color: color-mix(in srgb, var(--red) 35%, transparent); }
+.cmd-set-hd { display: flex; align-items: center; gap: 10px; font-size: 9.5px; letter-spacing: .08em; color: var(--label); margin-bottom: 10px; }
+.cmd-set-hd > span:first-child { flex: 1; }
+.cmd-set-seg { display: flex; gap: 4px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 3px; }
+.cmd-set-seg-opt { flex: 1; text-align: center; font-size: 9.5px; letter-spacing: .06em; padding: 4px 0; border-radius: var(--r-pill); cursor: pointer; color: var(--label); user-select: none; }
+.cmd-set-seg-opt.on { background: var(--surface-3); color: var(--value-strong); }
+.cmd-set-desc { margin: 10px 0 0; font-size: 11px; line-height: 1.6; color: var(--label); }
+.cmd-set-desc .red { color: var(--red); }
+.cmd-set-routechip { font-size: 9px; letter-spacing: .08em; padding: 2px 8px; border-radius: var(--r-xs); }
+.cmd-set-routechip.sim { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cmd-set-routechip.live { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.cmd-set-acct { font: 500 12px var(--mono); color: var(--value-strong); margin-bottom: 4px; }
+.cmd-set-arm { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.cmd-set-arm.end { justify-content: flex-end; }
+.cmd-set-arm-input { flex: 1; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 12px; color: var(--value-strong); font: 400 11px var(--mono); outline: none; }
+.cmd-set-arm-input.ok { border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.cmd-set-arm-btn { font-size: 10.5px; font-weight: 500; color: #000; background: #fff; padding: 8px 14px; border-radius: var(--r-md); border: 0; cursor: pointer; }
+.cmd-set-arm-btn.off { color: var(--label-dim); background: var(--surface-3); border: 1px solid var(--border); cursor: not-allowed; }
+.cmd-set-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--value) 4%, transparent); }
+.cmd-set-row:last-child { border-bottom: 0; }
+.cmd-set-row .rk { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.cmd-set-row .rk .n { font-size: 11.5px; color: var(--value-strong); }
+.cmd-set-row .rk .d { font-size: 10px; color: var(--label-dim); }
+.cmd-set-step { width: 22px; height: 22px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--value); display: grid; place-items: center; font-size: 12px; cursor: pointer; user-select: none; }
+.cmd-set-num { font: 500 12px var(--mono); color: var(--value-strong); min-width: 66px; text-align: center; }
+.cmd-set-foot { padding-top: 10px; font-size: 10.5px; line-height: 1.55; color: var(--label-dim); }
+.cmd-set-foot.warn { color: var(--amber); }
+.cmd-set-foot.bad { color: var(--red); }
+.cmd-set-calc { margin-top: 10px; background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 12px; font: 400 10.5px var(--mono); color: var(--value); }
+.cmd-set-switch { width: 30px; height: 17px; border-radius: var(--r-pill); position: relative; cursor: pointer; flex: none; background: var(--border); transition: background .15s; }
+.cmd-set-switch.on { background: var(--green); }
+.cmd-set-switch i { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--value-strong); transition: left .15s; }
+.cmd-set-switch.on i { left: 15px; }
+.cmd-set-suspend { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent); background: color-mix(in srgb, var(--amber) 7%, transparent); border-radius: var(--r-lg); }
+.cmd-set-suspend .tag { font-size: 9px; letter-spacing: .08em; color: var(--amber); flex: none; }
+.cmd-set-suspend .rsn { flex: 1; font-size: 11.5px; color: var(--value); }
+
 /* hosted legacy popover bodies (PR1 bridge — native pages land in PR2). Any
    .bt-popover rendered inside a page-host is neutralized to a static, full-size
    panel; the page frame supplies the outer chrome. */

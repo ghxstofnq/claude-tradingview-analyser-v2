@@ -37,6 +37,7 @@ import {
   useAlertStateListener, useAlertFiredListener, normalizeArmed, armAlertReal, disarmAlertReal,
 } from "../hooks/useAlerts.js";
 import { useCalendar } from "../hooks/useCalendar.js";
+import { readPrefs } from "../hooks/usePrefs.js";
 
 let TOAST_SEQ = 0;
 
@@ -49,6 +50,28 @@ function fmtCountdown(ms) {
 // Signed USD — the realized P&L in the flatten toast is DATA from the IPC result,
 // never a literal (CLAUDE.md #7 no-LLM-arithmetic applies to display too).
 const fmtUsd = (n) => (n >= 0 ? "+$" : "-$") + Math.abs(n).toLocaleString("en-US");
+
+// Preference effects (gated by usePrefs in Settings, applied on an alert fire).
+function playTick() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.05, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
+    o.start(); o.stop(ctx.currentTime + 0.16);
+    o.onended = () => ctx.close();
+  } catch { /* audio unavailable */ }
+}
+function notifyDesktop(title, body) {
+  try {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "granted") { new Notification(title, { body }); return; }
+    if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") new Notification(title, { body }); }).catch(() => {});
+  } catch { /* notifications unavailable */ }
+}
 
 const PAGE_COMPONENTS = {
   briefing: BriefingPage, live: LivePage, review: ReviewPage,
@@ -87,6 +110,12 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     const t = ev.fired_at?.slice(11, 19) || "";
     setAlerts((s) => ({ ...s, fired: [{ id: ev.id, name, price: ev.price, t }, ...s.fired], armed: s.armed.filter((a) => a.price !== ev.price) }));
     addToast(`ALERT · ${name} reached ${ev.price}`, "amber");
+    // Preference-gated effects (Settings ⌘6 → PREFERENCES). Read fresh so a
+    // toggle takes effect without re-subscribing this listener.
+    const pr = readPrefs();
+    if (pr.notif) notifyDesktop("Price alert", `${name} reached ${ev.price}`);
+    if (pr.sound) playTick();
+    if (pr.autoTicket) openPalette();
   });
 
   useEffect(() => {
@@ -300,7 +329,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const pageProps = { onClose: () => setPage(null) };
   if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice });
   if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
-  if (page === "settings") Object.assign(pageProps, { guards, setGuards });
+  if (page === "settings") Object.assign(pageProps, { guards, setGuards, symbol, onToast: addToast });
   const scrimShown = pal.open || flat.open || (page && !isAgent);
 
   return (
