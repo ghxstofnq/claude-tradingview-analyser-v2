@@ -346,6 +346,37 @@ htfLean() =>
 h4Lean = request.security(syminfo.tickerid, "240", htfLean()[1], lookahead = barmerge.lookahead_on)
 h1Lean = request.security(syminfo.tickerid, "60", htfLean()[1], lookahead = barmerge.lookahead_on)
 
+// Origin timestamps for the prior-period extremes, tracked on the chart
+// TF (the security call above gives the VALUE, not when it printed).
+// Visual only: pdh/pdl/pwh/pwl values stay security-sourced so the
+// emitted levels are byte-identical; these Ms anchors just let the
+// level line trace back to the exact high/low bar it came from.
+trackPrior(simple string tf) =>
+    var float curH = na
+    var float curL = na
+    var int curHMs = na
+    var int curLMs = na
+    var int prevHMs = na
+    var int prevLMs = na
+    if timeframe.change(tf)
+        prevHMs := curHMs
+        prevLMs := curLMs
+        curH := high
+        curL := low
+        curHMs := time
+        curLMs := time
+    else
+        if na(curH) or high > curH
+            curH := high
+            curHMs := time
+        if na(curL) or low < curL
+            curL := low
+            curLMs := time
+    [prevHMs, prevLMs]
+
+[pdhMs, pdlMs] = trackPrior("D")
+[pwhMs, pwlMs] = trackPrior("W")
+
 // ── Sweep tracking ───────────────────────────────────────────────────
 // Watches a completed level for a liquidity sweep. A high-side level is swept
 // when price wicks above it; a low-side level when price wicks below. The
@@ -1254,12 +1285,6 @@ if barstate.islast
 
 LEVEL_LINE_BARS = 30
 RIGHT_PAD_MS = 5 * timeframe.in_seconds() * 1000
-// Recent-window rendering: a session-old zone or level otherwise renders
-// as a chart-wide slab/line. Only the last N bars carry visual weight —
-// zones keep a border-only whisper over their older span, levels become
-// right-edge stubs. Bars (not minutes) so it scales with the chart TF.
-ZONE_FILL_BARS = 36
-LEVEL_STUB_BARS = 48
 
 var array<box> vizBoxes = array.new<box>()
 var array<line> vizLines = array.new<line>()
@@ -1348,6 +1373,8 @@ mergeLevel(float price, string name, int x1, int labelCol) =>
         for i = 0 to array.size(lvlPx) - 1
             if not merged and math.abs(array.get(lvlPx, i) - price) <= tol
                 array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name)
+                // Trace the merged line back to the OLDEST member's origin.
+                array.set(lvlMs, i, math.min(array.get(lvlMs, i), x1))
                 merged := true
     if not merged
         array.push(lvlPx, price)
@@ -1367,8 +1394,7 @@ drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, str
             vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
         else if forming
             x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
-            xs = math.max(x1, time - LEVEL_STUB_BARS * timeframe.in_seconds() * 1000)
-            vizLine(xs, price, x2, price, colNeutral, line.style_dashed, 1)
+            vizLine(x1, price, x2, price, colNeutral, line.style_dashed, 1)
             vizLabel(x2, price, name, color(na), colNeutral, label.style_label_left, size.small)
         // Completed unswept levels route through the merge pool. This sits
         // OUTSIDE the if/else above: Pine requires all if/else branches to
@@ -1390,19 +1416,16 @@ renderLevels() =>
     drawLevel(nyamL, nyamLMs, nyamLSwept, nyamLSweptMs, nyamLRej, "NYAM.L", inNyam)
     drawLevel(nypmH, nypmHMs, nypmHSwept, nypmHSweptMs, nypmHRej, "NYPM.H", inNypm)
     drawLevel(nypmL, nypmLMs, nypmLSwept, nypmLSweptMs, nypmLRej, "NYPM.L", inNypm)
-    drawLevel(pdh, na, pdhSwept, pdhSweptMs, pdhRej, "PDH", false, 1)
-    drawLevel(pdl, na, pdlSwept, pdlSweptMs, pdlRej, "PDL", false, 1)
-    drawLevel(pwh, na, pwhSwept, pwhSweptMs, pwhRej, "PWH", false, 2)
-    drawLevel(pwl, na, pwlSwept, pwlSweptMs, pwlRej, "PWL", false, 2)
+    drawLevel(pdh, pdhMs, pdhSwept, pdhSweptMs, pdhRej, "PDH", false, 1)
+    drawLevel(pdl, pdlMs, pdlSwept, pdlSweptMs, pdlRej, "PDL", false, 1)
+    drawLevel(pwh, pwhMs, pwhSwept, pwhSweptMs, pwhRej, "PWH", false, 2)
+    drawLevel(pwl, pwlMs, pwlSwept, pwlSweptMs, pwlRej, "PWL", false, 2)
     // Flush the merge pool: one line + one label per price cluster.
     if array.size(lvlPx) > 0
         for i = 0 to array.size(lvlPx) - 1
             price = array.get(lvlPx, i)
             x2 = time + RIGHT_PAD_MS * (1 + array.get(lvlCol, i) * 2)
-            // Right-edge stub: a reference level's history adds nothing —
-            // only where it sits NOW matters.
-            xs = math.max(array.get(lvlMs, i), time - LEVEL_STUB_BARS * timeframe.in_seconds() * 1000)
-            vizLine(xs, price, x2, price, colNeutral, line.style_solid, 1)
+            vizLine(array.get(lvlMs, i), price, x2, price, colNeutral, line.style_solid, 1)
             vizLabel(x2, price, array.get(lvlNm, i) + "  " + str.tostring(price, format.mintick), color(na), colNeutral, label.style_label_left, size.small)
 
 // The current leg's running extremes — quiet dotted guides for the live
@@ -1443,12 +1466,6 @@ drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool
     accent = accentOf(dir)
     x2 = time + RIGHT_PAD_MS
     ce = (top + bottom) / 2
-    // Recent-window clip: the fill lives only in the last ZONE_FILL_BARS;
-    // the older span renders as a border-only whisper so the origin stays
-    // traceable without the slab.
-    fillStart = math.max(leftMs, time - ZONE_FILL_BARS * timeframe.in_seconds() * 1000)
-    if fillStart > leftMs
-        vizBox(leftMs, top, fillStart, bottom, color.new(accent, 100), fade(accent, 86), "", color(na), line.style_solid)
     // Split-fill mitigation (premium convention): the traded-through part
     // of the zone fades to a ghost; only the untouched remainder keeps the
     // full fill, and the tag gains the consumed percentage (only when the
@@ -1457,11 +1474,11 @@ drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool
     frac = na(deepPx) or height <= 0 ? 0.0 : math.min(1.0, math.max(0.0, dir == "bull" ? (top - deepPx) / height : (deepPx - bottom) / height))
     zTag = tag != "" and frac >= 0.05 and frac < 1.0 ? tag + " · " + str.tostring(int(math.round(frac * 100))) + "%" : tag
     if frac >= 0.05 and frac < 0.98
-        vizBox(fillStart, top, x2, bottom, color.new(accent, 95), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
-        vizBox(fillStart, dir == "bull" ? deepPx : top, x2, dir == "bull" ? bottom : deepPx, zoneFill(accent, state), color.new(accent, 100), "", color(na), line.style_solid)
+        vizBox(leftMs, top, x2, bottom, color.new(accent, 95), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+        vizBox(leftMs, dir == "bull" ? deepPx : top, x2, dir == "bull" ? bottom : deepPx, zoneFill(accent, state), color.new(accent, 100), "", color(na), line.style_solid)
     else
-        vizBox(fillStart, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
-    vizLine(fillStart, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
+        vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
+    vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
     mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
     if mk != ""
         vizLabel(x2, ce, mk, color(na), entryMarkerColor(confirmClose, chop15, entered, ceHeld, accent), label.style_label_left, size.tiny)
@@ -1496,44 +1513,24 @@ renderKillzones() =>
     drawKillzoneBox(nypmSpanStart, nypmSpanEnd, nypmH, nypmL)
 
 renderZones() =>
+    drawn = 0
     ghosts = 0
     if array.size(fvgs) > 0
-        // Dead-zone ghosts (off by default) keep recency order.
-        if showHistorical
-            for i = array.size(fvgs) - 1 to 0
-                f = array.get(fvgs, i)
-                isIfvg = f.kind == "ifvg"
-                wantKind = isIfvg ? showIfvgs : showFvgs
-                skipTiny = hideTinyZones and f.sizeQuality == "tiny"
-                isDead = f.state == "invalidated" or f.state == "filled"
-                if wantKind and not skipTiny and isDead and ghosts < maxZonesDrawn
-                    gLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
-                    gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
-                    drawGhostZone(gLeft, f.top, f.bottom, gDead)
-                    ghosts += 1
-        // Active zones draw NEAREST-TO-PRICE first, not newest-first:
-        // relevance on an execution chart is distance — a band 400 points
-        // away is furniture. Eligible zones get a distance score; the K
-        // closest render.
-        n = array.size(fvgs)
-        array<float> zDist = array.new<float>()
-        for f in fvgs
+        for i = array.size(fvgs) - 1 to 0
+            f = array.get(fvgs, i)
             isIfvg = f.kind == "ifvg"
             wantKind = isIfvg ? showIfvgs : showFvgs
-            live = f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted"
-            eligible = wantKind and live and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
-            array.push(zDist, eligible ? (close > f.top ? close - f.top : close < f.bottom ? f.bottom - close : 0.0) : 1.0e12)
-        for k = 1 to maxZonesDrawn
-            bestI = -1
-            float bestD = 1.0e11
-            for i = 0 to n - 1
-                if array.get(zDist, i) < bestD
-                    bestD := array.get(zDist, i)
-                    bestI := i
-            if bestI >= 0
-                array.set(zDist, bestI, 1.0e12)
-                f = array.get(fvgs, bestI)
-                isIfvg = f.kind == "ifvg"
+            skipTiny = hideTinyZones and f.sizeQuality == "tiny"
+            isDead = f.state == "invalidated" or f.state == "filled"
+            if wantKind and not skipTiny and isDead and showHistorical and ghosts < maxZonesDrawn
+                // Dead: ghost from creation (or inversion) to mitigation.
+                gLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
+                gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
+                drawGhostZone(gLeft, f.top, f.bottom, gDead)
+                ghosts += 1
+            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+                // Active. An iFVG re-anchors at its inversion bar; its
+                // pre-inversion life shows as a ghost behind it.
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
                 // Only zones that have earned attention carry text: large,
                 // inverted, or already interacting with price.
@@ -1541,6 +1538,7 @@ renderZones() =>
                 drawActiveZone(zLeft, f.top, f.bottom, f.dir, zTagTxt, isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
                 if isIfvg and showHistorical and not na(f.invertedMs)
                     drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
+                drawn += 1
 
 renderBprs() =>
     drawn = 0
@@ -1836,10 +1834,7 @@ renderChecklist() =>
     // Everything else recedes; the one zone that matters pops.
     if hasCand and showVisuals
         candLeft = not na(cand) ? (cand.kind == "ifvg" and not na(cand.invertedMs) ? cand.invertedMs : cand.createdMs) : candBpr.createdMs
-        // Same recent-window clip as the zone fill — the spotlight outlines
-        // the ribbon, not the historical slab.
-        spotStart = math.max(candLeft, time - ZONE_FILL_BARS * timeframe.in_seconds() * 1000)
-        vizBox(spotStart, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
+        vizBox(candLeft, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
         vizLabel(time + RIGHT_PAD_MS, candTop, "◈", color(na), accent, label.style_label_left, size.tiny)
 
 // ── Render dispatch ──────────────────────────────────────────────────
