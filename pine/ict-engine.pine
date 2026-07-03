@@ -225,10 +225,12 @@ hideTinyZones  = input.bool(true,  "Hide tiny zones (visual only)", group = GRP_
 // A live zone fully inside a larger live same-direction zone is noise —
 // the big zone IS the array (CandelaCharts "hide overlap"). Visual only.
 hideOverlapZones = input.bool(true, "Hide swallowed zones (visual only)", group = GRP_VIZ)
-// Draw caps — the evidence table keeps everything; the chart shows only
-// the most recent picture (premium toolkits default to ~5 visible zones).
-maxZonesDrawn  = input.int(8, "Max zones drawn per type", minval = 2, maxval = 24, group = GRP_VIZ)
-maxStructDrawn = input.int(4, "Max structure events drawn", minval = 2, maxval = 12, group = GRP_VIZ)
+// Named density preset over magic-number caps (premium-settings
+// convention). Caps how many zones / structure events draw at once; the
+// evidence table always keeps everything.
+chartDetail = input.string("Balanced", "Chart detail", options = ["Focused", "Balanced", "Everything"], group = GRP_VIZ)
+maxZonesDrawn = chartDetail == "Focused" ? 4 : chartDetail == "Everything" ? 14 : 8
+maxStructDrawn = chartDetail == "Focused" ? 2 : chartDetail == "Everything" ? 8 : 4
 // Checklist panel (premium-dashboard conventions: corner placement + size
 // presets + glyph status cells — LuxAlgo/TTrades pattern).
 showChecklist  = input.bool(true, "Checklist panel", group = GRP_VIZ)
@@ -318,6 +320,7 @@ htfLean() =>
     var float bearBot = na
     var bool  bearDead = false
     var int   lean = 0
+    var int   leanBar = na
     if low > high[2]
         bullTop := low
         bullBot := high[2]
@@ -333,18 +336,29 @@ htfLean() =>
         if close < bullBot
             bullDead := true
             lean := -1
+            leanBar := bar_index
         else if low < bullTop and close > bullTop
             lean := 1
+            leanBar := bar_index
     if not na(bearTop) and not bearDead
         if close > bearTop
             bearDead := true
             lean := 1
+            leanBar := bar_index
         else if high > bearBot and close < bearBot
             lean := -1
-    lean
+            leanBar := bar_index
+    // Recency-weighted but not immortal: an array event older than 20
+    // bars of this TF no longer votes (daily-bias.md §3 recency) — a
+    // days-old lean contradicting the visible chart reads as broken.
+    na(leanBar) or bar_index - leanBar > 20 ? 0 : lean
 
 h4Lean = request.security(syminfo.tickerid, "240", htfLean()[1], lookahead = barmerge.lookahead_on)
 h1Lean = request.security(syminfo.tickerid, "60", htfLean()[1], lookahead = barmerge.lookahead_on)
+// MTF strip (display only): 15m and Daily leans complete the ladder in
+// the panel's HTF row. The bias VOTE stays 4H+1H — these two never grade.
+m15Lean = request.security(syminfo.tickerid, "15", htfLean()[1], lookahead = barmerge.lookahead_on)
+dLean = request.security(syminfo.tickerid, "D", htfLean()[1], lookahead = barmerge.lookahead_on)
 
 // Origin timestamps for the prior-period extremes, tracked on the chart
 // TF (the security call above gives the VALUE, not when it printed).
@@ -1730,11 +1744,16 @@ renderChecklist() =>
     // is inherent; the most recent sweep wins.
     swMs = side > 0 ? array.from(asiaLSwept ? asiaLSweptMs : -1, lonLSwept ? lonLSweptMs : -1, nyamLSwept ? nyamLSweptMs : -1, nypmLSwept ? nypmLSweptMs : -1, pdlSwept ? pdlSweptMs : -1, pwlSwept ? pwlSweptMs : -1) : array.from(asiaHSwept ? asiaHSweptMs : -1, lonHSwept ? lonHSweptMs : -1, nyamHSwept ? nyamHSweptMs : -1, nypmHSwept ? nypmHSweptMs : -1, pdhSwept ? pdhSweptMs : -1, pwhSwept ? pwhSweptMs : -1)
     swNm = side > 0 ? array.from("AS.L", "LO.L", "NYAM.L", "NYPM.L", "PDL", "PWL") : array.from("AS.H", "LO.H", "NYAM.H", "NYPM.H", "PDH", "PWH")
+    // Only THIS trading day's sweeps count as the grab (anchored at the
+    // 18:00 Asia open): yesterday's NYAM.L sweep still latching overnight
+    // is not today's liquidity story — that stale read was the panel's
+    // top reliability defect.
+    dayAnchor = not na(asiaSpanStart) ? asiaSpanStart : time - 24 * 60 * 60 * 1000
     int gMs = -1
     int gIdx = -1
     for i = 0 to 5
         m = array.get(swMs, i)
-        if not na(m) and m > gMs
+        if not na(m) and m >= dayAnchor and m > gMs
             gMs := m
             gIdx := i
     grabName = gIdx >= 0 ? array.get(swNm, gIdx) : ""
@@ -1758,6 +1777,27 @@ renderChecklist() =>
             for b in bprs
                 if (b.state == "fresh" or b.state == "tapped") and b.dir == sideStr
                     candBpr := b
+    // Hysteresis: keep the previous candidate while it remains live and
+    // eligible unless a challenger beats it by a clear margin — a panel
+    // that re-targets the ◈ on every score tie reads as broken.
+    var float lockTop = na
+    var float lockBot = na
+    var int lockSide = 0
+    if side != 0 and not na(cand)
+        if lockSide == side and not na(lockTop)
+            for f in fvgs
+                fLive = f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted"
+                if fLive and f.dir == sideStr and math.abs(f.top - lockTop) < syminfo.mintick and math.abs(f.bottom - lockBot) < syminfo.mintick and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+                    lockSc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
+                    if lockSc >= candScore - 50.0
+                        cand := f
+        lockTop := cand.top
+        lockBot := cand.bottom
+        lockSide := side
+    else if side == 0
+        lockTop := na
+        lockBot := na
+        lockSide := 0
     hasCand = not na(cand) or not na(candBpr)
     candKind = not na(cand) ? cand.kind : not na(candBpr) ? "bpr" : ""
     candTop = not na(cand) ? cand.top : not na(candBpr) ? candBpr.top : na
@@ -1768,6 +1808,8 @@ renderChecklist() =>
     candConfirmDir = not na(cand) ? cand.confirmDir : not na(candBpr) ? candBpr.confirmDir : "none"
     candChop = not na(cand) ? cand.chop15 : not na(candBpr) ? candBpr.chop15 : false
     candTookLiq = not na(cand) ? cand.tookLiq : not na(candBpr) ? candBpr.tookLiq : false
+    candEnteredMs = not na(cand) ? cand.enteredMs : not na(candBpr) ? candBpr.enteredMs : na
+    candBornMs = not na(cand) ? (cand.kind == "ifvg" and not na(cand.invertedMs) ? cand.invertedMs : cand.createdMs) : not na(candBpr) ? candBpr.createdMs : na
     kindLbl = candKind == "ifvg" ? "iFVG" : candKind == "bpr" ? "BPR" : "FVG"
 
     grabOk = gMs > 0 or (hasCand and candTookLiq)
@@ -1802,7 +1844,7 @@ renderChecklist() =>
     cd = str.tostring(int(math.floor(secsLeft / 60.0))) + ":" + (secsLeft % 60 < 10 ? "0" : "") + str.tostring(secsLeft % 60)
     // Countdown to the next 1H close (TTrades convention) — hour bars on
     // these futures align to :00, so a modulo clock is exact.
-    h1Left = 3600 - int(math.floor(timenow / 1000.0)) % 3600
+    h1Left = (3600 - int(math.floor(timenow / 1000.0)) % 3600) % 3600
     h1Cd = str.tostring(int(math.floor(h1Left / 60.0))) + ":" + (h1Left % 60 < 10 ? "0" : "") + str.tostring(h1Left % 60)
     sessTxt = currentSession == "ny_am" ? "NY AM" : currentSession == "ny_pm" ? "NY PM" : currentSession == "london" ? "LONDON" : currentSession == "asia" ? "ASIA" : "OFF"
     pSet(0, 0, syminfo.ticker + " " + timeframe.period + " · " + sessTxt + " · " + cd + (timeframe.period == "60" ? "" : " · 1H " + h1Cd), color.new(chart.fg_color, 25), color.new(chart.fg_color, 90), "", true)
@@ -1814,7 +1856,7 @@ renderChecklist() =>
     pSet(1, 1, "BIAS", color(na), color(na), "Count HTF + overnight + NY-open: 1/3 no-trade · 2/3 B · 3/3 A+ (daily-bias.md §1)")
     pSet(2, 1, biasDetail, handsOff ? color.new(colBear, 15) : side == 0 ? color(na) : color.new(accent, 15))
 
-    pRow(2, voteStat(htfVote, side), "HTF", "4H" + arrowOf(h4Lean) + " · 1H" + arrowOf(h1Lean), "4H/1H array lean — gap respected or inverted, recency-weighted (daily-bias.md §2)")
+    pRow(2, voteStat(htfVote, side), "HTF", "15" + arrowOf(m15Lean) + " 1H" + arrowOf(h1Lean) + " 4H" + arrowOf(h4Lean) + " D" + arrowOf(dLean), "Array lean per TF — gap respected or inverted, recency-weighted (daily-bias.md §2). The bias vote counts 4H+1H only; 15m and D are context.")
     pRow(3, voteStat(ovVote, side), "Overnight", (ovDir == "na" ? "—" : ovDir) + (na(ovNet) ? "" : " " + (ovNet > 0 ? "+" : "") + str.tostring(math.round(ovNet))), "Asia+London direction; chop = non-vote (daily-bias.md §3)")
     // In ny_pm the vote is the CARRIED morning reaction (the day's third
     // component doesn't expire at noon; no fresh PM decisioning) — label it.
@@ -1825,7 +1867,10 @@ renderChecklist() =>
     qDetail = p2 == 0 ? "—" : p2 == -1 ? (qRangeQuality == "tight" ? "range tight" : "disp " + qDisplacement) : p2 == 1 ? "doji candles" : qDisplacement + " · " + qCandle
     pRow(5, p2, "Quality", qDetail, "Displacement regime + candle anatomy — stand aside on consolidation (price-action.md)")
     pRow(6, r5, "Liquidity", side == 0 ? "—" : grabOk ? (gMs > 0 ? grabName + " swept" : "gap took liq") : "none yet", "A significant grab on the stop side: session/PD level, or the gap took liquidity forming (entry-models.md MSS §2)")
-    pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") : side == 0 ? "—" : "none live", "Best live gap in-direction: fresh > took-liq > displacement (entry-models.md best-gap)")
+    // Age rides the detail: since the tap when price is working the zone
+    // (the 10–15m rule made visible), since birth while waiting.
+    candAge = candEntered and not na(candEnteredMs) ? " " + durTxt(candEnteredMs) : not na(candBornMs) ? " " + durTxt(candBornMs) : ""
+    pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") + candAge : side == 0 ? "—" : "none live", "Best live gap in-direction: fresh > took-liq > displacement (entry-models.md best-gap). Age = since tap when entered, since birth otherwise.")
     pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone; dead if it fights >10–15m (confirmation.md)")
 
     // ENTRY banner — always a tinted band (the card's one high-presence
@@ -1855,9 +1900,8 @@ renderChecklist() =>
     // Spotlight the tracked PD array — an accent outline + ◈ marker tie
     // the panel's PD-array row to the exact zone it means on the chart.
     // Everything else recedes; the one zone that matters pops.
-    if hasCand and showVisuals
-        candLeft = not na(cand) ? (cand.kind == "ifvg" and not na(cand.invertedMs) ? cand.invertedMs : cand.createdMs) : candBpr.createdMs
-        vizBox(candLeft, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
+    if hasCand and showVisuals and not na(candBornMs)
+        vizBox(candBornMs, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
         vizLabel(time + RIGHT_PAD_MS, candTop, "◈", color(na), accent, label.style_label_left, size.tiny)
 
 // ── Render dispatch ──────────────────────────────────────────────────
