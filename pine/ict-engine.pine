@@ -1469,7 +1469,7 @@ zoneSwallowed(float top, float bottom, string dir) =>
 // background wash. Level lines still carry the H/L detail.
 drawKillzoneBox(int startMs, int endMs, float hi, float lo) =>
     if not na(startMs) and not na(endMs) and not na(hi) and not na(lo) and endMs > startMs
-        vizBox(startMs, hi, endMs, lo, color.new(colNeutral, 96), color.new(colNeutral, 86), "", color(na), line.style_solid)
+        vizBox(startMs, hi, endMs, lo, color.new(colNeutral, 97), color.new(colNeutral, 78), "", color(na), line.style_solid)
 
 renderKillzones() =>
     drawKillzoneBox(asiaSpanStart, asiaSpanEnd, asiaH, asiaL)
@@ -1497,7 +1497,11 @@ renderZones() =>
                 // Active. An iFVG re-anchors at its inversion bar; its
                 // pre-inversion life shows as a ghost behind it.
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
-                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality), isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
+                // Only zones that have earned attention carry text: large,
+                // inverted, or already interacting with price. Small virgin
+                // gaps stay silent — the fill is enough.
+                zTagTxt = f.sizeQuality == "large" or f.entered or isIfvg ? zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality) : ""
+                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zTagTxt, isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
                 if isIfvg and showHistorical and not na(f.invertedMs)
                     drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
                 drawn += 1
@@ -1533,19 +1537,21 @@ renderSwings() =>
 // Premium convention: the label floats CENTERED on the break line, offset
 // by a fraction of ATR so it never overlaps the line. Swing tier draws
 // solid; internal dashed. MSS reads bigger than BoS.
-drawStructure(Structure s, string suffix = "") =>
+drawStructure(Structure s, string suffix = "", int age = 0) =>
     // Two-color structure convention: a reversal pops in its direction
     // accent; continuation recedes to neutral — a turning market reads
-    // differently from a trending one at any distance.
+    // differently from a trending one at any distance. Age fades each
+    // older event a step further (opacity encodes recency).
     accent = s.event == "mss" ? accentOf(s.dir) : colNeutral
+    ageFade = math.min(age * 12, 36)
     lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
-    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 20), lnStyle, s.displacement ? 2 : 1)
+    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 20 + ageFade), lnStyle, s.displacement ? 2 : 1)
     midMs = s.brokenSwingMs + (s.confirmedMs - s.brokenSwingMs) / 2
     // "+" marks the displacement-confirmed variant — same hue, one extra
     // character (the LuxAlgo CHoCH+ convention), never a new color.
     txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "") + suffix
     y = s.dir == "bull" ? s.level + labelOff() * 0.7 : s.level - labelOff() * 0.7
-    vizLabel(midMs, y, txt, color(na), accent, label.style_none, s.event == "mss" ? size.small : size.tiny)
+    vizLabel(midMs, y, txt, color(na), fade(accent, ageFade), label.style_none, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
     // Consecutive same-direction BoS streak ending at the latest event —
@@ -1560,14 +1566,14 @@ renderStructures() =>
     if array.size(structuresExt) > 0
         for i = array.size(structuresExt) - 1 to 0
             if drawn < maxStructDrawn
-                drawStructure(array.get(structuresExt, i), i == array.size(structuresExt) - 1 and streak >= 2 ? " ×" + str.tostring(streak) : "")
+                drawStructure(array.get(structuresExt, i), i == array.size(structuresExt) - 1 and streak >= 2 ? " ×" + str.tostring(streak) : "", drawn)
                 drawn += 1
     if showInternal
         drawnInt = 0
         if array.size(structuresInt) > 0
             for i = array.size(structuresInt) - 1 to 0
                 if drawnInt < maxStructDrawn
-                    drawStructure(array.get(structuresInt, i))
+                    drawStructure(array.get(structuresInt, i), "", drawnInt)
                     drawnInt += 1
 
 // ── Liquidity pools ──────────────────────────────────────────────────
@@ -1608,7 +1614,9 @@ voteStat(int v, int s) => s == 0 or v == 0 ? 0 : v == s ? 2 : -1
 
 pSet(int col, int row, string txt, color tint = na, color bg = na, string tip = "", bool bold = false) =>
     baseCol = col == 1 ? color.new(chart.fg_color, 35) : color.new(chart.fg_color, 20)
-    table.cell(panel, col, row, txt, text_color = na(tint) ? baseCol : tint, text_size = PANEL_TXT, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_center : col == 2 ? text.align_right : text.align_left, bgcolor = bg, tooltip = tip, text_formatting = bold ? text.format_bold : text.format_none)
+    // One space of padding on both sides — cells need air, and it widens
+    // the tinted glyph cells into proper status chips.
+    table.cell(panel, col, row, txt == "" ? "" : " " + txt + " ", text_color = na(tint) ? baseCol : tint, text_size = PANEL_TXT, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_center : col == 2 ? text.align_right : text.align_left, bgcolor = bg, tooltip = tip, text_formatting = bold ? text.format_bold : text.format_none)
 
 pRow(int row, int stat, string name, string detail, string tip) =>
     pSet(0, row, statGlyph(stat), statCol(stat), statBg(stat))
@@ -1744,7 +1752,8 @@ renderChecklist() =>
 
     countTint = handsOff ? colBear : count >= 3 ? colBull : count == 2 ? colLiq : color.new(chart.fg_color, 50)
     biasDetail = handsOff ? "conflict" : side == 0 ? "unclear" : (side > 0 ? "BULL ↑" : "BEAR ↓") + (count >= 3 ? " · A+ elig" : count == 2 ? " · B cap" : " · wait")
-    pSet(0, 1, str.tostring(count) + "/3", countTint, handsOff or count >= 2 ? statBg(handsOff ? -1 : count >= 3 ? 2 : 1) : color(na))
+    countDots = count >= 3 ? "●●●" : count == 2 ? "●●○" : count == 1 ? "●○○" : "○○○"
+    pSet(0, 1, countDots, countTint, handsOff or count >= 2 ? statBg(handsOff ? -1 : count >= 3 ? 2 : 1) : color(na), str.tostring(count) + "/3 bias components aligned")
     pSet(1, 1, "BIAS", color(na), color(na), "Count HTF + overnight + NY-open: 1/3 no-trade · 2/3 B · 3/3 A+ (daily-bias.md §1)")
     pSet(2, 1, biasDetail, handsOff ? color.new(colBear, 15) : side == 0 ? color(na) : color.new(accent, 15))
 
@@ -1764,11 +1773,11 @@ renderChecklist() =>
 
     // ENTRY banner — always a tinted band (the card's one high-presence
     // element); fully saturated only when every row above it passes.
-    string bTxt = "no setup in play"
+    string bTxt = "▸ no setup in play"
     color bCol = color.new(chart.fg_color, 45)
-    color bBg = color.new(chart.fg_color, 94)
+    color bBg = color.new(chart.fg_color, 92)
     if handsOff
-        bTxt := "HANDS OFF · open reverses bias"
+        bTxt := "▸ HANDS OFF · open reverses bias"
         bCol := colBear
         bBg := color.new(colBear, 85)
     else if tradable
@@ -1777,14 +1786,22 @@ renderChecklist() =>
         bBg := color.new(accent, 15)
     else if side != 0 and model != "" and hasCand
         blockTxt = count < 2 ? "bias " + str.tostring(count) + "/3" : p2 == -1 ? "bad price" : p2 == 0 ? "quality n/a" : not grabOk ? "no liquidity grab" : not candEntered ? "awaiting tap" : candChop ? "fought >15m · dead" : "awaiting 1m close"
-        bTxt := model + " " + sideArrow + " forming " + durTxt(modelMs) + " · " + blockTxt
-        bCol := color.new(accent, 20)
-        bBg := color.new(accent, 90)
+        bTxt := "▸ " + model + " " + sideArrow + " forming " + durTxt(modelMs) + " · " + blockTxt
+        bCol := color.new(accent, 15)
+        bBg := color.new(accent, 88)
     else if side != 0
-        bTxt := (side > 0 ? "lean LONG" : "lean SHORT") + " · bias " + str.tostring(count) + "/3"
-        bCol := color.new(accent, 30)
-        bBg := color.new(accent, 93)
+        bTxt := "▸ " + (side > 0 ? "lean LONG" : "lean SHORT") + " · bias " + str.tostring(count) + "/3"
+        bCol := color.new(accent, 25)
+        bBg := color.new(accent, 91)
     pSet(0, 9, bTxt, bCol, bBg, "Model · mechanism · structural stop at the zone edge (risk-and-management.md). Visual aid — the walker chain is the setup brain.", true)
+
+    // Spotlight the tracked PD array — an accent outline + ◈ marker tie
+    // the panel's PD-array row to the exact zone it means on the chart.
+    // Everything else recedes; the one zone that matters pops.
+    if hasCand and showVisuals
+        candLeft = not na(cand) ? (cand.kind == "ifvg" and not na(cand.invertedMs) ? cand.invertedMs : cand.createdMs) : candBpr.createdMs
+        vizBox(candLeft, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
+        vizLabel(time + RIGHT_PAD_MS, candTop, "◈", color(na), accent, label.style_label_left, size.tiny)
 
 // ── Render dispatch ──────────────────────────────────────────────────
 if barstate.islast
