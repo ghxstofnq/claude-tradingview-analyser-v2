@@ -1346,11 +1346,6 @@ zoneCe(color accent) => color.new(accent, 80)
 GHOST_FILL() => color.new(colNeutral, 92)
 GHOST_BORDER() => color.new(colNeutral, 78)
 
-// Label offset so text never sits on its reference line (ATR-scaled —
-// readable at any zoom on any instrument).
-labelOff() =>
-    na(atr14) ? syminfo.mintick * 10 : atr14 * 0.3
-
 // ── Levels ───────────────────────────────────────────────────────────
 // Untaken levels are the actionable draws: solid neutral line extending
 // right, name + price at the end. Swept levels TRUNCATE at the sweep bar
@@ -1557,8 +1552,10 @@ renderBprs() =>
 // pivot, neutral by design — structure carries the directional color.
 drawSwingLabel(Swing sw) =>
     txtCol = sw.swept ? fade(colNeutral, 45) : fade(colNeutral, 15)
-    y = sw.isHigh ? sw.price + labelOff() : sw.price - labelOff()
-    vizLabel(sw.barMs, y, sw.kind, color(na), txtCol, label.style_none, sw.tier == "swing" ? size.small : size.tiny)
+    // Style-based side anchoring (same as structure labels): anchor AT the
+    // pivot, label_down above highs / label_up below lows — pixel gap,
+    // zoom-stable, no ATR offset.
+    vizLabel(sw.barMs, sw.price, sw.kind, color(na), txtCol, sw.isHigh ? label.style_label_down : label.style_label_up, sw.tier == "swing" ? size.small : size.tiny)
 
 renderSwings() =>
     for sw in swingsExt
