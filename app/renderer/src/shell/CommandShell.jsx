@@ -23,7 +23,7 @@ import { BacktestPage } from "./pages/BacktestPage.jsx";
 import { AgentPage } from "./pages/AgentPage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
 import { SystemShellPage } from "./pages/SystemPage.jsx";
-import { HealthShellPage, RiskShellPage, FixturesShellPage, PrefsShellPage } from "./pages/UtilPages.jsx";
+import { RiskShellPage, PrefsShellPage } from "./pages/UtilPages.jsx";
 import { resolveKey } from "./keymap.helpers.js";
 import { buildCommands } from "./commandList.helpers.js";
 import { detectIntent } from "./paletteIntent.helpers.js";
@@ -76,7 +76,7 @@ function notifyDesktop(title, body) {
 const PAGE_COMPONENTS = {
   briefing: BriefingPage, live: LivePage, review: ReviewPage,
   backtest: BacktestPage, agent: AgentPage, settings: SettingsPage, system: SystemShellPage,
-  health: HealthShellPage, risk: RiskShellPage, fixtures: FixturesShellPage, prefs: PrefsShellPage,
+  risk: RiskShellPage, prefs: PrefsShellPage,
 };
 
 export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, currentPrice, onToggleTheme }) {
@@ -330,6 +330,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice });
   if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
   if (page === "settings") Object.assign(pageProps, { guards, setGuards, symbol, onToast: addToast });
+  if (page === "system") Object.assign(pageProps, { pushToast: addToast });
   const scrimShown = pal.open || flat.open || (page && !isAgent);
 
   return (

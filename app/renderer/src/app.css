@@ -4762,6 +4762,38 @@ button { border-radius: var(--r-sm); }
 .cmd-set-suspend .tag { font-size: 9px; letter-spacing: .08em; color: var(--amber); flex: none; }
 .cmd-set-suspend .rsn { flex: 1; font-size: 11.5px; color: var(--value); }
 
+/* ── System page (⌘7) — HEALTH | VERSIONS + ACTIONS + FILES ─────────────── */
+.cmd-sys { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.cmd-sys-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.cmd-sys-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; }
+.cmd-sys-cap { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cmd-sys-card > .cmd-sys-cap { display: block; margin-bottom: 10px; }
+.cmd-sys-note { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 10.5px; line-height: 1.55; color: var(--label-dim); }
+.cmd-sys-hrow { display: flex; align-items: center; gap: 9px; font-size: 11px; padding: 4px 0; }
+.cmd-sys-hrow .dot-inline { width: 6px; height: 6px; margin: 0; flex: none; }
+.cmd-sys-hrow .name { color: var(--value); flex: 1; }
+.cmd-sys-hrow .val { font: 400 10px var(--mono); color: var(--label); }
+.cmd-sys-vgrid { display: grid; grid-template-columns: auto 1fr; row-gap: 8px; column-gap: 14px; font-size: 11px; }
+.cmd-sys-vgrid .k { color: var(--label-dim); }
+.cmd-sys-vgrid .v { font: 400 10.5px var(--mono); color: var(--value); }
+.cmd-sys-vgrid .v.ok { color: var(--green); }
+.cmd-sys-vgrid .v.warn { color: var(--amber); }
+.cmd-sys-vgrid .v.bad { color: var(--red); }
+.cmd-sys-linkchip { font-size: 8.5px; letter-spacing: .06em; padding: 2px 8px; border-radius: var(--r-sm); cursor: pointer; color: var(--value); border: 1px solid var(--border); user-select: none; }
+.cmd-sys-linkchip.green { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.cmd-sys-linkchip.amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.cmd-sys-linkchip.red { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
+.cmd-sys-strip { display: flex; align-items: center; flex-wrap: wrap; padding: 12px 14px; }
+.cmd-sys-strip.actions { gap: 20px; }
+.cmd-sys-strip.files { gap: 14px; }
+.cmd-sys-actgrp { display: flex; align-items: center; gap: 7px; }
+.cmd-sys-actgrp .lbl { font-size: 10px; color: var(--value); }
+.cmd-sys .val-dim { font-size: 10px; color: var(--label-dim); }
+.cmd-sys-filepill { display: flex; align-items: center; gap: 6px; background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-md); padding: 4px 6px 4px 10px; }
+.cmd-sys-filepill .name { font: 400 10px var(--mono); color: var(--value); }
+.cmd-sys-filepill .open { font-size: 8.5px; letter-spacing: .06em; color: var(--blue); cursor: pointer; padding: 1px 5px; }
+.cmd-sys-filepill .reveal { font-size: 8.5px; letter-spacing: .06em; color: var(--label-dim); cursor: pointer; padding: 1px 5px; }
+
 /* hosted legacy popover bodies (PR1 bridge — native pages land in PR2). Any
    .bt-popover rendered inside a page-host is neutralized to a static, full-size
    panel; the page frame supplies the outer chrome. */
