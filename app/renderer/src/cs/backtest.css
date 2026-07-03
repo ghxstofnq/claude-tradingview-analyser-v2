@@ -40,15 +40,15 @@
 /* ── sections become bordered rounded cards (surface-2 / #242728 / r-lg) ─ */
 .bt-popover.embedded .section {
   background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: var(--r-lg); padding: 16px; margin: 12px 18px 0;
+  border-radius: var(--r-lg); padding: 18px 20px; margin: 14px 18px 0;
 }
 .bt-popover.embedded .body > .section:last-child,
 .bt-popover.embedded .body > *:last-child .section:last-child { margin-bottom: 16px; }
 
 /* two-up grid (IDLE config+recent, DONE summary+setups) */
 .bt-popover.embedded .bt-cols {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  padding: 12px 18px 0; align-items: start;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  padding: 14px 18px 0; align-items: start;
 }
 .bt-popover.embedded .bt-cols > .section { margin: 0; }
 
@@ -313,3 +313,48 @@
 .bt-popover.embedded .t-status.warn { color: var(--label); background: #18191a; }
 .bt-popover.embedded .t-btn.ok  { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); border-radius: var(--r-sm); }
 .bt-popover.embedded .t-btn.bad { color: var(--red);   border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: var(--r-sm); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   IDLE restructure — two-column config+summary over a full-width LIBRARY
+   table (Command Shell prototype shape). Shared card language reused by
+   every sub-state (RECORD / BASELINE / COMPARE / RUNNING / DONE / DETAIL).
+   ═══════════════════════════════════════════════════════════════════════ */
+.bt-popover.embedded .bt-idle { display: flex; flex-direction: column; }
+
+/* right summary card — clean metric rows (label left · mono value right) */
+.bt-popover.embedded .bt-summary { display: flex; flex-direction: column; }
+.bt-popover.embedded .bt-metrics { display: flex; flex-direction: column; }
+.bt-popover.embedded .bt-metric {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.bt-popover.embedded .bt-metric:last-child { border-bottom: 0; }
+.bt-popover.embedded .bt-metric .ml { color: var(--value); font-size: 12px; letter-spacing: .01em; }
+.bt-popover.embedded .bt-metric .mv {
+  color: var(--value-strong); font: 500 12px var(--mono); font-variant-numeric: tabular-nums;
+}
+.bt-popover.embedded .bt-metric .mv.green { color: var(--green); }
+.bt-popover.embedded .bt-metric .mv.red   { color: var(--red); }
+
+.bt-popover.embedded .bt-view-all-btn {
+  margin-top: 16px; align-self: flex-start;
+  font: 400 9.5px var(--sans); letter-spacing: .08em; color: var(--label);
+  background: transparent; border: 1px solid var(--border); border-radius: var(--r-pill);
+  padding: 5px 13px; cursor: pointer;
+}
+.bt-popover.embedded .bt-view-all-btn:hover { color: var(--value); border-color: var(--cs-onborder); }
+
+/* neutral (grey) status chip — reuses .cs-tag geometry, grey fill */
+.bt-popover.embedded .cs-tag.neutral { color: var(--label); background: var(--cs-onfill); }
+/* status chip trailing the sub-state title (RUNNING / DONE) */
+.bt-popover.embedded .bt-hd-chip { margin-left: 9px; }
+
+/* full-width LIBRARY table beneath the two columns */
+.bt-popover.embedded .bt-lib-preview .bt-cnt { color: var(--label-dim); font-weight: 400; margin-left: 4px; }
+.bt-popover.embedded .bt-lib-idle { width: 100%; border-collapse: collapse; }
+.bt-popover.embedded .bt-lib-idle th:first-child,
+.bt-popover.embedded .bt-lib-idle td:first-child { padding-left: 0; }
+.bt-popover.embedded .bt-lib-idle th:last-child,
+.bt-popover.embedded .bt-lib-idle td:last-child { padding-right: 0; text-align: right; }
+
+.bt-popover.embedded .bt-empty { color: var(--label-dim); font-size: 11px; padding: 10px 0 4px; }

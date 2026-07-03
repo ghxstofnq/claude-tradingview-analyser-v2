@@ -280,9 +280,12 @@ function IdleBody({ state, actions, symbolView }) {
   const noPick = jobs.length === 0;
   const canRun = !noPick;
   const run = () => { if (canRun) actions.startStudy(jobs); };
+  const sym = symbolView === "MES1!" ? "MES" : "MNQ";
+  const cumR = (agg.cum_r > 0 ? "+" : "") + agg.cum_r.toFixed(1) + "R";
 
   return (
-    <div className="bt-cols">
+    <div className="bt-idle">
+      <div className="bt-cols">
       <div className="section">
         <div className="sect-hd"><span>CONFIGURE RECORD</span><span className="meta">records from the chart</span></div>
 
@@ -344,22 +347,40 @@ function IdleBody({ state, actions, symbolView }) {
         </div>
       </div>
 
-      <div className="section">
-        <div className="sect-hd"><span>RECENT</span><span className="meta">{agg.total_runs} RUNS</span></div>
-        <div className="recent-summary">
-          A+ <b className="green">{pct(agg.aplus_hit_rate)}</b>
-          {" · "}B <b>{pct(agg.b_hit_rate)}</b>
-          {" · "}CUM <b className={agg.cum_r >= 0 ? "green" : "red"}>{agg.cum_r > 0 ? "+" : ""}{agg.cum_r.toFixed(1)}R</b>
+      <div className="section bt-summary">
+        <div className="sect-hd"><span>RECENT</span><span className="cs-tag neutral">{sym} · {agg.total_runs} RUN{agg.total_runs === 1 ? "" : "S"}</span></div>
+        <div className="bt-metrics">
+          <div className="bt-metric"><span className="ml">A+ HIT RATE</span><span className="mv green">{pct(agg.aplus_hit_rate)}</span></div>
+          <div className="bt-metric"><span className="ml">B HIT RATE</span><span className="mv">{pct(agg.b_hit_rate)}</span></div>
+          <div className="bt-metric"><span className="ml">CUMULATIVE R</span><span className={"mv " + (agg.cum_r >= 0 ? "green" : "red")}>{cumR}</span></div>
+          <div className="bt-metric"><span className="ml">TOTAL RUNS</span><span className="mv">{agg.total_runs}</span></div>
         </div>
-        {recent.length === 0 && (
-          <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 0" }}>no runs yet</div>
-        )}
-        {recent.map((r) => (
-          <RunRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
-        ))}
-        <div className="view-all" onClick={actions.viewAll}>
-          VIEW BASELINE · {symRuns.length} RUNS  →
+        <button type="button" className="bt-view-all-btn" onClick={actions.viewAll}>VIEW BASELINE · {symRuns.length} →</button>
+      </div>
+      </div>
+
+      <div className="section bt-lib-preview">
+        <div className="sect-hd">
+          <span>LIBRARY <span className="bt-cnt">{recent.length} run{recent.length === 1 ? "" : "s"}</span></span>
+          <span className="meta">click a run for detail</span>
         </div>
+        {recent.length === 0
+          ? <div className="bt-empty">no runs yet — record a session to begin</div>
+          : (
+            <table className="lib-table bt-lib-idle">
+              <thead>
+                <tr>
+                  <th>DATE</th><th>SESSION</th><th>MODE</th><th>SETUPS</th>
+                  <th>W / L</th><th>GRADE</th><th>P&amp;L</th><th>YOU</th><th>COST</th><th aria-label="open" />
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((r) => (
+                  <LibRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
+                ))}
+              </tbody>
+            </table>
+          )}
       </div>
     </div>
   );
@@ -394,6 +415,7 @@ function RunningBody({ state, actions }) {
       <div className="section">
         <div className="sect-hd">
           <span>{cur.date} · {sessionLabel(cur.session)} · {(cur.mode ?? "").toUpperCase()}</span>
+          <span className="cs-tag blue bt-hd-chip">RUNNING</span>
           <span className="meta">${(p.cost ?? 0).toFixed(2)}</span>
         </div>
         <div className="form-row"><span className="k">BAR</span><span className="v">{p.bar} / {p.total}</span></div>
@@ -504,6 +526,7 @@ function DoneBody({ state, actions }) {
       <div className="section">
         <div className="sect-hd">
           <span>{s.date} · {sessionLabel(s.session)} · {(s.mode ?? "").toUpperCase()}</span>
+          <span className="cs-tag green bt-hd-chip">DONE</span>
           <span className="meta">${(s.cost_usd ?? 0).toFixed(2)}</span>
         </div>
         <div className="done-grid cols-4">
@@ -1057,23 +1080,6 @@ function Seg({ value, onChange, options }) {
           onClick={() => onChange(v)}
         >{lbl}</div>
       ))}
-    </div>
-  );
-}
-
-function RunRow({ run, onClick }) {
-  const f = formatRunForRow(run);
-  const grade = runGrade(run);
-  const rDisp = `${run.total_r > 0 ? "+" : ""}${(run.total_r ?? 0).toFixed(1)}R`;
-  return (
-    <div className="run-row" onClick={onClick}>
-      <span className="date">{(run.date ?? "").slice(5)}</span>
-      <span className="ses">{f.session_short}</span>
-      <span><span className={"gp " + gradeClass(grade)}>{grade}</span></span>
-      <span className={"pnl " + (run.total_r > 0 ? "green" : run.total_r < 0 ? "red" : "dim")}>
-        {(run.total_r ?? 0) === 0 ? "—" : rDisp}
-      </span>
-      <span className="arr">▸</span>
     </div>
   );
 }
