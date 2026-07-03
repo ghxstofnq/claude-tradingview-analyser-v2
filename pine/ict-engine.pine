@@ -1464,11 +1464,13 @@ renderLeg() =>
         vizLabel(x2, eq, "EQ", color(na), fade(colNeutral, 40), label.style_label_left, size.tiny)
 
 // ── Zones ────────────────────────────────────────────────────────────
+// Chop is deliberately NOT marked on the chart (the amber "CHOP" tag was
+// noise) — the checklist's Confirm row still reports ">15m in zone".
 entryMarkerText(bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
-    confirmClose ? "✓ entry" : chop15 ? "CHOP" : entered and not ceHeld ? "✗ CE" : ""
+    confirmClose ? "✓ entry" : chop15 ? "" : entered and not ceHeld ? "✗ CE" : ""
 
 entryMarkerColor(bool confirmClose, bool chop15, bool entered, bool ceHeld, color accent) =>
-    confirmClose ? accent : chop15 ? colLiq : entered and not ceHeld ? colBear : color(na)
+    confirmClose ? accent : entered and not ceHeld ? colBear : color(na)
 
 zoneTag(string base, string sizeQuality) =>
     sizeQuality == "large" ? base + "+" : sizeQuality == "tiny" ? "" : base
