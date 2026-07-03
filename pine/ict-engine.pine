@@ -1426,22 +1426,41 @@ renderLevels() =>
 // The current leg's running extremes — quiet dotted guides for the live
 // structural invalidation anchors (strategy §6).
 renderLeg() =>
-    // Lines only for the leg extremes — the dotted guides are self-evident;
-    // their text labels were pure noise. EQ keeps its tag (it's the anchor).
+    // Strong/weak extremes (the SMC convention): the extreme that PRODUCED
+    // the last swing-tier break is strong — protected, "should not be
+    // taken out" — and the one that failed to break anything is weak, the
+    // expected target. Bear break -> Strong High / Weak Low; bull break ->
+    // Strong Low / Weak High. Strong draws solid and more present, weak
+    // stays dotted; anonymous dotted guides until the leg has a break.
+    string hiTag = ""
+    string loTag = ""
+    bool hiStrong = false
+    bool loStrong = false
+    if not na(lastExtStruct)
+        if lastExtStruct.dir == "bear"
+            hiTag := "Strong High"
+            loTag := "Weak Low"
+            hiStrong := true
+        else
+            hiTag := "Weak High"
+            loTag := "Strong Low"
+            loStrong := true
+    x2 = time + RIGHT_PAD_MS
     if not na(legHigh) and not na(legHighMs)
-        x2 = time + RIGHT_PAD_MS
-        vizLine(legHighMs, legHigh, x2, legHigh, fade(colNeutral, 30), line.style_dotted, 1)
+        vizLine(legHighMs, legHigh, x2, legHigh, fade(colNeutral, hiStrong ? 22 : 38), hiStrong ? line.style_solid : line.style_dotted, 1)
+        if hiTag != ""
+            vizLabel(x2, legHigh, hiTag, color(na), fade(colNeutral, hiStrong ? 22 : 38), label.style_label_left, size.tiny)
     if not na(legLow) and not na(legLowMs)
-        x2 = time + RIGHT_PAD_MS
-        vizLine(legLowMs, legLow, x2, legLow, fade(colNeutral, 30), line.style_dotted, 1)
+        vizLine(legLowMs, legLow, x2, legLow, fade(colNeutral, loStrong ? 22 : 38), loStrong ? line.style_solid : line.style_dotted, 1)
+        if loTag != ""
+            vizLabel(x2, legLow, loTag, color(na), fade(colNeutral, loStrong ? 22 : 38), label.style_label_left, size.tiny)
     // Equilibrium (CE) of the current dealing range — the retrace anchor
     // the entries key off ("ideally the CE / midpoint", entry-models.md).
     // A quiet guide line only: no gating, no premium/discount shading.
     if showLegEq and not na(legHigh) and not na(legLow) and not na(legHighMs) and not na(legLowMs)
         eq = (legHigh + legLow) / 2
-        x1 = math.min(legHighMs, legLowMs)
-        x2 = time + RIGHT_PAD_MS
-        vizLine(x1, eq, x2, eq, fade(colNeutral, 40), line.style_dotted, 1)
+        eqX1 = math.min(legHighMs, legLowMs)
+        vizLine(eqX1, eq, x2, eq, fade(colNeutral, 40), line.style_dotted, 1)
         vizLabel(x2, eq, "EQ", color(na), fade(colNeutral, 40), label.style_label_left, size.tiny)
 
 // ── Zones ────────────────────────────────────────────────────────────
