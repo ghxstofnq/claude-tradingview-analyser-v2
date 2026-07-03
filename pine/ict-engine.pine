@@ -1534,14 +1534,17 @@ renderLeg() =>
 // ── Zones ────────────────────────────────────────────────────────────
 // Chop is deliberately NOT marked on the chart (the amber "CHOP" tag was
 // noise) — the checklist's Confirm row still reports ">15m in zone".
-// The marker prints ONLY on a Lanto-strict confirmation (prior-bar tap +
-// engulfing close) and says "confirm", not "entry": it marks the zone's
-// confirmation event, never a trade call.
-entryMarkerText(bool confirmStrict, bool chop15, bool entered, bool ceHeld) =>
-    confirmStrict ? "✓ confirm" : chop15 ? "" : entered and not ceHeld ? "✗ CE" : ""
+// The marker keys on confirm_close (which already enforces the deliberate
+// close: clean body, no doji, CE held, 10-min window) and says "confirm",
+// never "entry". SAME-CANDLE tap-and-close is VALID — the hand-graded
+// record's winning entries are same-candle (06-16 tape, 07-02 live); the
+// strict prior-bar-tap variant folded NEGATIVE on 2026-07-03 and lives on
+// only as emit evidence (confirm_strict).
+entryMarkerText(bool confirmClose, bool chop15, bool entered, bool ceHeld) =>
+    confirmClose ? "✓ confirm" : chop15 ? "" : entered and not ceHeld ? "✗ CE" : ""
 
-entryMarkerColor(bool confirmStrict, bool chop15, bool entered, bool ceHeld, color accent) =>
-    confirmStrict ? accent : entered and not ceHeld ? colBear : color(na)
+entryMarkerColor(bool confirmClose, bool chop15, bool entered, bool ceHeld, color accent) =>
+    confirmClose ? accent : entered and not ceHeld ? colBear : color(na)
 
 zoneTag(string base, string sizeQuality) =>
     sizeQuality == "large" ? base + "+" : sizeQuality == "tiny" ? "" : base
@@ -1549,7 +1552,7 @@ zoneTag(string base, string sizeQuality) =>
 // One ACTIVE zone: airy accent fill, hairline border, dotted CE midline,
 // entry marker at the right edge. iFVGs draw dashed (the inversion is the
 // strategy's zone — visually distinct from a virgin gap).
-drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmStrict, bool chop15, bool entered, bool ceHeld, string state = "fresh", float deepPx = na) =>
+drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool dashed, bool confirmClose, bool chop15, bool entered, bool ceHeld, string state = "fresh", float deepPx = na) =>
     accent = accentOf(dir)
     x2 = time + RIGHT_PAD_MS
     ce = (top + bottom) / 2
@@ -1566,9 +1569,9 @@ drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool
     else
         vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
     vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
-    mk = entryMarkerText(confirmStrict, chop15, entered, ceHeld)
+    mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
     if mk != ""
-        vizLabel(x2, ce, mk, color(na), entryMarkerColor(confirmStrict, chop15, entered, ceHeld, accent), label.style_label_left, size.tiny)
+        vizLabel(x2, ce, mk, color(na), entryMarkerColor(confirmClose, chop15, entered, ceHeld, accent), label.style_label_left, size.tiny)
 
 // One DEAD zone: truncated at its mitigation bar, neutral ghost, no text.
 drawGhostZone(int leftMs, float top, float bottom, int deadMs) =>
@@ -1622,7 +1625,7 @@ renderZones() =>
                 // Only zones that have earned attention carry text: large,
                 // inverted, or already interacting with price.
                 zTagTxt = f.sizeQuality == "large" or f.entered or f.wickTapped or isIfvg ? zoneTag(isIfvg ? "iFVG" : "FVG", f.sizeQuality) : ""
-                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zTagTxt, isIfvg, f.confirmStrict, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
+                drawActiveZone(zLeft, f.top, f.bottom, f.dir, zTagTxt, isIfvg, f.confirmClose, f.chop15, f.entered, f.ceHeld, f.state, f.deepPx)
                 if isIfvg and showHistorical and not na(f.invertedMs)
                     drawGhostZone(f.createdMs, f.top, f.bottom, f.invertedMs)
                 drawn += 1
@@ -1636,7 +1639,7 @@ renderBprs() =>
             if bDead and showHistorical
                 drawGhostZone(b.createdMs, b.top, b.bottom, not na(b.mitigatedMs) ? b.mitigatedMs : time)
             if not bDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(b.top, b.bottom, b.dir))
-                drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmStrict, b.chop15, b.entered, b.ceHeld, b.state)
+                drawActiveZone(b.createdMs, b.top, b.bottom, b.dir, "BPR", false, b.confirmClose, b.chop15, b.entered, b.ceHeld, b.state)
                 drawn += 1
 
 // ── Swings ───────────────────────────────────────────────────────────
@@ -1898,7 +1901,6 @@ renderChecklist() =>
     candConfirmDir = not na(cand) ? cand.confirmDir : not na(candBpr) ? candBpr.confirmDir : "none"
     candChop = not na(cand) ? cand.chop15 : not na(candBpr) ? candBpr.chop15 : false
     candTookLiq = not na(cand) ? cand.tookLiq : not na(candBpr) ? candBpr.tookLiq : false
-    candStrict = not na(cand) ? cand.confirmStrict : not na(candBpr) ? candBpr.confirmStrict : false
     candEnteredMs = not na(cand) ? cand.enteredMs : not na(candBpr) ? candBpr.enteredMs : na
     candBornMs = not na(cand) ? (cand.kind == "ifvg" and not na(cand.invertedMs) ? cand.invertedMs : cand.createdMs) : not na(candBpr) ? candBpr.createdMs : na
     kindLbl = candKind == "ifvg" ? "iFVG" : candKind == "bpr" ? "BPR" : "FVG"
@@ -1906,11 +1908,11 @@ renderChecklist() =>
     grabOk = gMs > 0 or (hasCand and candTookLiq)
     r5 = side == 0 ? 0 : grabOk ? 2 : 0
     r6 = not hasCand ? 0 : candEntered ? (candCeHeld ? 2 : 1) : 1
-    // 7 · confirmation (confirmation.md): STRICT only — a prior-bar tap
-    // then a deliberate engulfing close in the trade direction. A loose
-    // same-bar close is attention (amber), never a pass; >15 minutes
-    // fighting in the zone kills it.
-    r7 = not hasCand or not candEntered ? 0 : candStrict and candConfirmDir == sideStr ? 2 : candConfirm and candConfirmDir == sideStr ? 1 : candChop ? -1 : 1
+    // 7 · confirmation (confirmation.md): a deliberate 1m close in the
+    // trade direction. SAME-CANDLE tap-and-close is valid — the hand-
+    // graded record's winning entries are same-candle (2026-07-03 fold);
+    // >15 minutes fighting in the zone kills it.
+    r7 = not hasCand or not candEntered ? 0 : candConfirm and candConfirmDir == sideStr ? 2 : candChop ? -1 : 1
     // Multi-alignment (ENTRY 27:05): two imbalances confirming one move —
     // the candidate plus another live, engaged, in-direction zone
     // overlapping it. On an aligned 2/3 day with good price this elevates
@@ -1986,7 +1988,7 @@ renderChecklist() =>
     // (the 10–15m rule made visible), since birth while waiting.
     candAge = candEntered and not na(candEnteredMs) ? " " + durTxt(candEnteredMs) : not na(candBornMs) ? " " + durTxt(candBornMs) : ""
     pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") + candAge : side == 0 ? "—" : "none near", "Best NEAR live gap in-direction (within ~8 ATR — near price is the realistic draw, daily-bias.md §2): fresh > took-liq > displacement. Age = since tap when entered, since birth otherwise.")
-    pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candConfirm and candConfirmDir == sideStr ? "close · no retest" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "STRICT confirmation: tap on a prior bar, then a deliberate engulfing 1m close through the zone (confirmation.md). A same-bar tap-and-close shows amber, never passes. Dead if it fights >10–15m.")
+    pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone in the trade direction (confirmation.md). Same-candle tap-and-close is valid — the hand-graded winners are same-candle. Dead if it fights >10–15m.")
 
     // ENTRY banner — always a tinted band (the card's one high-presence
     // element); fully saturated only when every row above it passes.
