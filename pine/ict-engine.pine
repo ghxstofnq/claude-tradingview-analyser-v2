@@ -1579,16 +1579,21 @@ drawStructure(Structure s, string suffix = "", int age = 0) =>
     accent = s.event == "mss" ? accentOf(s.dir) : colNeutral
     ageFade = math.min(age * 12, 36)
     lnStyle = s.tier == "swing" ? line.style_solid : line.style_dashed
-    // Softened to the zones' airy weight — same hue family, transparency
-    // does the work (a saturated red/green line reads amateur next to the
-    // translucent FVG fills).
-    vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 38 + ageFade), lnStyle, s.displacement ? 2 : 1)
     midMs = s.brokenSwingMs + (s.confirmedMs - s.brokenSwingMs) / 2
     // "+" marks the displacement-confirmed variant — same hue, one extra
     // character (the LuxAlgo CHoCH+ convention), never a new color.
     txt = (s.event == "mss" ? "MSS" : "BoS") + (s.displacement ? "+" : "") + (s.validation == "sweep" ? "·s" : "") + suffix
-    // Label sits centered ON the break line (style_none centers the text
-    // at its anchor), not offset above/below it.
+    // The line BREAKS around the centered label — two segments with a
+    // character-scaled gap, so the text sits in the line, not on it.
+    // Softened to the zones' airy weight (transparency does the work).
+    lc = fade(accent, 38 + ageFade)
+    lw = s.displacement ? 2 : 1
+    barMs = timeframe.in_seconds() * 1000
+    gapHalf = int(math.round(str.length(txt) * (s.event == "mss" ? 0.6 : 0.45) * barMs / 2))
+    if midMs - gapHalf > s.brokenSwingMs
+        vizLine(s.brokenSwingMs, s.level, midMs - gapHalf, s.level, lc, lnStyle, lw)
+    if midMs + gapHalf < s.confirmedMs
+        vizLine(midMs + gapHalf, s.level, s.confirmedMs, s.level, lc, lnStyle, lw)
     vizLabel(midMs, s.level, txt, color(na), fade(accent, 22 + ageFade), label.style_none, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
