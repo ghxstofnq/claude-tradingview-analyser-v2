@@ -4872,6 +4872,26 @@ button { border-radius: var(--r-sm); }
 .cmd-tv-signin .m { font-size: 11.5px; color: var(--value); }
 .cmd-tv-signin .pill.primary { font-size: 11px; font-weight: 500; padding: 5px 13px; border-radius: var(--r-md); cursor: pointer; white-space: nowrap; }
 
+/* ── Ask-view evidence chips + card (real brief levels only) ───────────── */
+.cmd-ev-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.cmd-ev-chip { font-size: 10px; font-family: var(--mono); color: var(--label); padding: 2px 9px; border-radius: var(--r-pill); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; user-select: none; }
+.cmd-ev-chip:hover { color: var(--value); }
+.cmd-ev-chip.on { color: var(--value-strong); background: var(--surface-2); border-color: color-mix(in srgb, var(--blue) 35%, transparent); }
+.cmd-ev-chip b { color: var(--value); font-weight: 500; }
+.cmd-ev-card { margin-top: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; }
+.cmd-ev-card .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.cmd-ev-card .hd .nm { font-size: 12px; font-weight: 500; color: var(--value-strong); }
+.cmd-ev-card .hd .px { font-family: var(--mono); font-size: 12px; color: var(--value); flex: 1; }
+.cmd-ev-card .hd .st { font-size: 8.5px; letter-spacing: .06em; padding: 1px 7px; border-radius: var(--r-xs); }
+.cmd-ev-card .hd .st.on { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cmd-ev-card .hd .st.dim { color: var(--label-dim); }
+.cmd-ev-card .rows { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.cmd-ev-card .r { display: flex; align-items: baseline; gap: 10px; font-size: 10.5px; }
+.cmd-ev-card .r .k { color: var(--label-dim); width: 60px; flex: none; }
+.cmd-ev-card .r .v { color: var(--value); font-family: var(--mono); }
+.cmd-ev-card .r .v.cite { font-size: 9px; color: var(--label); word-break: break-all; }
+.cmd-ev-card .acts { display: flex; gap: 8px; }
+
 /* hosted legacy popover bodies (PR1 bridge — native pages land in PR2). Any
    .bt-popover rendered inside a page-host is neutralized to a static, full-size
    panel; the page frame supplies the outer chrome. */

@@ -45,7 +45,7 @@ export function Palette({
         </div>
       )}
 
-      {intent === "ask" && <AskView chat={chat} query={askQuery || query.trim()} onClose={onClose} />}
+      {intent === "ask" && <AskView chat={chat} query={askQuery || query.trim()} onClose={onClose} onToast={onToast} />}
       {intent === "ticket" && (
         <TicketView seed={parseTicket(query, { defaultSymbol: symbol })} onToast={onToast} onClose={onClose} />
       )}
