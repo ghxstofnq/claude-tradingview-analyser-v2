@@ -3220,6 +3220,62 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .bt-popover .live-tabs .tab:hover { color: var(--value); border-color: var(--label); }
 .bt-popover .live-tabs .tab.on { color: var(--primary); border-color: var(--primary); background: rgba(255,255,255,0.08); }
 
+/* ── Command Shell LIVE — FEED|POSITIONS segment + detector strip + guards ── */
+.bt-popover .live-seg { display: inline-flex; gap: 2px; }
+.bt-popover .live-seg .seg-tab {
+  font-size: 10px; letter-spacing: 0.06em; color: var(--label); font-family: var(--mono);
+  padding: 3px 12px; border-radius: var(--r-pill); cursor: pointer; white-space: nowrap; user-select: none;
+}
+.bt-popover .live-seg .seg-tab:hover { color: var(--value); }
+.bt-popover .live-seg .seg-tab.on { color: var(--value-strong); background: var(--surface-3); }
+
+.bt-popover .live-det-strip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 16px; background: var(--surface-0); border-bottom: 1px solid var(--border);
+}
+.bt-popover .live-det-strip .lbl { font-size: 9px; letter-spacing: 0.08em; color: var(--label-dim); }
+.bt-popover .live-det-strip .val { font-size: 10px; font-family: var(--mono); }
+.bt-popover .live-det-strip .val.amber { color: var(--amber); }
+.bt-popover .live-det-strip .val.red { color: var(--red); }
+.bt-popover .live-det-strip .det-toggle {
+  font-size: 10px; font-family: var(--mono); letter-spacing: 0.04em; cursor: pointer;
+  padding: 2px 10px; border-radius: var(--r-pill); border: 1px solid var(--border);
+}
+.bt-popover .live-det-strip .det-toggle.start { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.bt-popover .live-det-strip .det-toggle.stop { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+
+.bt-popover .live-banner {
+  padding: 6px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2);
+  font-size: 10.5px; letter-spacing: 0.14em;
+}
+.bt-popover .live-banner.amber { color: var(--amber); }
+.bt-popover .live-banner.red { color: var(--red); cursor: pointer; }
+
+/* POSITIONS scrolls via the .body's own overflow — .live-positions is a natural-
+   height column; InTradeView's inner .work-scroll is neutralized so the whole
+   stack (position card + guards + fills) scrolls as one. */
+.bt-popover .live-positions { display: flex; flex-direction: column; padding-bottom: 12px; }
+.bt-popover .live-positions > .work-scroll { overflow: visible; height: auto; }
+
+.bt-popover .live-flat-empty { padding: 40px 20px; text-align: center; }
+.bt-popover .live-flat-empty .t { font-size: 12px; font-weight: 500; color: var(--value); letter-spacing: 0.04em; }
+.bt-popover .live-flat-empty .s { margin-top: 6px; font-size: 10.5px; color: var(--label-dim); }
+
+.bt-popover .guard-budget .gb-row { display: flex; align-items: center; justify-content: space-between; margin: 6px 0; }
+.bt-popover .guard-budget .gb-name { font-size: 10.5px; color: var(--label); }
+.bt-popover .guard-budget .gb-val { font-size: 10.5px; font-family: var(--mono); color: var(--value); }
+.bt-popover .guard-budget .gb-val.warn { color: var(--amber); }
+.bt-popover .guard-budget .gb-val.bad { color: var(--red); }
+.bt-popover .guard-budget .gb-track { height: 5px; border-radius: var(--r-sm); background: var(--surface-1); overflow: hidden; margin: 2px 0 8px; }
+.bt-popover .guard-budget .gb-fill { display: block; height: 100%; background: var(--amber); }
+.bt-popover .guard-budget .gb-fill.bad { background: var(--red); }
+
+.bt-popover .fill-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bt-popover .fill-chip { font-size: 10px; font-family: var(--mono); padding: 2px 8px; border-radius: var(--r-xs); border: 1px solid var(--border); white-space: nowrap; }
+.bt-popover .fill-chip.win { color: var(--green); }
+.bt-popover .fill-chip.loss { color: var(--red); }
+.bt-popover .fill-empty { font-size: 10px; color: var(--label); }
+
 /* ── CHAT popover — channels, read-only backend feeds, peek strip ──────── */
 .bt-popover .chat-body { display: flex; flex-direction: column; overflow: hidden; padding: 0; background: var(--surface-0); scrollbar-gutter: auto; }
 .bt-popover .chat-body > .claude { flex: 1; min-height: 0; }

@@ -132,6 +132,49 @@ export function liveGridFromTrade(trade, lastClose) {
   };
 }
 
+// Session guard budgets from today's closed fills (real data — no fabricated
+// denominators). The app enforces exactly one session budget: the daily-loss
+// limit (guards.dailyLimit). Trades-today and consecutive-losses are surfaced as
+// plain counts, NOT as "n/max" bars, because no max-trades / max-consec guard
+// exists to enforce a denominator (settings guards = perTradeMax/dailyLimit/
+// defaultRisk). Fabricating a ceiling would be a fake control.
+//
+// fills: useFills(TODAY()) records { side, qty, actual:{ usd, r } } in
+// chronological order. Returns { dailyLoss:{used,limit,pct,tripped}, trades, consecLosses }.
+export function liveGuardBudgets(fills, guards) {
+  const closed = (fills || []).filter((f) => f && f.actual && typeof f.actual.usd === "number");
+  const net = closed.reduce((s, f) => s + (Number(f.actual.usd) || 0), 0);
+  const lossUsed = net < 0 ? -net : 0;
+  const limit = Number(guards?.dailyLimit) > 0 ? Number(guards.dailyLimit) : null;
+  let consec = 0;
+  for (let i = closed.length - 1; i >= 0; i--) {
+    if (Number(closed[i].actual.usd) < 0) consec++; else break;
+  }
+  return {
+    dailyLoss: {
+      used: Math.round(lossUsed),
+      limit: limit != null ? Math.round(limit) : null,
+      pct: limit ? Math.min(100, (lossUsed / limit) * 100) : 0,
+      tripped: limit != null && lossUsed >= limit,
+    },
+    trades: closed.length,
+    consecLosses: consec,
+  };
+}
+
+// Format today's closed fills into compact chips for the TODAY'S FILLS strip.
+// Each = { side, qty, r, usd, win } — realized R preferred, $ as fallback; both
+// come straight from the recorded fill (never recomputed here).
+export function fillChips(fills) {
+  return (fills || []).filter((f) => f && f.actual).map((f) => {
+    const usd = Number(f.actual.usd);
+    const r = typeof f.actual.r === "number" ? `${f.actual.r >= 0 ? "+" : ""}${f.actual.r}R` : null;
+    const usdStr = Number.isFinite(usd)
+      ? `${usd >= 0 ? "+$" : "−$"}${Math.abs(Math.round(usd)).toLocaleString("en-US")}` : null;
+    return { side: String(f.side || "").toUpperCase(), qty: f.qty ?? null, r, usd: usdStr, win: Number.isFinite(usd) && usd >= 0 };
+  });
+}
+
 // design.md 2×2 framing: 2 models (Reversal / Continuation) × 2 mechanisms
 // (FVG-retrace / inversion). The walker emits one combined name — MSS / Trend /
 // Inversion — so annotate the model family for a clearer entry-model label,
