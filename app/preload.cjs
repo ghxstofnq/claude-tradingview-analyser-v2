@@ -101,6 +101,15 @@ contextBridge.exposeInMainWorld("api", {
     start() { return ipcRenderer.invoke("detector:start"); },
     stop()  { return ipcRenderer.invoke("detector:stop"); },
   },
+  supervisor: {
+    nudge() { return ipcRenderer.invoke("supervisor:nudge"); },
+  },
+  fixtures: {
+    list() { return ipcRenderer.invoke("fixtures:list"); },
+    run(id) { return ipcRenderer.invoke("fixtures:run", { id }); },
+    runAll() { return ipcRenderer.invoke("fixtures:run_all"); },
+    expected(id) { return ipcRenderer.invoke("fixtures:expected", { id }); },
+  },
   execution: {
     state() { return ipcRenderer.invoke("execution:state"); },
     fills(date) { return ipcRenderer.invoke("execution:fills", { date }); },

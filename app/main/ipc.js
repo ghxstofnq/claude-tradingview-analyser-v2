@@ -12,7 +12,8 @@ import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
 import { startAlertPolling, stopAlertPolling } from "./alerts.js";
 import { setMode } from "./mode.js";
-import { noteManualStop, noteManualStart } from "./session-supervisor.js";
+import { noteManualStop, noteManualStart, nudgeSupervisor } from "./session-supervisor.js";
+import { listFixtures, runFixture, runAllFixtures, readFixtureExpected } from "./fixtures.js";
 import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
 import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
 import { getCurrentSurfaceState, clearCurrentSurfaceState } from "./tools/surface.js";
@@ -51,6 +52,31 @@ export function registerIpc(win) {
     // noteManualStop tells the session supervisor not to auto-re-arm for the
     // remainder of this session — a deliberate stop must stay stopped.
     try { noteManualStop(); stopDetector(); setMode("prep"); send("health:update", { detector: "stopped" }); ipc.send("mode:current", { mode: "prep" }); return { ok: true }; }
+    catch (err) { return { ok: false, error: String(err?.message || err) }; }
+  });
+
+  // Kick the session supervisor's watchdog now (re-checks readiness, auto-arms,
+  // and restarts a stale detector out of band). This is the real "restart
+  // supervision" — distinct from detector:start (which only starts the detector).
+  ipcMain.handle("supervisor:nudge", async () => {
+    try { await nudgeSupervisor(); return { ok: true, mode: "nudged" }; }
+    catch (err) { return { ok: false, error: String(err?.message || err) }; }
+  });
+
+  // Read-only fixtures runner (System page). Lists + runs the hand-graded
+  // regression fixtures via the existing smoke/verify scripts; no writes.
+  ipcMain.handle("fixtures:list", async () => {
+    try { return listFixtures(); } catch (err) { return { ok: false, error: String(err?.message || err), fixtures: [] }; }
+  });
+  ipcMain.handle("fixtures:run", async (_evt, { id } = {}) => {
+    try { if (!id) throw new Error("id required"); return await runFixture(id); }
+    catch (err) { return { ok: false, status: "fail", error: String(err?.message || err) }; }
+  });
+  ipcMain.handle("fixtures:run_all", async () => {
+    try { return await runAllFixtures(); } catch (err) { return { ok: false, status: "fail", error: String(err?.message || err) }; }
+  });
+  ipcMain.handle("fixtures:expected", async (_evt, { id } = {}) => {
+    try { if (!id) throw new Error("id required"); return readFixtureExpected(id); }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
