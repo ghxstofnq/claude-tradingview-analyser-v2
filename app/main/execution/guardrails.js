@@ -21,6 +21,36 @@ export function checkOrder({ hasStop, sizing, guards, dayState } = {}) {
   if (G.perTradeMax != null && risk > G.perTradeMax) {
     return { ok: false, code: "OVER_MAX", message: `Computed risk $${risk} exceeds the $${G.perTradeMax} per-trade ceiling.` };
   }
+  // Hard per-order size cap — reject (never silently clamp) an order over the
+  // ceiling. Fail-closed: a non-finite/absent contract count with the cap set blocks.
+  if (G.maxContracts != null) {
+    const n = Number(sizing?.contracts);
+    if (!Number.isFinite(n) || n > G.maxContracts) {
+      return { ok: false, code: "OVER_CONTRACTS",
+        message: `Order size ${sizing?.contracts} exceeds the ${G.maxContracts}-contract per-order cap.` };
+    }
+  }
+  // Per-day trade cap. dayState.tradeCount MUST be supplied when the cap is set —
+  // undefined ⇒ block (a missing count must never allow an unbounded day).
+  if (G.maxTrades != null) {
+    const n = Number(dayState?.tradeCount);
+    if (!Number.isFinite(n)) {
+      return { ok: false, code: "TRADE_COUNT_UNKNOWN", message: "Daily trade count unavailable — blocking (fail-closed)." };
+    }
+    if (n >= G.maxTrades) {
+      return { ok: false, code: "MAX_TRADES", message: `Daily trade cap ${G.maxTrades} reached (${n} today) — new entries locked.` };
+    }
+  }
+  // Consecutive-loss halt. dayState.consecLosses MUST be supplied when set.
+  if (G.maxConsec != null) {
+    const n = Number(dayState?.consecLosses);
+    if (!Number.isFinite(n)) {
+      return { ok: false, code: "CONSEC_UNKNOWN", message: "Consecutive-loss count unavailable — blocking (fail-closed)." };
+    }
+    if (n >= G.maxConsec) {
+      return { ok: false, code: "MAX_CONSEC", message: `${n} consecutive losses ≥ ${G.maxConsec} limit — halted until next session.` };
+    }
+  }
   if (G.dailyLimit != null) {
     const realized = Number(dayState?.realizedLossUsd ?? 0);
     // Already at/over the limit on realized losses alone — hard halt.

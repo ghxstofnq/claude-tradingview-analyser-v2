@@ -56,6 +56,55 @@ export function dayRealizedLossUsd(fills = [], account = null) {
   return Math.abs(loss);
 }
 
+// Same account-matching semantics as dayRealizedLossUsd (see its doc): null →
+// all, string → id-or-label, {id,broker} → id + no-id-same-broker fallback.
+function accountMatcher(account) {
+  if (account == null) return () => true;
+  if (typeof account === "object") {
+    const id = account.id == null ? null : String(account.id);
+    const broker = account.broker == null ? null : String(account.broker);
+    return (f) => {
+      const fid = f?.accountId == null ? null : String(f.accountId);
+      if (id != null && fid === id) return true;
+      if (fid == null && broker != null && String(f?.account) === broker) return true;
+      return false;
+    };
+  }
+  const key = String(account);
+  return (f) => String(f?.accountId ?? f?.account) === key;
+}
+
+// Count of CLOSED round-trips today for this account — one fill == one closed
+// trade. The one currently-open (uncounted-until-close) entry is added by the
+// caller (one-position-at-a-time), so a live max-trades cap is exact.
+export function dayTradeCount(fills = [], account = null) {
+  return fills.filter(accountMatcher(account)).length;
+}
+
+// Trailing consecutive losing round-trips (actual.usd < 0), ts-ordered,
+// account-scoped. A win (>= 0) resets the streak.
+export function dayConsecutiveLossStreak(fills = [], account = null) {
+  const match = accountMatcher(account);
+  const closes = fills.filter(match).slice().sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  let streak = 0;
+  for (const f of closes) streak = (Number(f?.actual?.usd) < 0) ? streak + 1 : 0;
+  return streak;
+}
+
+// Pure dayState for checkOrder — realized loss + open drawdown + the two counts.
+// tradeCount adds `openNow` (the currently-open, not-yet-closed entry) so a live
+// max-trades cap is exact. When `fills` is not an array (store unreadable), the
+// counts are `undefined` so checkOrder fails closed on any count-based guard.
+export function buildDayState({ fills, account = null, openNow = 0, openLossUsd = 0 }) {
+  const ok = Array.isArray(fills);
+  return {
+    realizedLossUsd: ok ? dayRealizedLossUsd(fills, account) : 0,
+    openLossUsd,
+    tradeCount: ok ? dayTradeCount(fills, account) + openNow : undefined,
+    consecLosses: ok ? dayConsecutiveLossStreak(fills, account) : undefined,
+  };
+}
+
 // Group fills by their `account` label → { [account]: fill[] }. Unlabelled
 // fills bucket under "unknown" so they're never silently merged into a real
 // account's record.

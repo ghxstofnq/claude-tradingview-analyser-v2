@@ -6,7 +6,7 @@
 import { ipcMain } from "electron";
 import { tvAdapter } from "./execution/tv-adapter.js";
 import { checkOrder, openLossFromUpnl } from "./execution/guardrails.js";
-import { readFills, dayRealizedLossUsd, readAllFills } from "./execution/fills.js";
+import { readFills, dayRealizedLossUsd, dayTradeCount, dayConsecutiveLossStreak, buildDayState, readAllFills } from "./execution/fills.js";
 import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
 import { getActiveAccount } from "./execution/active-account.js";
@@ -42,19 +42,24 @@ async function openLossUsdNow() {
 }
 
 async function guarded(payload) {
-  const fills = readFills(tradesDir(), today());
-  // Scope the daily-loss halt to the SPECIFIC account we'd route to — one
-  // account's losses must not halt another. Use the account id (not the broker
-  // label) so two different Tradovate accounts don't share one tally. Falls back
-  // to all-accounts when the active account is unknown.
+  // Fail-closed on a real trade-store read error: block rather than gate on
+  // degraded counts (readFills returns [] for a legitimately-absent file, so a
+  // throw here means a genuine fs problem).
+  let fills;
+  try { fills = readFills(tradesDir(), today()); }
+  catch { return { ok: false, code: "FILLS_UNREADABLE", message: "Trade store unreadable — blocking (fail-closed)." }; }
+  // Scope the daily halt to the SPECIFIC account we'd route to (audit C14) — one
+  // account's losses/count must not halt another.
   const acct = getActiveAccount();
-  // Scope by { id, broker } so a fill written before the account id was learned
-  // (accountId null) still counts toward this broker's halt (audit C14).
   const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
-  // Fold current open drawdown into the gate so a new order can't be sized into
-  // a worst-case day that breaches the daily limit (audit Phase 3).
-  const dayState = { realizedLossUsd: dayRealizedLossUsd(fills, account), openLossUsd: await openLossUsdNow() };
-  return checkOrder({ hasStop: payload?.hasStop, sizing: payload?.sizing, guards: payload?.guards, dayState });
+  // Count the currently-open (uncounted-until-close) entry against maxTrades.
+  // Unknown position state ⇒ assume open (fail-closed).
+  const openNow = (() => { try { return getTradingState().position ? 1 : 0; } catch { return 1; } })();
+  const dayState = buildDayState({ fills, account, openNow, openLossUsd: await openLossUsdNow() });
+  // Server-authoritative guards: NEVER trust renderer-supplied guards on the fire
+  // path (closes the execution:place fail-open). Sizing/hasStop still describe the
+  // specific order and ride the payload.
+  return checkOrder({ hasStop: payload?.hasStop, sizing: payload?.sizing, guards: readExecConfig().guards, dayState });
 }
 
 export function registerExecutionIpc() {
@@ -98,6 +103,26 @@ export function registerExecutionIpc() {
     try {
       if (arg?.action === "set" && arg.patch) return { ok: true, config: writeExecConfig(arg.patch) };
       return { ok: true, config: readExecConfig() };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
+  // Read-only live guard tallies + thresholds so the UI can render "trades 2/4 ·
+  // consec 1/3" and pre-disable the fire button. Counts are null when the day
+  // store can't be read (UI shows "—", treats as unknown — never 0).
+  ipcMain.handle("execution:guardState", async () => {
+    try {
+      const guards = readExecConfig().guards || {};
+      let fills; try { fills = readFills(tradesDir(), today()); } catch { fills = null; }
+      const acct = getActiveAccount();
+      const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
+      const openNow = (() => { try { return getTradingState().position ? 1 : 0; } catch { return 1; } })();
+      const ok = Array.isArray(fills);
+      return {
+        ok: true, guards,
+        tradeCount: ok ? dayTradeCount(fills, account) + openNow : null,
+        consecLosses: ok ? dayConsecutiveLossStreak(fills, account) : null,
+        realizedLossUsd: ok ? dayRealizedLossUsd(fills, account) : null,
+      };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
