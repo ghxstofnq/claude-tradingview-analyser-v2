@@ -1438,12 +1438,12 @@ renderLeg() =>
     bool loStrong = false
     if not na(lastExtStruct)
         if lastExtStruct.dir == "bear"
-            hiTag := "Strong High"
-            loTag := "Weak Low"
+            hiTag := "SH"
+            loTag := "WL"
             hiStrong := true
         else
-            hiTag := "Weak High"
-            loTag := "Strong Low"
+            hiTag := "WH"
+            loTag := "SL"
             loStrong := true
     x2 = time + RIGHT_PAD_MS
     if not na(legHigh) and not na(legHighMs)
