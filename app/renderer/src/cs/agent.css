@@ -1,96 +1,87 @@
 /* command-shell agent (⌘5) — pixel-exact page styles.
-   Values verbatim from prototype lines 355–395 / getters 2077–2119.
-   Scoped under .shell-sidecar (the app's right-rail docking frame); the header
-   buttons/pills/keycap reuse the .cs-* primitives, the feed + compose are here. */
+   Values verbatim prototype lines 355–395 / getters 2077–2119.
+   The Agent now renders through the shared <Page> frame (.shell-page.cs-agent):
+   the header (green dot · title · provider pills · RESET/STOP · esc) and the
+   status footer come from Page's own .head/.foot slots; only the chat feed +
+   compose live here. Header buttons/pills reuse .cs-* primitives. */
 
-/* ── 1.2 Header row ─────────────────────────────────────────────── */
-.shell-sidecar .cs-agent-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);   /* #242728 */
-  flex: none;
+/* ── 1.1 Header icon slot — the green ● dot, not the tinted tile ─────── */
+.shell-page.cs-agent > .head .icon {
+  width: auto; height: auto; background: none; border-radius: 0;
 }
 .cs-agent-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--label-dim); } /* idle */
-.cs-agent-dot.is-active { background: var(--green); }      /* #59d499 */
-.cs-agent-dot.is-streaming { background: var(--blue); }    /* #57c1ff */
-.cs-agent-title { font-size: 14px; font-weight: 500; color: var(--value-strong); } /* #f4f4f6 */
-.cs-prov-group { display: flex; gap: 2px; margin-left: 6px; }
+.cs-agent-dot.is-active { background: var(--green); } /* #59d499 */
+.cs-agent-dot.is-streaming { background: var(--blue); } /* #57c1ff */
+.cs-prov-group { display: flex; gap: 2px; }
 
 /* ── 1.3 Chat body ──────────────────────────────────────────────── */
-.shell-sidecar .cs-agent-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.shell-sidecar .cs-agent-body .claude { flex: 1; min-height: 0; background: transparent; }
-.shell-sidecar .cs-agent-body .claude-feed {
+.shell-page.cs-agent .cs-agent-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.shell-page.cs-agent .cs-agent-body .claude { flex: 1; min-height: 0; background: transparent; }
+.shell-page.cs-agent .cs-agent-body .claude-feed {
   padding: 14px; display: flex; flex-direction: column; gap: 10px;
   overflow: auto; flex: 1; max-height: none;
 }
-.shell-sidecar .cs-agent-body .claude-feed:empty::before {
+.shell-page.cs-agent .cs-agent-body .claude-feed:empty::before {
   color: var(--label-dim); font-size: 11px; text-align: left; padding: 0;
 }
 
 /* message rows — prototype feed has no per-row who label */
-.shell-sidecar .cs-agent-body .claude-msg { padding: 0; border-bottom: 0; }
-.shell-sidecar .cs-agent-body .claude-msg > .head { display: none; }
+.shell-page.cs-agent .cs-agent-body .claude-msg { padding: 0; border-bottom: 0; }
+.shell-page.cs-agent .cs-agent-body .claude-msg > .head { display: none; }
 
 /* you (line 2096) — right-aligned dark pill, asymmetric radius */
-.shell-sidecar .cs-agent-body .claude-msg.you {
+.shell-page.cs-agent .cs-agent-body .claude-msg.you {
   align-self: flex-end; max-width: 85%;
   background: var(--cs-onfill);               /* #18191a raw */
   border-radius: 10px 10px 3px 10px;
   padding: 8px 11px;
 }
-.shell-sidecar .cs-agent-body .claude-msg.you .body {
+.shell-page.cs-agent .cs-agent-body .claude-msg.you .body {
   font-size: 11px; line-height: 1.5; color: var(--value-strong); /* #f4f4f6 */
 }
 /* assistant (line 2098) — flush prose, no background */
-.shell-sidecar .cs-agent-body .claude-msg.reply {
+.shell-page.cs-agent .cs-agent-body .claude-msg.reply {
   align-self: flex-start; max-width: 94%; background: none; padding: 0;
 }
-.shell-sidecar .cs-agent-body .claude-msg.reply .body {
+.shell-page.cs-agent .cs-agent-body .claude-msg.reply .body {
   font-size: 11px; line-height: 1.6; color: var(--value);       /* #cdcdcd */
 }
 /* feed (line 2097) — brain/walkers, mono */
-.shell-sidecar .cs-agent-body .claude-msg.bar-read .body,
-.shell-sidecar .cs-agent-body .claude-msg.activity .body {
+.shell-page.cs-agent .cs-agent-body .claude-msg.bar-read .body,
+.shell-page.cs-agent .cs-agent-body .claude-msg.activity .body {
   font: 400 10px var(--mono); line-height: 1.6; color: var(--label); /* #9c9c9d */
 }
 
 /* read-only feed channels (BRAIN / WALKERS) — mono, prototype feed tone */
-.shell-sidecar .cs-agent-body .ro-banner {
+.shell-page.cs-agent .cs-agent-body .ro-banner {
   display: flex; align-items: center; gap: 7px;
   font: 400 9px var(--mono); letter-spacing: .06em; color: var(--label-dim);
   padding: 10px 14px 0; text-transform: uppercase;
 }
-.shell-sidecar .cs-agent-body .ro-banner .pulse {
+.shell-page.cs-agent .cs-agent-body .ro-banner .pulse {
   width: 6px; height: 6px; border-radius: 50%; background: var(--green);
 }
-.shell-sidecar .cs-agent-body .ro-msg { padding: 0; border-bottom: 0; }
-.shell-sidecar .cs-agent-body .ro-msg .h {
+.shell-page.cs-agent .cs-agent-body .ro-msg { padding: 0; border-bottom: 0; }
+.shell-page.cs-agent .cs-agent-body .ro-msg .h {
   font: 400 9px var(--mono); letter-spacing: .06em; color: var(--label-dim); margin-bottom: 3px;
 }
-.shell-sidecar .cs-agent-body .ro-msg .b {
+.shell-page.cs-agent .cs-agent-body .ro-msg .b {
   font: 400 10px var(--mono); line-height: 1.6; color: var(--label);
 }
-.shell-sidecar .cs-agent-body .ro-msg .b .sub { color: var(--label-dim); margin-top: 2px; }
+.shell-page.cs-agent .cs-agent-body .ro-msg .b .sub { color: var(--label-dim); margin-top: 2px; }
 
 /* ── 1.4 Compose input (shown only when interactive; hideControls branch) ── */
-.shell-sidecar .cs-chat-compose { padding: 10px 12px; border-top: 1px solid var(--border); flex: none; }
-.shell-sidecar .cs-chat-inputrow {
+.shell-page.cs-agent .cs-chat-compose { padding: 10px 12px; border-top: 1px solid var(--border); flex: none; }
+.shell-page.cs-agent .cs-chat-inputrow {
   display: flex; align-items: center; gap: 9px;
   background: var(--surface-2);               /* #101111 */
   border: 1px solid var(--border);            /* #242728 */
   border-radius: var(--r-lg);                 /* 10px */
   padding: 7px 12px;
 }
-.shell-sidecar .cs-chat-input {
+.shell-page.cs-agent .cs-chat-input {
   flex: 1; background: transparent; border: none; outline: none;
   color: var(--value-strong);                 /* #f4f4f6 */
   font-size: 11.5px; font-family: var(--sans); padding: 0;
 }
-.shell-sidecar .cs-chat-input::placeholder { color: var(--label-dim); }
-
-/* ── 1.5 Footer ─────────────────────────────────────────────────── */
-.shell-sidecar .cs-agent-foot {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 14px; border-top: 1px solid var(--border); flex: none;
-}
-.shell-sidecar .cs-agent-foot > span { font-size: 9.5px; color: var(--label-dim); } /* #6a6b6c */
+.shell-page.cs-agent .cs-chat-input::placeholder { color: var(--label-dim); }

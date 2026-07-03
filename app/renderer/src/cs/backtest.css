@@ -55,7 +55,7 @@
 /* section header label + right meta */
 .bt-popover.embedded .sect-hd {
   display: flex; align-items: baseline; margin: 0 0 14px;
-  font-size: 9.5px; letter-spacing: .08em; color: var(--label);
+  font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim);
 }
 .bt-popover.embedded .sect-hd .meta {
   margin-left: auto; font: 400 10px var(--mono); letter-spacing: 0; color: var(--label-dim);
@@ -66,7 +66,7 @@
 .bt-popover.embedded .cfg-row { display: block; margin-bottom: 16px; }
 .bt-popover.embedded .cfg-row .cfg-rk {
   display: block; margin-bottom: 6px;
-  font-size: 9px; letter-spacing: .08em; color: var(--label-dim);
+  font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim);
 }
 .bt-popover.embedded .cfg-row .cfg-rk .cfg-rk-hint {
   margin-left: 6px; color: var(--label-dim); font-size: 8.5px;
@@ -117,7 +117,7 @@
   width: auto; margin-top: 0;
   font: 500 10.5px var(--sans); letter-spacing: 0;
   color: #000; background: #fff; border: 0;
-  padding: 8px 16px; border-radius: var(--r-md); gap: 8px;
+  padding: 8px 14px; border-radius: var(--r-md); gap: 8px;
 }
 .bt-popover.embedded .start-btn:hover { background: var(--primary-active); }
 .bt-popover.embedded .start-btn:disabled {

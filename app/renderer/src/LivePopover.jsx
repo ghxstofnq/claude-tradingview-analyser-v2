@@ -766,9 +766,9 @@ function LiveFlatEmpty() {
 // detector strip; POSITIONS hosts the open-position card, session guards, and
 // today's fills. Rendered inside `.bt-popover.embedded` so every existing LIVE
 // style applies. Every order-flow handler is preserved verbatim.
-function LiveBody({ guards, symbol }) {
-  const [seg, setSeg] = useState("feed");            // feed | positions
-  const [userPicked, setUserPicked] = useState(false);
+function LiveBody({ guards, symbol, seg, setSeg, setUserPicked }) {
+  // seg (effectiveSeg) + setSeg/setUserPicked are owned by LivePage, which renders
+  // the FEED | POSITIONS toggle inline in the page header.
   const [ticketing, setTicketing] = useState(false); // ticket sub-state under FEED
   const [fireMsg, setFireMsg] = useState(null);
   const backtest = useBacktestRunning();
@@ -784,8 +784,7 @@ function LiveBody({ guards, symbol }) {
   const { acct } = useBrokerAccount();
   const accountType = realAccountView(acct).type;
 
-  const hasPosition = !!exec.position || !!activeTrade;
-  const effectiveSeg = userPicked ? seg : (hasPosition ? "positions" : "feed");
+  const effectiveSeg = seg;
 
   // Snap to FEED when a fresh setup surfaces. Ref-guarded so it fires once per
   // setup id, never on unrelated re-renders.
@@ -805,7 +804,6 @@ function LiveBody({ guards, symbol }) {
 
   const lastPrice = lastBar?.close;
   const ticketSetup = activeSetup;
-  const SEGS = [["feed", "FEED"], ["positions", "POSITIONS"]];
 
   const onHuntAccept = () => { setUserPicked(true); setTicketing(true); };
   const onTicketFire = async (order) => {
@@ -864,15 +862,6 @@ function LiveBody({ guards, symbol }) {
 
   return (
     <div className="bt-popover embedded">
-      <div className="head live-head">
-        <div className="cs-live-tabs">
-          {SEGS.map(([v, l]) => (
-            <span key={v} className={"cs-provpill" + (effectiveSeg === v ? " is-on" : "")}
-                  {...clickable(() => { setUserPicked(true); setSeg(v); }, { label: l })}>{l}</span>
-          ))}
-        </div>
-        <span className="spacer" style={{ flex: 1 }} />
-      </div>
       <div className="body">
         {!exec.connected && !exec.loading && (
           <div className="live-banner amber">⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders</div>
@@ -882,11 +871,6 @@ function LiveBody({ guards, symbol }) {
         )}
         {showDetStrip && <NextTurnStrip state={detState} running={loopRunning} onToggle={toggleDetector} />}
         {body}
-      </div>
-      <div className="cs-live-foot">
-        <span>{effectiveSeg === "positions" ? "position · guards · fills" : "✓ fires only after your accept"}</span>
-        <span className="sp" />
-        <span>⇧⌘F flattens anywhere · esc</span>
       </div>
     </div>
   );
