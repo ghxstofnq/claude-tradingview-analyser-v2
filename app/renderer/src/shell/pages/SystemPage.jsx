@@ -33,6 +33,10 @@ function SystemBody({ pushToast }) {
   const exec = useExecutionState();
   const events = useCalendar();
   const { date, files } = useFiles();
+  // listSessionFiles returns every candidate path incl. exists:false phantoms
+  // (fresh day). Only surface files that actually exist — OPEN/REVEAL on a
+  // missing path is a no-op / "file not found".
+  const shownFiles = (files || []).filter((f) => f.exists);
   const [viewFile, setViewFile] = useState(null);
 
   const loop = health?.loop; // healthy | stale | off
@@ -92,8 +96,8 @@ function SystemBody({ pushToast }) {
 
       <div className="cmd-sys-card cmd-sys-strip files">
         <span className="cmd-sys-cap">SESSION FILES{mmdd ? ` · ${mmdd}` : ""}</span>
-        {files.length
-          ? files.map((f) => (
+        {shownFiles.length
+          ? shownFiles.map((f) => (
               <span key={f.path} className="cmd-sys-filepill">
                 <span className="name">{f.label || f.path.split("/").pop()}</span>
                 <span className="open" {...clickable(() => openFile(f), { label: "open file" })}>OPEN</span>

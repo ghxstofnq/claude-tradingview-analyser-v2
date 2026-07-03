@@ -79,7 +79,14 @@ function LevelsStep() {
 }
 
 function GuardsStep({ guards, setGuards }) {
-  const bump = (k, d, lo, hi) => setGuards({ ...guards, [k]: Math.max(lo, Math.min(hi, (Number(guards?.[k]) || 0) + d)) });
+  // Dual-write like SettingsPage: setGuards is renderer/localStorage only, so the
+  // main-process enforced guards (auto-fire + ⌘K quick-order) must also be pushed
+  // via execution.config.set — otherwise a Prep edit silently desyncs enforcement.
+  const bump = (k, d, lo, hi) => {
+    const next = { ...guards, [k]: Math.max(lo, Math.min(hi, (Number(guards?.[k]) || 0) + d)) };
+    setGuards(next);
+    window.api?.execution?.config?.set?.({ guards: next }).catch(() => {});
+  };
   const rows = [
     ["Max $ / trade", "perTradeMax", 25, 25, 2000, "per-order ceiling"],
     ["Daily loss limit", "dailyLimit", 50, 100, 5000, "locks entries when hit"],
