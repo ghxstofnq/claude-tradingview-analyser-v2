@@ -4848,6 +4848,30 @@ button { border-radius: var(--r-sm); }
 .cmd-prep-guard .rk .d { font-size: 10px; color: var(--label-dim); }
 .cmd-prep-guard .v { font: 500 12px var(--mono); color: var(--value-strong); min-width: 66px; text-align: center; }
 
+/* ── TV chart overlays — load failure + signed-out banner ──────────────── */
+.cmd-tv-fail {
+  position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-xl);
+  padding: 24px 34px; z-index: 48; text-align: center;
+  animation: cmd-toast-in .24s cubic-bezier(.16,1,.3,1);
+}
+.cmd-tv-fail .ic { width: 32px; height: 32px; border-radius: var(--r-md); display: grid; place-items: center; font-size: 14px; color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.cmd-tv-fail .t { font-size: 12.5px; font-weight: 500; color: var(--value-strong); }
+.cmd-tv-fail .s { font-size: 10.5px; color: var(--label-dim); }
+.cmd-tv-fail .pill.primary { margin-top: 4px; font-size: 11px; font-weight: 500; padding: 6px 18px; border-radius: var(--r-md); cursor: pointer; }
+.cmd-tv-fail .dbg { margin-top: 4px; font-family: var(--mono); font-size: 9px; color: var(--label-dim); }
+.cmd-tv-signin {
+  position: absolute; left: 50%; top: 46px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  background: var(--surface-2); border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  border-radius: var(--r-lg); padding: 10px 12px 10px 16px; z-index: 48;
+  animation: cmd-toast-in .24s cubic-bezier(.16,1,.3,1);
+}
+.cmd-tv-signin .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.cmd-tv-signin .m { font-size: 11.5px; color: var(--value); }
+.cmd-tv-signin .pill.primary { font-size: 11px; font-weight: 500; padding: 5px 13px; border-radius: var(--r-md); cursor: pointer; white-space: nowrap; }
+
 /* hosted legacy popover bodies (PR1 bridge — native pages land in PR2). Any
    .bt-popover rendered inside a page-host is neutralized to a static, full-size
    panel; the page frame supplies the outer chrome. */
