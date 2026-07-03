@@ -36,19 +36,9 @@ import { useActiveSetup } from "../hooks/useActiveSetup.js";
 import {
   useAlertStateListener, useAlertFiredListener, normalizeArmed, armAlertReal, disarmAlertReal,
 } from "../hooks/useAlerts.js";
+import { useCalendar } from "../hooks/useCalendar.js";
 
 let TOAST_SEQ = 0;
-
-function useCalendar() {
-  const [events, setEvents] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    window.api?.calendar?.thisWeek?.().then((r) => { if (alive && r?.ok) setEvents(r.events || []); }).catch(() => {});
-    const off = window.api?.calendar?.onUpdate?.((p) => { if (alive) setEvents(p?.events || []); });
-    return () => { alive = false; off?.(); };
-  }, []);
-  return events;
-}
 
 function fmtCountdown(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return "now";

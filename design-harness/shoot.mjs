@@ -62,6 +62,16 @@ const SAMPLES = [
   ["shell-page .t",    ".shell-page .head .t"],
   ["cmd-flatten",      ".cmd-flatten"],
   ["cmd-hold fill",    ".cmd-hold > span"],
+  // ── native Briefing dashboard + trade progress (PR2) ──
+  ["brf-decision",     ".brf-decision"],
+  ["brf-grade.amber",  ".brf-grade.amber"],
+  ["brf-card",         ".brf-card"],
+  ["brf-row .v.ok",    ".brf-row .v.ok"],
+  ["brf-chip.warn",    ".brf-chip.warn"],
+  ["brf-lvl bell armed", ".brf-lvl .bell.armed"],
+  ["brf-cal-row.hot",  ".brf-cal-row.hot"],
+  ["tp-bar fill",      ".tp-bar .fill"],
+  ["tp price up",      ".tp-bar .price-marker.up"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report
