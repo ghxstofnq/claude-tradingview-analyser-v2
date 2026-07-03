@@ -1352,7 +1352,8 @@ mergeLevel(float price, string name, int x1, int labelCol) =>
 drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, string name, bool forming = false, int labelCol = 0) =>
     if not na(price)
         x1 = (not na(formedMs) and formedMs > 0) ? formedMs : time - LEVEL_LINE_BARS * timeframe.in_seconds() * 1000
-        if swept and not na(sweptMs) and sweptMs > 0
+        isSwept = swept and not na(sweptMs) and sweptMs > 0
+        if isSwept
             faded = fade(colNeutral, 45)
             vizLine(x1, price, sweptMs, price, faded, line.style_solid, 1)
             vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
@@ -1361,7 +1362,11 @@ drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, str
             x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
             vizLine(x1, price, x2, price, colNeutral, line.style_dashed, 1)
             vizLabel(x2, price, name, color(na), colNeutral, label.style_label_left, size.small)
-        else
+        // Completed unswept levels route through the merge pool. This sits
+        // OUTSIDE the if/else above: Pine requires all if/else branches to
+        // share a return type, and mergeLevel is void while the label
+        // branches are not (CE10235).
+        if not isSwept and not forming
             mergeLevel(price, name, x1, labelCol)
 
 renderLevels() =>
