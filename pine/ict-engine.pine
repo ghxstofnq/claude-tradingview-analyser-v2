@@ -230,7 +230,7 @@ maxStructDrawn = input.int(6, "Max structure events drawn", minval = 2, maxval =
 // presets + glyph status cells — LuxAlgo/TTrades pattern).
 showChecklist  = input.bool(true, "Checklist panel", group = GRP_VIZ)
 panelPosInp    = input.string("Top right", "Checklist position", options = ["Top right", "Top left", "Middle right", "Bottom right", "Bottom left"], group = GRP_VIZ, inline = "cpanel")
-panelSizeInp   = input.string("Tiny", "size", options = ["Tiny", "Small", "Normal"], group = GRP_VIZ, inline = "cpanel")
+panelSizeInp   = input.string("Small", "size", options = ["Tiny", "Small", "Normal"], group = GRP_VIZ, inline = "cpanel")
 
 GRP_COL = "Colors"
 // Two-accent system (premium-toolkit convention): every visual element
@@ -1290,8 +1290,9 @@ accentOf(string dir) =>
     dir == "bull" ? colBull : colBear
 
 // Opacity is a freshness channel (premium convention): a virgin/just-
-// inverted zone sits slightly more present than one already tapped.
-zoneFill(color accent, string state) => color.new(accent, state == "fresh" or state == "inverted" ? 88 : 91)
+// inverted zone sits slightly more present than one already tapped —
+// but every fill stays faint enough that candles read through it.
+zoneFill(color accent, string state) => color.new(accent, state == "fresh" or state == "inverted" ? 90 : 92)
 zoneBorder(color accent) => color.new(accent, 72)
 zoneText(color accent) => color.new(accent, 35)
 zoneCe(color accent) => color.new(accent, 80)
@@ -1516,6 +1517,9 @@ renderLiquidity() =>
 // status: 2 pass · 1 partial/attention · 0 pending · -1 fail
 statGlyph(int s) => s == 2 ? "✔" : s == 1 ? "◆" : s == -1 ? "✘" : "·"
 statCol(int s) => s == 2 ? colBull : s == 1 ? colLiq : s == -1 ? colBear : color.new(chart.fg_color, 58)
+// Status cells carry a tinted background (hue at ~86, glyph at full) —
+// the colored-cell convention that makes the card read at a glance.
+statBg(int s) => s == 0 ? color(na) : color.new(s == 2 ? colBull : s == 1 ? colLiq : colBear, 86)
 arrowOf(int v) => v > 0 ? "↑" : v < 0 ? "↓" : "·"
 // A bias component passes when it votes WITH the working side, fails when
 // it opposes it, and stays pending while neutral (a non-vote, §1).
@@ -1526,7 +1530,7 @@ pSet(int col, int row, string txt, color tint = na, color bg = na, string tip = 
     table.cell(panel, col, row, txt, text_color = na(tint) ? baseCol : tint, text_size = PANEL_TXT, text_font_family = font.family_monospace, text_halign = col == 0 ? text.align_center : col == 2 ? text.align_right : text.align_left, bgcolor = bg, tooltip = tip, text_formatting = bold ? text.format_bold : text.format_none)
 
 pRow(int row, int stat, string name, string detail, string tip) =>
-    pSet(0, row, statGlyph(stat), statCol(stat))
+    pSet(0, row, statGlyph(stat), statCol(stat), statBg(stat))
     pSet(1, row, name, color(na), color(na), tip)
     pSet(2, row, detail, stat == -1 ? color.new(colBear, 15) : color(na))
 
@@ -1641,43 +1645,50 @@ renderChecklist() =>
     secsLeft = math.max(0, int(math.floor((time_close - timenow) / 1000.0)))
     cd = str.tostring(int(math.floor(secsLeft / 60.0))) + ":" + (secsLeft % 60 < 10 ? "0" : "") + str.tostring(secsLeft % 60)
     sessTxt = currentSession == "ny_am" ? "NY AM" : currentSession == "ny_pm" ? "NY PM" : currentSession == "london" ? "LONDON" : currentSession == "asia" ? "ASIA" : "OFF"
-    pSet(0, 0, "ICT ENGINE · " + syminfo.ticker + " " + timeframe.period + " · " + sessTxt + " · " + cd, color.new(chart.fg_color, 25), color(na), "", true)
+    pSet(0, 0, syminfo.ticker + " " + timeframe.period + " · " + sessTxt + " · " + cd, color.new(chart.fg_color, 25), color.new(chart.fg_color, 90), "", true)
 
     countTint = handsOff ? colBear : count >= 3 ? colBull : count == 2 ? colLiq : color.new(chart.fg_color, 50)
-    biasDetail = handsOff ? "conflict" : side == 0 ? "unclear" : (side > 0 ? "BULL ↑" : "BEAR ↓") + (count >= 3 ? " · A+ elig" : count == 2 ? " · B cap" : " · no-trade")
-    pSet(0, 1, str.tostring(count) + "/3", countTint)
+    biasDetail = handsOff ? "conflict" : side == 0 ? "unclear" : (side > 0 ? "BULL ↑" : "BEAR ↓") + (count >= 3 ? " · A+ elig" : count == 2 ? " · B cap" : " · wait")
+    pSet(0, 1, str.tostring(count) + "/3", countTint, handsOff or count >= 2 ? statBg(handsOff ? -1 : count >= 3 ? 2 : 1) : color(na))
     pSet(1, 1, "BIAS", color(na), color(na), "Count HTF + overnight + NY-open: 1/3 no-trade · 2/3 B · 3/3 A+ (daily-bias.md §1)")
     pSet(2, 1, biasDetail, handsOff ? color.new(colBear, 15) : side == 0 ? color(na) : color.new(accent, 15))
 
     pRow(2, voteStat(htfVote, side), "HTF", "4H" + arrowOf(h4Lean) + " · 1H" + arrowOf(h1Lean), "4H/1H array lean — gap respected or inverted, recency-weighted (daily-bias.md §2)")
-    pRow(3, voteStat(ovVote, side), "Overnight", (ovDir == "na" ? "—" : ovDir) + (na(ovNet) ? "" : " " + (ovNet > 0 ? "+" : "") + str.tostring(ovNet, format.mintick)), "Asia+London direction; chop = non-vote (daily-bias.md §3)")
+    pRow(3, voteStat(ovVote, side), "Overnight", (ovDir == "na" ? "—" : ovDir) + (na(ovNet) ? "" : " " + (ovNet > 0 ? "+" : "") + str.tostring(math.round(ovNet))), "Asia+London direction; chop = non-vote (daily-bias.md §3)")
     // In ny_pm the vote is the CARRIED morning reaction (the day's third
     // component doesn't expire at noon; no fresh PM decisioning) — label it.
     pRow(4, orPending ? 0 : voteStat(orVote, side), "NY open", orPending ? (orLive ? "… min " + str.tostring(math.max(orMin, 0)) : "awaits 09:30") : (orSwept != "none" ? orSwept + (orRej ? " rejected" : " accepted") : "quiet open") + (currentSession == "ny_pm" ? " (AM)" : ""), "Reject vs accept at the swept overnight level, minute 15–30 (daily-bias.md §4)")
-    pRow(5, p2, "Quality", (qDisplacement == "na" ? "—" : qDisplacement) + " · " + (qCandle == "doji_wick" ? "doji" : qCandle), "Displacement regime + candle anatomy — stand aside on consolidation (price-action.md)")
+    // Fail-reason-first: a red glyph must name the failing dimension, not
+    // echo the passing ones (a tight range with clean displacement showed
+    // "✘ clean · normal" — contradictory at a glance).
+    qDetail = p2 == 0 ? "—" : p2 == -1 ? (qRangeQuality == "tight" ? "range tight" : "disp " + qDisplacement) : p2 == 1 ? "doji candles" : qDisplacement + " · " + qCandle
+    pRow(5, p2, "Quality", qDetail, "Displacement regime + candle anatomy — stand aside on consolidation (price-action.md)")
     pRow(6, r5, "Liquidity", side == 0 ? "—" : grabOk ? (gMs > 0 ? grabName + " swept" : "gap took liq") : "none yet", "A significant grab on the stop side: session/PD level, or the gap took liquidity forming (entry-models.md MSS §2)")
     pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") : side == 0 ? "—" : "none live", "Best live gap in-direction: fresh > took-liq > displacement (entry-models.md best-gap)")
     pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone; dead if it fights >10–15m (confirmation.md)")
 
-    // ENTRY banner — saturated only when every row above it passes.
+    // ENTRY banner — always a tinted band (the card's one high-presence
+    // element); fully saturated only when every row above it passes.
     string bTxt = "no setup in play"
     color bCol = color.new(chart.fg_color, 45)
-    color bBg = na
+    color bBg = color.new(chart.fg_color, 94)
     if handsOff
         bTxt := "HANDS OFF · open reverses bias"
         bCol := colBear
-        bBg := color.new(colBear, 88)
+        bBg := color.new(colBear, 85)
     else if tradable
         bTxt := "▸ " + grade + (side > 0 ? " LONG · " : " SHORT · ") + model + "·" + kindLbl + " · stop " + str.tostring(stopPx, format.mintick)
         bCol := chart.bg_color
-        bBg := color.new(accent, 18)
+        bBg := color.new(accent, 15)
     else if side != 0 and model != "" and hasCand
         blockTxt = count < 2 ? "bias " + str.tostring(count) + "/3" : p2 == -1 ? "bad price" : p2 == 0 ? "quality n/a" : not grabOk ? "no liquidity grab" : not candEntered ? "awaiting tap" : candChop ? "fought >15m · dead" : "awaiting 1m close"
         bTxt := model + " " + sideArrow + " forming · " + blockTxt
-        bCol := color.new(accent, 25)
+        bCol := color.new(accent, 20)
+        bBg := color.new(accent, 90)
     else if side != 0
         bTxt := (side > 0 ? "lean LONG" : "lean SHORT") + " · bias " + str.tostring(count) + "/3"
-        bCol := color.new(accent, 35)
+        bCol := color.new(accent, 30)
+        bBg := color.new(accent, 93)
     pSet(0, 9, bTxt, bCol, bBg, "Model · mechanism · structural stop at the zone edge (risk-and-management.md). Visual aid — the walker chain is the setup brain.", true)
 
 // ── Render dispatch ──────────────────────────────────────────────────
