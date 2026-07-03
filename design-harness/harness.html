@@ -11,6 +11,10 @@
            display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
     .topbar, .statusline { position: static !important; }
     .bt-popover { position: static !important; inset: auto !important; margin: 0 !important; max-height: none !important; }
+    /* harness-only: un-fix the Command Shell overlays + kill entrance anim so
+       one shot shows them all with resolved computed styles */
+    .cmd-topbar, .cmd-strip, .cmd-palette, .shell-page, .cmd-flatten {
+      position: static !important; transform: none !important; animation: none !important; }
     /* harness-only: unclip the scroll viewport so one shot shows the whole panel stack */
     .work-scroll, .bt-popover .body { height: auto !important; max-height: none !important; overflow: visible !important; }
     .stage { display: flex; flex-direction: column; align-items: center; gap: 20px; }
@@ -430,6 +434,43 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- COMMAND SHELL regression (PR1): topbar, strip, palette, page, flatten -->
+  <div class="cmd-topbar">
+    <span class="cmd-sym"><span class="pill active">MNQ1!</span><span class="pill interactive">MES1!</span></span>
+    <span class="sp"></span>
+    <span class="cmd-lastbar">09:42 · 18s</span>
+    <span class="cmd-health"></span>
+  </div>
+  <div class="cmd-strip">
+    <div class="cmd-strip-item click"><span class="cmd-news-n">4</span><span class="cmd-news-t">CPI in 1h</span></div>
+    <div class="cmd-strip-item"><span class="cmd-meter"><span style="width:40%"></span></span><span class="cmd-meter-lbl">−$120</span></div>
+    <div class="cmd-strip-item"><span class="cmd-pos-side long">LONG</span><span class="cmd-pos-pnl up">+1.2R</span></div>
+    <span class="sp"></span>
+    <span class="cmd-ver">a41f2c9</span>
+    <div class="cmd-k-btn"><span>Command</span><span class="kcap">⌘ K</span></div>
+  </div>
+  <div class="cmd-palette">
+    <div class="cmd-pal-input"><span class="glass">⌕</span><input placeholder="Type a command, a price, or a question…"><span class="cmd-kbd">esc</span></div>
+    <div class="cmd-pal-body">
+      <div class="cmd-pal-sect">SUGGESTED</div>
+      <div class="cmd-row sel"><span class="cmd-row-icon tint-blue">◔</span><span class="cmd-row-label">Open briefing</span><span class="cmd-row-kbd">⌘1</span></div>
+      <div class="cmd-row"><span class="cmd-row-icon tint-amber">◈</span><span class="cmd-row-label">Arm alert at PDH</span><span class="cmd-row-detail">21,502.25</span></div>
+      <div class="cmd-row"><span class="cmd-row-icon tint-red">◱</span><span class="cmd-row-label">Flatten position</span><span class="cmd-row-kbd">⇧⌘F</span></div>
+    </div>
+    <div class="cmd-pal-foot"><span>navigate</span><span class="sp"></span><span>verb runs</span></div>
+  </div>
+  <div class="shell-page">
+    <div class="head"><span class="icon tint-blue">◔</span><span class="t">Brief</span><span class="sub">Wed · Jul 2</span><span class="sp"></span><span class="esc cmd-kbd">esc</span></div>
+    <div class="body" style="min-height:80px"></div>
+    <div class="foot"><span>chart stays live behind</span></div>
+  </div>
+  <div class="cmd-flatten">
+    <div class="inner">
+      <div class="hd"><span class="icon">◱</span><div><div class="t">Flatten all positions</div><div class="d">LONG 2 MNQ1!</div></div></div>
+      <div class="cmd-hold"><span style="transform:scaleX(0.6)"></span></div>
+    </div>
   </div>
 
   <!-- token rail (keep for palette regression) -->

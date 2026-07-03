@@ -1,0 +1,312 @@
+// CommandShell — the redesigned app shell (2026-07-03 handoff). Minimal topbar
+// + full-bleed chart + ambient strip; ⌘K palette; centered floating pages over
+// a scrim; hold-to-flatten. Replaces the old topbar-cells + statusline model.
+//
+// State owned here: page router, palette, flatten overlay, toasts, coach chip,
+// alerts, calendar. The global keydown/keyup handlers are the single keyboard
+// authority (resolveKey is pure). The TradingView webview is mounted exactly
+// once inside the chart-host and never remounts — pages/palette/scrim overlay
+// it purely by z-index.
+
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { TradingViewChart, TvSignInBanner } from "../TvChart.jsx";
+import { ErrorBoundary } from "../ErrorBoundary.jsx";
+import { TopBar } from "./TopBar.jsx";
+import { Palette } from "./Palette.jsx";
+import { FlattenConfirm } from "./FlattenConfirm.jsx";
+import { Toasts, CoachChip } from "./Toasts.jsx";
+import { Page } from "./pages/Page.jsx";
+import { BriefingPage } from "./pages/BriefingPage.jsx";
+import { LivePage } from "./pages/LivePage.jsx";
+import { ReviewPage } from "./pages/ReviewPage.jsx";
+import { BacktestPage } from "./pages/BacktestPage.jsx";
+import { AgentPage } from "./pages/AgentPage.jsx";
+import { SettingsPage } from "./pages/SettingsPage.jsx";
+import { SystemShellPage } from "./pages/SystemPage.jsx";
+import { HealthShellPage, RiskShellPage, FixturesShellPage, PrefsShellPage } from "./pages/UtilPages.jsx";
+import { resolveKey } from "./keymap.helpers.js";
+import { buildCommands } from "./commandList.helpers.js";
+import { detectIntent } from "./paletteIntent.helpers.js";
+import { parseTicket } from "./parseTicket.helpers.js";
+import { visibleRows } from "./commandList.helpers.js";
+import { useExecutionState } from "../hooks/useExecutionState.js";
+import { useHealth } from "../hooks/useHealth.js";
+import { useSessionBrief } from "../hooks/useSessionBrief.js";
+import { useActiveSetup } from "../hooks/useActiveSetup.js";
+import {
+  useAlertStateListener, useAlertFiredListener, normalizeArmed, armAlertReal, disarmAlertReal,
+} from "../hooks/useAlerts.js";
+
+let TOAST_SEQ = 0;
+
+function useCalendar() {
+  const [events, setEvents] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    window.api?.calendar?.thisWeek?.().then((r) => { if (alive && r?.ok) setEvents(r.events || []); }).catch(() => {});
+    const off = window.api?.calendar?.onUpdate?.((p) => { if (alive) setEvents(p?.events || []); });
+    return () => { alive = false; off?.(); };
+  }, []);
+  return events;
+}
+
+function fmtCountdown(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "now";
+  const m = Math.floor(ms / 60000); const h = Math.floor(m / 60);
+  return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
+}
+
+const PAGE_COMPONENTS = {
+  briefing: BriefingPage, live: LivePage, review: ReviewPage,
+  backtest: BacktestPage, agent: AgentPage, settings: SettingsPage, system: SystemShellPage,
+  health: HealthShellPage, risk: RiskShellPage, fixtures: FixturesShellPage, prefs: PrefsShellPage,
+};
+
+export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, currentPrice, onToggleTheme }) {
+  const [page, setPage] = useState(null);
+  const [pal, setPal] = useState({ open: false, query: "", sel: 0, forced: null, askQuery: null });
+  const [flat, setFlat] = useState({ open: false, hold: false });
+  const [toasts, setToasts] = useState([]);
+  const [coach, setCoach] = useState(true);
+
+  const exec = useExecutionState();
+  const health = useHealth();
+  const { brief } = useSessionBrief();
+  const events = useCalendar();
+  const [automationMode, setAutomationMode] = useState("manual");
+
+  const addToast = useCallback((msg, tint = "green") => {
+    const id = ++TOAST_SEQ;
+    setToasts((t) => [...t, { id, msg, tint }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
+  }, []);
+  const dismissToast = (id) => setToasts((t) => t.filter((x) => x.id !== id));
+
+  // Alerts — armed set (best-effort) + fired list; fire raises a toast.
+  const [alerts, setAlerts] = useState({ armed: [], fired: [] });
+  useAlertStateListener((ev) => {
+    const armed = normalizeArmed(ev).map((a) => ({ id: a.id, name: a.label?.trim() ? a.label : `@ ${a.price}`, price: a.price }));
+    setAlerts((s) => ({ ...s, armed }));
+  });
+  useAlertFiredListener((ev) => {
+    const name = ev.label || `@ ${ev.price}`;
+    const t = ev.fired_at?.slice(11, 19) || "";
+    setAlerts((s) => ({ ...s, fired: [{ id: ev.id, name, price: ev.price, t }, ...s.fired], armed: s.armed.filter((a) => a.price !== ev.price) }));
+    addToast(`ALERT · ${name} reached ${ev.price}`, "amber");
+  });
+
+  useEffect(() => {
+    window.api?.execution?.config?.get?.().then((r) => { if (r?.ok) setAutomationMode(r.config?.automationMode ?? "manual"); }).catch(() => {});
+  }, []);
+
+  // Auto-surface a newly detected setup for accept/reject — the LiveCell used to
+  // pop itself open on a fresh setup; in the shell that becomes opening the LIVE
+  // page (LiveBody mounts in HUNT) + a toast. Guard on the setup id so it fires
+  // once per setup, never on unrelated re-renders.
+  const { activeSetup } = useActiveSetup();
+  const lastSurfaced = useRef(null);
+  useEffect(() => {
+    const id = activeSetup?.id;
+    if (id && id !== lastSurfaced.current) {
+      lastSurfaced.current = id;
+      setPage("live");
+      setPal((p) => ({ ...p, open: false }));
+      addToast(`New setup — ${(activeSetup.side || "").toUpperCase()} ${activeSetup.model || ""}`.trim(), "blue");
+    }
+  }, [activeSetup?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── command context + list ────────────────────────────────────────────
+  const levels = useMemo(
+    () => (brief?.key_levels || []).filter((l) => l.state === "untaken" || !l.state).map((l) => ({ name: l.name, price: l.price })),
+    [brief]);
+  const hasPosition = !!exec?.position;
+  const detectorRunning = health?.loop === "healthy";
+  const commands = useMemo(
+    () => buildCommands({ tripped: false, levels, hasPosition, detectorRunning, automationMode, symbol }),
+    [levels, hasPosition, detectorRunning, automationMode, symbol]);
+
+  // ── palette open/close ────────────────────────────────────────────────
+  const openPalette = (query = "") => setPal({ open: true, query, sel: 0, forced: null, askQuery: null });
+  const closePalette = () => setPal((p) => ({ ...p, open: false, forced: null, askQuery: null }));
+  const openPage = (p) => { setPage(p); closePalette(); setFlat({ open: false, hold: false }); };
+  const openFlatten = () => { closePalette(); setFlat({ open: true, hold: false }); };
+  const closeFlatten = () => setFlat({ open: false, hold: false });
+
+  const back = () => {
+    if (flat.open) return closeFlatten();
+    if (pal.open) return closePalette();   // Esc closes the palette (matches the view's own esc chip)
+    if (page) return setPage(null);
+  };
+
+  // ── run a command row ─────────────────────────────────────────────────
+  const runCommand = useCallback(async (row) => {
+    const a = row?.action; if (!a) return;
+    switch (a.type) {
+      case "page": openPage(a.page); return;
+      case "ask": setPal((p) => ({ ...p, open: true, forced: "ask", query: a.q, askQuery: a.q })); return;
+      case "arm": {
+        closePalette();
+        const r = await armAlertReal(a.price, a.name);
+        addToast(r?.ok ? `Alert armed · ${a.name} @ ${a.price}` : `Arm failed · ${a.name}`, "amber");
+        return;
+      }
+      case "be": closePalette(); { const r = await window.api?.execution?.moveStopToBE?.(); addToast(r?.ok ? "Stop moved to breakeven" : "Move-to-BE failed", r?.ok ? "green" : "red"); } return;
+      case "trail": closePalette(); { const r = await window.api?.execution?.trail?.(); addToast(r?.ok ? "Trailing stop armed" : "Trail failed", r?.ok ? "green" : "red"); } return;
+      case "flatten": openFlatten(); return;
+      case "switch-symbol": setSymbol(symbol === "MNQ1!" ? "MES1!" : "MNQ1!"); closePalette(); return;
+      case "detector": closePalette(); {
+        const running = detectorRunning;
+        if (running) await window.api?.detector?.stop?.(); else await window.api?.detector?.start?.();
+        addToast(running ? "Detector stopped" : "Detector started", running ? "red" : "green");
+      } return;
+      case "automation": closePalette(); {
+        setAutomationMode(a.mode);
+        window.api?.execution?.config?.set?.({ automationMode: a.mode }).catch(() => {});
+        addToast(`Automation → ${a.mode.toUpperCase()}`, a.mode === "auto" ? "amber" : "blue");
+      } return;
+      case "theme": closePalette(); onToggleTheme?.(); return;
+      default: return;
+    }
+  }, [symbol, detectorRunning, addToast, setSymbol, onToggleTheme]);
+
+  // ── palette Enter: run selected, or fall through to ask ───────────────
+  const paletteEnter = () => {
+    const q = pal.query;
+    const detected = detectIntent(q);
+    if (pal.forced === "ask") return; // already asking
+    if (detected === "ask") { setPal((p) => ({ ...p, forced: "ask", askQuery: q.trim() })); return; }
+    if (detected === "root" || detected === "filter") {
+      const rows = visibleRows(commands, q);
+      if (rows.length) return runCommand(rows[Math.min(pal.sel, rows.length - 1)]);
+      if (q.trim()) return setPal((p) => ({ ...p, forced: "ask", askQuery: q.trim() })); // no match → ask
+    }
+    // ticket / browse / news / orders: their own controls handle actions.
+  };
+
+  const forceAsk = () => { if (pal.query.trim()) setPal((p) => ({ ...p, forced: "ask", askQuery: p.query.trim() })); };
+
+  const moveSel = (delta) => setPal((p) => {
+    const rows = visibleRows(commands, p.query);
+    if (!rows.length) return p;
+    return { ...p, sel: Math.max(0, Math.min(rows.length - 1, p.sel + delta)) };
+  });
+
+  // ── flatten fire ──────────────────────────────────────────────────────
+  const fireFlatten = async () => {
+    closeFlatten();
+    const r = await window.api?.execution?.flatten?.({ symbol });
+    addToast(r?.ok ? `FLATTEN SENT · ${symbol}` : `FLATTEN FAILED · ${r?.error || ""}`, r?.ok ? "green" : "red");
+  };
+  const cancelAllOrders = async () => {
+    const r = await window.api?.execution?.cancel?.();
+    addToast(r?.ok ? "Working orders cancelled" : "Cancel failed", r?.ok ? "amber" : "red");
+  };
+  const disarmAlert = async (id) => {
+    setAlerts((s) => ({ ...s, armed: s.armed.filter((a) => a.id !== id) })); // optimistic; alerts:state reconciles
+    const r = await disarmAlertReal(id);
+    addToast(r?.ok ? "Alert disarmed" : "Disarm failed", r?.ok ? "amber" : "red");
+  };
+
+  // ── keyboard ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      const typing = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
+      const paletteInputFocused = !!(t && t.dataset && t.dataset.cmdPalInput === "1");
+      const action = resolveKey(e, { paletteOpen: pal.open, flattenOpen: flat.open, page, typing, paletteInputFocused });
+      if (!action) return;
+      // Don't preventDefault plain typing keys — resolveKey already returns null
+      // for those while typing.
+      if (action.type !== "back" || pal.open || flat.open || page) e.preventDefault();
+      switch (action.type) {
+        case "toggle-palette": pal.open ? closePalette() : openPalette(); break;
+        case "open-palette": openPalette(); break;
+        case "toggle-agent": page === "agent" ? setPage(null) : openPage("agent"); break;
+        case "open-flatten": openFlatten(); break;
+        case "open-page": openPage(action.page); break;
+        case "back": back(); break;
+        case "sel": moveSel(action.delta); break;
+        case "force-ask": forceAsk(); break;
+        case "palette-enter": paletteEnter(); break;
+        case "flatten-hold-start": setFlat((f) => ({ ...f, hold: true })); break;
+        default: break;
+      }
+    };
+    const onKeyUp = (e) => { if (e.key === "Enter") setFlat((f) => (f.hold ? { ...f, hold: false } : f)); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pal, flat, page, commands, runCommand]);
+
+  // Refocus the renderer when the chrome is clicked so keyboard shortcuts keep
+  // working after the TV webview has held focus (PR1 mitigation; PR3 forwards
+  // keys from the guest webContents).
+  const refocus = () => { try { window.focus(); } catch { /* noop */ } };
+
+  const cycleVer = () => addToast("VER — click restart in the terminal when stale", "blue");
+  const newsImminent = useMemo(() => {
+    const now = Date.now();
+    const next = (events || []).find((ev) => { const dt = new Date(ev?.ts).getTime(); return Number.isFinite(dt) && dt > now && dt - now <= 2 * 60 * 60 * 1000; });
+    if (!next) return null;
+    return `${next.event} in ${fmtCountdown(new Date(next.ts).getTime() - now)}`;
+  }, [events]);
+  const newsCount = useMemo(() => {
+    const now = Date.now();
+    return (events || []).filter((ev) => { const dt = new Date(ev?.ts).getTime(); return Number.isFinite(dt) && dt > now; }).length;
+  }, [events]);
+
+  const PageComp = page ? PAGE_COMPONENTS[page] : null;
+  const pageProps = { onClose: () => setPage(null) };
+  if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice });
+  if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
+  if (page === "agent") Object.assign(pageProps, { chats });
+  if (page === "settings") Object.assign(pageProps, { guards, setGuards });
+
+  return (
+    <div className="app shell" onMouseDownCapture={refocus}>
+      <TopBar
+        symbol={symbol} setSymbol={setSymbol} guards={guards} exec={exec}
+        alertCount={alerts.armed.length + alerts.fired.length}
+        newsCount={newsCount} newsImminent={newsImminent}
+        onOpenPalette={() => openPalette()}
+        onOpenNews={() => openPalette("news")}
+        onOpenAlerts={() => openPalette("alerts")}
+        onVerClick={cycleVer} />
+
+      <div className="chart-host">
+        <div className="chart-body">
+          <ErrorBoundary label="CHART">
+            <TradingViewChart symbol={symbol} />
+            <TvSignInBanner />
+          </ErrorBoundary>
+        </div>
+      </div>
+
+      {(page || pal.open || flat.open) && (
+        <div className="shell-scrim" onClick={back}>
+          {PageComp && <PageComp {...pageProps} />}
+          {pal.open && (
+            <Palette
+              query={pal.query} onQuery={(q) => setPal((p) => ({ ...p, query: q, sel: 0 }))}
+              sel={pal.sel} onHover={(i) => setPal((p) => ({ ...p, sel: i }))}
+              forcedView={pal.forced} askQuery={pal.askQuery}
+              commands={commands} symbol={symbol} chat={chats?.claude}
+              alerts={alerts} events={events} workingOrders={exec?.workingOrders || []}
+              onRunCommand={runCommand} onDisarm={disarmAlert}
+              onCancelAll={cancelAllOrders} onToast={addToast} onClose={closePalette} />
+          )}
+          {flat.open && (
+            <FlattenConfirm
+              hasPosition={hasPosition}
+              detail={exec?.position ? `${(exec.position.side || "").toUpperCase()} ${exec.position.qty} ${symbol}` : ""}
+              holdActive={flat.hold} onClose={closeFlatten} onFlatten={fireFlatten} />
+          )}
+        </div>
+      )}
+
+      <Toasts toasts={toasts} onDismiss={dismissToast} />
+      {coach && !page && !pal.open && !flat.open && <CoachChip onClose={() => setCoach(false)} />}
+    </div>
+  );
+}

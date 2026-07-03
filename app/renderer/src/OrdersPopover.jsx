@@ -14,11 +14,11 @@ import { formatStopSource, routingLabel, blockMessage, orderResultToast } from "
 const fmt = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
 const sameNum = (a, b) => a !== "" && a != null && Number(a) === Number(b);
 
-function OrdersBody({ onToast, toast, symbol }) {
+function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
   const [ctx, setCtx] = useState(null);
   const [acct, setAcct] = useState(null);
   const [pos, setPos] = useState(null);
-  const [side, setSide] = useState("buy");
+  const [side, setSide] = useState(initialSide === "sell" ? "sell" : "buy");
   const [typedStop, setTypedStop] = useState("");
   const [typedTp, setTypedTp] = useState("");
   const [risk, setRisk] = useState(null);
@@ -228,3 +228,8 @@ export function OrdersCell({ symbol }) {
     </div>
   );
 }
+
+// Exported for the Command Shell palette ticket view (2026-07-03) — same
+// structure+risk order flow, seeded with a side from the parsed "long/short"
+// command. OrdersCell keeps its own default.
+export { OrdersBody };

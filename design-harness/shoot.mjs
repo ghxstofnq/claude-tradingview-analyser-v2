@@ -47,6 +47,21 @@ const SAMPLES = [
   ["ah-tag.armed",     ".ah-tag.armed"],
   ["acct-trade",       ".acct-trade"],
   ["att-side.l",       ".att-side.l"],
+  // ── Command Shell (PR1) — token-purity + theme responsiveness ──
+  ["cmd-topbar",       ".cmd-topbar"],
+  ["cmd-sym pill.on",  ".cmd-sym .pill.active"],
+  ["cmd-strip",        ".cmd-strip"],
+  ["cmd-pos-side.long", ".cmd-pos-side.long"],
+  ["cmd-pos-pnl.up",   ".cmd-pos-pnl.up"],
+  ["cmd-k-btn",        ".cmd-k-btn"],
+  ["cmd-palette",      ".cmd-palette"],
+  ["cmd-row.sel",      ".cmd-row.sel"],
+  ["cmd-row-icon blue", ".cmd-row-icon.tint-blue"],
+  ["cmd-row-icon red", ".cmd-row-icon.tint-red"],
+  ["shell-page",       ".shell-page"],
+  ["shell-page .t",    ".shell-page .head .t"],
+  ["cmd-flatten",      ".cmd-flatten"],
+  ["cmd-hold fill",    ".cmd-hold > span"],
 ];
 
 // Raycast DESIGN.md expected anchors, for eyeball-diffing the printed report

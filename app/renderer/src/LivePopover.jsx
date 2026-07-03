@@ -713,6 +713,131 @@ function LiveCell({ guards, symbol }) {
   );
 }
 
-export { LiveCell, TicketView, InTradeView, EntryHuntView };
+// ── LiveBody — the LIVE view without cell/float chrome, for the Command Shell
+// page frame (2026-07-03). Rendered inside a `.bt-popover.embedded` so every
+// existing LIVE style applies; the detector control + view tabs move from the
+// popover head into an embedded sub-header. PR1-transitional: shares the same
+// hooks as LiveCell but is the only path that renders once the shell lands
+// (LiveCell is retired from the UI). PR2 collapses the two.
+function LiveBody({ guards, symbol }) {
+  const [view, setView] = useState("hunt");
+  const [userPickedView, setUserPickedView] = useState(false);
+  const [fireMsg, setFireMsg] = useState(null);
+  const backtest = useBacktestRunning();
+  const health = useHealth();
+  const { activeTrade, accept } = useTrades();
+  const { activeSetup, noTrade, noTradeReason } = useActiveSetup();
+  const lastBar = useLastBar();
+  const chat = useChat();
+  const exec = useExecutionState();
+  const { brief, session } = useSessionBrief();
+  const openReaction = useOpenReaction(session);
+  const { acct } = useBrokerAccount();
+  const accountType = realAccountView(acct).type;
+
+  const hasPosition = !!exec.position || !!activeTrade;
+  const effectiveView = userPickedView ? view : (hasPosition ? "intrade" : "hunt");
+
+  // Snap back to HUNT when a fresh setup surfaces (LiveCell did this on the
+  // popover open; the shell opens the page separately, this covers the case
+  // where the page is already open on another tab). Ref-guarded so it fires
+  // once per setup id, never on unrelated re-renders.
+  const lastSurfaced = useRef(null);
+  useEffect(() => {
+    const id = activeSetup?.id;
+    if (id && id !== lastSurfaced.current) { lastSurfaced.current = id; setUserPickedView(true); setView("hunt"); }
+    else if (!id) { lastSurfaced.current = null; }
+  }, [activeSetup?.id]);
+
+  const loopRunning = health?.loop === "healthy";
+  const loopStale = health?.loop === "stale";
+  const detText = loopRunning ? "RUNNING" : loopStale ? "STALE" : "STOPPED";
+  const toggleDetector = async () => {
+    try { if (loopRunning) await window.api?.detector?.stop?.(); else await window.api?.detector?.start?.(); } catch { /* best-effort */ }
+  };
+
+  const pickView = (v) => { setUserPickedView(true); setView(v); };
+  const lastPrice = lastBar?.close;
+  const ticketSetup = activeSetup;
+  const TABS = [["hunt", "HUNT"], ["ticket", "TICKET"], ["intrade", "IN-TRADE"]];
+
+  const onHuntAccept = () => { setUserPickedView(true); setView("ticket"); };
+  const onTicketFire = async (order) => {
+    setFireMsg(null);
+    try {
+      if (ticketSetup) {
+        const req = buildOrderRequest({ setup: ticketSetup, sizing: order.sizing, guards, account: accountType, symbol, type: order.type });
+        await accept({ ...ticketSetup, symbol });
+        const res = await executionAdapter.placeOrder(req);
+        if (!res?.ok) {
+          const why = res?.blocked ? (res.code || res.reason || "blocked by guardrails")
+            : (res?.error || res?.result?.body || "broker rejected the order");
+          setFireMsg(`ORDER NOT PLACED — ${why}`);
+          return;
+        }
+      }
+    } catch (e) {
+      setFireMsg(`ORDER NOT PLACED — ${String(e?.message || e)}`);
+      return;
+    }
+    setUserPickedView(true); setView("intrade");
+  };
+
+  let body;
+  if (backtest.running) {
+    body = <BacktestRunningPlaceholder session={backtest.session} />;
+  } else if (effectiveView === "intrade") {
+    body = (exec.position || activeTrade)
+      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
+                     brief={brief} session={session} />
+      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
+  } else if (effectiveView === "ticket") {
+    body = ticketSetup
+      ? <TicketView setup={ticketSetup} account={accountType} guards={guards} symbol={symbol}
+                    onFire={onTicketFire} onCancel={() => pickView("hunt")} />
+      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no candidate to ticket ]</div>;
+  } else {
+    body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
+                          noTrade={noTrade} noTradeReason={noTradeReason}
+                          onAccept={onHuntAccept} onReject={() => pickView("hunt")}
+                          openReaction={openReaction} brief={brief} session={session} symbol={symbol} />;
+  }
+
+  return (
+    <div className="bt-popover embedded">
+      <div className="head live-head">
+        <span className="det">
+          <i className="dot" />
+          <span className="lbl">DETECTOR</span>
+          <span className={"run" + (loopRunning ? "" : loopStale ? " warn" : " off")}>{detText}</span>
+          <span className="stop" onClick={toggleDetector}>{loopRunning ? "STOP" : "START"}</span>
+        </span>
+        <span className="spacer" style={{ flex: 1 }} />
+        <div className="live-tabs">
+          {TABS.map(([v, l]) => (
+            <span key={v} className={"tab" + (effectiveView === v ? " on" : "")} onClick={() => pickView(v)}>{l}</span>
+          ))}
+        </div>
+      </div>
+      <div className="body">
+        {!exec.connected && !exec.loading && (
+          <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)",
+                        color: "var(--amber)", fontSize: 10.5, letterSpacing: ".14em" }}>
+            ⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders
+          </div>
+        )}
+        {fireMsg && (
+          <div onClick={() => setFireMsg(null)} style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)",
+                        background: "var(--surface-2)", color: "var(--red)", fontSize: 10.5, letterSpacing: ".14em", cursor: "pointer" }}>
+            ⚠ {fireMsg}
+          </div>
+        )}
+        {body}
+      </div>
+    </div>
+  );
+}
+
+export { LiveCell, LiveBody, TicketView, InTradeView, EntryHuntView };
 // Legacy alias kept for any importer expecting LiveWorkstation.
 export { LiveCell as LiveWorkstation };
