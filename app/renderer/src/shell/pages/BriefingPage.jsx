@@ -187,22 +187,35 @@ function OpenReactionCard({ brief, session }) {
   );
 }
 
-// ── SCENARIOS ──────────────────────────────────────────────────────────
+// ── SCENARIOS (IF / THEN) ──────────────────────────────────────────────
 function ScenariosCard({ brief }) {
   const scenarios = brief?.scenarios || [];
   if (!scenarios.length) return null;
   const gTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "red");
   return (
-    <Card title="SCENARIOS" meta={scenariosMeta(brief)}>
+    <Card title="SCENARIOS · IF / THEN" meta={scenariosMeta(brief)}>
       {scenarios.map((s, i) => (
         <div className="brf-scn" key={s.id ?? i}>
           <div className="hd">
             {s.grade && <span className={"brf-chip " + gTone(s.grade)}>{s.grade}</span>}
             <span className="cond">{s.condition || s.name}</span>
           </div>
-          {s.target && <div className="tgt">→ {s.target}</div>}
+          {s.action && <div className="tgt">↳ {stripCitations(s.action)}</div>}
+          {s.target && <div className="tgt">→ {stripCitations(String(s.target))}</div>}
         </div>
       ))}
+    </Card>
+  );
+}
+
+// ── PLAN — anchored target / structural stop / sizing (the old PLAN tail) ──
+function PlanCard({ brief }) {
+  if (!brief?.anchored_target && !brief?.anchored_stop && !brief?.sizing_note) return null;
+  return (
+    <Card title="PLAN" meta="anchored">
+      {brief?.anchored_target && <div className="brf-row"><span className="k">Target</span><span className="v ok">{stripCitations(brief.anchored_target)}</span></div>}
+      {brief?.anchored_stop && <div className="brf-row"><span className="k">Stop</span><span className="v bad">{stripCitations(brief.anchored_stop)}</span></div>}
+      {brief?.sizing_note && <div className="brf-row"><span className="k">Sizing</span><span className="v">{stripCitations(brief.sizing_note)}</span></div>}
     </Card>
   );
 }
@@ -210,6 +223,10 @@ function ScenariosCard({ brief }) {
 // ── BRIEF · CLAUDE (DET ⇄ AI) ──────────────────────────────────────────
 function ClaudeCard({ brief, symbol, session, view }) {
   const ai = useAiAnalysis({ symbol, session, brief });
+  // Auto-run a fresh pass the first time AI is opened (matches the old AiView).
+  useEffect(() => {
+    if (view === "ai" && !ai.text && !ai.running) ai.run();
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
   if (view !== "ai") {
     const prose = brief?.prose_summary;
     return (
@@ -247,8 +264,21 @@ export function BriefingPage({ symbol, currentPrice, onClose }) {
   const [fired, setFired] = useState(new Set());
   useAlertStateListener((ev) => setArmed(new Map(normalizeArmed(ev).map((a) => [Number(a.price), a.id]))));
   useAlertFiredListener((ev) => { const p = Number(ev?.price); if (Number.isFinite(p)) setFired((s) => new Set(s).add(p)); });
-  const onArm = async (lvl) => { await armAlertReal(lvl.price, lvl.name); };
-  const onDisarm = async (lvl) => { const id = armed.get(Number(lvl.price)); if (id != null) await disarmAlertReal(id); };
+  // Optimistic arm/disarm so a clicked bell reacts immediately (the alerts:state
+  // listener reconciles the real id); guards against double-arming.
+  const onArm = async (lvl) => {
+    const p = Number(lvl.price);
+    if (armed.has(p)) return;
+    setArmed((m) => new Map(m).set(p, "pending"));
+    const r = await armAlertReal(lvl.price, lvl.name);
+    if (!r?.ok) setArmed((m) => { const n = new Map(m); n.delete(p); return n; });
+  };
+  const onDisarm = async (lvl) => {
+    const p = Number(lvl.price);
+    const id = armed.get(p);
+    setArmed((m) => { const n = new Map(m); n.delete(p); return n; });
+    if (id != null && id !== "pending") await disarmAlertReal(id);
+  };
 
   const events = useCalendar();
   const onRefresh = async () => { setRefreshing(true); try { await refresh?.(); } finally { setRefreshing(false); } };
@@ -296,6 +326,7 @@ export function BriefingPage({ symbol, currentPrice, onClose }) {
               <LevelsCard brief={brief} currentPrice={currentPrice} armed={armed} fired={fired} onArm={onArm} onDisarm={onDisarm} />
               <OpenReactionCard brief={brief} session={session} />
               <ScenariosCard brief={brief} />
+              <PlanCard brief={brief} />
             </div>
           </div>
           <ClaudeCard brief={brief} symbol={selectedSymbol || symbol} session={session} view={view} />
