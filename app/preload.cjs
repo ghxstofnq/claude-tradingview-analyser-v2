@@ -81,6 +81,15 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("bar:close", listener);
     },
   },
+  // Command Shell keyboard chords forwarded from the TV webview guest (main's
+  // before-input-event) so shortcuts work while the chart holds focus.
+  shellKeys: {
+    onKey(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("shell:key", listener);
+      return () => ipcRenderer.removeListener("shell:key", listener);
+    },
+  },
   health: {
     onUpdate(cb) {
       const listener = (_e, ev) => cb(ev);
