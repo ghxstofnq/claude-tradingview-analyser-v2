@@ -56,8 +56,8 @@ export function buildCommands(ctx = {}) {
     detail: detectorRunning ? "no scheduled turns until restarted" : "next turn on bar close",
     action: { type: "detector" } });
 
-  // Only the modes the execution engine recognizes (config.js: manual | auto).
-  for (const m of ["manual", "auto"]) {
+  // The modes the execution engine recognizes (config.js: manual | suggest | auto).
+  for (const m of ["manual", "suggest", "auto"]) {
     rows.push({ id: `auto:${m}`, icon: "⚙", tint: "amber", root: false,
       label: `Automation → ${m.toUpperCase()}`,
       detail: automationMode === m ? "current" : `currently ${automationMode.toUpperCase()}`,

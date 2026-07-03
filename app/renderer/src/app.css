@@ -4743,6 +4743,7 @@ button { border-radius: var(--r-sm); }
 .cmd-set-arm-input.ok { border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 .cmd-set-arm-btn { font-size: 10.5px; font-weight: 500; color: #000; background: #fff; padding: 8px 14px; border-radius: var(--r-md); border: 0; cursor: pointer; }
 .cmd-set-arm-btn.off { color: var(--label-dim); background: var(--surface-3); border: 1px solid var(--border); cursor: not-allowed; }
+.cmd-set-arm-btn.revert { color: var(--value); background: var(--surface-3); border: 1px solid var(--border); }
 .cmd-set-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--value) 4%, transparent); }
 .cmd-set-row:last-child { border-bottom: 0; }
 .cmd-set-row .rk { flex: 1; display: flex; flex-direction: column; gap: 2px; }
@@ -4793,6 +4794,15 @@ button { border-radius: var(--r-sm); }
 .cmd-sys-filepill .name { font: 400 10px var(--mono); color: var(--value); }
 .cmd-sys-filepill .open { font-size: 8.5px; letter-spacing: .06em; color: var(--blue); cursor: pointer; padding: 1px 5px; }
 .cmd-sys-filepill .reveal { font-size: 8.5px; letter-spacing: .06em; color: var(--label-dim); cursor: pointer; padding: 1px 5px; }
+.cmd-sys-fxhd { display: flex; align-items: center; margin-bottom: 10px; }
+.cmd-sys-fxrow { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--value) 4%, transparent); }
+.cmd-sys-fxrow:last-child { border-bottom: 0; }
+.cmd-sys-fxrow .nm { flex: 1; font-size: 11px; color: var(--value); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-sys-fxrow .fxst { font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase; }
+.cmd-sys-fxrow .fxst.pass { color: var(--green); }
+.cmd-sys-fxrow .fxst.fail { color: var(--red); }
+.cmd-sys-fxrow .fxst.skipped { color: var(--label-dim); }
+.cmd-sys-fxrow .fxst.running { color: var(--amber); }
 
 /* ── Prep wizard — 560px 4-step overlay (⌘K "Start prep") ──────────────── */
 .cmd-prep {

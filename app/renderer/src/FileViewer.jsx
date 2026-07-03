@@ -221,12 +221,15 @@ export function FileViewer({ file, onClose }) {
   const [state, setState] = useState({ loading: true });
 
   useEffect(() => {
+    // Inline content (e.g. a fixture's expected.md fetched via a non-files IPC)
+    // renders directly without a files:read round-trip.
+    if (file?.content != null) { setState({ loading: false, res: { ok: true, content: file.content } }); return; }
     if (!file?.path) return;
     setState({ loading: true });
     window.api?.files?.read?.(file.path).then((res) => {
       setState({ loading: false, res });
     }).catch((err) => setState({ loading: false, res: { ok: false, error: String(err?.message || err) } }));
-  }, [file?.path]);
+  }, [file?.path, file?.content]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
