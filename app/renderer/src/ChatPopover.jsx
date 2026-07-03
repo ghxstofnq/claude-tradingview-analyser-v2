@@ -39,9 +39,11 @@ function ChatChannel({ chat, provider, label, hideControls }) {
     chat?.send?.(input.trim(), buildProviderSubmitOptions(provider));
     setInput("");
   };
+  const cased = label.charAt(0) + label.slice(1).toLowerCase(); // CLAUDE → Claude
   return (
     <div className="claude">
-      <div className="claude-feed" ref={feedRef} data-empty-label={`no messages yet — ask ${label.toLowerCase()} below`}>
+      <div className="claude-feed" ref={feedRef}
+           data-empty-label={hideControls ? "nothing yet — ask below, or tab in ⌘K hands the query over" : `no messages yet — ask ${label.toLowerCase()} below`}>
         {messages.map((m, i) => (
           <div key={i} className={"claude-msg " + m.type}>
             <div className="head"><span className="who">{head(m)}</span></div>
@@ -55,16 +57,23 @@ function ChatChannel({ chat, provider, label, hideControls }) {
           </div>
         )}
       </div>
-      <form className="claude-compose" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-        <span className="prompt">&gt;</span>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={`ask ${label.toLowerCase()}…`} />
-        {!hideControls && (
+      {hideControls ? (
+        <form className="cs-chat-compose" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+          <div className="cs-chat-inputrow">
+            <input className="cs-chat-input" value={input} onChange={(e) => setInput(e.target.value)} placeholder={`Message ${cased}…`} />
+            <span className="cs-kbd-send" onClick={(e) => { e.preventDefault(); submit(); }}>⏎</span>
+          </div>
+        </form>
+      ) : (
+        <form className="claude-compose" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+          <span className="prompt">&gt;</span>
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={`ask ${label.toLowerCase()}…`} />
           <span className="claude-controls">
             {chat?.typing && <span className="ctl red" onClick={(e) => { e.preventDefault(); chat?.cancel?.(); }}>[ STOP ]</span>}
             <span className="ctl" onClick={(e) => { e.preventDefault(); chat?.reset?.(); }}>[ RESET ]</span>
           </span>
-        )}
-      </form>
+        </form>
+      )}
     </div>
   );
 }
@@ -157,28 +166,28 @@ export function AgentBody({ chats, onClose }) {
   const footLeft = interactive ? `CHAT · ${ch.toUpperCase()}` : `FEED · ${ch.toUpperCase()} · READ-ONLY`;
   return (
     <>
-      <div className="head">
-        <span className={"agent-dot " + (streaming ? "blue" : "green")} />
-        <span className="t">Agent</span>
-        <div className="seg">
+      <div className="cs-agent-head">
+        <span className={"cs-agent-dot " + (streaming ? "is-streaming" : "is-active")} />
+        <span className="cs-agent-title">Agent</span>
+        <div className="cs-prov-group">
           {CHANNELS.map((c) => (
-            <span key={c.k} className={"seg-pill" + (ch === c.k ? " on" : "")} onClick={() => setCh(c.k)}>{c.l}</span>
+            <span key={c.k} className={"cs-provpill" + (ch === c.k ? " is-on" : "")} onClick={() => setCh(c.k)}>{c.l}</span>
           ))}
         </div>
         <span className="sp" style={{ flex: 1 }} />
-        <span className={"ctl reset" + (interactive ? "" : " disabled")}
+        <span className={"cs-btn-tiny" + (interactive ? "" : " disabled")}
               onClick={interactive ? () => active?.reset?.() : undefined}>RESET</span>
-        <span className={"ctl stop" + (active?.typing ? "" : " idle")}
+        <span className={"cs-btn-tiny" + (active?.typing ? " danger-live" : " idle")}
               onClick={active?.typing ? () => active?.cancel?.() : undefined}>STOP</span>
-        <span className="esc cmd-kbd" onClick={onClose}>esc</span>
+        <span className="cs-kbd muted" onClick={onClose}>esc</span>
       </div>
-      <div className="body chat-body">
+      <div className="body chat-body cs-agent-body">
         {ch === "claude" && <ChatChannel chat={claude} provider="claude" label="CLAUDE" hideControls />}
         {ch === "codex" && <ChatChannel chat={codex} provider="codex" label="CODEX" hideControls />}
         {ch === "brain" && <BrainChannel entries={brainEntries} />}
         {ch === "walkers" && <WalkersChannel walkers={walkers} />}
       </div>
-      <div className="foot">
+      <div className="foot cs-agent-foot">
         <span>{footLeft}</span>
         <span className="sp" style={{ flex: 1 }} />
         <span>⌘J / ⌘5 toggles · esc</span>

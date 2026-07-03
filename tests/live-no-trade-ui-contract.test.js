@@ -37,8 +37,14 @@ test('noTradeStatusLabel distinguishes cannot-evaluate from ordinary no-trade', 
 });
 
 test('LivePopover entry-hunt view renders structured no-trade blockers, source health, and evidence refs', () => {
+  // Contract: the no-trade diagnostics (blockers / source health / evidence refs)
+  // must still render. The 2026-07-03 pixel-exact redesign relabeled the uppercase
+  // section headers to the prototype's cleaner inline prose (blockers: / source: /
+  // evidence:) — the data + intent are unchanged, so assert on both.
   assert.match(livePopoverSource, /noTrade\?\.blockers/);
-  assert.match(livePopoverSource, /NO-TRADE BLOCKERS/);
-  assert.match(livePopoverSource, /SOURCE HEALTH/);
-  assert.match(livePopoverSource, /EVIDENCE REFS/);
+  assert.match(livePopoverSource, /blockers:/);
+  assert.match(livePopoverSource, /noTrade\?\.sourceHealth/);
+  assert.match(livePopoverSource, /source:/);
+  assert.match(livePopoverSource, /noTrade\?\.evidenceRefs/);
+  assert.match(livePopoverSource, /evidence:/);
 });

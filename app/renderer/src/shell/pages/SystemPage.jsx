@@ -17,12 +17,13 @@ import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useCalendar } from "../../hooks/useCalendar.js";
 import { FileViewer } from "../../FileViewer.jsx";
 
-function HRow({ tone, name, value, action }) {
+function HRow({ tone, name, value, valWarn, action }) {
+  const dotMod = tone === "warn" ? " is-warn" : tone === "bad" ? " is-bad" : "";
   return (
-    <div className="cmd-sys-hrow">
-      <span className={"dot-inline " + (tone || "ok")} />
-      <span className="name">{name}</span>
-      <span className="val">{value}</span>
+    <div className="cs-health-row">
+      <span className={"cs-health-dot" + dotMod} />
+      <span className="cs-health-name">{name}</span>
+      <span className={"cs-health-val" + (valWarn ? " is-warn" : "")}>{value}</span>
       {action}
     </div>
   );
@@ -82,75 +83,78 @@ function SystemBody({ pushToast }) {
   const mmdd = date ? String(date).slice(5) : "";
 
   return (
-    <div className="cmd-sys">
-      <div className="cmd-sys-grid">
-        <div className="cmd-sys-card">
-          <span className="cmd-sys-cap">HEALTH</span>
-          <HRow tone={loopTone} name="Agent loop" value={loopVal} />
-          <HRow tone="ok" name="IPC bridge" value="ok" />
-          <HRow tone={calTone} name="Calendar feed" value={calN > 0 ? `${calN} events` : "no feed"}
-                action={calN === 0 ? <span className="cmd-sys-linkchip amber" {...clickable(retryCal, { label: "retry calendar" })}>RETRY</span> : null} />
-          <HRow tone={loopTone} name="Bar-close engine" value={loopVal} />
-          <HRow tone={exec?.connected ? "ok" : "warn"} name="Broker feed" value={exec?.connected ? "connected" : exec?.loading ? "checking…" : "not connected"} />
+    <div className="cs-sys">
+      <div className="cs-sys-grid">
+        <div className="cs-card">
+          <span className="cs-card-label-lg">HEALTH</span>
+          <div className="cs-health-list">
+            <HRow tone={loopTone} name="Agent loop" value={loopVal} />
+            <HRow tone="ok" name="IPC bridge" value="ok" />
+            <HRow tone={calTone} name="Calendar feed" value={calN > 0 ? `${calN} events` : "no feed"} valWarn={calN === 0}
+                  action={calN === 0 ? <span className="cs-health-retry" {...clickable(retryCal, { label: "retry calendar" })}>RETRY</span> : null} />
+            <HRow tone={loopTone} name="Bar-close engine" value={loopVal} />
+            <HRow tone={exec?.connected ? "ok" : "warn"} name="Broker feed" value={exec?.connected ? "connected" : exec?.loading ? "checking…" : "not connected"} />
+          </div>
         </div>
-        <div className="cmd-sys-card">
-          <span className="cmd-sys-cap">VERSIONS</span>
-          <div className="cmd-sys-vgrid">
+        <div className="cs-card">
+          <span className="cs-card-label-lg">VERSIONS</span>
+          <div className="cs-ver-grid">
             <span className="k">Running</span><span className="v">{version?.sha || "—"}</span>
             <span className="k">Booted</span><span className="v">{version?.boot_sha || "—"}</span>
             <span className="k">Status</span><span className={"v " + verState.tone}>{verState.t}</span>
           </div>
-          <div className="cmd-sys-note">Red RESTART = disk is ahead of this boot.</div>
+          <div className="cs-card-foot-note">Red RESTART = disk is ahead of this boot.</div>
+        </div>
+
+        <div className="cs-card is-full">
+          <div className="cs-fx-head">
+            <span className="cs-card-label">FIXTURES</span>
+            <span className="sp" style={{ flex: 1 }} />
+            <span className="cs-fx-runall" {...clickable(runAllFx, { label: "run all fixtures" })}>{fx.busy ? "RUNNING…" : "RUN ALL"}</span>
+          </div>
+          {fx.fixtures.length
+            ? fx.fixtures.map((f) => (
+                <div key={f.id} className="cs-fx-row">
+                  <span className="cs-fx-name">{f.name}</span>
+                  {fx.status[f.id] && <span className={"cs-fx-status " + fx.status[f.id]}>{fx.status[f.id]}</span>}
+                  <span className="cs-fx-chip" {...clickable(() => fx.run(f.id), { label: "run fixture" })}>RUN</span>
+                  {f.hasExpected && <span className="cs-fx-chip" {...clickable(() => reviewFx(f.id), { label: "review expected" })}>REVIEW</span>}
+                </div>
+              ))
+            : <span className="cs-sys-empty">no fixtures</span>}
+          <div className="cs-card-foot-note">Fixtures replay into Backtest, never live.</div>
         </div>
       </div>
 
-      <div className="cmd-sys-card cmd-sys-strip actions">
-        <span className="cmd-sys-cap">ACTIONS</span>
-        <div className="cmd-sys-actgrp">
-          <span className="lbl">Supervisor</span>
-          <span className="cmd-sys-linkchip red" {...clickable(supStop, { label: "stop supervisor" })}>STOP</span>
-          <span className="cmd-sys-linkchip amber" {...clickable(supRestart, { label: "restart supervisor" })}>RESTART</span>
+      <div className="cs-sys-actions">
+        <span className="cs-actions-label">ACTIONS</span>
+        <div className="cs-action-group">
+          <span className="cs-action-lbl">Supervisor</span>
+          <span className="cs-action-chip stop" {...clickable(supStop, { label: "stop supervisor" })}>STOP</span>
+          <span className="cs-action-chip restart" {...clickable(supRestart, { label: "restart supervisor" })}>RESTART</span>
         </div>
-        <div className="cmd-sys-actgrp">
-          <span className="lbl">Leader latch</span>
-          <span className="cmd-sys-linkchip" {...clickable(resetLeader, { label: "reset leader latch" })}>RESET</span>
+        <div className="cs-action-group">
+          <span className="cs-action-lbl">Leader latch</span>
+          <span className="cs-action-chip" {...clickable(resetLeader, { label: "reset leader latch" })}>RESET</span>
         </div>
-        <div className="cmd-sys-actgrp">
-          <span className={"dot-inline " + (exec?.connected ? "ok" : "warn")} />
-          <span className="lbl">Broker</span>
-          <span className="val-dim">{exec?.connected ? "connected" : "log in to Tradovate in the chart"}</span>
+        <div className="cs-action-group">
+          <span className={"cs-action-dot" + (exec?.connected ? " ok" : "")} />
+          <span className="cs-action-lbl">Broker</span>
+          <span className="cs-action-val">{exec?.connected ? "connected" : "log in to Tradovate in the chart"}</span>
         </div>
       </div>
 
-      <div className="cmd-sys-card">
-        <div className="cmd-sys-fxhd">
-          <span className="cmd-sys-cap">FIXTURES</span>
-          <span className="sp" style={{ flex: 1 }} />
-          <span className="cmd-sys-linkchip green" {...clickable(runAllFx, { label: "run all fixtures" })}>{fx.busy ? "RUNNING…" : "RUN ALL"}</span>
-        </div>
-        {fx.fixtures.length
-          ? fx.fixtures.map((f) => (
-              <div key={f.id} className="cmd-sys-fxrow">
-                <span className="nm">{f.name}</span>
-                {fx.status[f.id] && <span className={"fxst " + fx.status[f.id]}>{fx.status[f.id]}</span>}
-                <span className="cmd-sys-linkchip" {...clickable(() => fx.run(f.id), { label: "run fixture" })}>RUN</span>
-                {f.hasExpected && <span className="cmd-sys-linkchip" {...clickable(() => reviewFx(f.id), { label: "review expected" })}>REVIEW</span>}
-              </div>
-            ))
-          : <span className="val-dim">no fixtures</span>}
-      </div>
-
-      <div className="cmd-sys-card cmd-sys-strip files">
-        <span className="cmd-sys-cap">SESSION FILES{mmdd ? ` · ${mmdd}` : ""}</span>
+      <div className="cs-sys-files">
+        <span className="cs-files-label">SESSION FILES{mmdd ? ` · ${mmdd}` : ""}</span>
         {shownFiles.length
           ? shownFiles.map((f) => (
-              <span key={f.path} className="cmd-sys-filepill">
-                <span className="name">{f.label || f.path.split("/").pop()}</span>
-                <span className="open" {...clickable(() => openFile(f), { label: "open file" })}>OPEN</span>
-                <span className="reveal" {...clickable(() => revealFile(f), { label: "reveal file" })}>REVEAL</span>
+              <span key={f.path} className="cs-file-pill">
+                <span className="cs-file-name">{f.label || f.path.split("/").pop()}</span>
+                <span className="cs-file-open" {...clickable(() => openFile(f), { label: "open file" })}>OPEN</span>
+                <span className="cs-file-reveal" {...clickable(() => revealFile(f), { label: "reveal file" })}>REVEAL</span>
               </span>
             ))
-          : <span className="val-dim">no session files yet</span>}
+          : <span className="cs-sys-empty">no session files yet</span>}
       </div>
 
       {viewFile && <FileViewer file={viewFile} onClose={() => setViewFile(null)} />}

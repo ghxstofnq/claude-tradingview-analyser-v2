@@ -10,7 +10,7 @@ import { LiveBody } from "../../LivePopover.jsx";
 
 export function LivePage({ symbol, guards, onFlatten, onClose }) {
   return (
-    <Page icon={PAGE_ICONS.live} tint="green" title="Live" page="live" hosted onClose={onClose}
+    <Page icon={PAGE_ICONS.live} tint="green" title="Live" page="live" hosted narrow className="narrow" onClose={onClose}
           hint="⇧⌘F flattens · esc"
           right={<span className="pill red interactive" onClick={onFlatten} title="⇧⌘F flattens anywhere">FLATTEN</span>}>
       <LiveBody guards={guards} symbol={symbol} />

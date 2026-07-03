@@ -1,0 +1,156 @@
+/* command-shell live — pixel-exact page styles (⌘2 LIVE).
+   Verbatim from Command Shell Prototype.dc.html lines 664–800. Reuses the
+   .cs-* primitives in command-shell.css; page-specific geometry lives here.
+   Raw values with no design token (#0a0b0d, #18191a, #1c1e1f, 7px) are kept
+   exactly per the spec; hue tints use color-mix to match the prototype rgba(). */
+
+/* Narrow 620px frame is provided by .shell-page.narrow (app.css) via
+   className="narrow" on the LivePage <Page>. */
+
+/* ── Segment subhead (FEED | POSITIONS) ─────────────────────────────────── */
+.bt-popover.embedded .head.live-head {
+  display: flex; align-items: center; gap: 2px;
+  padding: 9px 16px; border-bottom: 1px solid var(--border); flex: none;
+}
+.cs-live-tabs { display: flex; align-items: center; gap: 2px; }
+
+/* ── NEXT TURN strip (FEED only) ────────────────────────────────────────── */
+.cs-nextturn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 16px; background: #0a0b0d;
+  border-bottom: 1px solid var(--border); flex: none;
+}
+.cs-nextturn__lbl { font-size: 9px; letter-spacing: .08em; color: var(--label-dim); }
+.cs-nextturn__val { font: 400 10px var(--mono); color: var(--amber); }
+.cs-nextturn__val.stopped { color: var(--red); }
+.cs-detector {
+  margin-left: auto; font-size: 9px; letter-spacing: .06em;
+  padding: 2px 10px; border-radius: var(--r-sm); cursor: pointer;
+  background: transparent; white-space: nowrap;
+}
+.cs-detector.stop  { color: var(--red);   border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); }
+.cs-detector.start { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); }
+
+/* ── FEED scroll body ───────────────────────────────────────────────────── */
+.cs-feed { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+/* feed row skeleton — mono ts chip left + content that flexes */
+.cs-feed-row { display: flex; gap: 9px; }
+.cs-feed-row__ts { font: 400 9.5px var(--mono); color: var(--label-dim); flex: none; margin-top: 2px; min-width: 30px; }
+
+/* ── PROPOSED card (amber) ──────────────────────────────────────────────── */
+.cs-prop-card {
+  flex: 1; background: var(--surface-2);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  border-radius: var(--r-md); padding: 9px 11px;
+}
+.cs-prop-card.neutral  { border-color: var(--border); }
+.cs-prop-card.rejected { opacity: .55; }
+.cs-prop-card__hd { display: flex; align-items: center; gap: 8px; }
+.cs-evidence { margin-left: auto; font-size: 9px; color: var(--blue); cursor: pointer; }
+.cs-levels { display: flex; gap: 12px; margin-top: 7px; font: 400 10px var(--mono); color: var(--label); }
+.cs-levels .e { color: var(--value-strong); }
+.cs-levels .s { color: var(--red); }
+.cs-levels .t { color: var(--green); }
+.cs-prop-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.cs-prop-note { font-size: 9.5px; color: var(--label-dim); }
+
+/* ── narration prose ────────────────────────────────────────────────────── */
+.cs-narr { margin: 0; font-size: 11px; line-height: 1.55; color: var(--value); overflow-wrap: anywhere; }
+.cs-narr__px { font-family: var(--mono); color: var(--value-strong); }
+.cs-narr__px.pos { color: var(--green); }
+.cs-narr-sub { margin: 2px 0 0; font-size: 10px; line-height: 1.5; color: var(--label); }
+
+/* ── SETUP card (green) ─────────────────────────────────────────────────── */
+.cs-setup-card { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 11px; }
+.cs-setup-tag { font-size: 8.5px; letter-spacing: .08em; color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); padding: 1px 7px; border-radius: var(--r-xs); }
+
+/* ── footer (both views) ────────────────────────────────────────────────── */
+.cs-live-foot { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--border); flex: none; }
+.cs-live-foot span { font-size: 9.5px; color: var(--label-dim); }
+.cs-live-foot .sp { flex: 1; }
+
+/* ══ POSITIONS view ═════════════════════════════════════════════════════ */
+.bt-popover.embedded .live-positions.cs-positions {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 16px;
+}
+
+/* LOCKED guard banner */
+.cs-guard-lock {
+  padding: 9px 12px; border-radius: var(--r-lg);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+  display: flex; align-items: center; gap: 10px;
+}
+.cs-guard-lock__tag { font-size: 9px; letter-spacing: .08em; color: var(--red); flex: none; }
+.cs-guard-lock__msg { font-size: 11px; color: var(--value); }
+
+/* open-position card */
+.cs-pos-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; display: flex; flex-direction: column; }
+.cs-pos-hd { display: flex; align-items: center; gap: 10px; }
+.cs-pos-hd__lbl { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cs-pos-hd__meta { font-size: 10px; color: var(--label); }
+.cs-pos-side { margin-left: auto; font-size: 9px; letter-spacing: .08em; color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); padding: 2px 8px; border-radius: var(--r-xs); }
+.cs-pos-side.short { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+
+/* P&L hero row */
+.cs-pos-hero { display: flex; align-items: baseline; gap: 12px; margin-top: 10px; }
+.cs-pos-hero__sym { font: 500 15px var(--mono); color: var(--value-strong); }
+.cs-pos-hero__avg { font: 400 11px var(--mono); color: var(--label); }
+.cs-pos-hero__pnl { margin-left: auto; font: 500 18px var(--mono); color: var(--value-strong); }
+.cs-pos-hero__pnl.green { color: var(--green); }
+.cs-pos-hero__pnl.red { color: var(--red); }
+
+/* stop→target progress bar */
+.cs-pos-bar { margin-top: 18px; position: relative; height: 6px; border-radius: 3px; background: #1c1e1f; }
+.cs-pos-bar__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--green); }
+.cs-pos-bar__entry { position: absolute; top: -2px; width: 2px; height: 10px; background: var(--label); transform: translateX(-1px); }
+.cs-pos-bar__marker { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--value-strong); transform: translateX(-1px); }
+.cs-pos-legend { display: flex; justify-content: space-between; margin-top: 7px; font-size: 9.5px; letter-spacing: .05em; color: var(--label); }
+.cs-pos-legend .mono { font-family: var(--mono); }
+.cs-pos-legend .stop { color: var(--red); }
+.cs-pos-legend .now { color: var(--value-strong); }
+.cs-pos-legend .target { color: var(--green); }
+
+/* RISK / →TP1 / →STOP tiles (named .cs-postile to avoid the .cs-tile icon primitive) */
+.cs-pos-tiles { margin-top: 16px; display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+.cs-postile { background: #18191a; border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px; }
+.cs-postile__k { font-size: 9px; letter-spacing: .08em; color: var(--label-dim); }
+.cs-postile__v { font: 500 14px var(--mono); color: var(--value-strong); margin-top: 4px; }
+.cs-postile__v.green { color: var(--green); }
+.cs-postile__v.red { color: var(--red); }
+
+/* action row */
+.cs-pos-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.cs-btn-be { font: 400 10px var(--sans); letter-spacing: .04em; color: var(--label); background: transparent; border: 1px solid var(--border); padding: 5px 14px; border-radius: 7px; cursor: pointer; }
+.cs-btn-be.active { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.cs-btn-trail { font: 400 10px var(--sans); letter-spacing: .04em; color: var(--label); background: transparent; border: 1px solid var(--border); padding: 5px 14px; border-radius: 7px; cursor: pointer; }
+.cs-btn-trail.active { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 40%, transparent); }
+.cs-pos-actions__hint { margin-left: auto; font-size: 9.5px; color: var(--label-dim); }
+.cs-pos-mng-note { font-size: 10px; color: var(--label); margin-top: 12px; line-height: 1.5; }
+.cs-pos-fail { margin-top: 8px; font-size: 10px; color: var(--red); cursor: pointer; }
+
+/* retained BRAIN / AI blocks keep their .lv-box look, sit under the card */
+.cs-positions .lv-box { margin-top: 0; }
+
+/* FLAT empty state */
+.bt-popover.embedded .live-flat-empty.cs-pos-flat { display: grid; place-items: center; min-height: 120px; text-align: center; padding: 40px 20px; }
+.cs-pos-flat__t { font-size: 13px; color: var(--label); }
+.cs-pos-flat__s { font-size: 11px; color: var(--label-dim); margin-top: 6px; }
+
+/* SESSION GUARDS card */
+.cs-guards { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.cs-guards__hd { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cs-guard-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--value); }
+.cs-guard-row .mono { font-family: var(--mono); }
+.cs-guard-row .warn { color: var(--amber); }
+.cs-guard-row .bad { color: var(--red); }
+.cs-guard-track { margin-top: 6px; height: 5px; border-radius: 3px; background: #1c1e1f; overflow: hidden; }
+.cs-guard-fill { display: block; height: 100%; background: var(--amber); }
+.cs-guard-fill.bad { background: var(--red); }
+
+/* TODAY'S FILLS card */
+.cs-fills { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 12px 14px; display: flex; align-items: center; gap: 14px; overflow: hidden; flex-wrap: wrap; }
+.cs-fills__hd { font-size: 9.5px; letter-spacing: .08em; color: var(--label); flex: none; }
+.cs-fill-chip { font: 400 10px var(--mono); color: var(--value); white-space: nowrap; }
+.cs-fills__empty { font-size: 10px; color: var(--label-dim); }

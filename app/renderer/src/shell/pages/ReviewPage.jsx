@@ -12,6 +12,7 @@ import { useFills } from "../../hooks/useFills.js";
 import {
   buildLedger, formatGradeShort, buildTrackRecordFromFills, degradedChainStages, computeFaithfulness,
 } from "../../Review.helpers.js";
+import "../../cs/review.css";
 
 const TABS = [["SESSION", "SESSION"], ["JOURNAL", "JOURNAL"], ["STATS", "STATS"]];
 const gTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "dim");
@@ -20,8 +21,8 @@ const signed = (n) => (n > 0 ? "+" : "") + n; // no double sign on negatives
 
 function Card({ title, meta, right, className, children }) {
   return (
-    <div className={"brf-card" + (className ? " " + className : "")}>
-      <div className="brf-card-hd"><span className="t">{title}</span>{meta && <span className="meta">{meta}</span>}{right && <span className="right">{right}</span>}</div>
+    <div className={"cs-cell card" + (className ? " " + className : "")}>
+      <div className="cs-cell-hd"><span className="cs-cell-label">{title}</span>{meta && <span className="cs-cell-meta">{meta}</span>}{right && <span className="cs-cell-right">{right}</span>}</div>
       {children}
     </div>
   );
@@ -37,20 +38,20 @@ function LedgerRow({ row, brief, expanded, onToggle }) {
   const marks = computeFaithfulness(s, row.trade, brief).marks || ["na", "na", "na"];
   return (
     <>
-      <div className={"rv-lrow" + (row.expandable ? " click" : "")} {...(row.expandable ? clickable(onToggle) : {})}>
+      <div className={"cs-lrow" + (row.expandable ? " click" : "")} {...(row.expandable ? clickable(onToggle) : {})}>
         {row.expandable ? <span className="car">{expanded ? "▾" : "▸"}</span> : <span className="car dim">·</span>}
         <span className="ts">{t}</span>
-        <span className={"gr " + gTone(s.grade || s.grade_capped)}>{grade}</span>
+        <span className={"cs-grade-mini " + gTone(s.grade || s.grade_capped)}>{grade}</span>
         <span className={"side " + (side === "LONG" ? "up" : side === "SHORT" ? "down" : "")}>{side || "—"}</span>
         <span className="model">{model}</span>
-        <span className="fmark" title="faithfulness: bias · price action · entry model">
-          {marks.map((m, i) => <span key={i} className={"fseg " + (m || "na")} />)}
+        <span className="cs-fmark" title="faithfulness: bias · price action · entry model">
+          {marks.map((m, i) => <span key={i} className={"cs-fseg " + (m || "na")} />)}
         </span>
-        <span className={"st " + (row.state?.tone || "amber")}>{row.state?.label}</span>
+        <span className={"cs-st " + (row.state?.tone || "amber")}>{row.state?.label}</span>
         <span className="rsn">{row.reason}</span>
       </div>
       {expanded && row.trade && (
-        <div className="rv-lexp">
+        <div className="cs-lexp">
           <span>entry <b>{row.trade.entry ?? s.entry ?? "—"}</b></span>
           <span>stop <b>{row.trade.stop ?? s.stop ?? "—"}</b></span>
           <span>tp1 <b>{row.trade.tp1 ?? s.tp1 ?? "—"}</b></span>
@@ -63,9 +64,9 @@ function LedgerRow({ row, brief, expanded, onToggle }) {
 
 function Ledger({ ledger, brief }) {
   const [open, setOpen] = useState(null);
-  if (!ledger.length) return <div className="brf-empty">no candidates this session</div>;
+  if (!ledger.length) return <div className="cs-empty">no candidates this session</div>;
   return (
-    <div className="rv-ledger">
+    <div className="cs-ledger">
       {ledger.map((row, i) => (
         <LedgerRow key={row.setup?.id ?? i} row={row} brief={brief} expanded={open === i} onToggle={() => setOpen(open === i ? null : i)} />
       ))}
@@ -75,7 +76,7 @@ function Ledger({ ledger, brief }) {
 
 // ── SESSION tab ────────────────────────────────────────────────────────
 function SessionTab({ journal }) {
-  if (!journal) return <div className="brf-empty" style={{ margin: "auto", padding: 40 }}>no journal yet for the active session</div>;
+  if (!journal) return <div className="cs-empty" style={{ margin: "auto", padding: 40 }}>no journal yet for the active session</div>;
   const ledger = buildLedger(journal.setups || [], journal.trades || []);
   const grade = journal.brief?.pillar_grade || "—";
   const accepted = ledger.filter((r) => r.setup?._disposition === "accepted").length;
@@ -93,20 +94,22 @@ function SessionTab({ journal }) {
     ["GRADE", formatGradeShort(grade), gTone(grade)],
   ];
   return (
-    <div className="rv-dash">
+    <div className="cs-dash">
       {degraded.length > 0 && <div className="chain-degraded">{`CHAIN DEGRADED — ${degraded.map((d) => `${d.stage}: ${d.status}`).join(" · ")}`}</div>}
-      <div className="rv-cells">
+      <div className="cs-cells">
         {cells.map(([k, v, tone]) => (
-          <div className="rv-cell" key={k}><div className="k">{k}</div><div className={"v " + tone}>{v}</div></div>
+          <div className="cs-cell" key={k}><div className="cs-cell-label">{k}</div><div className={"cs-cell-val " + tone}>{v}</div></div>
         ))}
       </div>
-      <Card title="CLAUDE'S WRAP" className="brf-prose-card">
-        <p className="brf-prose">{wrap}</p>
-      </Card>
-      <Card title="SETUPS · GRADED" meta={`${ledger.length} candidates`}
-            right={<span className="pill interactive" {...clickable(onExport)}>EXPORT JSON</span>}>
-        <Ledger ledger={ledger} brief={journal.brief} />
-      </Card>
+      <div className="cs-band">
+        <Card title="CLAUDE'S WRAP" className="wrap">
+          <p className="cs-wrap-text">{wrap}</p>
+        </Card>
+        <Card title="SETUPS · GRADED" meta={`${ledger.length} candidates`}
+              right={<span className="cs-btn-ghost-sm" {...clickable(onExport)}>EXPORT JSON</span>}>
+          <Ledger ledger={ledger} brief={journal.brief} />
+        </Card>
+      </div>
     </div>
   );
 }
@@ -115,10 +118,12 @@ function SessionTab({ journal }) {
 function JournalTab({ journal }) {
   const ledger = journal ? buildLedger(journal.setups || [], journal.trades || []) : [];
   return (
-    <div className="rv-dash">
-      <Card title={`CANDIDATE LEDGER · ${sessionShort(journal?.session)} · ${journal?.date ?? ""}`} meta={`${ledger.length} rows`}>
-        <Ledger ledger={ledger} brief={journal?.brief} />
-      </Card>
+    <div className="cs-dash">
+      <div className="cs-band">
+        <Card title={`CANDIDATE LEDGER · ${sessionShort(journal?.session)} · ${journal?.date ?? ""}`} meta={`${ledger.length} rows`}>
+          <Ledger ledger={ledger} brief={journal?.brief} />
+        </Card>
+      </div>
     </div>
   );
 }
@@ -131,7 +136,7 @@ function EquityCurve({ fills }) {
     for (const r of rs) { eq += r; series.push(eq); }
     return series;
   }, [fills]);
-  if (pts.length < 2) return <div className="brf-empty">not enough closed trades for an equity curve</div>;
+  if (pts.length < 2) return <div className="cs-empty">not enough closed trades for an equity curve</div>;
   const min = Math.min(...pts), max = Math.max(...pts);
   const span = (max - min) || 1;
   const W = 1000, H = 140, pad = 8;
@@ -141,7 +146,7 @@ function EquityCurve({ fills }) {
   const area = `0,${H} ${line} ${W},${H}`;
   const up = pts[pts.length - 1] >= 0;
   return (
-    <div className="rv-equity">
+    <div className="cs-equity">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
         <polygon points={area} className={up ? "area up" : "area down"} />
         <polyline points={line} className={up ? "line up" : "line down"} />
@@ -161,21 +166,23 @@ function StatsTab({ fills }) {
     ["TRADES", String(tr.n_trades), "value"],
   ];
   return (
-    <div className="rv-dash">
-      <div className="rv-cells six">
+    <div className="cs-dash">
+      <div className="cs-stat-cells">
         {cells.map(([k, v, tone]) => (
-          <div className="rv-cell" key={k}><div className="k">{k}</div><div className={"v " + tone}>{v}</div></div>
+          <div className="cs-stat-cell" key={k}><div className="k">{k}</div><div className={"v " + tone}>{v}</div></div>
         ))}
       </div>
-      <Card title="EQUITY CURVE · CUMULATIVE R" meta={`max DD ${tr.max_drawdown_r}R`}>
-        <EquityCurve fills={fills} />
-        <div className="rv-eqfoot">
-          <span>best <b className="up">{signed(tr.best_r)}R</b></span>
-          <span>worst <b className="down">{signed(tr.worst_r)}R</b></span>
-          <span>avg win <b>{signed(tr.avg_win)}R</b></span>
-          <span>avg loss <b>{signed(tr.avg_loss)}R</b></span>
-        </div>
-      </Card>
+      <div className="cs-equity-wrap">
+        <Card title="EQUITY CURVE · CUMULATIVE R" meta={`max DD ${tr.max_drawdown_r}R`}>
+          <EquityCurve fills={fills} />
+          <div className="cs-eqfoot">
+            <span>best <b className="up">{signed(tr.best_r)}R</b></span>
+            <span>worst <b className="down">{signed(tr.worst_r)}R</b></span>
+            <span>avg win <b>{signed(tr.avg_win)}R</b></span>
+            <span>avg loss <b>{signed(tr.avg_loss)}R</b></span>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -188,10 +195,10 @@ function SessionPicker({ library, picked, onPick }) {
   const active = (r) => picked?.date === r.date && picked?.session === r.session;
   const anyActive = recent.some(active);
   return (
-    <div className="rv-picker">
-      <span className={"pill interactive" + (!anyActive ? " active" : "")} {...clickable(() => onPick({}))}>LATEST</span>
+    <div className="cs-picker">
+      <span className={"cs-sesspill" + (!anyActive ? " is-active" : "")} {...clickable(() => onPick({}))}>LATEST</span>
       {recent.map((r) => (
-        <span key={`${r.date}-${r.session}`} className={"pill interactive" + (active(r) ? " active" : "")}
+        <span key={`${r.date}-${r.session}`} className={"cs-sesspill" + (active(r) ? " is-active" : "")}
               {...clickable(() => onPick({ date: r.date, session: r.session }))}
               title={`${r.date} · ${sessionShort(r.session)}`}>
           {sessionShort(r.session)} {String(r.date).slice(5)}
@@ -209,7 +216,7 @@ export function ReviewPage({ onClose }) {
   const { fills } = useFills("all");
 
   const tabs = TABS.map(([v, l]) => (
-    <span key={v} className={"pill interactive" + (view === v ? " active" : "")} {...clickable(() => setView(v))}>{l}</span>
+    <span key={v} className={"cs-tabpill" + (view === v ? " is-active" : "")} {...clickable(() => setView(v))}>{l}</span>
   ));
   return (
     <Page icon={PAGE_ICONS.review} tint="mute" title="Review" wide tabs={tabs} onClose={onClose}

@@ -11,7 +11,7 @@ import { clickable } from "../../a11y.js";
 import {
   decisionLine, drawBiasVoteRows, htfBiasToRowsDesigner, overnightHeaderRows,
   selectPillar, pillar2ToRows, groupLevelsByPrice, openReactionVerdict,
-  scenariosMeta, formatChainChip, stripCitations,
+  scenariosMeta, stripCitations,
 } from "../../Prep.helpers.js";
 import { useSessionBrief } from "../../hooks/useSessionBrief.js";
 import { useOpenReaction } from "../../hooks/useOpenReaction.js";
@@ -21,7 +21,6 @@ import {
   armAlertReal, disarmAlertReal, normalizeArmed, useAlertStateListener, useAlertFiredListener,
 } from "../../hooks/useAlerts.js";
 
-const SYMS = [["MNQ1!", "MNQ"], ["MES1!", "MES"]];
 const toneCls = (t) => (t === "bull" ? "ok" : t === "bear" ? "bad" : t === "dim" ? "dim" : t || "");
 const sessionShort = (s) => ({ "ny-am": "NY-AM", "ny-pm": "NY-PM", london: "LONDON" }[s] ?? (s ?? ""));
 
@@ -50,29 +49,6 @@ function RowList({ rows }) {
       </span>
     </div>
   ));
-}
-
-// ── DECISION hero ──────────────────────────────────────────────────────
-function DecisionHero({ brief }) {
-  const d = decisionLine(brief);
-  const chip = formatChainChip(brief?.chain_status);
-  return (
-    <div className="brf-decision">
-      <span className={"brf-grade " + d.gradeTone}>{d.grade}</span>
-      <div className="brf-decision-main">
-        <div className="hd">
-          <span className={"bias " + d.biasTone}>{d.bias}</span>
-          <span className="cast">{d.cast}/3 components</span>
-          {chip.visible && <span className={"brf-chip " + chip.tone}>{chip.label}</span>}
-        </div>
-        {d.reason && <div className="reason">{d.reason}</div>}
-      </div>
-      <div className="brf-draw">
-        <span className="l">PRIMARY DRAW</span>
-        <span className="v">{d.draw}</span>
-      </div>
-    </div>
-  );
 }
 
 // ── CALENDAR (today's USD events) ──────────────────────────────────────
@@ -145,7 +121,7 @@ function QualityCard({ brief }) {
 function LevelRow({ level, armed, fired, onArm, onDisarm }) {
   const isArmed = armed.has(Number(level.price));
   const isFired = fired.has(Number(level.price));
-  const bell = isFired ? "◈" : isArmed ? "◈" : "◇";
+  const bell = "◈";
   const cls = isFired ? "bell fired" : isArmed ? "bell armed" : "bell";
   const title = isFired ? "alert fired" : isArmed ? "armed — click to disarm" : "click to arm alert";
   const toggle = () => (isArmed ? onDisarm(level) : onArm(level));
@@ -155,23 +131,6 @@ function LevelRow({ level, armed, fired, onArm, onDisarm }) {
       <span className="price">{level.price}</span>
       <span className={cls} title={title} {...clickable(toggle, { label: title })}>{bell}</span>
     </div>
-  );
-}
-
-function LevelsCard({ brief, currentPrice, armed, fired, onArm, onDisarm }) {
-  const untaken = (brief?.key_levels || []).filter((l) => l.state === "untaken" || !l.state);
-  const { above, below, all } = groupLevelsByPrice(untaken, currentPrice);
-  const render = (list) => list.map((lv) => (
-    <LevelRow key={`${lv.name}-${lv.price}`} level={lv} armed={armed} fired={fired} onArm={onArm} onDisarm={onDisarm} />
-  ));
-  const empty = !above?.length && !below?.length && !all?.length;
-  return (
-    <Card title="LEVELS IN PLAY" meta="untaken">
-      {above?.length > 0 && <><div className="brf-subhd">ABOVE</div>{render(above)}</>}
-      {below?.length > 0 && <><div className="brf-subhd">BELOW</div>{render(below)}</>}
-      {all?.length > 0 && render(all)}
-      {empty && <div className="brf-empty">no untaken levels in play</div>}
-    </Card>
   );
 }
 
@@ -220,32 +179,50 @@ function PlanCard({ brief }) {
   );
 }
 
-// ── BRIEF · CLAUDE (DET ⇄ AI) ──────────────────────────────────────────
-function ClaudeCard({ brief, symbol, session, view }) {
+// ── HTF BIAS (prototype col-2: symbol ⇄ · DET/AI · LONG · prose · levels) ──
+function HtfBiasCard({ brief, symbol, setSymbol, view, setView, session, currentPrice, armed, fired, onArm, onDisarm }) {
+  const d = decisionLine(brief);
   const ai = useAiAnalysis({ symbol, session, brief });
   // Auto-run a fresh pass the first time AI is opened (matches the old AiView).
   useEffect(() => {
     if (view === "ai" && !ai.text && !ai.running) ai.run();
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (view !== "ai") {
-    const prose = brief?.prose_summary;
-    return (
-      <Card title="BRIEF · DETERMINISTIC" className="brf-prose-card">
-        <p className="brf-prose">{prose || "Deterministic prep — read the panels above; toggle AI for an in-depth pass."}</p>
-      </Card>
-    );
-  }
+  const bias = d.biasTone === "ok" ? "LONG" : d.biasTone === "bad" ? "SHORT" : "NEUTRAL";
+  const badgeTone = d.biasTone === "ok" ? "long" : d.biasTone === "bad" ? "short" : "neutral";
+  const untaken = (brief?.key_levels || []).filter((l) => l.state === "untaken" || !l.state);
+  const grp = groupLevelsByPrice(untaken, currentPrice);
+  const levels = [...(grp.above || []), ...(grp.below || []), ...(grp.all || [])];
+  const toggleSym = () => setSymbol(symbol === "MNQ1!" ? "MES1!" : "MNQ1!");
+  const detProse = brief?.prose_summary || "Deterministic prep — read the panels; toggle AI for an in-depth pass.";
   const ts = ai.ts ? new Date(ai.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" }) + " ET" : null;
   return (
-    <Card title="BRIEF · CLAUDE" className="brf-prose-card"
-          right={ai.running ? <span className="brf-chip dim">analyzing…</span>
-                            : <span className="brf-chip interactive" {...clickable(ai.run)}>↻ RE-ANALYZE</span>}>
-      <p className="brf-prose">
-        {ai.text || (ai.running ? "Running an in-depth pass… (~a few seconds; costs a turn)" : "No AI read yet — press RE-ANALYZE.")}
-        {ai.running && <span className="brf-caret" />}
-      </p>
-      {ts && !ai.running && <div className="brf-note">claude · {ts}</div>}
-    </Card>
+    <div className="brf-card cs-bias-card">
+      <div className="brf-card-hd cs-bias-hd">
+        <span className="t">HTF BIAS</span>
+        <span className="cs-brief-sym" {...clickable(toggleSym, { label: "toggle symbol" })}>{symbol}<span className="x"> ⇄</span></span>
+        <span className="cs-brief-seg">
+          <span className={"cs-segpill" + (view === "det" ? " is-on" : "")} {...clickable(() => setView("det"))}>DET</span>
+          <span className={"cs-segpill" + (view === "ai" ? " is-on" : "")} {...clickable(() => setView("ai"))}>AI</span>
+        </span>
+        <span className={"cs-bias-badge " + badgeTone}>{bias}</span>
+      </div>
+      {view === "ai" ? (
+        <p className="cs-bias-prose">
+          {ai.text || (ai.running ? "Running an in-depth pass… (~a few seconds; costs a turn)" : "No AI read yet — toggle DET or press AI again.")}
+          {ai.running && <span className="brf-caret" />}
+        </p>
+      ) : (
+        <p className="cs-bias-prose">{stripCitations(detProse)}</p>
+      )}
+      {view === "ai" && ts && !ai.running && <div className="brf-note">claude · {ts}</div>}
+      <div className="cs-levels">
+        {levels.length > 0
+          ? levels.map((lv) => (
+              <LevelRow key={`${lv.name}-${lv.price}`} level={lv} armed={armed} fired={fired} onArm={onArm} onDisarm={onDisarm} />
+            ))
+          : <div className="brf-empty">no untaken levels in play</div>}
+      </div>
+    </div>
   );
 }
 
@@ -285,26 +262,17 @@ export function BriefingPage({ symbol, currentPrice, onStartPrep, onClose }) {
 
   const tabs = (
     <>
-      <span className="page-syms">
-        {SYMS.map(([s, l]) => (
-          <span key={s} className={"pill interactive" + (s === selectedSymbol ? " active" : "")}
-                {...clickable(() => setSelectedSymbol(s))}>{l}</span>
-        ))}
-      </span>
-      <span className="page-detai">
-        <span className={"pill interactive" + (view === "det" ? " active" : "")} {...clickable(() => setView("det"))}>DET</span>
-        <span className={"pill interactive" + (view === "ai" ? " active" : "")} {...clickable(() => setView("ai"))}>AI</span>
-      </span>
       {refreshing
-        ? <span className="pill dim">REFRESHING…</span>
-        : <span className="pill interactive" {...clickable(onRefresh, { label: "refresh brief" })}>↻</span>}
-      {onStartPrep && <span className="pill primary" {...clickable(onStartPrep, { label: "start prep session" })}>Start prep</span>}
+        ? <span className="cs-brief-refresh dim" aria-hidden>↻</span>
+        : <span className="cs-brief-refresh interactive" {...clickable(onRefresh, { label: "refresh brief" })}>↻</span>}
+      {onStartPrep && <span className="cs-btn-primary-sm interactive" {...clickable(onStartPrep, { label: "start prep session" })}>Start prep</span>}
     </>
   );
 
+  const grade = brief ? decisionLine(brief).grade : null;
   return (
-    <Page icon={PAGE_ICONS.briefing} tint="blue" title="Brief"
-          sub={brief ? `${brief.date ?? ""} · ${sessionShort(brief.session)}` : (status || "no brief")}
+    <Page className="cs-brief" icon={PAGE_ICONS.briefing} tint="blue" title="Brief"
+          sub={brief ? `${brief.date ?? ""} · ${sessionShort(brief.session)}${grade ? ` · ${grade}` : ""}` : (status || "no brief")}
           wide tabs={tabs} onClose={onClose}
           foot={<><span>chart stays live behind — esc returns</span></>}>
       {!brief ? (
@@ -313,24 +281,24 @@ export function BriefingPage({ symbol, currentPrice, onStartPrep, onClose }) {
         </div>
       ) : (
         <div className="brf-dash">
-          <DecisionHero brief={brief} />
           <div className="brf-grid">
             <div className="brf-col">
               <CalendarCard events={events} />
-              <OvernightCard brief={brief} />
             </div>
             <div className="brf-col">
+              <HtfBiasCard brief={brief} symbol={selectedSymbol || symbol} setSymbol={setSelectedSymbol}
+                           view={view} setView={setView} session={session} currentPrice={currentPrice}
+                           armed={armed} fired={fired} onArm={onArm} onDisarm={onDisarm} />
               <BiasCard brief={brief} />
-              <QualityCard brief={brief} />
             </div>
             <div className="brf-col">
-              <LevelsCard brief={brief} currentPrice={currentPrice} armed={armed} fired={fired} onArm={onArm} onDisarm={onDisarm} />
+              <OvernightCard brief={brief} />
+              <QualityCard brief={brief} />
               <OpenReactionCard brief={brief} session={session} />
               <ScenariosCard brief={brief} />
               <PlanCard brief={brief} />
             </div>
           </div>
-          <ClaudeCard brief={brief} symbol={selectedSymbol || symbol} session={session} view={view} />
         </div>
       )}
     </Page>

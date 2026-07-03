@@ -1,0 +1,163 @@
+/* command-shell system — ⌘7 pixel-exact page styles (prototype lines 1201–1288).
+   Values verbatim from the prototype; raw hexes (#18191a) kept unrounded. */
+
+.cs-sys { display: flex; flex-direction: column; }
+
+/* ── top grid: HEALTH | VERSIONS, then FIXTURES full-width (§3.2) ── */
+.cs-sys-grid {
+  padding: 16px 18px 12px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+
+/* base card (§2.4) */
+.cs-sys .cs-card {
+  background: var(--surface-2);        /* #101111 */
+  border: 1px solid var(--border);     /* #242728 */
+  border-radius: var(--r-lg);          /* 10px */
+  padding: 14px;
+}
+.cs-sys .cs-card.is-full { grid-column: 1 / -1; }
+
+/* card labels (§2.4) */
+.cs-card-label,
+.cs-card-label-lg {
+  display: block;
+  font-size: 9.5px; letter-spacing: .08em; color: var(--label); /* #9c9c9d */
+}
+.cs-card-label { margin-bottom: 4px; }
+.cs-card-label-lg { margin-bottom: 10px; }
+
+.cs-card-foot-note {
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 10.5px; line-height: 1.55; color: var(--label-dim); /* #6a6b6c */
+}
+
+/* ── HEALTH card (§3.3) ── */
+.cs-health-list {
+  display: flex; flex-direction: column; gap: 9px; font-size: 11px;
+}
+.cs-health-row { display: flex; align-items: center; gap: 9px; }
+.cs-health-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);            /* #59d499 — ok */
+  flex: none;
+}
+.cs-health-dot.is-warn { background: var(--amber); } /* #ffc533 */
+.cs-health-dot.is-bad  { background: var(--red); }
+.cs-health-row .cs-health-name { color: var(--value); flex: 1; } /* #cdcdcd */
+.cs-health-row .cs-health-val {
+  font: 400 10px var(--mono); color: var(--label); /* #9c9c9d */
+}
+.cs-health-row .cs-health-val.is-warn { color: var(--amber); }
+.cs-health-retry {
+  font-size: 9px; letter-spacing: .06em; color: var(--blue); /* #57c1ff */
+  cursor: pointer;
+}
+
+/* ── VERSIONS card (§3.4) ── */
+.cs-ver-grid {
+  display: grid; grid-template-columns: auto 1fr;
+  row-gap: 8px; column-gap: 14px; font-size: 11px;
+}
+.cs-ver-grid .k { color: var(--label-dim); } /* #6a6b6c */
+.cs-ver-grid .v {
+  font: 400 10.5px var(--mono); color: var(--value); /* #cdcdcd */
+}
+.cs-ver-grid .v.bad  { color: var(--red); }
+.cs-ver-grid .v.warn { color: var(--amber); }
+
+/* ── FIXTURES card (§3.5) ── */
+.cs-fx-head {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+}
+.cs-fx-runall {
+  font-size: 8.5px; letter-spacing: .06em; color: var(--green); /* #59d499 */
+  border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+  padding: 2px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.cs-fx-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.cs-fx-name {
+  font-size: 11px; color: var(--value); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cs-fx-chip {
+  font-size: 8.5px; letter-spacing: .06em; color: var(--value); /* #cdcdcd */
+  border: 1px solid var(--border);     /* #242728 */
+  padding: 2px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.cs-fx-status {
+  font-size: 8.5px; letter-spacing: .06em;
+}
+.cs-fx-status.pass { color: var(--green); }
+.cs-fx-status.fail { color: var(--red); }
+.cs-fx-status.running { color: var(--amber); }
+
+/* ── ACTIONS strip (§3.6) — full-width, own margin ── */
+.cs-sys-actions {
+  margin: 0 18px 12px;
+  background: var(--surface-2);        /* #101111 */
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);          /* 10px */
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+}
+.cs-sys-actions .cs-actions-label {
+  font-size: 9.5px; letter-spacing: .08em; color: var(--label); /* #9c9c9d */
+}
+.cs-action-group { display: flex; align-items: center; gap: 7px; }
+.cs-action-group .cs-action-lbl { font-size: 10px; color: var(--value); } /* #cdcdcd */
+.cs-action-group .cs-action-val { font-size: 10px; color: var(--label-dim); }
+.cs-action-group .cs-action-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: none;
+  background: var(--amber);
+}
+.cs-action-group .cs-action-dot.ok { background: var(--green); }
+.cs-action-chip {
+  font-size: 8.5px; letter-spacing: .06em;
+  padding: 2px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+  color: var(--value); border: 1px solid var(--border);
+}
+.cs-action-chip.stop {
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+}
+.cs-action-chip.restart {
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+}
+
+/* ── SESSION FILES strip (§3.7) — full-width ── */
+.cs-sys-files {
+  margin: 0 18px 16px;
+  background: var(--surface-2);        /* #101111 */
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);          /* 10px */
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.cs-sys-files .cs-files-label {
+  font-size: 9.5px; letter-spacing: .08em; color: var(--label); /* #9c9c9d */
+}
+.cs-file-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: #18191a;                  /* raw — keep exact */
+  border: 1px solid var(--border);
+  border-radius: 8px; padding: 4px 6px 4px 10px;
+}
+.cs-file-pill .cs-file-name {
+  font: 400 10px var(--mono); color: var(--value); /* #cdcdcd */
+}
+.cs-file-pill .cs-file-open {
+  font-size: 8.5px; letter-spacing: .06em; color: var(--blue); /* #57c1ff */
+  cursor: pointer; padding: 1px 5px;
+}
+.cs-file-pill .cs-file-reveal {
+  font-size: 8.5px; letter-spacing: .06em; color: var(--label-dim); /* #6a6b6c */
+  cursor: pointer; padding: 1px 5px;
+}
+
+.cs-sys-empty { font-size: 11px; color: var(--label-dim); }

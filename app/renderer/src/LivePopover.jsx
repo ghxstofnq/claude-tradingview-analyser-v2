@@ -268,18 +268,17 @@ function TradeProgress({ side, entry, stop, tp1, price, tp1Hit }) {
   const frac = (v) => Math.max(0, Math.min(1, (isLong ? v - s : s - v) / range));
   const pricePct = frac(p) * 100;
   const entryPct = frac(e) * 100;
-  const inProfit = isLong ? p >= e : p <= e;
   return (
-    <div className="trade-prog" title="position between stop and target">
-      <div className="tp-bar">
-        <span className="fill" style={{ transform: `scaleX(${pricePct / 100})` }} />
-        <span className="entry-tick" style={{ left: entryPct + "%" }} title="entry" />
-        <span className={"price-marker" + (inProfit ? " up" : " down")} style={{ left: pricePct + "%" }} />
+    <div title="position between stop and target">
+      <div className="cs-pos-bar">
+        <span className="cs-pos-bar__fill" style={{ width: pricePct + "%" }} />
+        <span className="cs-pos-bar__entry" style={{ left: entryPct + "%" }} title="entry" />
+        <span className="cs-pos-bar__marker" style={{ left: pricePct + "%" }} />
       </div>
-      <div className="tp-labels">
-        <span className="stop">STOP <b>{stop}</b></span>
-        <span className="now">{tp1Hit ? "TP1 ✓" : "NOW"} <b>{price}</b></span>
-        <span className="tgt">TARGET <b>{tp1}</b></span>
+      <div className="cs-pos-legend">
+        <span className="stop mono">STOP {stop}</span>
+        <span className="now">{tp1Hit ? "TP1 ✓" : "NOW"} <span className="mono">{price}</span></span>
+        <span className="target mono">TARGET {tp1}</span>
       </div>
     </div>
   );
@@ -343,66 +342,52 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
   };
   const deepenPrompt = `Live read of the open ${t.model || side} ${side} trade on ${sym} (entry ${entry} / stop ${stop} / TP1 ${tp1}). Per Lanto — is price respecting the setup, has it confirmed continuation toward the ultimate target, and should the runner trail or is structure breaking? Concise prose, no tool calls.`;
   return (
-    <div className="work-scroll">
-      <Panel title="IN-TRADE"
-        right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-          {live && <span className="acct live">● LIVE</span>}
-          {t.id && <span style={{ color: "var(--value)", fontSize: 11 }}>#{t.id}</span>}
-          <span className={"pill " + (side === "long" ? "green" : "red")}>{side.toUpperCase()}</span>
-          {grade !== "—" && <span className={"pill " + gradeTone}>{grade}</span>}
-          <span style={{ color: "var(--label)", fontSize: 10 }}>{sym}{qty ? ` · ${qty}c` : ""}{t.model ? ` · ${t.model}` : ""}</span>
-        </span>}>
+    <div className="cs-pos-card">
+      <div className="cs-pos-hd">
+        <span className="cs-pos-hd__lbl">OPEN POSITION</span>
+        {live && <span className="acct live">● LIVE</span>}
+        {t.id && <span className="cs-pos-hd__meta">#{t.id}</span>}
+        {grade !== "—" && <span className={"pill " + gradeTone}>{grade}</span>}
+        {t.model && <span className="cs-pos-hd__meta">{t.model}</span>}
+        <span className={"cs-pos-side" + (side === "long" ? "" : " short")}>{side.toUpperCase()}{qty ? ` ${qty}` : ""}</span>
+      </div>
 
-        <div className="live-grid">
-          <div className="lcell"><span className="k">PRICE</span><span className={"v " + grid.price.tone}><Px v={grid.price.v} /></span><span className="sub">{grid.price.sub}</span></div>
-          <div className="lcell"><span className="k">P&amp;L</span><span className={"v " + grid.pnl.tone}><Px v={grid.pnl.v} /></span><span className="sub">{grid.pnl.sub}</span></div>
-          <div className="lcell"><span className="k">→ TP1</span><span className={"v " + grid.toTp1.tone}><Px v={grid.toTp1.v} /></span><span className="sub">{grid.toTp1.sub}</span></div>
-          <div className="lcell"><span className="k">→ STOP</span><span className={"v " + grid.toStop.tone}><Px v={grid.toStop.v} /></span><span className="sub">{grid.toStop.sub}</span></div>
+      <div className="cs-pos-hero">
+        <span className="cs-pos-hero__sym">{sym}</span>
+        <span className="cs-pos-hero__avg">avg {entry ?? "—"}</span>
+        <span className={"cs-pos-hero__pnl " + (grid.pnl.tone || "")}>{grid.pnl.v}</span>
+      </div>
+
+      <TradeProgress side={side} entry={entry} stop={stop} tp1={tp1} price={livePrice} tp1Hit={t.tp1_hit} />
+
+      <div className="cs-pos-tiles">
+        <div className="cs-postile"><div className="cs-postile__k">RISK ON</div><div className="cs-postile__v">{dollarRisk != null ? "$" + dollarRisk : "—"}</div></div>
+        <div className="cs-postile"><div className="cs-postile__k">→ TP1</div><div className={"cs-postile__v " + (grid.toTp1.tone || "")}>{grid.toTp1.v}</div></div>
+        <div className="cs-postile"><div className="cs-postile__k">→ STOP</div><div className={"cs-postile__v " + (grid.toStop.tone || "")}>{grid.toStop.v}</div></div>
+      </div>
+
+      <div className="cs-pos-actions">
+        <button className="cs-btn-flatten lg" onClick={mng("flatten", "FLATTEN")}>▣ FLATTEN</button>
+        <button className={"cs-btn-be" + (t.tp1_hit ? " active" : "")} onClick={mng("moveStopToBE", "BE")}>⇲ BE</button>
+        <button className="cs-btn-trail" onClick={mng("trail", "TRAIL")}>TRAIL</button>
+        <span className="cs-pos-actions__hint">⌘K: “be” · “trail”</span>
+      </div>
+      {mngMsg && (
+        <div className="cs-pos-fail" onClick={() => setMngMsg(null)}>⚠ {mngMsg} (tap to dismiss)</div>
+      )}
+      <div className="cs-pos-mng-note">
+        {t.tp1_hit
+          ? "Runner · no-trim — stop at break-even, trailing structurally to TP2 / structure-change exit."
+          : "No-trim ride-the-trail — hold full size to TP1, then trail; never scaled."}
+      </div>
+
+      {latestBrain && (
+        <div className="lv-box" style={{ marginTop: 12 }}>
+          <div className="lv-box-hd">BRAIN · DETERMINISTIC</div>
+          <div className="ai-prose">{walkerTruthToProse(latestBrain.truth)}</div>
         </div>
-
-        <TradeProgress side={side} entry={entry} stop={stop} tp1={tp1} price={livePrice} tp1Hit={t.tp1_hit} />
-
-        <div className="lv-box plan-rows">
-          <div className="lv-box-hd">RISK PLAN</div>
-          <div className="ai-prose" style={{ color: "var(--label)", marginBottom: 6, fontSize: 10 }}>T1 ≈ 1–1.5R · Ultimate ≈ 2R+ (HTF draw)</div>
-          <Row k="Entry" v={<Px v={entry ?? "—"} />} />
-          <Row k="Stop" v={<Px v={`${stop ?? "—"}${t.tp1_hit ? " · BE" : ""}`} tone="red" />} />
-          <Row k="TP1" v={<Px v={tp1 ?? "—"} tone="green" />} />
-          {t.tp2 != null && <Row k="TP2" v={<Px v={t.tp2} tone="green" />} />}
-          <Row k="Size" v={<span>{qty != null ? `${qty}c` : "—"}{t.rr ? ` · ${t.rr}` : ""}{t.tp1_hit ? " · stop at BE" : ""}</span>} />
-          {dollarRisk != null && <Row k="$ Risk" v={<Px v={"$" + dollarRisk} />} />}
-        </div>
-
-        <div className="lv-box">
-          <div className="lv-box-hd">MANAGE POSITION</div>
-          <div className="ai-prose" style={{ marginBottom: 8, color: "var(--label)" }}>
-            {t.tp1_hit
-              ? "Runner · no-trim — stop at break-even, trailing structurally to TP2 / structure-change exit."
-              : "No-trim ride-the-trail — hold full size to TP1, then trail; never scaled."}
-          </div>
-          <div className="itbtns">
-            <button className="itbtn flatten" onClick={mng("flatten", "FLATTEN")}>▣ FLATTEN</button>
-            <button className="itbtn be" onClick={mng("moveStopToBE", "BE")}>⇲ BE</button>
-          </div>
-          <div className="itbtns-sec">
-            <button className="itbtn-sec" onClick={mng("trail", "TRAIL")}>TRAIL</button>
-            <button className="itbtn-sec" onClick={mng("cancel", "CANCEL")}>CANCEL</button>
-          </div>
-          {mngMsg && (
-            <div className="guard-foot" style={{ color: "var(--red)", cursor: "pointer" }} onClick={() => setMngMsg(null)}>
-              ⚠ {mngMsg} (tap to dismiss)
-            </div>
-          )}
-        </div>
-
-        {latestBrain && (
-          <div className="lv-box">
-            <div className="lv-box-hd">BRAIN · DETERMINISTIC</div>
-            <div className="ai-prose">{walkerTruthToProse(latestBrain.truth)}</div>
-          </div>
-        )}
-        <AiDeepen symbol={sym} session={session} brief={brief} prompt={deepenPrompt} />
-      </Panel>
+      )}
+      <AiDeepen symbol={sym} session={session} brief={brief} prompt={deepenPrompt} />
     </div>
   );
 }
@@ -410,150 +395,103 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
 // ── ENTRY (verdict-first) — open-reaction verdict + entry model + 1m
 // confirmation. Always structured; an in-card AI button runs a deeper read.
 function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject, openReaction, brief, session, symbol }) {
+  const [showEv, setShowEv] = useState(false);
   const read = latestReadText(chat?.messages || []);
-  const orPanel = <LiveOpenReactionPanel latest={openReaction?.latest} brief={brief} ltf={openReaction?.ltf} />;
 
+  // ── no candidate: a clean feed of the latest brain read + why-no-trade ──
   if (!setup) {
-    const prose = { color: "var(--prose)", fontSize: 11, lineHeight: 1.55, overflowWrap: "anywhere", wordBreak: "break-word" };
+    const ex = explainNoTradeReason(noTradeReason, { ltf: openReaction?.ltf, latest: openReaction?.latest });
     const sh = noTrade?.sourceHealth;
     const deepenPrompt = `Live read of ${symbol || "the lead symbol"}${session ? `, ${session.toUpperCase()}` : ""}: no setup is surfaced yet. Per Lanto — what is price doing right now (displacement vs consolidation), is the open-reaction bias confirming, and what would the next clean MSS / Trend / Inversion entry need? Concise prose, no tool calls.`;
     return (
-      <div className="work-scroll">
-        {orPanel}
-        <Panel title="ENTRY CANDIDATE" right={<span className="pill dim">{noTradeReason ? "no-trade" : "waiting"}</span>}>
-            {(() => {
-              const ex = explainNoTradeReason(noTradeReason, { ltf: openReaction?.ltf, latest: openReaction?.latest });
-              return (
-                <div className="lv-box" style={{ marginTop: 0 }}>
-                  <div className="lv-box-hd">{noTradeReason ? "WHY NO TRADE" : "STATUS"}</div>
-                  <div style={prose}>{ex ? ex.text : "awaiting next walker fire."}</div>
-                  {ex?.sub ? (
-                    <div style={{ ...prose, color: "var(--label)", fontSize: 10, marginTop: 4 }}>{ex.sub}</div>
-                  ) : null}
-                </div>
-              );
-            })()}
-            {noTrade?.blockers?.length ? (
-              <div className="lv-box" style={{ marginTop: 10 }}>
-                <div className="lv-box-hd">NO-TRADE BLOCKERS</div>
-                <div style={prose}>{noTrade.blockers.join(", ")}</div>
-              </div>
-            ) : null}
+      <div className="cs-feed">
+        {read?.text && (
+          <div className="cs-feed-row">
+            <span className="cs-feed-row__ts">{read.t || ""}</span>
+            <p className="cs-narr">{read.text}</p>
+          </div>
+        )}
+        <div className="cs-feed-row">
+          <span className="cs-feed-row__ts" />
+          <div style={{ flex: 1 }}>
+            <p className="cs-narr">{ex ? ex.text : (noTradeReason ? "No-trade — standing aside." : "Awaiting next walker fire.")}</p>
+            {ex?.sub ? <p className="cs-narr-sub">{ex.sub}</p> : null}
+            {noTrade?.blockers?.length ? <p className="cs-narr-sub">blockers: {noTrade.blockers.join(", ")}</p> : null}
+            {noTrade?.evidenceRefs?.length ? <p className="cs-narr-sub">evidence: {noTrade.evidenceRefs.join(", ")}</p> : null}
             {sh ? (
-              <div className="lv-box" style={{ marginTop: 10 }}>
-                <div className="lv-box-hd">SOURCE HEALTH</div>
-                <div style={prose}>
-                  {sh.status || "unknown"}
-                  {sh.stale === true ? " · stale" : ""}
-                  {sh.schemaSupported === false ? " · unsupported schema" : ""}
-                  {sh.blockers?.length ? ` · ${sh.blockers.join(", ")}` : ""}
-                </div>
-              </div>
+              <p className="cs-narr-sub">
+                source: {sh.status || "unknown"}
+                {sh.stale === true ? " · stale" : ""}
+                {sh.schemaSupported === false ? " · unsupported schema" : ""}
+                {sh.blockers?.length ? ` · ${sh.blockers.join(", ")}` : ""}
+              </p>
             ) : null}
-            {noTrade?.strategyChainStatus || noTrade?.evaluationStatus ? (
-              <div className="lv-box" style={{ marginTop: 10 }}>
-                <div className="lv-box-hd">EVALUATION STATUS</div>
-                <div style={prose}>
-                  {noTradeStatusLabel(noTrade)}
-                  {noTrade.evaluationStatus ? ` · ${noTrade.evaluationStatus}` : ""}
-                  {noTrade.strategyChainStatus ? ` · chain ${noTrade.strategyChainStatus}` : ""}
-                </div>
-              </div>
-            ) : null}
-            {noTrade?.evidenceRefs?.length ? (
-              <div className="lv-box" style={{ marginTop: 10 }}>
-                <div className="lv-box-hd">EVIDENCE REFS</div>
-                <div style={prose}>{noTrade.evidenceRefs.join(", ")}</div>
-              </div>
-            ) : null}
-            {read?.text && (
-              <div className="lv-box" style={{ marginTop: 10 }}>
-                <div className="lv-box-hd">BRAIN READ {read.t ? `· ${read.t}` : ""}</div>
-                <div className="ai-prose">{read.text}</div>
-              </div>
-            )}
-            <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
-        </Panel>
+          </div>
+        </div>
+        <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
       </div>
     );
   }
 
+  // ── candidate present: amber PROPOSED card in the feed ──
   const grade = setup.grade || "—";
-  const gradeTone = grade === "A+" ? "green" : grade === "B" ? "amber" : "dim";
   const side = (setup.side || "").toLowerCase();
-  const price = Number.isFinite(lastBarPrice) ? lastBarPrice : Number(setup.entry);
-  const fmtD = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(1);
-  // Build the rungs then order top→bottom by price (correct for long AND short).
-  const rungs = [
-    { tag: "TP2", cls: "tp", px: Number(setup.tp2) },
-    { tag: "TP1", cls: "tp", px: Number(setup.tp1) },
-    { tag: "NOW", cls: "now wait", px: price, now: true },
-    { tag: "ENTRY", cls: "entry", px: Number(setup.entry) },
-    { tag: "STOP", cls: "stop", px: Number(setup.stop) },
-  ].filter((r) => Number.isFinite(r.px)).sort((a, b) => b.px - a.px);
+  const sideText = (setup.side || "").toUpperCase();
   const confRows = pillar3ToConfirmationRows(selectPillar3(setup.pillar_breakdown));
   const confV = entryConfirmationVerdict(confRows);
   const mark = { pass: "✓", weak: "~", fail: "✗", missing: "·", pending: "·" };
   const stTxt = { pass: "yes", weak: "weak", fail: "fail", missing: "—", pending: "pending" };
+  const gradeCls = grade === "A+" ? "a" : grade === "B" ? "b" : "c";
   const deepenPrompt = `Live read of the ${modelLabel(setup)} ${side} setup on ${symbol || "the lead symbol"}${session ? `, ${session.toUpperCase()}` : ""} (entry ${setup.entry} / stop ${setup.stop} / TP1 ${setup.tp1}). Per Lanto — did it take significant liquidity, is displacement clean, is the 1m confirmation deliberate (not wicky), and is it aligned with the open-reaction bias? What invalidates it? Concise prose, no tool calls.`;
 
   return (
-    <div className="work-scroll">
-      {orPanel}
-      <Panel title="ENTRY"
-        right={<span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-          <span className={"pill " + (side === "long" ? "green" : "red")}>{(setup.side || "").toUpperCase()}</span>
-          <span className={"pill " + gradeTone}>{grade}</span>
-          <span style={{ color: "var(--label)", fontSize: 10 }}>{modelLabel(setup)}</span>
-        </span>}>
-          <div className="lv-box" style={{ marginTop: 0 }}>
-            <div className="lv-box-hd">CONFIRMATION</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span className={"pill " + confV.tone}>{confV.label}</span>
-              <span style={{ color: "var(--label)", fontSize: 11 }}>{modelLabel(setup)} · {(setup.side || "").toUpperCase()}</span>
-            </div>
+    <div className="cs-feed">
+      <div className="cs-feed-row">
+        <span className="cs-feed-row__ts">{read?.t || ""}</span>
+        <div className="cs-prop-card">
+          <div className="cs-prop-card__hd">
+            <span className="cs-status proposed">PROPOSED · {sideText}</span>
+            <span className="cs-tag muted">{modelLabel(setup)}</span>
+            {grade !== "—" && <span className={"cs-grade " + gradeCls}>{grade}</span>}
+            <span className="cs-evidence" {...clickable(() => setShowEv((v) => !v), { label: "toggle evidence" })}>evidence ›</span>
           </div>
-          <div className="intrade-cols">
-            <div className="vlad hunt">
-              {rungs.map((r) => (
-                <div key={r.tag} className={"rung " + r.cls}>
-                  <span className="tag">{r.tag}</span>
-                  <span className="px"><Px v={r.now ? r.px.toFixed(2) : r.px} /></span>
-                  <span className="dist">{r.now ? "now" : fmtD(r.px - price)}</span>
+          <div className="cs-levels">
+            <span>E <span className="e">{setup.entry}</span></span>
+            <span>S <span className="s">{setup.stop}</span></span>
+            <span>T <span className="t">{setup.tp1}</span></span>
+            {setup.rr ? <span>{setup.rr}</span> : null}
+          </div>
+          <div className="cs-prop-actions">
+            <button className="cs-btn-accept" onClick={() => onAccept?.(setup)}>✓ ACCEPT</button>
+            <button className="cs-btn-reject" onClick={() => onReject?.(setup)}>✗ REJECT</button>
+            <span className="cs-prop-note">fires on next displacement</span>
+          </div>
+          {showEv && (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className={"pill " + confV.tone}>{confV.label}</span>
+                <span style={{ color: "var(--label)", fontSize: 10 }}>{modelLabel(setup)} · {sideText} · {sizeLabel(setup.size)}</span>
+              </div>
+              {confRows.map((c) => (
+                <div key={c.label} title={c.detail} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10 }}>
+                  <span className={"mk " + c.status}>{mark[c.status] || "·"}</span>
+                  <span style={{ flex: 1, color: "var(--label)" }}>{c.label}</span>
+                  <span className={"st " + c.status}>{stTxt[c.status] || c.status}</span>
                 </div>
               ))}
             </div>
-            <div className="side">
-              <div className="conf">
-                {confRows.map((c) => (
-                  <div className="citem" key={c.label} title={c.detail}>
-                    <span className={"mk " + c.status}>{mark[c.status] || "·"}</span>
-                    <span className="lbl">{c.label}</span>
-                    <span className={"st " + c.status}>{stTxt[c.status] || c.status}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="conf-foot">
-                <div className="mtile"><span className="k">R : R</span><span className="v">{setup.rr ?? "—"}</span></div>
-                <div className="mtile"><span className="k">SIZE</span><span className="v">{sizeLabel(setup.size)}</span></div>
-              </div>
-            </div>
-          </div>
-          <div className="lv-box" style={{ marginTop: 12 }}>
-            <div className="lv-box-hd">ACTIONS</div>
-            <div style={{ display: "flex", justifyContent: "flex-start", gap: 6 }}>
-              <button className="btn red" onClick={() => onReject?.(setup)}>REJECT</button>
-              <button className="btn green" onClick={() => onAccept?.(setup)}>ACCEPT</button>
-            </div>
-          </div>
-          {read?.text && (
-            <div className="lv-box" style={{ marginTop: 10 }}>
-              <div className="lv-box-hd">BRAIN READ {read.t ? `· ${read.t}` : ""}</div>
-              <div className="ai-prose">{read.text}</div>
-            </div>
           )}
-          <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
-        </Panel>
+        </div>
+      </div>
+
+      {read?.text && (
+        <div className="cs-feed-row">
+          <span className="cs-feed-row__ts">{read.t || ""}</span>
+          <p className="cs-narr">{read.text}</p>
+        </div>
+      )}
+
+      <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
     </div>
   );
 }
@@ -762,12 +700,11 @@ function NextTurnStrip({ state, running, onToggle }) {
   const secs = 60 - (Math.floor(now / 1000) % 60);
   const val = running ? `bar close · ${secs}s` : state === "STALE" ? "detector stale" : "detector stopped";
   return (
-    <div className="live-det-strip">
-      <span className="lbl">NEXT TURN</span>
-      <span className={"val " + (running ? "amber" : "red")}>{val}</span>
-      <span className="sp" style={{ flex: 1 }} />
-      <span className={"det-toggle " + (running ? "stop" : "start")} {...clickable(onToggle, { label: running ? "stop detector" : "start detector" })}>
-        {running ? "■ STOP" : "▶ START"}
+    <div className="cs-nextturn">
+      <span className="cs-nextturn__lbl">NEXT TURN</span>
+      <span className={"cs-nextturn__val" + (running ? "" : " stopped")}>{val}</span>
+      <span className={"cs-detector " + (running ? "stop" : "start")} {...clickable(onToggle, { label: running ? "stop detector" : "start detector" })}>
+        {running ? "■ STOP DETECTOR" : "▶ START DETECTOR"}
       </span>
     </div>
   );
@@ -780,19 +717,21 @@ function SessionGuardsCard({ fills, guards }) {
   const b = liveGuardBudgets(fills, guards);
   const usd = (n) => Math.abs(n).toLocaleString("en-US");
   return (
-    <div className="lv-box guard-budget">
-      <div className="lv-box-hd">SESSION GUARDS</div>
-      <div className="gb-row">
-        <span className="gb-name">Daily loss</span>
-        <span className={"gb-val" + (b.dailyLoss.tripped ? " bad" : b.dailyLoss.pct >= 70 ? " warn" : "")}>
-          −${usd(b.dailyLoss.used)}{b.dailyLoss.limit != null ? ` / −$${usd(b.dailyLoss.limit)}` : ""}
-        </span>
+    <div className="cs-guards">
+      <div className="cs-guards__hd">SESSION GUARDS</div>
+      <div>
+        <div className="cs-guard-row">
+          <span>Daily loss</span>
+          <span className={"mono" + (b.dailyLoss.tripped ? " bad" : b.dailyLoss.pct >= 70 ? " warn" : "")}>
+            −${usd(b.dailyLoss.used)}{b.dailyLoss.limit != null ? ` / −$${usd(b.dailyLoss.limit)}` : ""}
+          </span>
+        </div>
+        {b.dailyLoss.limit != null && (
+          <div className="cs-guard-track"><span className={"cs-guard-fill" + (b.dailyLoss.tripped ? " bad" : "")} style={{ width: `${b.dailyLoss.pct}%` }} /></div>
+        )}
       </div>
-      {b.dailyLoss.limit != null && (
-        <div className="gb-track"><span className={"gb-fill" + (b.dailyLoss.tripped ? " bad" : "")} style={{ width: `${b.dailyLoss.pct}%` }} /></div>
-      )}
-      <div className="gb-row"><span className="gb-name">Trades today</span><span className="gb-val">{b.trades}</span></div>
-      <div className="gb-row"><span className="gb-name">Consec. losses</span><span className={"gb-val" + (b.consecLosses >= 2 ? " warn" : "")}>{b.consecLosses}</span></div>
+      <div className="cs-guard-row"><span>Trades today</span><span className="mono">{b.trades}</span></div>
+      <div className="cs-guard-row"><span>Consec. losses</span><span className={"mono" + (b.consecLosses >= 2 ? " warn" : "")}>{b.consecLosses}</span></div>
     </div>
   );
 }
@@ -801,22 +740,22 @@ function SessionGuardsCard({ fills, guards }) {
 function TodaysFillsCard({ fills }) {
   const chips = fillChips(fills);
   return (
-    <div className="lv-box">
-      <div className="lv-box-hd">TODAY'S FILLS</div>
+    <div className="cs-fills">
+      <div className="cs-fills__hd">TODAY'S FILLS</div>
       {chips.length
-        ? <div className="fill-chips">{chips.map((c, i) => (
-            <span key={i} className={"fill-chip " + (c.win ? "win" : "loss")}>{c.side}{c.qty ? ` ${c.qty}` : ""} · {c.r || c.usd || "—"}</span>
-          ))}</div>
-        : <div className="fill-empty">No fills yet today.</div>}
+        ? chips.map((c, i) => (
+            <span key={i} className="cs-fill-chip">{c.side}{c.qty ? ` ${c.qty}` : ""} · {c.r || c.usd || "—"}</span>
+          ))
+        : <span className="cs-fills__empty">No fills yet today.</span>}
     </div>
   );
 }
 
 function LiveFlatEmpty() {
   return (
-    <div className="live-flat-empty">
-      <div className="t">FLAT — no open position</div>
-      <div className="s">⌘K → “long 2 mnq @ fvg” opens a ticket</div>
+    <div className="live-flat-empty cs-pos-flat">
+      <div className="cs-pos-flat__t">FLAT — no open position</div>
+      <div className="cs-pos-flat__s">⌘K → “long 2 mnq @ fvg” opens a ticket</div>
     </div>
   );
 }
@@ -894,8 +833,15 @@ function LiveBody({ guards, symbol }) {
   if (backtest.running) {
     body = <BacktestRunningPlaceholder session={backtest.session} />;
   } else if (effectiveSeg === "positions") {
+    const guardTripped = liveGuardBudgets(fills, guards)?.dailyLoss?.tripped;
     body = (
-      <div className="live-positions">
+      <div className="live-positions cs-positions">
+        {guardTripped && (
+          <div className="cs-guard-lock">
+            <span className="cs-guard-lock__tag">LOCKED</span>
+            <span className="cs-guard-lock__msg">Guard tripped — entries locked until tomorrow. FLATTEN stays live.</span>
+          </div>
+        )}
         {(exec.position || activeTrade)
           ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
                          brief={brief} session={session} />
@@ -919,9 +865,9 @@ function LiveBody({ guards, symbol }) {
   return (
     <div className="bt-popover embedded">
       <div className="head live-head">
-        <div className="live-seg">
+        <div className="cs-live-tabs">
           {SEGS.map(([v, l]) => (
-            <span key={v} className={"seg-tab" + (effectiveSeg === v ? " on" : "")}
+            <span key={v} className={"cs-provpill" + (effectiveSeg === v ? " is-on" : "")}
                   {...clickable(() => { setUserPicked(true); setSeg(v); }, { label: l })}>{l}</span>
           ))}
         </div>
@@ -936,6 +882,11 @@ function LiveBody({ guards, symbol }) {
         )}
         {showDetStrip && <NextTurnStrip state={detState} running={loopRunning} onToggle={toggleDetector} />}
         {body}
+      </div>
+      <div className="cs-live-foot">
+        <span>{effectiveSeg === "positions" ? "position · guards · fills" : "✓ fires only after your accept"}</span>
+        <span className="sp" />
+        <span>⇧⌘F flattens anywhere · esc</span>
       </div>
     </div>
   );

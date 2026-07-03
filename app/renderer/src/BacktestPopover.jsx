@@ -167,7 +167,7 @@ function Header({ state, actions, onClose, float }) {
     <div className="head" onMouseDown={float?.onDragStart}>
       <span className={"t " + cfg.cls}>
         {cfg.pulse && <span className="pulse" />}
-        BACKTEST
+        <span className="bt-title">BACKTEST</span>
       </span>
       <span className="bt-modes" onClick={(e) => e.stopPropagation()}>
         {BT_MODES.map(([m, l]) => (

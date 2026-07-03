@@ -161,13 +161,13 @@ function TvFailed({ failure, onRetry }) {
   // Compact Raycast card (the one white pill is the sole primary action). The
   // debug line stays as a small secondary readout — useful, but no longer chrome.
   return (
-    <div className="cmd-tv-fail">
-      <span className="ic">▦</span>
-      <div className="t">TradingView failed to load</div>
-      <div className="s">webview crashed or network dropped — session state is safe</div>
-      <button className="pill primary" onClick={onRetry}>↻ RETRY</button>
+    <div className="cs-tv-fail">
+      <span className="cs-tv-fail-ic">▦</span>
+      <span className="cs-tv-fail-title">TradingView failed to load</span>
+      <span className="cs-tv-fail-sub">webview crashed or network dropped — session state is safe</span>
+      <span className="cs-tv-fail-retry" onClick={onRetry}>↻ RETRY</span>
       {failure?.code != null && (
-        <div className="dbg">code {String(failure.code)}{failure?.desc ? ` · ${failure.desc}` : ""}</div>
+        <div className="cs-tv-fail-dbg">code {String(failure.code)}{failure?.desc ? ` · ${failure.desc}` : ""}</div>
       )}
     </div>
   );
@@ -190,10 +190,10 @@ function TvSignInBanner() {
     setDismissed(true);
   };
   return (
-    <div className="cmd-tv-signin">
-      <span className="d" />
-      <span className="m">TradingView session signed out — chart data is paused</span>
-      <button className="pill primary" onClick={signIn}>Sign in</button>
+    <div className="cs-tv-signin">
+      <span className="cs-tv-signin-dot" />
+      <span className="cs-tv-signin-msg">TradingView session signed out — chart data is paused</span>
+      <button className="cs-tv-signin-btn" onClick={signIn}>Sign in</button>
     </div>
   );
 }

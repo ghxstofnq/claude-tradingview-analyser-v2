@@ -4,15 +4,21 @@
 import React from "react";
 import { clickable } from "../a11y.js";
 
+// tint token → status hue applied INLINE on the dot (status-only, never chrome).
+const TOAST_HUE = {
+  green: "var(--green)", amber: "var(--amber)", red: "var(--red)",
+  blue: "var(--blue)", mute: "var(--label)",
+};
+
 export function Toasts({ toasts, onDismiss }) {
   if (!toasts?.length) return null;
   return (
-    <div className="cmd-toasts">
+    <div className="cs-toasts">
       {toasts.map((t) => (
-        <div key={t.id} className={"cmd-toast tint-" + (t.tint || "green")}
+        <div key={t.id} className="cs-toast"
              {...clickable(() => onDismiss(t.id))}>
-          <span className="d" />
-          <span className="m">{t.msg}</span>
+          <span className="cs-toast-dot" style={{ background: TOAST_HUE[t.tint] || TOAST_HUE.green }} />
+          <span className="cs-toast-msg">{t.msg}</span>
         </div>
       ))}
     </div>
