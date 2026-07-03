@@ -56,7 +56,7 @@ function LedgerRow({ row, expanded, onToggle }) {
           <span>entry <b>{row.trade.entry ?? s.entry ?? "—"}</b></span>
           <span>stop <b>{row.trade.stop ?? s.stop ?? "—"}</b></span>
           <span>tp1 <b>{row.trade.tp1 ?? s.tp1 ?? "—"}</b></span>
-          {row.trade.outcome?.r != null && <span>result <b className={row.trade.outcome.r >= 0 ? "up" : "down"}>{row.trade.outcome.r >= 0 ? "+" : ""}{row.trade.outcome.r}R</b></span>}
+          {row.trade.outcome && <span>outcome <b className={/tp|confirm/i.test(row.trade.outcome) ? "up" : /stop|invalid/i.test(row.trade.outcome) ? "down" : ""}>{row.trade.outcome}</b></span>}
         </div>
       )}
     </>
@@ -81,11 +81,14 @@ function SessionTab({ journal }) {
   const ledger = buildLedger(journal.setups || [], journal.trades || []);
   const grade = journal.brief?.pillar_grade || "—";
   const accepted = ledger.filter((r) => r.setup?._disposition === "accepted").length;
-  const netR = ledger.reduce((s, r) => s + (Number(r.trade?.outcome?.r) || 0), 0);
+  // journal trades carry a STATUS string (not R); the W/L tally comes from the
+  // ledger states. Realized $/R lives in the fills-based STATS tab.
+  const wins = ledger.filter((r) => /tp|confirm/i.test(r.state)).length;
+  const losses = ledger.filter((r) => /stop|invalid/i.test(r.state)).length;
   const wrap = journal.summary?.bias_picture || journal.brief?.brief || "no wrap yet for this session.";
   const degraded = degradedChainStages(journal.summary?.chain_audit);
   const cells = [
-    ["NET R", (netR >= 0 ? "+" : "") + (Math.round(netR * 10) / 10), netR > 0 ? "green" : netR < 0 ? "red" : "value"],
+    ["RESULT", `${wins}W · ${losses}L`, wins > losses ? "green" : losses > wins ? "red" : "value"],
     ["SETUPS", String(ledger.length), "value"],
     ["ACCEPTED", String(accepted), "value"],
     ["GRADE", formatGradeShort(grade), gTone(grade)],
