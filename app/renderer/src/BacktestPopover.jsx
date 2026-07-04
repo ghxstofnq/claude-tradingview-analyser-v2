@@ -129,11 +129,11 @@ function Header({ state, actions, onClose, float }) {
         <span className="back" onClick={(e) => { e.stopPropagation(); actions.back(); }}>← BASELINE</span>
         <span className="t">{run?.date ?? state.selectedRunId} · {sessionLabel(run?.session)}</span>
         {run && (
-          <span className={"meta-pill " + (run.total_r >= 0 ? "" : "red")}>
+          <span className={"cs-tag " + (run.total_r >= 0 ? "green" : "red")}>
             {run.total_r > 0 ? "+" : ""}{(run.total_r ?? 0).toFixed(1)}R
           </span>
         )}
-        {run && <span className="meta-pill amber">{(run.mode ?? "").toUpperCase()}</span>}
+        {run && <span className="cs-tag neutral">{(run.mode ?? "").toUpperCase()}</span>}
         <span className="spacer" />
         {floatBtn}
         <span className="x" onClick={(e) => { e.stopPropagation(); onClose(); }}>×</span>
@@ -988,9 +988,9 @@ function DetailBody({ state, actions }) {
 
       <div className="section">
         <div className="actions row">
-          <button className="btn secondary" onClick={() => actions.start({ date: entry.date, session: entry.session, mode: entry.mode })}>↻ RE-RUN</button>
+          <button className="cs-btn-ghost-sm" onClick={() => actions.start({ date: entry.date, session: entry.session, mode: entry.mode })}>↻ RE-RUN</button>
           <div className="spacer" />
-          <button className="btn danger" onClick={() => {
+          <button className="cs-btn-ghost-sm danger" onClick={() => {
             if (confirm(`Delete run ${entry.run_id}? This removes the folder + summary.`)) {
               actions.deleteRun(entry.run_id);
               actions.back();
@@ -1100,7 +1100,7 @@ function SetupCardReadOnly({ setup }) {
     <div className={"setup-card " + cls}>
       <div className="hd">
         <span className={"gp " + gradeClass(setup.grade)}>{displayGrade(setup.grade)}</span>
-        <span className={"side " + sideClass(setup.side)}>{(setup.side ?? "").toUpperCase()}</span>
+        <span className={"cs-dir " + (setup.side ?? "").toLowerCase()}>{(setup.side ?? "").toUpperCase()}</span>
         <span className="model">{setup.model ?? ""}</span>
         <span className="ts">{recordClockEt(setup)}</span>
       </div>

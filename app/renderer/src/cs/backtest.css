@@ -179,12 +179,19 @@
   border: 1px solid var(--border); border-radius: var(--r-md);
   background: var(--surface-3); padding: 12px; margin-top: 10px;
 }
+/* Outcome-tinted borders stay subtle full hairlines, never a heavy colored box. */
 .bt-popover.embedded .setup-card.live { border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.bt-popover.embedded .setup-card.win  { border-color: color-mix(in srgb, var(--green) 30%, transparent); }
+.bt-popover.embedded .setup-card.loss { border-color: color-mix(in srgb, var(--red) 30%, transparent); }
+.bt-popover.embedded .setup-card .hd { border-bottom: 1px solid rgba(255,255,255,.05); }
+.bt-popover.embedded .setup-card .outcome { border-top: 1px solid rgba(255,255,255,.05); }
 .bt-popover.embedded .setup-card .side.l { color: var(--green); }
 .bt-popover.embedded .setup-card .side.s { color: var(--red); }
 .bt-popover.embedded .setup-card .model { color: var(--value); }
 .bt-popover.embedded .setup-card .ts { color: var(--label-dim); font-family: var(--mono); }
+/* ENTRY/STOP/TP1 all mono; entry (uncolored) reads value-strong, stop red, tp1 green. */
 .bt-popover.embedded .setup-card .lvls .lv .v { font-family: var(--mono); }
+.bt-popover.embedded .setup-card .lvls .lv .v:not(.red):not(.green) { color: var(--value-strong); }
 .bt-popover.embedded .rationale-block {
   background: var(--surface-2); border: 1px solid var(--border);
   border-radius: var(--r-sm); color: var(--label); font-size: 10.5px; line-height: 1.5;
@@ -209,44 +216,42 @@
   border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
 }
 
-/* ── DONE summary cells (record sub-state) — boxed stat tiles ──────────── */
-.bt-popover.embedded .done-grid { gap: 12px; }
+/* ── stat-cell grid — ONE borderless style shared by DONE (record sub-state),
+   DETAIL SUMMARY, and AGGREGATE (BASELINE): letter-spaced sans label on top, a
+   big mono value below, thin hairline vertical dividers only — no boxes.
+   Matches the RECORD/BASELINE prototype's clean stat cells. ──────────────── */
+.bt-popover.embedded .agg-grid,
+.bt-popover.embedded .done-grid {
+  display: grid; gap: 0;
+}
+.bt-popover.embedded .agg-grid { grid-template-columns: repeat(5, 1fr); }
+.bt-popover.embedded .done-grid { grid-template-columns: repeat(4, 1fr); }
+.bt-popover.embedded .agg-grid .lcell,
 .bt-popover.embedded .done-grid .lcell {
-  background: var(--surface-3); border: 1px solid var(--border);
-  border-radius: var(--r-lg); padding: 13px 15px;
-}
-.bt-popover.embedded .done-grid .lcell .k {
-  color: var(--label); font-size: 9.5px; letter-spacing: .08em;
-}
-.bt-popover.embedded .done-grid .lcell .v {
-  font: 500 20px var(--mono); color: var(--value-strong); margin-top: 5px;
-}
-.bt-popover.embedded .done-grid .lcell .v.green { color: var(--green); }
-.bt-popover.embedded .done-grid .lcell .v.red   { color: var(--red); }
-.bt-popover.embedded .done-grid .lcell .v.amber { color: var(--amber); }
-
-/* ── AGGREGATE (BASELINE) — borderless stat grid, hairline dividers only,
-   matching the RECORD prototype's clean stat cells (no heavy boxes). ────── */
-.bt-popover.embedded .agg-grid {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
-}
-.bt-popover.embedded .agg-grid .lcell {
   background: transparent; border: 0; border-right: 1px solid var(--border);
   border-radius: 0; padding: 2px 16px;
 }
-.bt-popover.embedded .agg-grid .lcell:first-child { padding-left: 0; }
-.bt-popover.embedded .agg-grid .lcell:last-child { border-right: 0; padding-right: 0; }
-.bt-popover.embedded .agg-grid .lcell .k {
+.bt-popover.embedded .agg-grid .lcell:first-child,
+.bt-popover.embedded .done-grid .lcell:first-child { padding-left: 0; }
+.bt-popover.embedded .agg-grid .lcell:last-child,
+.bt-popover.embedded .done-grid .lcell:last-child { border-right: 0; padding-right: 0; }
+.bt-popover.embedded .agg-grid .lcell .k,
+.bt-popover.embedded .done-grid .lcell .k {
   display: block; color: var(--label); font-size: 9.5px; letter-spacing: .08em;
 }
-.bt-popover.embedded .agg-grid .lcell .v {
+.bt-popover.embedded .agg-grid .lcell .v,
+.bt-popover.embedded .done-grid .lcell .v {
   display: block; font: 500 20px var(--mono); color: var(--value-strong);
   margin-top: 6px; font-variant-numeric: tabular-nums;
 }
-.bt-popover.embedded .agg-grid .lcell .v.green { color: var(--green); }
-.bt-popover.embedded .agg-grid .lcell .v.red   { color: var(--red); }
-.bt-popover.embedded .agg-grid .lcell .v.amber { color: var(--amber); }
-.bt-popover.embedded .agg-grid .lcell .sub {
+.bt-popover.embedded .agg-grid .lcell .v.green,
+.bt-popover.embedded .done-grid .lcell .v.green { color: var(--green); }
+.bt-popover.embedded .agg-grid .lcell .v.red,
+.bt-popover.embedded .done-grid .lcell .v.red   { color: var(--red); }
+.bt-popover.embedded .agg-grid .lcell .v.amber,
+.bt-popover.embedded .done-grid .lcell .v.amber { color: var(--amber); }
+.bt-popover.embedded .agg-grid .lcell .sub,
+.bt-popover.embedded .done-grid .lcell .sub {
   display: block; color: var(--label-dim); font-size: 9px; letter-spacing: .04em; margin-top: 3px;
 }
 
@@ -261,6 +266,40 @@
 .bt-popover.embedded .actions .btn.primary:hover { background: var(--primary-active); }
 .bt-popover.embedded .actions .btn.secondary { color: var(--value); }
 .bt-popover.embedded .actions .btn.danger { color: var(--label-dim); }
+
+/* DETAIL RE-RUN / DELETE — ghost pills; DELETE carries a subtle red tint. */
+.bt-popover.embedded .actions .cs-btn-ghost-sm { letter-spacing: .06em; }
+.bt-popover.embedded .actions .cs-btn-ghost-sm:hover { color: var(--value-strong); border-color: var(--cs-onborder); }
+.bt-popover.embedded .actions .cs-btn-ghost-sm.danger {
+  color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent);
+}
+.bt-popover.embedded .actions .cs-btn-ghost-sm.danger:hover {
+  color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, transparent);
+}
+
+/* ── DETAIL header — clean ghost back pill + filled tint run chips ──────── */
+.bt-popover.embedded .head .back {
+  color: var(--label); font: 400 9.5px var(--sans); letter-spacing: .08em;
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.bt-popover.embedded .head .back:hover { color: var(--value); border-color: var(--cs-onborder); }
+.bt-popover.embedded .head .cs-tag.red {
+  color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+/* ── DETAIL LLM ACTIVITY LOG — clean rows, no boxed container ───────────── */
+.bt-popover.embedded .log {
+  background: transparent; border: 0; border-radius: 0; padding: 0;
+}
+.bt-popover.embedded .log .ln {
+  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.bt-popover.embedded .log .ln:last-child { border-bottom: 0; }
+.bt-popover.embedded .log .ln .t { color: var(--label-dim); font-family: var(--mono); }
+.bt-popover.embedded .log .ln .ph { color: var(--label-dim); }
+.bt-popover.embedded .log .ln .msg { color: var(--label); }
 
 /* ── LIBRARY / COMPARE / TESTS table ───────────────────────────────────── */
 .bt-popover.embedded .lib-table { font-size: 11px; }
