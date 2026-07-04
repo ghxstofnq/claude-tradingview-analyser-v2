@@ -20,6 +20,7 @@
 .shell-page.cs-agent .cs-agent-body .claude-feed {
   padding: 14px; display: flex; flex-direction: column; gap: 10px;
   overflow: auto; flex: 1; max-height: none;
+  background: transparent; /* not the darker surface-0 — match the page (#0d0d0d) */
 }
 .shell-page.cs-agent .cs-agent-body .claude-feed:empty::before {
   color: var(--label-dim); font-size: 11px; text-align: left; padding: 0;
