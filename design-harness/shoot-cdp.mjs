@@ -5,6 +5,8 @@ const browser = await chromium.connectOverCDP("http://localhost:9223");
 const ctx = browser.contexts()[0];
 const page = ctx.pages().find((p) => p.url().includes("localhost:5173"));
 if (!page) { console.log("no renderer page"); process.exit(1); }
+// Linked <link> CSS isn't hot-swapped by Vite — reload so CSS edits show.
+await page.reload({ waitUntil: "domcontentloaded" }); await page.waitForTimeout(3500);
 
 async function esc() { await page.keyboard.press("Escape"); await page.waitForTimeout(300); }
 async function shot(n) { await page.screenshot({ path: `${OUT}/live-${n}.png` }); }

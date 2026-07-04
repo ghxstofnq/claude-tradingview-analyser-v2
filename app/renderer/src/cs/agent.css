@@ -29,14 +29,14 @@
 .shell-page.cs-agent .cs-agent-body .claude-msg { padding: 0; border-bottom: 0; }
 .shell-page.cs-agent .cs-agent-body .claude-msg > .head { display: none; }
 
-/* you (line 2096) — right-aligned dark pill, asymmetric radius */
-.shell-page.cs-agent .cs-agent-body .claude-msg.you {
+/* you (useChat type "user") — right-aligned dark pill, asymmetric radius */
+.shell-page.cs-agent .cs-agent-body .claude-msg.user {
   align-self: flex-end; max-width: 85%;
   background: var(--cs-onfill);               /* #18191a raw */
   border-radius: 10px 10px 3px 10px;
   padding: 8px 11px;
 }
-.shell-page.cs-agent .cs-agent-body .claude-msg.you .body {
+.shell-page.cs-agent .cs-agent-body .claude-msg.user .body {
   font-size: 11px; line-height: 1.5; color: var(--value-strong); /* #f4f4f6 */
 }
 /* assistant (line 2098) — flush prose, no background */
