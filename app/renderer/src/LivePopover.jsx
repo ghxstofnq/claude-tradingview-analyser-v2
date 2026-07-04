@@ -40,7 +40,6 @@ import { useExecutionState } from "./hooks/useExecutionState.js";
 import { useFills } from "./hooks/useFills.js";
 import { useSessionBrief } from "./hooks/useSessionBrief.js";
 import { useOpenReaction } from "./hooks/useOpenReaction.js";
-import { useAiAnalysis } from "./hooks/useAiAnalysis.js";
 
 // ── Price with hover data-source tooltip (designer's Px) ─────────────────
 function Px({ v, children, src, tone, big }) {
@@ -122,38 +121,6 @@ function LiveOpenReactionPanel({ latest, brief, ltf }) {
       {orv.rows.map((r) => <Row key={r.k} k={r.k} v={r.v} tone={r.tone} />)}
       <div className="or-note">{orv.note}</div>
     </Panel>
-  );
-}
-
-// ── AI · DEEPER READ — an on-demand button that lives INSIDE a card. The
-// structured/computed view is always shown; click this only when you want a
-// fresh in-depth analysis of the current moment. Re-run while open.
-function AiDeepen({ symbol, session, brief, prompt }) {
-  const ai = useAiAnalysis({ symbol, session, brief, prompt });
-  const [open, setOpen] = useState(false);
-  const start = () => { setOpen(true); ai.run(); };
-  if (!open) {
-    return (
-      <button className="btn" style={{ marginTop: 12 }} onClick={start} title="run a deeper AI analysis of this">
-        AI · DEEPER READ ▸
-      </button>
-    );
-  }
-  const tsLabel = ai.ts
-    ? new Date(ai.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" }) + " ET"
-    : null;
-  return (
-    <div className="lv-box" style={{ marginTop: 12 }}>
-      <div className="lv-box-hd" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>AI · DEEPER READ{tsLabel ? ` · ${tsLabel}` : ""}</span>
-        {ai.running
-          ? <span className="pill dim">analyzing…</span>
-          : <span className="pill interactive" onClick={ai.run}>RE-RUN</span>}
-      </div>
-      <div className="ai-prose">
-        {ai.text || (ai.running ? "running a deeper read… (~a few seconds; costs a turn)" : "no read returned.")}
-      </div>
-    </div>
   );
 }
 
@@ -340,7 +307,6 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
       if (!r?.ok) setMngMsg(`${label} FAILED — ${r?.error || `broker rejected (status ${r?.status ?? "?"})`}`);
     } catch (e) { setMngMsg(`${label} FAILED — ${String(e?.message || e)}`); }
   };
-  const deepenPrompt = `Live read of the open ${t.model || side} ${side} trade on ${sym} (entry ${entry} / stop ${stop} / TP1 ${tp1}). Per Lanto — is price respecting the setup, has it confirmed continuation toward the ultimate target, and should the runner trail or is structure breaking? Concise prose, no tool calls.`;
   return (
     <div className="cs-pos-card">
       <div className="cs-pos-hd">
@@ -387,7 +353,6 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
           <div className="ai-prose">{walkerTruthToProse(latestBrain.truth)}</div>
         </div>
       )}
-      <AiDeepen symbol={sym} session={session} brief={brief} prompt={deepenPrompt} />
     </div>
   );
 }
@@ -402,7 +367,6 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
   if (!setup) {
     const ex = explainNoTradeReason(noTradeReason, { ltf: openReaction?.ltf, latest: openReaction?.latest });
     const sh = noTrade?.sourceHealth;
-    const deepenPrompt = `Live read of ${symbol || "the lead symbol"}${session ? `, ${session.toUpperCase()}` : ""}: no setup is surfaced yet. Per Lanto — what is price doing right now (displacement vs consolidation), is the open-reaction bias confirming, and what would the next clean MSS / Trend / Inversion entry need? Concise prose, no tool calls.`;
     return (
       <div className="cs-feed">
         {read?.text && (
@@ -428,7 +392,6 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
             ) : null}
           </div>
         </div>
-        <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
       </div>
     );
   }
@@ -442,7 +405,6 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
   const mark = { pass: "✓", weak: "~", fail: "✗", missing: "·", pending: "·" };
   const stTxt = { pass: "yes", weak: "weak", fail: "fail", missing: "—", pending: "pending" };
   const gradeCls = grade === "A+" ? "a" : grade === "B" ? "b" : "c";
-  const deepenPrompt = `Live read of the ${modelLabel(setup)} ${side} setup on ${symbol || "the lead symbol"}${session ? `, ${session.toUpperCase()}` : ""} (entry ${setup.entry} / stop ${setup.stop} / TP1 ${setup.tp1}). Per Lanto — did it take significant liquidity, is displacement clean, is the 1m confirmation deliberate (not wicky), and is it aligned with the open-reaction bias? What invalidates it? Concise prose, no tool calls.`;
 
   return (
     <div className="cs-feed">
@@ -490,8 +452,6 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
           <p className="cs-narr">{read.text}</p>
         </div>
       )}
-
-      <AiDeepen symbol={symbol} session={session} brief={brief} prompt={deepenPrompt} />
     </div>
   );
 }
