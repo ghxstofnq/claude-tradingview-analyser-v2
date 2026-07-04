@@ -618,9 +618,11 @@ function BaselineVerdict({ baseline, loading, symbolView, onRefold, refolding, b
       <div className="bt-verdict-main">
         <div className="bt-verdict-line">
           <span className="bt-verdict-head" role="heading" aria-level={3}>{word}</span>
-          {v && v.verdict !== "NO_CORPUS" && (
-            <span className="bt-verdict-stat">{label ? label + " · " : ""}{v.cum_r >= 0 ? "+" : ""}{v.cum_r}R · {v.sessions} session{v.sessions === 1 ? "" : "s"}</span>
-          )}
+          <span className="bt-verdict-stat">
+            {label ? label + " · " : ""}
+            {v && v.verdict !== "NO_CORPUS" ? `${v.cum_r >= 0 ? "+" : ""}${v.cum_r}R · ` : ""}
+            {(v?.sessions ?? 0)} session{(v?.sessions ?? 0) === 1 ? "" : "s"}
+          </span>
         </div>
         <span className="bt-verdict-sub">{v ? v.reason : "record a session to build the baseline"}{foldedWhen ? ` · folded ${foldedWhen}${sha ? " · " + sha : ""}` : ""}</span>
       </div>
@@ -890,99 +892,83 @@ function LibraryBody({ state, actions, symbolView }) {
     return total === 0 ? "—" : `${Math.round((100 * a.agreed) / total)}%`;
   })();
 
+  const symLabel = symbolView === "MES1!" ? "MES" : "MNQ";
+  // One flat panel per the handoff: verdict → stat cells → filters → table,
+  // divided by horizontal hairlines (no per-section bordered cards, no AGGREGATE
+  // label, no PERFORMANCE/history — those aren't in the design). Stat cells are
+  // borderless, split by vertical hairlines.
   return (
-    <>
-      {/* Lead with the verdict: it carries the fold status + the RE-FOLD action.
-          The old FAITHFUL BASELINE card was redundant with it and is dropped;
-          the empty PERFORMANCE card only shows once there's real data. */}
+    <div className="bt-baseline">
       <BaselineVerdict baseline={baseline} loading={loading || refolding} symbolView={symbolView}
         onRefold={() => refold()} refolding={refolding} builtAt={baseline?.built_at} sha={baseline?.code_sha} />
 
-      {(A.n_trades > 0 || (baseline?.corpus?.n_sessions ?? 0) > 0) && (
-        <Analytics A={A} loading={loading || refolding} />
-      )}
-
-      {history?.length > 0 && (
-        <BaselineHistory history={history} current={baseline?.total_r ?? null} />
-      )}
-
-      <div className="section">
-        <div className="sect-hd">
-          <span>AGGREGATE</span>
-          <span className="meta">{symbolView === "MES1!" ? "MES" : "MNQ"} · {agg.total_runs} RUNS</span>
+      <div className="bt-stats">
+        <div className="lcell">
+          <span className="k">TOTAL RUNS</span>
+          <span className="v">{agg.total_runs}</span>
         </div>
-        <div className="agg-grid">
-          <div className="lcell">
-            <span className="k">TOTAL RUNS</span>
-            <span className="v">{agg.total_runs}</span>
-          </div>
-          <div className="lcell">
-            <span className="k">A+ WIN%</span>
-            <span className="v green">{aplus ? aplus.win + "%" : "—"}</span>
-            <span className="sub">{aplus ? "n=" + aplus.n : "—"}</span>
-          </div>
-          <div className="lcell">
-            <span className="k">B WIN%</span>
-            <span className="v">{bCut ? bCut.win + "%" : "—"}</span>
-            <span className="sub">{bCut ? "n=" + bCut.n : "—"}</span>
-          </div>
-          <div className="lcell">
-            <span className="k">CUM P&amp;L</span>
-            <span className={"v " + (A.cum_r >= 0 ? "green" : "red")}>
-              {A.cum_r > 0 ? "+" : ""}{A.cum_r.toFixed(1)}R
-            </span>
-          </div>
-          <div className="lcell">
-            <span className="k">AGREEMENT</span>
-            <span className="v amber">{agreementPct}</span>
-            <span className="sub">{agg.agreement.agreed} / {agg.agreement.agreed + agg.agreement.disagreed} graded</span>
-          </div>
+        <div className="lcell">
+          <span className="k">A+ WIN%</span>
+          <span className="v green">{aplus ? aplus.win + "%" : "—"}</span>
+          <span className="sub">{aplus ? "n=" + aplus.n : "—"}</span>
+        </div>
+        <div className="lcell">
+          <span className="k">B WIN%</span>
+          <span className="v">{bCut ? bCut.win + "%" : "—"}</span>
+          <span className="sub">{bCut ? "n=" + bCut.n : "—"}</span>
+        </div>
+        <div className="lcell">
+          <span className="k">CUM P&amp;L</span>
+          <span className={"v " + (A.cum_r >= 0 ? "green" : "red")}>
+            {A.cum_r > 0 ? "+" : ""}{A.cum_r.toFixed(1)}R
+          </span>
+        </div>
+        <div className="lcell">
+          <span className="k">AGREEMENT</span>
+          <span className="v amber">{agreementPct}</span>
+          <span className="sub">{agg.agreement.agreed} / {agg.agreement.agreed + agg.agreement.disagreed} graded</span>
         </div>
       </div>
 
-      <div className="section">
-        <div className="filters">
-          <Filter label="SESSION" value={sessionFilter} onChange={setSessionFilter}
-            options={[[null, "ALL"], ["ny-am", "AM"], ["ny-pm", "PM"], ["london", "LON"]]} />
-          <Filter label="GRADE" value={gradeFilter} onChange={setGradeFilter}
-            options={[[null, "ALL"], ["A+", "A+"], ["B", "B"], ["NO", "NO"]]} />
-          <Filter label="MODE" value={modeFilter} onChange={setModeFilter}
-            options={[[null, "ALL"], ["auto", "AUTO"], ["pause", "PAUSE"]]} />
-          <button className="btn-add" title="add filter" aria-label="add filter" onClick={actions.dismiss}>
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true"><path d="M5.5 1.2v8.6M1.2 5.5h8.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
-          </button>
-        </div>
+      <div className="bt-filters-row">
+        <Filter label="SESSION" value={sessionFilter} onChange={setSessionFilter}
+          options={[[null, "ALL"], ["ny-am", "AM"], ["ny-pm", "PM"], ["london", "LON"]]} />
+        <Filter label="GRADE" value={gradeFilter} onChange={setGradeFilter}
+          options={[[null, "ALL"], ["A+", "A+"], ["B", "B"], ["NO", "NO"]]} />
+        <Filter label="MODE" value={modeFilter} onChange={setModeFilter}
+          options={[[null, "ALL"], ["auto", "AUTO"], ["pause", "PAUSE"]]} />
+        <button className="btn-add" title="add filter" aria-label="add filter" onClick={actions.dismiss}>
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true"><path d="M5.5 1.2v8.6M1.2 5.5h8.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+        </button>
       </div>
 
-      <div className="section" style={{ padding: 0 }}>
-        <table className="lib-table">
-          <thead>
-            <tr>
-              <th className="sorted">DATE <span className="arr">▼</span></th>
-              <th>SESSION</th>
-              <th>MODE</th>
-              <th>SETUPS</th>
-              <th>W / L</th>
-              <th>GRADE</th>
-              <th>P&amp;L</th>
-              <th>YOU</th>
-              <th>COST</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={10} style={{ color: "var(--label-dim)", textAlign: "center", padding: 20 }}>
-                no runs match the current filters
-              </td></tr>
-            )}
-            {filtered.map((r) => (
-              <LibRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+      <table className="lib-table bt-lib-flat">
+        <thead>
+          <tr>
+            <th className="sorted">DATE <span className="arr">▼</span></th>
+            <th>SESSION</th>
+            <th>MODE</th>
+            <th>SETUPS</th>
+            <th>W / L</th>
+            <th>GRADE</th>
+            <th>P&amp;L</th>
+            <th>YOU</th>
+            <th>COST</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.length === 0 && (
+            <tr><td colSpan={10} style={{ color: "var(--label-dim)", textAlign: "center", padding: 20 }}>
+              no runs match the current filters
+            </td></tr>
+          )}
+          {filtered.map((r) => (
+            <LibRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

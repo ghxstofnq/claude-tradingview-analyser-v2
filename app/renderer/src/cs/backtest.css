@@ -525,3 +525,33 @@
   margin-left: auto; flex: none; align-self: center;
   border-radius: var(--r-pill); padding: 7px 15px; font: 500 11.5px var(--sans); color: var(--value);
 }
+
+/* ── BASELINE flat panel (handoff): verdict → stats → filters → table, all one
+   card divided by HORIZONTAL hairlines; stat cells split by VERTICAL hairlines.
+   No per-section bordered cards, no AGGREGATE label. ─────────────────────── */
+.bt-popover.embedded .bt-baseline { padding: 0 20px 6px; }
+.bt-popover.embedded .bt-baseline .bt-verdict {
+  margin: 0; padding: 20px 0; background: transparent; border: 0;
+  border-bottom: 1px solid var(--border); border-radius: 0;
+}
+.bt-popover.embedded .bt-baseline .bt-verdict-head { font: 500 22px var(--sans); }
+.bt-popover.embedded .bt-stats {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  padding: 18px 0; border-bottom: 1px solid var(--border);
+}
+.bt-popover.embedded .bt-stats .lcell {
+  display: flex; flex-direction: column; gap: 8px; padding: 0 20px;
+  border-left: 1px solid var(--border);          /* vertical hairline divider */
+}
+.bt-popover.embedded .bt-stats .lcell:first-child { border-left: 0; padding-left: 0; }
+.bt-popover.embedded .bt-stats .lcell .k { font: 600 9.5px var(--sans); letter-spacing: .08em; color: var(--label-dim); }
+.bt-popover.embedded .bt-stats .lcell .v { font: 500 24px var(--mono); color: var(--value-strong); line-height: 1; }
+.bt-popover.embedded .bt-stats .lcell .v.green { color: var(--green); }
+.bt-popover.embedded .bt-stats .lcell .v.red { color: var(--red); }
+.bt-popover.embedded .bt-stats .lcell .v.amber { color: var(--amber); }
+.bt-popover.embedded .bt-stats .lcell .sub { font: 400 10px var(--mono); color: var(--label-dim); }
+.bt-popover.embedded .bt-filters-row {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 16px 0; border-bottom: 1px solid var(--border);
+}
+.bt-popover.embedded .bt-lib-flat { width: 100%; margin-top: 2px; }
