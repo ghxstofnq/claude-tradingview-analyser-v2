@@ -10,6 +10,7 @@ import { useBaseline } from "./hooks/useBaseline.js";
 import { useTests } from "./hooks/useTests.js";
 import Analytics from "./Analytics.jsx";
 import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
+import { verdictFromBaseline, verdictTone } from "../../../cli/lib/backtest-verdict.js";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
@@ -584,6 +585,39 @@ const fmtFoldTime = (iso) => {
 };
 
 // FAITHFUL BASELINE header — folded-when + sessions + sha + RE-FOLD button.
+// The go-live VERDICT — the top-level answer the shape asked for. Renders the
+// SAME object as `tv backtest verdict` (shared verdictFromBaseline), so the GUI
+// headline and an agent read one source of truth.
+const VERDICT_WORDS = { NET_POSITIVE: "NET-POSITIVE", NOT_READY: "NOT READY", NEEDS_MORE_DATA: "NEEDS MORE DATA", NO_CORPUS: "NO CORPUS" };
+function BaselineVerdict({ baseline, loading, symbolView }) {
+  const v = verdictFromBaseline(baseline);
+  const label = symbolView ? String(symbolView).replace("1!", "") : "";
+  if (loading && !v) {
+    return (
+      <div className="bt-verdict is-dim">
+        <span className="bt-verdict-dot" />
+        <span className="bt-verdict-head">folding baseline…</span>
+      </div>
+    );
+  }
+  const tone = v ? verdictTone(v.verdict) : "dim";
+  const word = v ? (VERDICT_WORDS[v.verdict] || v.verdict) : "NO CORPUS";
+  return (
+    <div className={"bt-verdict is-" + tone}>
+      <span className="bt-verdict-dot" />
+      <div className="bt-verdict-main">
+        <div className="bt-verdict-line">
+          <span className="bt-verdict-head">{word}</span>
+          {v && v.verdict !== "NO_CORPUS" && (
+            <span className="bt-verdict-stat">{label ? label + " · " : ""}{v.cum_r >= 0 ? "+" : ""}{v.cum_r}R · {v.sessions} session{v.sessions === 1 ? "" : "s"}</span>
+          )}
+        </div>
+        <span className="bt-verdict-sub">{v ? v.reason : "record a session to build the baseline"}</span>
+      </div>
+    </div>
+  );
+}
+
 function BaselineHeader({ baseline, loading, refolding, onRefold, symbolView }) {
   const sym = symbolView === "MES1!" ? "MES" : "MNQ";
   const meta = loading
@@ -793,6 +827,7 @@ function LibraryBody({ state, actions, symbolView }) {
 
   return (
     <>
+      <BaselineVerdict baseline={baseline} loading={loading || refolding} symbolView={symbolView} />
       <BaselineHeader baseline={baseline} loading={loading} refolding={refolding}
         onRefold={() => refold()} symbolView={symbolView} />
 

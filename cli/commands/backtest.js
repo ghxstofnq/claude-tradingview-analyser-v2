@@ -16,22 +16,12 @@ import path from "node:path";
 import { readFileSync } from "node:fs";
 import { register } from "../router.js";
 import { foldSymbol } from "../../app/main/backtest-baseline.js";
+import { computeVerdict, DEFAULT_MIN_SESSIONS } from "../lib/backtest-verdict.js";
 
 const DEFAULT_SYMBOL = "MNQ1!";
-// Trusted-window floor: below this the corpus is too thin to green-light real
-// money regardless of the R (end-goal: net-positive over a *trusted* window).
-const DEFAULT_MIN_SESSIONS = 20;
 
 function stateDir() {
   return process.env.GOFNQ_STATE_DIR || path.resolve("state");
-}
-
-// The go-live verdict from the faithful fold. Pure — same inputs, same answer.
-export function computeVerdict({ cum_r, sessions, minSessions = DEFAULT_MIN_SESSIONS }) {
-  if (!sessions) return { verdict: "NO_CORPUS", ready: false, reason: "no recorded runs — record a session first" };
-  if (sessions < minSessions) return { verdict: "NEEDS_MORE_DATA", ready: false, reason: `${sessions}/${minSessions} sessions in the trusted window` };
-  if (cum_r <= 0) return { verdict: "NOT_READY", ready: false, reason: `${cum_r >= 0 ? "+" : ""}${cum_r}R — not net-positive` };
-  return { verdict: "NET_POSITIVE", ready: true, reason: `${cum_r >= 0 ? "+" : ""}${cum_r}R over ${sessions} sessions` };
 }
 
 async function foldOne(symbol) {

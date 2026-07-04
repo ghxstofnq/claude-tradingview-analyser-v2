@@ -12,7 +12,9 @@ import { useEffect, useReducer, useCallback, useState, useRef } from "react";
 import { nextState } from "../Backtest.helpers.js";
 
 const INITIAL = {
-  ui: "IDLE",
+  // Verdict-first: land on BASELINE (the go-live verdict + corpus), not the
+  // RECORD config form. Record/Test are actions taken from the verdict.
+  ui: "LIBRARY",
   library: { runs: [], loading: true },
   currentRun: null,    // { runId, session, date, mode, progress, setups[] }
   surfacedSetup: null, // populated while AWAITING in pause mode

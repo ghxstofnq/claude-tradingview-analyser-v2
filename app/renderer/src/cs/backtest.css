@@ -460,3 +460,22 @@
 .bt-popover.embedded .bt-lib-idle td:last-child { padding-right: 0; text-align: right; }
 
 .bt-popover.embedded .bt-empty { color: var(--label-dim); font-size: 11px; padding: 10px 0 4px; }
+
+/* ── VERDICT headline — the go-live gate, top of the BASELINE view ──────── */
+.bt-popover.embedded .bt-verdict {
+  display: flex; align-items: center; gap: 14px;
+  margin: 14px 18px 0; padding: 16px 20px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg);
+}
+.bt-popover.embedded .bt-verdict-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--label-dim); }
+.bt-popover.embedded .bt-verdict.is-green .bt-verdict-dot { background: var(--green); }
+.bt-popover.embedded .bt-verdict.is-amber .bt-verdict-dot { background: var(--amber); }
+.bt-popover.embedded .bt-verdict.is-red   .bt-verdict-dot { background: var(--red); }
+.bt-popover.embedded .bt-verdict-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bt-popover.embedded .bt-verdict-line { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.bt-popover.embedded .bt-verdict-head { font: 500 18px var(--sans); letter-spacing: .01em; color: var(--value-strong); }
+.bt-popover.embedded .bt-verdict.is-green .bt-verdict-head { color: var(--green); }
+.bt-popover.embedded .bt-verdict.is-amber .bt-verdict-head { color: var(--amber); }
+.bt-popover.embedded .bt-verdict.is-red   .bt-verdict-head { color: var(--red); }
+.bt-popover.embedded .bt-verdict-stat { font: 500 13px var(--mono); color: var(--value); }
+.bt-popover.embedded .bt-verdict-sub { font: 400 11px var(--sans); color: var(--label-dim); }

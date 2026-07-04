@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeVerdict } from "../cli/commands/backtest.js";
+import { computeVerdict } from "../cli/lib/backtest-verdict.js";
 
 // The go-live gate is the keystone output — one rule, deterministic. Lock it.
 test("computeVerdict — no corpus", () => {
