@@ -62,7 +62,8 @@
   font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim);
 }
 .bt-popover.embedded .sect-hd .meta {
-  margin-left: auto; font: 400 10px var(--mono); letter-spacing: 0; color: var(--label-dim);
+  /* Sans hint (not mono) — the prototype uses Inter for notes, mono only for data. */
+  margin-left: auto; font: 400 10px var(--sans); letter-spacing: 0; color: var(--label-dim);
 }
 
 /* ── config form — stacked label-over-controls, pill chips ─────────────── */
