@@ -37,32 +37,33 @@ export function FlattenConfirm({ hasPosition, detail, holdActive, onClose, onFla
   }, [holdActive]);
 
   return (
-    <div className="cmd-flatten" onClick={(e) => e.stopPropagation()}>
-      <div className="inner">
+    <div className="cs-flatten" onClick={(e) => e.stopPropagation()}>
+      <div className="cs-flatten-inner">
         {hasPosition ? (
           <>
-            <div className="hd">
-              <span className="icon">◱</span>
+            <div className="cs-flatten-hd">
+              <span className="cs-flatten-ic">◱</span>
               <div>
-                <div className="t">Flatten all positions</div>
-                <div className="d">{detail || "Sends a market close for the open position."}</div>
+                <div className="cs-flatten-title">Flatten all positions</div>
+                <div className="cs-flatten-detail">{detail || "Sends a market close for the open position."}</div>
               </div>
             </div>
-            <div className="cmd-hold" onMouseDown={start} onMouseUp={stop} onMouseLeave={stop}>
-              <span style={{ transform: `scaleX(${pct / 100})`,
-                             transition: pct === 0 ? "transform .12s" : "none" }} />
+            <div className="cs-flatten-track" onMouseDown={start} onMouseUp={stop} onMouseLeave={stop}>
+              <span className="cs-flatten-fill"
+                    style={{ width: pct + "%",
+                             transition: pct === 0 ? "width .12s" : "none" }} />
             </div>
-            <div className="foot">
-              <span>hold <span className="cmd-kbd">⏎</span> to confirm · release cancels</span>
-              <span className="esc" {...clickable(onClose)}>esc · cancel</span>
+            <div className="cs-flatten-foot">
+              <span>hold <span className="cs-kbd-mini">⏎</span> to confirm · release cancels</span>
+              <span className="cs-flatten-esc" {...clickable(onClose)}>esc · cancel</span>
             </div>
           </>
         ) : (
-          <div className="hd">
-            <span className="icon flat">◱</span>
+          <div className="cs-flatten-hd">
+            <span className="cs-flatten-ic flat">◱</span>
             <div>
-              <div className="t">You're flat</div>
-              <div className="d">No open position, nothing to flatten · esc to close</div>
+              <div className="cs-flatten-title">You're flat</div>
+              <div className="cs-flatten-detail">No open position, nothing to flatten · esc to close</div>
             </div>
           </div>
         )}

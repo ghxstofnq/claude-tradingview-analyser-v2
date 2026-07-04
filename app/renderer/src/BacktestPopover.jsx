@@ -10,6 +10,7 @@ import { useBaseline } from "./hooks/useBaseline.js";
 import { useTests } from "./hooks/useTests.js";
 import Analytics from "./Analytics.jsx";
 import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
+import { verdictFromBaseline, verdictTone } from "../../../cli/lib/backtest-verdict.js";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
@@ -65,7 +66,7 @@ export function BacktestCell() {
           {state.ui === "LIBRARY" && (
             <div className="bt-sym-bar">
               <span className="bt-sym-label">INSTRUMENT</span>
-              <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
+              <SegPills value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
             </div>
           )}
           <div className="body">
@@ -97,7 +98,7 @@ export function BacktestBody({ onClose }) {
       {state.ui === "LIBRARY" && (
         <div className="bt-sym-bar">
           <span className="bt-sym-label">INSTRUMENT</span>
-          <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
+          <SegPills value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
         </div>
       )}
       <div className="body">
@@ -129,11 +130,11 @@ function Header({ state, actions, onClose, float }) {
         <span className="back" onClick={(e) => { e.stopPropagation(); actions.back(); }}>← BASELINE</span>
         <span className="t">{run?.date ?? state.selectedRunId} · {sessionLabel(run?.session)}</span>
         {run && (
-          <span className={"meta-pill " + (run.total_r >= 0 ? "" : "red")}>
+          <span className={"cs-tag " + (run.total_r >= 0 ? "green" : "red")}>
             {run.total_r > 0 ? "+" : ""}{(run.total_r ?? 0).toFixed(1)}R
           </span>
         )}
-        {run && <span className="meta-pill amber">{(run.mode ?? "").toUpperCase()}</span>}
+        {run && <span className="cs-tag neutral">{(run.mode ?? "").toUpperCase()}</span>}
         <span className="spacer" />
         {floatBtn}
         <span className="x" onClick={(e) => { e.stopPropagation(); onClose(); }}>×</span>
@@ -167,7 +168,7 @@ function Header({ state, actions, onClose, float }) {
     <div className="head" onMouseDown={float?.onDragStart}>
       <span className={"t " + cfg.cls}>
         {cfg.pulse && <span className="pulse" />}
-        BACKTEST
+        <span className="bt-title">BACKTEST</span>
       </span>
       <span className="bt-modes" onClick={(e) => e.stopPropagation()}>
         {BT_MODES.map(([m, l]) => (
@@ -250,16 +251,16 @@ function CorpusStatus({ runs = [], symbolView }) {
 function IdleBody({ state, actions, symbolView }) {
   const presets = presetRanges();
   const STUDY_PRESETS = [
-    { id: "today", label: "TODAY", start: presets.today[0], end: presets.today[1] },
-    { id: "week", label: "THIS WEEK", start: presets.week[0], end: presets.week[1] },
-    { id: "lastweek", label: "LAST WEEK", start: presets.lastweek[0], end: presets.lastweek[1] },
-    { id: "custom", label: "CUSTOM", start: null, end: null },
+    { id: "today", label: "Today", start: presets.today[0], end: presets.today[1] },
+    { id: "week", label: "This week", start: presets.week[0], end: presets.week[1] },
+    { id: "lastweek", label: "Last week", start: presets.lastweek[0], end: presets.lastweek[1] },
+    { id: "custom", label: "Custom", start: null, end: null },
   ];
   const [symbol, setSymbol] = useState("both");
   const [preset, setPreset] = useState("lastweek");
   const [start, setStart] = useState(presets.lastweek[0]);
   const [end, setEnd] = useState(presets.lastweek[1]);
-  const [sessions, setSessions] = useState({ "ny-am": true, "ny-pm": false, "london": true });
+  const [sessions, setSessions] = useState({ "ny-am": true, "ny-pm": false, "london": true, "eth": false });
   const [mode, setMode] = useState("auto");
   const symRuns = filterRuns(state.library.runs, { symbol: symbolView });
   const agg = aggregateRuns(symRuns);
@@ -269,7 +270,7 @@ function IdleBody({ state, actions, symbolView }) {
   const editDate = (which, v) => { setPreset("custom"); which === "start" ? setStart(v) : setEnd(v); };
   const toggleSession = (k) => setSessions((s) => ({ ...s, [k]: !s[k] }));
 
-  const SESS = [["ny-am", "NY-AM"], ["ny-pm", "NY-PM"], ["london", "LONDON"]];
+  const SESS = [["ny-am", "AM"], ["ny-pm", "PM"], ["london", "LON"], ["eth", "ETH"]];
   const selected = SESS.filter(([k]) => sessions[k]);
   const symLabel = { mnq: "MNQ1!", mes: "MES1!", both: "MNQ1! + MES1!" }[symbol];
   const days = weekdaysBetween(start, end);
@@ -280,9 +281,12 @@ function IdleBody({ state, actions, symbolView }) {
   const noPick = jobs.length === 0;
   const canRun = !noPick;
   const run = () => { if (canRun) actions.startStudy(jobs); };
+  const sym = symbolView === "MES1!" ? "MES" : "MNQ";
+  const cumR = (agg.cum_r > 0 ? "+" : "") + agg.cum_r.toFixed(1) + "R";
 
   return (
-    <div className="bt-cols">
+    <div className="bt-idle">
+      <div className="bt-cols">
       <div className="section">
         <div className="sect-hd"><span>CONFIGURE RECORD</span><span className="meta">records from the chart</span></div>
 
@@ -293,11 +297,12 @@ function IdleBody({ state, actions, symbolView }) {
           </div>
 
           <div className="cfg-row">
-            <span className="cfg-rk">RANGE<span className="cfg-rk-hint">{days}d</span></span>
+            <span className="cfg-rk">RANGE</span>
             <div className="cfg-presets">
               {STUDY_PRESETS.map((p) => (
                 <button key={p.id} type="button" className={"cfg-preset" + (preset === p.id ? " on" : "")} onClick={() => applyPreset(p)}>{p.label}</button>
               ))}
+              <span className="cfg-range-hint">{days}d</span>
             </div>
           </div>
 
@@ -332,34 +337,55 @@ function IdleBody({ state, actions, symbolView }) {
         <div className="cfg-plan">
           {noPick
             ? <span className="warn">Pick at least one session and a valid date range.</span>
-            : <>▸ <b>{symLabel}</b> · <b>{selected.map((s) => s[1]).join(" + ")}</b> · {start} → {end} → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} to record</>}
+            : <><span className="cfg-plan-arrow">▸</span> <b>{symLabel}</b> · <b>{selected.map((s) => s[1]).join(" + ")}</b> · <span className="cfg-plan-dates">{start} → {end}</span> → <b>{recordings}</b> session{recordings !== 1 ? "s" : ""} to record</>}
         </div>
         <div className="cfg-cost">
           pauses the live loop while recording, then re-arms
         </div>
 
         <div className="start-row">
-          <button className="start-btn" disabled={!canRun} onClick={run}>▶  START RECORD</button>
+          <button className="start-btn" disabled={!canRun} onClick={run}>
+            <svg width="9" height="10" viewBox="0 0 9 10" aria-hidden="true"><path d="M0 0l9 5-9 5z" fill="currentColor" /></svg>
+            START RECORD
+          </button>
           {mode === "pause" && <span className="cfg-hint">you grade in RECORD</span>}
         </div>
       </div>
 
-      <div className="section">
-        <div className="sect-hd"><span>RECENT</span><span className="meta">{agg.total_runs} RUNS</span></div>
-        <div className="recent-summary">
-          A+ <b className="green">{pct(agg.aplus_hit_rate)}</b>
-          {" · "}B <b>{pct(agg.b_hit_rate)}</b>
-          {" · "}CUM <b className={agg.cum_r >= 0 ? "green" : "red"}>{agg.cum_r > 0 ? "+" : ""}{agg.cum_r.toFixed(1)}R</b>
+      <div className="section bt-summary">
+        <div className="sect-hd"><span>RECENT</span><span className="cs-tag neutral">{sym} · {agg.total_runs} RUN{agg.total_runs === 1 ? "" : "S"}</span></div>
+        <div className="bt-metrics">
+          <div className="bt-metric"><span className="ml">A+ HIT RATE</span><span className="mv green">{pct(agg.aplus_hit_rate)}</span></div>
+          <div className="bt-metric"><span className="ml">B HIT RATE</span><span className="mv">{pct(agg.b_hit_rate)}</span></div>
+          <div className="bt-metric"><span className="ml">CUMULATIVE R</span><span className={"mv " + (agg.cum_r >= 0 ? "green" : "red")}>{cumR}</span></div>
+          <div className="bt-metric"><span className="ml">TOTAL RUNS</span><span className="mv">{agg.total_runs}</span></div>
         </div>
-        {recent.length === 0 && (
-          <div style={{ color: "var(--label-dim)", fontSize: 11, padding: "8px 0" }}>no runs yet</div>
-        )}
-        {recent.map((r) => (
-          <RunRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
-        ))}
-        <div className="view-all" onClick={actions.viewAll}>
-          VIEW BASELINE · {symRuns.length} RUNS  →
+        <button type="button" className="bt-view-all-btn" onClick={actions.viewAll}>VIEW BASELINE · <span className="mono">{symRuns.length}</span> →</button>
+      </div>
+      </div>
+
+      <div className="section bt-lib-preview">
+        <div className="sect-hd">
+          <span>LIBRARY <span className="bt-cnt">{recent.length} run{recent.length === 1 ? "" : "s"}</span></span>
+          <span className="meta">click a run for detail</span>
         </div>
+        {recent.length === 0
+          ? <div className="bt-empty">no runs yet — record a session to begin</div>
+          : (
+            <table className="lib-table bt-lib-idle">
+              <thead>
+                <tr>
+                  <th>DATE</th><th>SESSION</th><th>MODE</th><th>SETUPS</th>
+                  <th>W / L</th><th>GRADE</th><th>P&amp;L</th><th>YOU</th><th>COST</th><th aria-label="open" />
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((r) => (
+                  <LibRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
+                ))}
+              </tbody>
+            </table>
+          )}
       </div>
     </div>
   );
@@ -394,6 +420,7 @@ function RunningBody({ state, actions }) {
       <div className="section">
         <div className="sect-hd">
           <span>{cur.date} · {sessionLabel(cur.session)} · {(cur.mode ?? "").toUpperCase()}</span>
+          <span className="cs-tag blue bt-hd-chip">RUNNING</span>
           <span className="meta">${(p.cost ?? 0).toFixed(2)}</span>
         </div>
         <div className="form-row"><span className="k">BAR</span><span className="v">{p.bar} / {p.total}</span></div>
@@ -504,6 +531,7 @@ function DoneBody({ state, actions }) {
       <div className="section">
         <div className="sect-hd">
           <span>{s.date} · {sessionLabel(s.session)} · {(s.mode ?? "").toUpperCase()}</span>
+          <span className="cs-tag green bt-hd-chip">DONE</span>
           <span className="meta">${(s.cost_usd ?? 0).toFixed(2)}</span>
         </div>
         <div className="done-grid cols-4">
@@ -561,6 +589,48 @@ const fmtFoldTime = (iso) => {
 };
 
 // FAITHFUL BASELINE header — folded-when + sessions + sha + RE-FOLD button.
+// The go-live VERDICT — the top-level answer the shape asked for. Renders the
+// SAME object as `tv backtest verdict` (shared verdictFromBaseline), so the GUI
+// headline and an agent read one source of truth.
+const VERDICT_WORDS = { NET_POSITIVE: "NET-POSITIVE", NOT_READY: "NOT READY", NEEDS_MORE_DATA: "NEEDS MORE DATA", NO_CORPUS: "NO CORPUS" };
+function BaselineVerdict({ baseline, loading, symbolView, onRefold, refolding, builtAt, sha }) {
+  const v = verdictFromBaseline(baseline);
+  const label = symbolView ? String(symbolView).replace("1!", "") : "";
+  const refoldBtn = onRefold ? (
+    <button className="cs-btn-ghost-sm bt-verdict-refold" onClick={onRefold} disabled={refolding}
+      aria-label="re-fold the baseline">{refolding ? "RE-FOLDING…" : "RE-FOLD"}</button>
+  ) : null;
+  if (loading && !v) {
+    return (
+      <div className="bt-verdict is-dim">
+        <span className="bt-verdict-dot" />
+        <span className="bt-verdict-head" role="heading" aria-level={3}>folding baseline…</span>
+        {refoldBtn}
+      </div>
+    );
+  }
+  const tone = v ? verdictTone(v.verdict) : "dim";
+  const word = v ? (VERDICT_WORDS[v.verdict] || v.verdict) : "NO CORPUS";
+  const foldedWhen = builtAt ? new Date(builtAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) : null;
+  return (
+    <div className={"bt-verdict is-" + tone}>
+      <span className="bt-verdict-dot" />
+      <div className="bt-verdict-main">
+        <div className="bt-verdict-line">
+          <span className="bt-verdict-head" role="heading" aria-level={3}>{word}</span>
+          <span className="bt-verdict-stat">
+            {label ? label + " · " : ""}
+            {v && v.verdict !== "NO_CORPUS" ? `${v.cum_r >= 0 ? "+" : ""}${v.cum_r}R · ` : ""}
+            {(v?.sessions ?? 0)} session{(v?.sessions ?? 0) === 1 ? "" : "s"}
+          </span>
+        </div>
+        <span className="bt-verdict-sub">{v ? v.reason : "record a session to build the baseline"}{foldedWhen ? ` · folded ${foldedWhen}${sha ? " · " + sha : ""}` : ""}</span>
+      </div>
+      {refoldBtn}
+    </div>
+  );
+}
+
 function BaselineHeader({ baseline, loading, refolding, onRefold, symbolView }) {
   const sym = symbolView === "MES1!" ? "MES" : "MNQ";
   const meta = loading
@@ -575,11 +645,11 @@ function BaselineHeader({ baseline, loading, refolding, onRefold, symbolView }) 
         <span className="meta">{meta}</span>
       </div>
       <div className="bl-actions">
-        <button className="btn secondary" disabled={refolding} onClick={onRefold}>
+        <button className="cs-btn-ghost-sm" disabled={refolding} onClick={onRefold}>
           {refolding ? "RE-FOLDING…" : "RE-FOLD BASELINE"}
         </button>
         {baseline && (
-          <span className={"bl-total " + (baseline.total_r >= 0 ? "green" : "red")}>{fmtR(baseline.total_r)}</span>
+          <span className={"bl-total cs-num " + (baseline.total_r >= 0 ? "up" : "down")}>{fmtR(baseline.total_r)}</span>
         )}
       </div>
     </div>
@@ -645,7 +715,7 @@ function FoldTestForm({ running, onRun }) {
              value={gate} onChange={(e) => setGate(e.target.value)}
              autoComplete="off" spellCheck="false"
              onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
-      <button className="btn primary" disabled={running} onClick={submit}>
+      <button className="cs-btn-primary-run" disabled={running} onClick={submit}>
         {running ? "FOLDING…" : "RUN FOLD TEST"}
       </button>
     </div>
@@ -654,84 +724,139 @@ function FoldTestForm({ running, onRun }) {
 
 function TestsBody({ symbolView }) {
   const { tests, loading, running, lastError, setVerdict, getTest, removeTest, runFoldTest } = useTests(symbolView);
+  // The accepted baseline supplies the "old" side of the baseline → candidate
+  // metric diff (win-rate / expectancy / drawdown). Cum R comes off the test's
+  // own matched-corpus totals.
+  const { baseline } = useBaseline(symbolView);
   const sym = symbolView === "MES1!" ? "MES" : "MNQ";
   const [expandedId, setExpandedId] = useState(null);
   const [full, setFull] = useState(null);
-  const [reasonDraft, setReasonDraft] = useState({});
 
   const toggle = async (id) => {
     if (expandedId === id) { setExpandedId(null); setFull(null); return; }
     setExpandedId(id); setFull(null);
     setFull(await getTest(id));
   };
-  const setReason = (id, v) => setReasonDraft((d) => ({ ...d, [id]: v }));
 
   return (
-    <div className="section">
-      <div className="sect-hd">
-        <span>FOLD TESTS · {sym}</span>
-        <span className="meta">{loading ? "loading…" : `${tests.length} · vs accepted baseline`}</span>
+    <div className="section bt-tests">
+      <div className="ft-title">
+        <span className="ft-title-l">
+          <span className="ft-title-t">FOLD TESTS</span>
+          <span className="ft-title-sym">{sym}</span>
+        </span>
+        <span className="ft-title-meta">
+          {loading ? "loading…" : <><span className="mono">{tests.length}</span> · vs accepted baseline</>}
+        </span>
       </div>
 
       <FoldTestForm running={running} onRun={runFoldTest} />
+      <div className="ft-help">name a change, set its gate, RUN FOLD TEST — folds over the corpus vs baseline.</div>
       {lastError && <div className="ft-err">fold failed — {lastError}</div>}
 
       {!loading && tests.length === 0 && !running && (
         <div className="ft-empty">
-          name a change, set its gate, RUN FOLD TEST — folds over the corpus vs baseline.
+          <div className="ft-empty-glyph">⊘</div>
+          <div className="ft-empty-t">No fold tests yet</div>
+          <div className="ft-empty-sub">name a change above to run your first fold against the baseline.</div>
         </div>
       )}
 
-      {tests.map((t) => (
-        <div className="test-item" key={t.id}>
-          <div className={"test-row" + (expandedId === t.id ? " open" : "")} onClick={() => toggle(t.id)}>
-            <span className="caret">{expandedId === t.id ? "▾" : "▸"}</span>
-            <span className="t-label" title={t.label}>{t.label}</span>
-            <span className={"t-delta " + (t.delta >= 0 ? "green" : "red")}>{fmtR(t.delta)}</span>
-            <span className="t-tot">{fmtR(t.treatment_total)} vs {fmtR(t.baseline_total)}</span>
-            {!t.corpus_match && <span className="t-status warn" title="folded set differs from the baseline — delta mixes code + corpus">CORPUS≠</span>}
-            <span className={"t-status " + testStatusCls(t.status)}>{String(t.status).toUpperCase()}</span>
-          </div>
-
-          {expandedId === t.id && (
-            <div className="test-expand" onClick={(e) => e.stopPropagation()}>
-              {t.reason && <div className="t-reason">“{t.reason}”</div>}
-
-              {t.status === "pending" && (
-                <div className="t-verdict">
-                  <input className="t-reason-input" placeholder="reason for accept / reject…"
-                    value={reasonDraft[t.id] ?? ""} onChange={(e) => setReason(t.id, e.target.value)} />
-                  <button className="t-btn ok" onClick={() => setVerdict(t.id, "accepted", reasonDraft[t.id] || null)}>ACCEPT</button>
-                  <button className="t-btn bad" onClick={() => setVerdict(t.id, "rejected", reasonDraft[t.id] || null)}>REJECT</button>
+      {tests.length > 0 && (
+        <div className="ft-list">
+          {tests.map((t) => {
+            const open = expandedId === t.id;
+            return (
+              <div className="ft-card" key={t.id}>
+                <div className={"ft-row" + (open ? " open" : "")} onClick={() => toggle(t.id)}>
+                  <div className="ft-row-main">
+                    <div className="ft-row-name" title={t.label}>{t.label}</div>
+                    <div className="ft-row-gate">
+                      {t.code_sha || fmtFoldTime(t.created_at)}
+                      {!t.corpus_match && <span className="ft-corpus-warn" title="folded set differs from the baseline — delta mixes code + corpus"> · corpus≠</span>}
+                    </div>
+                  </div>
+                  <div className="ft-col">
+                    <div className="ft-col-k">Δ VS BASE</div>
+                    <div className={"ft-col-v cs-num " + (t.delta >= 0 ? "up" : "down")}>{fmtR(t.delta)}</div>
+                  </div>
+                  <div className="ft-col ft-col-sessions">
+                    <div className="ft-col-k">SESSIONS</div>
+                    <div className="ft-col-v cs-num">{t.per_day?.length ?? 0}</div>
+                  </div>
+                  <span className={"ft-chip " + testStatusCls(t.status)}>{String(t.status).toUpperCase()}</span>
+                  <span className="ft-caret">{open ? "▾" : "▸"}</span>
                 </div>
-              )}
 
-              <table className="lib-table">
-                <thead><tr><th>DATE</th><th>SESSION</th><th>BASE</th><th>TEST</th><th>Δ</th></tr></thead>
-                <tbody>
-                  {t.per_day.map((d, i) => (
-                    <tr key={i}>
-                      <td>{d.date}</td><td>{d.session}</td>
-                      <td>{d.baseline_r == null ? "—" : fmtR(d.baseline_r)}</td>
-                      <td>{d.treatment_r == null ? "—" : fmtR(d.treatment_r)}</td>
-                      <td className={d.delta >= 0 ? "green" : "red"}>{fmtR(d.delta)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {full
-                ? <Analytics A={buildAnalytics(full.treatment_run_details ?? [])} loading={false} />
-                : <div className="meta" style={{ padding: "6px 0" }}>loading detail…</div>}
-
-              <div className="t-foot">
-                <span className="meta">folded {fmtFoldTime(t.created_at)}{t.code_sha ? " · " + t.code_sha : ""}</span>
-                <button className="t-link" onClick={() => removeTest(t.id)}>delete</button>
+                {open && (
+                  <FoldExpand
+                    t={t} full={full} baseline={baseline}
+                    onAccept={() => setVerdict(t.id, "accepted", null)}
+                    onReject={() => setVerdict(t.id, "rejected", null)}
+                    onPromote={() => setVerdict(t.id, "accepted", "promoted to baseline")}
+                    onDelete={() => removeTest(t.id)}
+                  />
+                )}
               </div>
-            </div>
-          )}
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// COMPARE expand — the baseline → candidate diff on four metrics, then the
+// accept / reject / promote decision. Cum R reads the test's matched-corpus
+// totals; win-rate / expectancy / drawdown are computed by buildAnalytics over
+// the baseline + treatment run_details (real data — no LLM arithmetic; the math
+// lives in cli/lib/backtest-analytics.js).
+function FoldExpand({ t, full, baseline, onAccept, onReject, onPromote, onDelete }) {
+  const base = baseline?.run_details ? buildAnalytics(baseline.run_details) : null;
+  const cand = full?.treatment_run_details ? buildAnalytics(full.treatment_run_details) : null;
+  const n2 = (v) => (v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(2));
+  const n1 = (v) => (v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(1));
+  const signPts = (d) => (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(Math.round(d)) + "pts";
+  const signR2 = (d) => (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(Number(d) || 0).toFixed(2) + "R";
+
+  const rows = [
+    { label: "Cum R", old: n2(t.baseline_total), neu: n2(t.treatment_total), imp: fmtR(t.delta), good: (t.delta ?? 0) >= 0 },
+  ];
+  if (base && cand) {
+    const dWin = cand.win_pct - base.win_pct;
+    const dExp = cand.expectancy - base.expectancy;
+    const dDD = cand.max_drawdown_r - base.max_drawdown_r; // less-negative = improvement
+    rows.push(
+      { label: "Win rate", old: base.win_pct + "%", neu: cand.win_pct + "%", imp: signPts(dWin), good: dWin >= 0 },
+      { label: "Expectancy", old: n2(base.expectancy) + "R", neu: n2(cand.expectancy) + "R", imp: signR2(dExp), good: dExp >= 0 },
+      { label: "Max drawdown", old: n1(base.max_drawdown_r) + "R", neu: n1(cand.max_drawdown_r) + "R", imp: fmtR(dDD), good: dDD >= 0 },
+    );
+  }
+
+  return (
+    <div className="ft-expand" onClick={(e) => e.stopPropagation()}>
+      <div className="ft-bc-hd">BASELINE → CANDIDATE</div>
+      {rows.map((r, i) => (
+        <div className="ft-metric" key={i}>
+          <span className="ft-metric-l">{r.label}</span>
+          <span className="ft-metric-old cs-num">{r.old}</span>
+          <span className="ft-metric-arrow">→</span>
+          <span className="ft-metric-new cs-num">{r.neu}</span>
+          <span className={"ft-metric-imp cs-num " + (r.good ? "up" : "down")}>{r.imp}</span>
         </div>
       ))}
+      {(!base || !cand) && <div className="ft-detail-loading">loading candidate detail…</div>}
+
+      <div className="ft-actions">
+        <button className="cs-btn-accept" onClick={onAccept}>✓ ACCEPT</button>
+        <button className="cs-btn-reject" onClick={onReject}>✗ REJECT</button>
+        <div className="ft-actions-sp" />
+        <button className="ft-btn-promote" onClick={onPromote}>PROMOTE</button>
+      </div>
+      <div className="ft-foot">
+        <span className="ft-foot-meta">folded {fmtFoldTime(t.created_at)}{t.code_sha ? " · " + t.code_sha : ""}</span>
+        <button className="ft-link" onClick={onDelete}>delete</button>
+      </div>
     </div>
   );
 }
@@ -743,13 +868,12 @@ function LibraryBody({ state, actions, symbolView }) {
   const [sessionFilter, setSessionFilter] = useState(null);
   const [modeFilter, setModeFilter] = useState(null);
   const [gradeFilter, setGradeFilter] = useState(null);
-  const [query, setQuery] = useState("");
 
   // Scope everything to the active instrument first; the table filters narrow
   // within it. Analytics + aggregate read only this symbol's runs.
   const symRuns = filterRuns(state.library.runs, { symbol: symbolView });
   const filtered = filterRuns(symRuns, {
-    session: sessionFilter, mode: modeFilter, grade: gradeFilter, query,
+    session: sessionFilter, mode: modeFilter, grade: gradeFilter,
   });
   const agg = aggregateRuns(symRuns);
   // Dashboard reads the FAITHFUL fold-week baseline (regen + AM->PM carry), not
@@ -768,98 +892,83 @@ function LibraryBody({ state, actions, symbolView }) {
     return total === 0 ? "—" : `${Math.round((100 * a.agreed) / total)}%`;
   })();
 
+  const symLabel = symbolView === "MES1!" ? "MES" : "MNQ";
+  // One flat panel per the handoff: verdict → stat cells → filters → table,
+  // divided by horizontal hairlines (no per-section bordered cards, no AGGREGATE
+  // label, no PERFORMANCE/history — those aren't in the design). Stat cells are
+  // borderless, split by vertical hairlines.
   return (
-    <>
-      <BaselineHeader baseline={baseline} loading={loading} refolding={refolding}
-        onRefold={() => refold()} symbolView={symbolView} />
+    <div className="bt-baseline">
+      <BaselineVerdict baseline={baseline} loading={loading || refolding} symbolView={symbolView}
+        onRefold={() => refold()} refolding={refolding} builtAt={baseline?.built_at} sha={baseline?.code_sha} />
 
-      <Analytics A={A} loading={loading || refolding} />
-
-      <BaselineHistory history={history} current={baseline?.total_r ?? null} />
-
-      <div className="section">
-        <div className="sect-hd">
-          <span>AGGREGATE</span>
-          <span className="meta">{symbolView === "MES1!" ? "MES" : "MNQ"} · {agg.total_runs} RUNS</span>
+      <div className="bt-stats">
+        <div className="lcell">
+          <span className="k">TOTAL RUNS</span>
+          <span className="v">{agg.total_runs}</span>
         </div>
-        <div className="agg-grid">
-          <div className="lcell">
-            <span className="k">TOTAL RUNS</span>
-            <span className="v">{agg.total_runs}</span>
-          </div>
-          <div className="lcell">
-            <span className="k">A+ WIN%</span>
-            <span className="v green">{aplus ? aplus.win + "%" : "—"}</span>
-            <span className="sub">{aplus ? "n=" + aplus.n : "—"}</span>
-          </div>
-          <div className="lcell">
-            <span className="k">B WIN%</span>
-            <span className="v">{bCut ? bCut.win + "%" : "—"}</span>
-            <span className="sub">{bCut ? "n=" + bCut.n : "—"}</span>
-          </div>
-          <div className="lcell">
-            <span className="k">CUM P&amp;L</span>
-            <span className={"v " + (A.cum_r >= 0 ? "green" : "red")}>
-              {A.cum_r > 0 ? "+" : ""}{A.cum_r.toFixed(1)}R
-            </span>
-          </div>
-          <div className="lcell">
-            <span className="k">AGREEMENT</span>
-            <span className="v amber">{agreementPct}</span>
-            <span className="sub">{agg.agreement.agreed} / {agg.agreement.agreed + agg.agreement.disagreed} graded</span>
-          </div>
+        <div className="lcell">
+          <span className="k">A+ WIN%</span>
+          <span className="v green">{aplus ? aplus.win + "%" : "—"}</span>
+          <span className="sub">{aplus ? "n=" + aplus.n : "—"}</span>
+        </div>
+        <div className="lcell">
+          <span className="k">B WIN%</span>
+          <span className="v">{bCut ? bCut.win + "%" : "—"}</span>
+          <span className="sub">{bCut ? "n=" + bCut.n : "—"}</span>
+        </div>
+        <div className="lcell">
+          <span className="k">CUM P&amp;L</span>
+          <span className={"v " + (A.cum_r >= 0 ? "green" : "red")}>
+            {A.cum_r > 0 ? "+" : ""}{A.cum_r.toFixed(1)}R
+          </span>
+        </div>
+        <div className="lcell">
+          <span className="k">AGREEMENT</span>
+          <span className="v amber">{agreementPct}</span>
+          <span className="sub">{agg.agreement.agreed} / {agg.agreement.agreed + agg.agreement.disagreed} graded</span>
         </div>
       </div>
 
-      <div className="section">
-        <div className="filters">
-          <Filter label="SESSION" value={sessionFilter} onChange={setSessionFilter}
-            options={[[null, "ALL"], ["ny-am", "AM"], ["ny-pm", "PM"], ["london", "LON"]]} />
-          <Filter label="GRADE" value={gradeFilter} onChange={setGradeFilter}
-            options={[[null, "ALL"], ["A+", "A+"], ["B", "B"], ["NO", "NO"]]} />
-          <Filter label="MODE" value={modeFilter} onChange={setModeFilter}
-            options={[[null, "ALL"], ["auto", "AUTO"], ["pause", "PAUSE"]]} />
-          <div className="search-wrap">
-            <input
-              type="text" placeholder="date / run id..."
-              value={query} onChange={(e) => setQuery(e.target.value)}
-              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false"
-              name={`bt-lib-q-${Math.random().toString(36).slice(2, 8)}`}
-            />
-          </div>
-          <button className="btn-add" title="new run" onClick={actions.dismiss}>+</button>
-        </div>
+      <div className="bt-filters-row">
+        <Filter label="SESSION" value={sessionFilter} onChange={setSessionFilter}
+          options={[[null, "ALL"], ["ny-am", "AM"], ["ny-pm", "PM"], ["london", "LON"]]} />
+        <Filter label="GRADE" value={gradeFilter} onChange={setGradeFilter}
+          options={[[null, "ALL"], ["A+", "A+"], ["B", "B"], ["NO", "NO"]]} />
+        <Filter label="MODE" value={modeFilter} onChange={setModeFilter}
+          options={[[null, "ALL"], ["auto", "AUTO"], ["pause", "PAUSE"]]} />
+        <button className="btn-add" title="add filter" aria-label="add filter" onClick={actions.dismiss}>
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true"><path d="M5.5 1.2v8.6M1.2 5.5h8.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+        </button>
       </div>
 
-      <div className="section" style={{ padding: 0 }}>
-        <table className="lib-table">
-          <thead>
-            <tr>
-              <th className="sorted">DATE <span className="arr">▼</span></th>
-              <th>SESSION</th>
-              <th>MODE</th>
-              <th>SETUPS</th>
-              <th>W / L</th>
-              <th>GRADE</th>
-              <th>P&amp;L</th>
-              <th>YOU</th>
-              <th>COST</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={10} style={{ color: "var(--label-dim)", textAlign: "center", padding: 20 }}>
-                no runs match the current filters
-              </td></tr>
-            )}
-            {filtered.map((r) => (
-              <LibRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+      <table className="lib-table bt-lib-flat">
+        <thead>
+          <tr>
+            <th className="sorted">DATE <span className="arr">▼</span></th>
+            <th>SESSION</th>
+            <th>MODE</th>
+            <th>SETUPS</th>
+            <th>W / L</th>
+            <th>GRADE</th>
+            <th>P&amp;L</th>
+            <th>YOU</th>
+            <th>COST</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.length === 0 && (
+            <tr><td colSpan={10} style={{ color: "var(--label-dim)", textAlign: "center", padding: 20 }}>
+              no runs match the current filters
+            </td></tr>
+          )}
+          {filtered.map((r) => (
+            <LibRow key={r.run_id} run={r} onClick={() => actions.rowClick(r.run_id)} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -965,9 +1074,9 @@ function DetailBody({ state, actions }) {
 
       <div className="section">
         <div className="actions row">
-          <button className="btn secondary" onClick={() => actions.start({ date: entry.date, session: entry.session, mode: entry.mode })}>↻ RE-RUN</button>
+          <button className="cs-btn-ghost-sm" onClick={() => actions.start({ date: entry.date, session: entry.session, mode: entry.mode })}>↻ RE-RUN</button>
           <div className="spacer" />
-          <button className="btn danger" onClick={() => {
+          <button className="cs-btn-ghost-sm danger" onClick={() => {
             if (confirm(`Delete run ${entry.run_id}? This removes the folder + summary.`)) {
               actions.deleteRun(entry.run_id);
               actions.back();
@@ -983,15 +1092,7 @@ function Filter({ label, value, onChange, options }) {
   return (
     <div className="filter">
       <span className="k">{label}</span>
-      <div className="seg">
-        {options.map(([v, lbl]) => (
-          <div
-            key={String(v)}
-            className={"s" + (value === v ? " on" : "")}
-            onClick={() => onChange(v)}
-          >{lbl}</div>
-        ))}
-      </div>
+      <SegPills value={value} onChange={onChange} options={options} />
     </div>
   );
 }
@@ -1061,19 +1162,19 @@ function Seg({ value, onChange, options }) {
   );
 }
 
-function RunRow({ run, onClick }) {
-  const f = formatRunForRow(run);
-  const grade = runGrade(run);
-  const rDisp = `${run.total_r > 0 ? "+" : ""}${(run.total_r ?? 0).toFixed(1)}R`;
+// Command-Shell segmented pills — detached .cs-segpill group (RECORD-page
+// look). Drop-in for <Seg> where the redesign calls for pills, not boxes.
+function SegPills({ value, onChange, options }) {
   return (
-    <div className="run-row" onClick={onClick}>
-      <span className="date">{(run.date ?? "").slice(5)}</span>
-      <span className="ses">{f.session_short}</span>
-      <span><span className={"gp " + gradeClass(grade)}>{grade}</span></span>
-      <span className={"pnl " + (run.total_r > 0 ? "green" : run.total_r < 0 ? "red" : "dim")}>
-        {(run.total_r ?? 0) === 0 ? "—" : rDisp}
-      </span>
-      <span className="arr">▸</span>
+    <div className="bt-seg">
+      {options.map(([v, lbl]) => (
+        <button
+          key={String(v)}
+          type="button"
+          className={"cs-segpill" + (value === v ? " is-on" : "")}
+          onClick={() => onChange(v)}
+        >{lbl}</button>
+      ))}
     </div>
   );
 }
@@ -1085,7 +1186,7 @@ function SetupCardReadOnly({ setup }) {
     <div className={"setup-card " + cls}>
       <div className="hd">
         <span className={"gp " + gradeClass(setup.grade)}>{displayGrade(setup.grade)}</span>
-        <span className={"side " + sideClass(setup.side)}>{(setup.side ?? "").toUpperCase()}</span>
+        <span className={"cs-dir " + (setup.side ?? "").toLowerCase()}>{(setup.side ?? "").toUpperCase()}</span>
         <span className="model">{setup.model ?? ""}</span>
         <span className="ts">{recordClockEt(setup)}</span>
       </div>

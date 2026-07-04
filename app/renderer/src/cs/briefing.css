@@ -1,0 +1,76 @@
+/* command-shell briefing — pixel-exact page styles (⌘1 Briefing + Prep wizard).
+   Values verbatim from the Command Shell prototype (spec: fx-briefing-prep.md).
+   Loads after app.css, so these refine the approximated brf- and cmd-prep- classes.
+   Frame/tab tweaks scoped under .cs-brief (the className passed to <Page>) so
+   they never touch other pages. Raw greys with no token stay literal (#18191a
+   via --cs-onfill). */
+
+/* ── A2. dash + three-column grid (1fr 1.15fr 1fr) ─────────────────────── */
+.cs-brief .brf-dash { padding: 16px 18px; gap: 12px; }
+.cs-brief .brf-grid { grid-template-columns: 1fr 1.15fr 1fr; gap: 12px; align-items: start; }
+.cs-brief .brf-col { gap: 12px; }
+
+/* ── card shell: surface-2 fill, hairline border, r-lg, 14px pad ───────── */
+.cs-brief .brf-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; }
+.cs-brief .brf-card-hd { margin-bottom: 8px; gap: 8px; }
+.cs-brief .brf-card-hd .t { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cs-brief .brf-card-hd .meta { font-size: 9px; letter-spacing: .04em; color: var(--label-dim); }
+.cs-brief .brf-subhd { font-size: 9px; letter-spacing: .08em; color: var(--label-dim); margin: 8px 0 3px; }
+
+/* ── COLUMN 1 · CALENDAR ───────────────────────────────────────────────── */
+.cs-brief .brf-cal-row { display: flex; align-items: center; gap: 9px; padding: 6px 7px; border-radius: var(--r-sm); }
+.cs-brief .brf-cal-row.hot { background: var(--cs-onfill); }
+.cs-brief .brf-cal-row .ts { font: 500 10px var(--mono); color: var(--label); min-width: 44px; flex: none; }
+.cs-brief .brf-cal-row.hot .ts { color: var(--amber); }
+.cs-brief .brf-cal-row .ev { font-size: 11px; color: var(--value); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-brief .brf-cal-row .imp { font-size: 8.5px; letter-spacing: .06em; padding: 1px 6px; border-radius: var(--r-xs); flex: none; }
+.cs-brief .brf-cal-row .imp.high { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.cs-brief .brf-cal-row .imp.med, .cs-brief .brf-cal-row .imp.medium { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cs-brief .brf-cal-row .imp.low { color: var(--label); background: var(--surface-3); }
+.cs-brief .brf-cal-rule { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 9.5px; color: var(--label-dim); }
+
+/* ── COLUMN 2 · HTF BIAS (symbol ⇄ · DET/AI · LONG · prose · levels) ───── */
+.cs-brief .cs-bias-hd { display: flex; align-items: center; gap: 8px; }
+.cs-brief .cs-brief-sym { font: 500 10px var(--mono); color: var(--value-strong); background: var(--cs-onfill); padding: 2px 9px; border-radius: var(--r-pill); cursor: pointer; user-select: none; }
+.cs-brief .cs-brief-sym .x { color: var(--label-dim); }
+.cs-brief .cs-brief-seg { display: flex; gap: 2px; margin-left: 2px; }
+.cs-brief .cs-brief-seg .cs-segpill { font-size: 9px; letter-spacing: .06em; padding: 2px 9px; border-radius: var(--r-pill); background: transparent; color: var(--label); border: 0; cursor: pointer; }
+.cs-brief .cs-brief-seg .cs-segpill.is-on { background: var(--cs-onfill); color: var(--value-strong); }
+.cs-brief .cs-bias-badge { margin-left: auto; font-size: 9px; letter-spacing: .08em; padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
+.cs-brief .cs-bias-badge.long { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cs-brief .cs-bias-badge.short { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.cs-brief .cs-bias-badge.neutral { color: var(--label); background: var(--cs-onfill); }
+.cs-brief .cs-bias-prose { margin: 0 0 8px; font-size: 11px; line-height: 1.6; color: var(--value); white-space: pre-wrap; }
+
+/* level rows inside the bias card */
+.cs-brief .cs-levels { display: flex; flex-direction: column; gap: 1px; }
+.cs-brief .brf-lvl { display: flex; align-items: center; gap: 10px; padding: 2px 0; }
+.cs-brief .brf-lvl .name { font: 500 9.5px var(--mono); color: var(--label); min-width: 40px; }
+.cs-brief .brf-lvl .price { font: 500 11px var(--mono); color: var(--value-strong); flex: 1; text-align: right; }
+.cs-brief .brf-lvl .bell { font-size: 12px; color: var(--label-dim); cursor: pointer; width: 18px; text-align: center; }
+.cs-brief .brf-lvl .bell.armed { color: var(--amber); }
+.cs-brief .brf-lvl .bell.fired { color: var(--green); }
+
+/* ── COLUMN 3 · OVERNIGHT + secondary cards (RowList) ──────────────────── */
+.cs-brief .brf-row { display: flex; align-items: baseline; gap: 10px; padding: 2px 0; font-size: 11px; }
+.cs-brief .brf-row .k { color: var(--label); flex: none; min-width: 92px; }
+.cs-brief .brf-row .v { color: var(--value); flex: 1; text-align: right; font-family: var(--mono); font-size: 10.5px; }
+.cs-brief .brf-row .v .note { color: var(--label); font-family: var(--sans); }
+
+/* ── header: refresh glyph + white Start-prep pill (A1) ────────────────── */
+.cs-brief .page-tabs { display: flex; gap: 8px; align-items: center; }
+.cs-brief-refresh { font-size: 12px; color: var(--label); padding: 4px 8px; border: 1px solid var(--border); border-radius: 7px; background: linear-gradient(var(--surface-3), var(--surface-1)); cursor: pointer; line-height: 1; }
+.cs-brief-refresh.dim { opacity: .5; cursor: default; }
+
+/* ═════════════════════ PART B · PREP WIZARD (560px) ═══════════════════════ */
+/* structure already matches app.css; refine to the verbatim spec values. */
+.cmd-prep > .head .t { font-size: 13.5px; }
+.cmd-prep-guard .v { min-width: 56px; }
+
+/* B2 step +/- buttons — .cs-step-btn spec applied to the JSX's .cmd-set-step */
+.cmd-prep .cmd-set-step { width: 22px; height: 22px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--value); display: grid; place-items: center; font-size: 12px; cursor: pointer; user-select: none; }
+
+/* B3 footer — white primary pill (prep variant 7px 15px) + ghost Back */
+.cmd-prep > .foot .pill.primary { background: #fff; color: #000; padding: 7px 15px; border-radius: var(--r-md); border: 0; }
+.cmd-prep > .foot .pill.dim { background: transparent; color: var(--label); border: 1px solid var(--border); padding: 7px 12px; border-radius: var(--r-md); }
+.cmd-prep-dots .dot.now { background: var(--value-strong); }

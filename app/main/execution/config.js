@@ -17,20 +17,29 @@ const CONFIG_PATH = path.join(STATE_DIR, "execution-config.json");
 // Backtest-exact defaults. automationMode boots to "manual" (safest); the
 // auto modes + risk knobs are opt-in via settings. guards mirror the renderer
 // ticket defaults so auto-fire (no ticket) enforces the same gate.
+// The only automation modes the engine recognizes. "suggest" proactively
+// surfaces + notifies on a setup but NEVER auto-fires (manual-accept, like
+// "manual"); only exact "auto" fires without confirmation. Anything else
+// coerces to "manual" (fail-closed) in mergeExecConfig.
+export const AUTOMATION_MODES = new Set(["manual", "suggest", "auto"]);
+
 export const DEFAULT_EXEC_CONFIG = {
   paperAccountId: null,
-  automationMode: "manual",   // "manual" | "auto" (scale-in/anchor-auto-adds removed 2026-06-23)
-  guards: { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120 },
+  automationMode: "manual",   // "manual" | "suggest" | "auto"
+  guards: { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120,
+            maxTrades: 4, maxConsec: 3, maxContracts: 4 },
   confirmedAccount: null,     // { id, type, name } — persisted across restarts (real-broker arming)
   liveHost: null,             // filled by the discovery spike; null = live routing blocked
   paperHost: "https://papertrading.tradingview.com",
 };
 
 // Pure deep-merge of patch over base, with the `guards` sub-object merged
-// (not replaced) so a partial guards patch keeps its siblings.
+// (not replaced) so a partial guards patch keeps its siblings. automationMode is
+// coerced to the whitelist — an unknown/corrupt value can NEVER read as "auto".
 export function mergeExecConfig(base, patch) {
   const out = { ...base, ...patch };
   if (base?.guards || patch?.guards) out.guards = { ...(base?.guards || {}), ...(patch?.guards || {}) };
+  if (!AUTOMATION_MODES.has(out.automationMode)) out.automationMode = "manual";
   return out;
 }
 

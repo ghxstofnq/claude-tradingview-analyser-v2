@@ -67,7 +67,11 @@ export async function runTrancheManager(ctx = {}, deps) {
   if (!bestPacket) return { action: "none" };
   const d = deps || (await buildRealDeps());
   const cfg = await d.readExecConfig();
-  if (cfg.automationMode === "manual") return { action: "manual" };
+  // Only exact "auto" fires without confirmation. "suggest" and "manual" both
+  // no-op the firing here (the surfaced setup still awaits a human accept); the
+  // "suggest" surfacing/notify happens in bar-close. A corrupt/unknown mode was
+  // already coerced to "manual" by mergeExecConfig — so nothing but "auto" fires.
+  if (cfg.automationMode !== "auto") return { action: cfg.automationMode === "suggest" ? "suggest" : "manual" };
 
   // Account gate (auto path only — manual entries go through the IPC confirm).
   // Block auto-fire when the active account isn't the confirmed one, or when a
@@ -84,12 +88,26 @@ export async function runTrancheManager(ctx = {}, deps) {
   });
 
   if (decision.action === "open_anchor") {
+    // Store-level fail-closed, matching the manual path's FILLS_UNREADABLE: a
+    // genuine trade-store read error must BLOCK, not degrade the daily-loss gate
+    // to realized=0 (which, with maxTrades/maxConsec both unset, would fire uncapped).
+    if (d.dayFillsReadable && !d.dayFillsReadable()) {
+      await d.recordSkip("blocked:FILLS_UNREADABLE");
+      return { action: "blocked:FILLS_UNREADABLE" };
+    }
     const sizing = d.sizePacket(bestPacket, cfg);
     const openLossUsd = d.openLossUsd ? await d.openLossUsd() : 0;
     const gate = d.checkOrder({
       hasStop: Number.isFinite(Number(bestPacket.stop)) && Number(bestPacket.stop) !== Number(bestPacket.entry),
       sizing, guards: cfg.guards,
-      dayState: { realizedLossUsd: d.dayRealizedLossUsd(events), openLossUsd },
+      dayState: {
+        realizedLossUsd: d.dayRealizedLossUsd(events),
+        openLossUsd,
+        // Day-scoped counts (same store as the manual path). Absent dep ⇒
+        // undefined ⇒ checkOrder fails closed on maxTrades/maxConsec when set.
+        tradeCount: d.dayTradeCount?.(),
+        consecLosses: d.dayConsecLosses?.(),
+      },
     });
     if (!gate.ok) { await d.recordSkip(`blocked:${gate.code}`); return { action: `blocked:${gate.code}`, gate }; }
     const accepted = await d.accept({ ...bestPacket, tranche_role: "anchor" });
@@ -147,6 +165,14 @@ async function buildRealDeps() {
     // TRADES_DIR (config), not the non-existent fills.TRADES_DIR which silently
     // read nothing — so auto mode previously had no daily halt at all.
     dayRealizedLossUsd: () => { try { const a = active.getActiveAccount(); const scope = a?.id ? { id: a.id, broker: a.broker ?? null } : null; return fills.dayRealizedLossUsd(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), scope); } catch { return 0; } },
+    // Day-scoped trade count + consec-loss streak from the SAME store as the
+    // manual path; +open counts the in-flight entry. NaN on error ⇒ checkOrder
+    // blocks (fail-closed), so a read failure never lets an uncapped day run.
+    // True iff today's trade store reads cleanly (absent file reads as [] — that
+    // is a legitimate "no trades yet", not an error). A throw ⇒ false ⇒ block.
+    dayFillsReadable: () => { try { fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)); return true; } catch { return false; } },
+    dayTradeCount: () => { try { const a = active.getActiveAccount(); const scope = a?.id ? { id: a.id, broker: a.broker ?? null } : null; const open = tradingFeed.getTradingState().position ? 1 : 0; return fills.dayTradeCount(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), scope) + open; } catch { return NaN; } },
+    dayConsecLosses: () => { try { const a = active.getActiveAccount(); const scope = a?.id ? { id: a.id, broker: a.broker ?? null } : null; return fills.dayConsecutiveLossStreak(fills.readFills(TRADES_DIR, new Date().toISOString().slice(0, 10)), scope); } catch { return NaN; } },
     // Best-effort open drawdown for the predictive daily-loss gate. Same
     // read-only sources as the IPC fire path: Tradovate REST position if active,
     // otherwise the paper/webview position. Any read failure degrades to 0 so

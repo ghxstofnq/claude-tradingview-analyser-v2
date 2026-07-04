@@ -1,0 +1,125 @@
+/* command-shell.css — the pixel-exact Command Shell design system, reproduced
+   verbatim from the Claude prototype (Command Shell Prototype.dc.html). Class
+   family .cs-*, kept separate from the older approximated classes. Hue tints use
+   color-mix on the hue tokens (theme-safe); the prototype's specific greys that
+   have no token get dedicated --cs-* tokens below. */
+
+:root {
+  --cs-onfill: #18191a;                 /* selected / on-state fill */
+  --cs-track: #1c1e1f;                  /* bar track / disabled border */
+  --cs-dim: #43434a;                    /* disabled text */
+  --cs-onborder: rgba(255,255,255,0.16);/* on-state border */
+}
+
+/* ─────────────────────────── (a) BUTTONS / PILLS ─────────────────────── */
+.cs-btn-primary { display: inline-flex; align-items: center; gap: 8px; font: 500 12px var(--sans); color: #000; background: #fff; padding: 8px 16px; border-radius: var(--r-md); border: 0; cursor: pointer; }
+.cs-btn-primary:disabled, .cs-btn-primary.is-disabled { color: var(--label-dim); background: var(--surface-2); border: 1px solid var(--border); cursor: not-allowed; }
+.cs-btn-primary-sm { font: 500 11.5px var(--sans); color: #000; background: #fff; padding: 6px 14px; border-radius: var(--r-md); border: 0; cursor: pointer; }
+.cs-btn-primary-run { font: 500 10.5px var(--sans); color: #000; background: #fff; padding: 8px 14px; border-radius: var(--r-md); border: 0; white-space: nowrap; cursor: pointer; }
+
+.cs-btn-accept { font: 500 10px var(--sans); letter-spacing: .04em; color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); padding: 4px 14px; border-radius: 7px; cursor: pointer; }
+.cs-btn-reject { font: 400 10px var(--sans); letter-spacing: .04em; color: var(--red); background: transparent; border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); padding: 4px 14px; border-radius: 7px; cursor: pointer; }
+.cs-btn-flatten { font: 500 9.5px var(--sans); letter-spacing: .04em; color: var(--red); background: transparent; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); padding: 4px 11px; border-radius: 7px; cursor: pointer; }
+.cs-btn-flatten.lg { font-size: 10px; padding: 5px 14px; }
+
+.cs-btn-ghost { font: 400 11px var(--sans); color: var(--value); background: var(--surface-2); border: 1px solid var(--border); padding: 8px 14px; border-radius: var(--r-md); cursor: pointer; }
+.cs-btn-ghost-sm { font: 400 10.5px var(--sans); color: var(--value); background: var(--surface-2); border: 1px solid var(--border); padding: 4px 12px; border-radius: var(--r-md); cursor: pointer; }
+
+.cs-btn-tiny { font: 400 9px var(--sans); letter-spacing: .06em; color: var(--label); background: transparent; border: 1px solid var(--border); padding: 2px 9px; border-radius: var(--r-sm); cursor: pointer; }
+.cs-btn-tiny.refresh { font-size: 9.5px; }
+.cs-btn-tiny.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
+.cs-btn-tiny.danger-live { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.cs-btn-tiny.disabled { color: var(--cs-dim); border-color: var(--cs-track); cursor: default; }
+.cs-btn-tiny.idle { color: var(--label-dim); border-color: var(--border); cursor: default; opacity: .5; }
+
+.cs-segpill { font: 400 9.5px var(--sans); letter-spacing: .06em; padding: 3px 11px; border-radius: var(--r-pill); cursor: pointer; background: transparent; color: var(--label); border: 1px solid var(--border); user-select: none; }
+.cs-segpill.is-on { background: var(--cs-onfill); color: var(--value-strong); border: 1px solid var(--cs-onborder); }
+
+.cs-provpill { font: 400 9.5px var(--sans); padding: 2px 10px; border-radius: var(--r-pill); background: transparent; color: var(--label); cursor: pointer; border: 0; user-select: none; }
+.cs-provpill.is-on { background: var(--cs-onfill); color: var(--value-strong); }
+
+.cs-sympill { font: 400 10px var(--mono); padding: 2px 9px; border-radius: var(--r-pill); color: var(--label); cursor: pointer; background: transparent; user-select: none; }
+.cs-sympill.is-on { font-weight: 500; background: var(--surface-2); color: var(--value-strong); }
+
+.cs-stepbtn { width: 22px; height: 22px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--value); display: grid; place-items: center; font-size: 12px; cursor: pointer; user-select: none; }
+
+.cs-pickrow { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; background: transparent; border: 1px solid transparent; }
+.cs-pickrow.is-sel { background: var(--cs-onfill); border: 1px solid var(--cs-onborder); }
+
+/* ─────────────────────────── (b) ICON TILES ──────────────────────────── */
+.cs-tile { width: 26px; height: 26px; border-radius: var(--r-sm); background: var(--surface-3); display: grid; place-items: center; font-size: 11px; flex: none; color: var(--value); }
+.cs-tile.blue { background: color-mix(in srgb, var(--blue) 12%, transparent); color: var(--blue); }
+.cs-tile.green { background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); }
+.cs-tile.amber { background: color-mix(in srgb, var(--amber) 12%, transparent); color: var(--amber); }
+.cs-tile.red { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.cs-tile.neutral { background: var(--surface-3); color: var(--label); }
+
+.cs-tile-lg { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; flex: none; }
+.cs-tile-lg.red { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.cs-tile-lg.neutral { background: var(--surface-3); color: var(--label); }
+
+.cs-tile-btn { width: 26px; height: 26px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); color: var(--label); display: grid; place-items: center; font-size: 11px; cursor: pointer; flex: none; }
+
+.cs-tile-mini { width: 20px; height: 20px; border-radius: var(--r-sm); display: grid; place-items: center; font-size: 10px; cursor: pointer; flex: none; }
+.cs-tile-mini.accept { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); }
+.cs-tile-mini.reject { color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); }
+
+.cs-check { width: 12px; height: 12px; border-radius: var(--r-xs); flex: none; cursor: pointer; border: 1px solid var(--border); }
+.cs-check.is-done { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); display: grid; place-items: center; font-size: 8px; border: 0; }
+
+/* ─────────────────────────── (c) TAG / STATUS CHIPS ──────────────────── */
+.cs-grade { font-size: 9px; padding: 1px 8px; border-radius: var(--r-xs); justify-self: start; }
+.cs-grade.a, .cs-grade.b { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cs-grade.c { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cs-grade.d { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+
+.cs-dir { font-size: 9px; letter-spacing: .08em; padding: 2px 8px; border-radius: var(--r-xs); }
+.cs-dir.long { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cs-dir.short { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+
+.cs-tag { font-size: 8.5px; letter-spacing: .08em; padding: 1px 7px; border-radius: var(--r-xs); }
+.cs-tag.green { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cs-tag.amber { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cs-tag.blue { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
+.cs-tag.muted { color: var(--label); background: var(--cs-onfill); }
+
+.cs-status { font-size: 8.5px; letter-spacing: .08em; padding: 1px 7px; border-radius: var(--r-xs); }
+.cs-status.proposed { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cs-status.accepted { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cs-status.rejected { color: var(--label); background: var(--cs-onfill); }
+
+.cs-imp { font-size: 8.5px; letter-spacing: .06em; padding: 1px 6px; border-radius: var(--r-xs); flex: none; }
+.cs-imp.high { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.cs-imp.med { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+
+.cs-orderchip { font-size: 9px; letter-spacing: .08em; padding: 2px 8px; border-radius: var(--r-xs); flex: none; }
+.cs-orderchip.working { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cs-orderchip.filled { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+
+/* ─────────────────────────── (d) KEYCAPS ─────────────────────────────── */
+.cs-kbd { font: 10px var(--mono); padding: 1px 6px; border: 1px solid var(--border); border-radius: var(--r-xs); background: linear-gradient(var(--surface-3), var(--surface-1)); color: var(--value); }
+.cs-kbd.muted { color: var(--label-dim); cursor: pointer; }
+.cs-kbd-row { margin-left: auto; font: 10px var(--mono); padding: 1px 6px; border: 1px solid var(--border); border-radius: var(--r-xs); background: linear-gradient(var(--cs-onfill), var(--surface-3)); color: var(--value); }
+.cs-kbd-hint { font: 9px var(--mono); padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; color: var(--label); }
+.cs-kbd-onlight { font: 10px var(--mono); padding: 0 5px; border: 1px solid rgba(0,0,0,.25); border-radius: 3px; }
+.cs-kbd-send { font: 9px var(--mono); padding: 0 5px; border: 1px solid var(--border); border-radius: 3px; color: var(--label-dim); cursor: pointer; }
+
+/* ─────────────────────────── (e) PRICE / LEVEL MONO ──────────────────── */
+.cs-price { font: 500 13px var(--mono); }
+.cs-price.entry { color: var(--value-strong); }
+.cs-price.stop { color: var(--red); }
+.cs-price.target { color: var(--green); }
+.cs-price.risk { color: var(--value-strong); }
+.cs-price-label { font-size: 9px; letter-spacing: .08em; color: var(--label-dim); }
+.cs-price-inline { font: 400 10px var(--mono); color: var(--label); }
+.cs-num { font-family: var(--mono); }
+.cs-num.up { color: var(--green); }
+.cs-num.down { color: var(--red); }
+
+/* ─────────────────────────── (f) CARD / PANEL RECIPES ────────────────── */
+.cs-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px; }
+.cs-card.pad12 { padding: 12px; }
+.cs-card.pad9 { padding: 9px 11px; }
+.cs-overlay { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-xl); overflow: hidden; }
+.cs-toast { display: flex; align-items: center; gap: 9px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 7px 12px; cursor: pointer; }
+.cs-cmdbar { display: flex; align-items: center; gap: 14px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 7px 8px 7px 16px; }

@@ -25,12 +25,13 @@ function CmdMap({ page }) {
 }
 
 export function Page({
-  icon, tint = "blue", title, sub, page, hint, sidecar, wide, hosted,
+  icon, tint = "blue", title, sub, page, hint, sidecar, wide, narrow, hosted,
   className, tabs, right, foot, onClose, children,
 }) {
   const cls = "shell-page"
     + (sidecar ? " sidecar" : "")
     + (wide ? " wide" : "")
+    + (narrow ? " narrow" : "")
     + (hosted ? " hosted" : "")
     + (className ? " " + className : "");
   return (

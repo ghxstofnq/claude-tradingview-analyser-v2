@@ -674,3 +674,46 @@ The only "imagery" in the system is in-product Raycast UI screenshots and small 
 - **Dark mode is the only mode** — no light variant exists in the captured surfaces.
 - **Form validation states** beyond the focused-input border treatment are not present in the captured surfaces.
 - **Authenticated chrome** (account dashboard, billing settings, team management) not in the captured pages.
+
+---
+
+## Command Shell — the in-app component system (this project)
+
+> The sections above document the Raycast **reference** (its marketing site). This section documents the **actual UI this project ships**: a "Command Shell" workstation modeled on Raycast's in-product command palette, built on the exact same token foundation (the #07080a→#0d0d0d→#101111→#121212 surface ladder, #242728 hairlines, white CTA, Inter ss03 + JetBrains Mono). It was ported 1:1 from a Claude "Command Shell" prototype. Primitives live in `app/renderer/src/command-shell.css` (class family `.cs-*`); per-page styles in `app/renderer/src/cs/*.css`; base tokens in `app/renderer/src/app.css` `:root`. Verify rendered output with the `design-harness/` Playwright scripts (`shoot-cdp.mjs` against the running app), never computer-use.
+
+### The one rule that governs everything: mono = data, sans = labels
+- **JetBrains Mono (`--mono`)** is for **numeric data only** — prices, R/PnL, percentages, dates, times, counts, keycap glyphs. Nothing else.
+- **Inter + ss03 (`--sans`)** is for **everything else** — section labels, headers, hints, notes, prose, button text. Section labels are `9.5px`, `letter-spacing: .08em`, `--label-dim`, uppercase.
+- The E/S/T price convention: **Entry = `--value-strong` (white), Stop = `--red`, Target = `--green`**, always mono. Positive R/PnL green, negative red.
+
+### Added tokens (no Raycast equivalent — kept raw, prototype-exact)
+- `--cs-onfill: #18191a` — the selected / on-state fill (segmented pills, selected rows, the ⌘K pill). Sits between `--surface-2` and `--surface-3`.
+- `--cs-track: #1c1e1f` — bar/meter track background.
+- `--cs-dim: #43434a` — disabled text.
+- `--cs-onborder: rgba(255,255,255,.16)` — the on-state border paired with `--cs-onfill`.
+- **Hue tints are always `color-mix(in srgb, var(--hue) 12%, transparent)`** (chips/tiles) — never a solid saturated fill; 35%/45% for outline borders.
+- **Radius exceptions kept raw**: `7px` on action pills (accept/reject/flatten), `3px` on inline keycaps. These are prototype-exact and intentional — do not round to the token scale. (Registered as design-system-radius exceptions.)
+
+### Page frame geometry
+Every ⌘1–7 page is a centered floating card over the full-bleed chart: `position: fixed; left: 50%; top: 9vh; transform: translateX(-50%); max-height: 82vh; border-radius: 16px; border: 1px solid --border; background: --surface-1`, opening with `page-in .28s cubic-bezier(.16,1,.3,1)`. Widths by page: **880px** wide pages (Briefing, Review, Backtest, Settings, System); **620px** narrow pages (Live, Agent, ⌘K palette) at `top: 11vh`; **560** Prep wizard; **640** Evidence; **420** Flatten confirm. Sticky header (`13px 18px`, icon tile · title · meta · right controls · esc keycap) and a footer (cmd-map or a page-specific hint).
+
+### `.cs-*` component family (the reusable primitives)
+- **Buttons.** `.cs-btn-primary` (white `#fff` / black text, the one primary CTA, radius `--r-md`); `.cs-btn-accept` (green text on `green@12%` fill, `green@35%` border, `7px`); `.cs-btn-reject` / `.cs-btn-flatten` (red-outline, transparent fill, `7px`); `.cs-btn-ghost` / `-sm` (`--value` on `--surface-2`, hairline border); `.cs-btn-tiny` (9px, `--label`, hairline; `.danger` red variant).
+- **Segmented pills.** `.cs-segpill` (transparent + 1px `--border` inactive → `--cs-onfill` + `--cs-onborder` active) for filters/toggles; `.cs-provpill` (borderless, same on-fill) for provider/view tabs; `.cs-sympill` (mono, `--surface-2` on-fill) for the MNQ1!/MES1! symbol toggle.
+- **Icon tiles.** Rounded tinted squares — 26px (`.cs-tile`, hue@12% bg), 28px (`.cs-tile-lg`), 26px bordered (`.cs-tile-btn`), 20px (`.cs-tile-mini`), 12px checkbox (`.cs-check`).
+- **Status chips (filled tint, never outline).** `.cs-grade` (A/B green · C amber · D red), `.cs-dir` (long green / short red), `.cs-tag` (green/amber/blue/muted), `.cs-status` (proposed amber / accepted green / rejected muted), `.cs-imp` (high red / med amber), `.cs-orderchip`.
+- **Keycaps.** `.cs-kbd` (mono, hairline, subtle key-bg gradient), `.cs-kbd-hint`, `.cs-esc` (label-dim). Radius `3–4px`.
+- **Stat cells (not boxed).** Metric cells are **borderless** — a `9.5px .08em --label-dim` label over a `500 20px` mono value (green/red by sign, else `--value-strong`), separated by hairline dividers only. Never a bordered box per cell.
+- **Cards.** `.cs-card` / `.section`: `--surface-2` bg, 1px `--border`, radius `--r-lg` (10px), ~18–20px padding. Section labels flush to the card edge — **no colored left bar**.
+
+### Reinforced bans (these were violations we removed)
+- **No colored side-stripe** on section headers (we removed a `2px` amber `::before` bar — it is a DESIGN.md ban and was not in the prototype). Labels are plain grey text, flush.
+- **No boxed metric cells** — aggregate/summary stats are borderless stat cells with dividers, not a grid of bordered tiles.
+- **No mono for labels/hints** — mono is data-only (a mono section hint reads as a typewriter tell).
+- **No amber/green/red outline pills for status** — status is a filled tint chip.
+- The Agent chat feed is **transparent** (inherits the page `--surface-1`), never the darker `--surface-0`.
+
+### Files
+- `app/renderer/src/command-shell.css` — the `.cs-*` primitives + the `--cs-*` tokens.
+- `app/renderer/src/cs/{live,briefing,review,backtest,agent,system,overlays}.css` — per-page styles (loaded via `<link>` in `index.html`; **note: Vite does not hot-swap linked CSS — reload to see edits**).
+- `app/renderer/src/app.css` `:root` — the base Raycast token ladder + radii + fonts.

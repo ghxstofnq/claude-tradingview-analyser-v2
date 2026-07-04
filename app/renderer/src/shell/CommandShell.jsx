@@ -334,20 +334,19 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     return (events || []).filter((ev) => { const dt = new Date(ev?.ts).getTime(); return Number.isFinite(dt) && dt > now; }).length;
   }, [events]);
 
-  // Agent is the sidecar exception — it pins right of the chart with NO dim
-  // scrim (the chart shrinks via `.sidecar-open`), so it renders as a sibling of
-  // the chart-host, outside the scrim block, and never as a scrim PageComp.
-  const isAgent = page === "agent";
-  const PageComp = page && !isAgent ? PAGE_COMPONENTS[page] : null;
+  // Every ⌘1–7 page (Agent included) renders as a centered floating page inside
+  // the shared scrim + <Page> frame.
+  const PageComp = page ? PAGE_COMPONENTS[page] : null;
   const pageProps = { onClose: () => setPage(null) };
   if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice, onStartPrep: startPrep });
   if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
+  if (page === "agent") Object.assign(pageProps, { chats });
   if (page === "settings") Object.assign(pageProps, { guards, setGuards, symbol, onToast: addToast });
   if (page === "system") Object.assign(pageProps, { pushToast: addToast });
-  const scrimShown = pal.open || flat.open || prep.open || (page && !isAgent);
+  const scrimShown = pal.open || flat.open || prep.open || !!page;
 
   return (
-    <div className={"app shell" + (isAgent ? " sidecar-open" : "")} onMouseDownCapture={refocus}>
+    <div className="app shell" onMouseDownCapture={refocus}>
       <TopBar
         symbol={symbol} setSymbol={setSymbol} guards={guards} exec={exec}
         alertCount={alerts.armed.length + alerts.fired.length}
@@ -365,8 +364,6 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
           </ErrorBoundary>
         </div>
       </div>
-
-      {isAgent && <AgentPage chats={chats} onClose={() => setPage(null)} />}
 
       {scrimShown && (
         <div className="shell-scrim" onClick={dismiss}>

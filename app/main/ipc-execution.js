@@ -6,11 +6,11 @@
 import { ipcMain } from "electron";
 import { tvAdapter } from "./execution/tv-adapter.js";
 import { checkOrder, openLossFromUpnl } from "./execution/guardrails.js";
-import { readFills, dayRealizedLossUsd, readAllFills } from "./execution/fills.js";
+import { readFills, dayRealizedLossUsd, dayTradeCount, dayConsecutiveLossStreak, buildDayState, readAllFills } from "./execution/fills.js";
 import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
 import { getActiveAccount } from "./execution/active-account.js";
-import { resolveAccountGate } from "./execution/account-gate.js";
+import { resolveAccountGate, revertSimDecision } from "./execution/account-gate.js";
 import { setAutoResumed, getAutoResumed } from "./execution/auto-resume.js";
 
 function tradesDir() { return TRADES_DIR; }
@@ -41,20 +41,40 @@ async function openLossUsdNow() {
   } catch { return 0; }
 }
 
+// Is a position open on the RIGHT source for a given broker? A Tradovate
+// position lives only in its REST read; TV paper/live lives on the WS feed
+// (getTradingState). Returns true/false, or null on a read error (caller treats
+// null as "unknown" → fail-closed). Mirrors openLossUsdNow's Tradovate branch.
+async function positionOpenFor(broker) {
+  try {
+    if (broker === "tradovate") {
+      const { readTradovatePosition } = await import("./execution/tradovate-adapter.js");
+      return !!(await readTradovatePosition());
+    }
+    return !!getTradingState().position;
+  } catch { return null; }
+}
+
 async function guarded(payload) {
-  const fills = readFills(tradesDir(), today());
-  // Scope the daily-loss halt to the SPECIFIC account we'd route to — one
-  // account's losses must not halt another. Use the account id (not the broker
-  // label) so two different Tradovate accounts don't share one tally. Falls back
-  // to all-accounts when the active account is unknown.
+  // Fail-closed on a real trade-store read error: block rather than gate on
+  // degraded counts (readFills returns [] for a legitimately-absent file, so a
+  // throw here means a genuine fs problem).
+  let fills;
+  try { fills = readFills(tradesDir(), today()); }
+  catch { return { ok: false, code: "FILLS_UNREADABLE", message: "Trade store unreadable — blocking (fail-closed)." }; }
+  // Scope the daily halt to the SPECIFIC account we'd route to (audit C14) — one
+  // account's losses/count must not halt another.
   const acct = getActiveAccount();
-  // Scope by { id, broker } so a fill written before the account id was learned
-  // (accountId null) still counts toward this broker's halt (audit C14).
   const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
-  // Fold current open drawdown into the gate so a new order can't be sized into
-  // a worst-case day that breaches the daily limit (audit Phase 3).
-  const dayState = { realizedLossUsd: dayRealizedLossUsd(fills, account), openLossUsd: await openLossUsdNow() };
-  return checkOrder({ hasStop: payload?.hasStop, sizing: payload?.sizing, guards: payload?.guards, dayState });
+  // Count the currently-open (uncounted-until-close) entry against maxTrades,
+  // read from the broker's real source (Tradovate REST, not the TV WS feed).
+  // true or null(unknown) ⇒ count it (fail-closed); only a confirmed-flat ⇒ 0.
+  const openNow = (await positionOpenFor(acct?.broker)) === false ? 0 : 1;
+  const dayState = buildDayState({ fills, account, openNow, openLossUsd: await openLossUsdNow() });
+  // Server-authoritative guards: NEVER trust renderer-supplied guards on the fire
+  // path (closes the execution:place fail-open). Sizing/hasStop still describe the
+  // specific order and ride the payload.
+  return checkOrder({ hasStop: payload?.hasStop, sizing: payload?.sizing, guards: readExecConfig().guards, dayState });
 }
 
 export function registerExecutionIpc() {
@@ -91,6 +111,34 @@ export function registerExecutionIpc() {
     return { ok: true, autoResumed: true };
   });
 
+  // Revert routing to SIM: clear the live confirmation (arm a PAPER confirmed
+  // account) + drop live-auto arming. A routing change, NOT a flatten — so it
+  // BLOCKS when a live position is open (re-routing would strand it), unless
+  // {force:true} (which returns a loud `warned`). Never places/closes an order.
+  ipcMain.handle("execution:revertSim", async (_e, arg = {}) => {
+    try {
+      const active = getActiveAccount();
+      const cfg = readExecConfig();
+      const confirmed = cfg.confirmedAccount;
+      const revertingFromLive = confirmed?.type === "live" || active?.broker === "tradovate";
+      let positionOpen = false;
+      if (revertingFromLive && arg?.force !== true) {
+        // Key the read on the account we're reverting FROM, not just the current
+        // active one: a Tradovate live position lives in its REST read even after
+        // the on-screen active account has diverged to paper (a 12s traffic lull
+        // flips active.broker). Either confirmed OR active being tradovate ⇒ read
+        // Tradovate. positionOpenFor returns null on a read error → decision blocks.
+        const revertBroker = (confirmed?.broker === "tradovate" || active?.broker === "tradovate") ? "tradovate" : (active?.broker || null);
+        positionOpen = await positionOpenFor(revertBroker);
+      }
+      const d = revertSimDecision({ active, confirmed, config: cfg, positionOpen, force: arg?.force === true });
+      if (d.block) return { ok: false, blocked: true, reason: d.reason };
+      writeExecConfig(d.writePatch);
+      if (d.clearAutoResumed) setAutoResumed(false);
+      return { ok: true, warned: d.warned, ...accountState() };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
   // Automation mode + risk knobs + guardrails. The settings popover reads on
   // mount and writes on change; the main-process tranche manager reads this to
   // enforce guardrails on auto-fired orders (no ticket to attach them to).
@@ -98,6 +146,26 @@ export function registerExecutionIpc() {
     try {
       if (arg?.action === "set" && arg.patch) return { ok: true, config: writeExecConfig(arg.patch) };
       return { ok: true, config: readExecConfig() };
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
+  // Read-only live guard tallies + thresholds so the UI can render "trades 2/4 ·
+  // consec 1/3" and pre-disable the fire button. Counts are null when the day
+  // store can't be read (UI shows "—", treats as unknown — never 0).
+  ipcMain.handle("execution:guardState", async () => {
+    try {
+      const guards = readExecConfig().guards || {};
+      let fills; try { fills = readFills(tradesDir(), today()); } catch { fills = null; }
+      const acct = getActiveAccount();
+      const account = acct?.id ? { id: acct.id, broker: acct.broker ?? null } : null;
+      const openNow = (await positionOpenFor(acct?.broker)) === false ? 0 : 1;
+      const ok = Array.isArray(fills);
+      return {
+        ok: true, guards,
+        tradeCount: ok ? dayTradeCount(fills, account) + openNow : null,
+        consecLosses: ok ? dayConsecutiveLossStreak(fills, account) : null,
+        realizedLossUsd: ok ? dayRealizedLossUsd(fills, account) : null,
+      };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 

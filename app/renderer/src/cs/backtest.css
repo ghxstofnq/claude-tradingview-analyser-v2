@@ -1,0 +1,575 @@
+/* command-shell backtest — pixel-exact ⌘4 page styles.
+   Reproduces the Command Shell prototype verbatim (RECORD/BASELINE/COMPARE +
+   config card, white START pill, compare/library table). Scoped to
+   .bt-popover.embedded so the (now-dead) floating popover is untouched. Raw
+   prototype values kept exact (#18191a, #1c1e1f, rgba tints) per the spec. */
+
+/* ── surface: the Page frame supplies outer chrome; body is transparent ── */
+.bt-popover.embedded { background: transparent; }
+.bt-popover.embedded > .body { background: transparent; }
+
+/* ── header: mode pill toolbar (RECORD / BASELINE / COMPARE) ───────────── */
+.bt-popover.embedded > .head {
+  padding: 16px 18px 2px; background: transparent; border-bottom: 0;
+  justify-content: flex-start; gap: 8px;
+}
+.bt-popover.embedded > .head .t { gap: 0; }
+.bt-popover.embedded > .head .t .bt-title { display: none; }        /* Page frame already titles "Backtest" */
+
+/* Segmented control: ONE group container (surface-2 + hairline + 2px pad),
+   borderless segments, active segment filled — per the handoff (not individual
+   bordered pills). */
+.bt-popover.embedded .bt-modes {
+  display: inline-flex; gap: 0; padding: 2px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.bt-popover.embedded .bt-mode {
+  font: 500 11.5px var(--sans); letter-spacing: .02em;
+  padding: 4px 13px; border-radius: var(--r-pill);
+  background: transparent; color: var(--label);
+  border: 1px solid transparent; cursor: pointer;
+}
+.bt-popover.embedded .bt-mode.on {
+  background: var(--cs-onfill); color: var(--value-strong); font-weight: 600;
+  border-color: var(--cs-onborder);
+}
+.bt-popover.embedded .bt-mode.locked { opacity: .4; cursor: default; }
+
+/* ── corpus strip — slim dim read under the toolbar ────────────────────── */
+.bt-popover.embedded .bt-corpus {
+  padding: 8px 18px; border-bottom: 0; gap: 8px; font-size: 10.5px;
+}
+.bt-popover.embedded .bt-corpus .cs-k { color: var(--label-dim); letter-spacing: .1em; font-size: 9px; }
+.bt-popover.embedded .bt-corpus .cs-sym { color: var(--value-strong); font-weight: 500; }
+.bt-popover.embedded .bt-corpus .cs-v { color: var(--label); }
+
+/* ── sections become bordered rounded cards (surface-2 / #242728 / r-lg) ─ */
+.bt-popover.embedded .section {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 18px 20px; margin: 14px 18px 0;
+}
+.bt-popover.embedded .body > .section:last-child,
+.bt-popover.embedded .body > *:last-child .section:last-child { margin-bottom: 16px; }
+
+/* two-up grid (IDLE config+recent, DONE summary+setups) */
+.bt-popover.embedded .bt-cols {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  padding: 14px 18px 0; align-items: stretch;
+}
+/* Zero margins on both columns — incl. the :last-child (RECENT) which otherwise
+   inherits the generic 16px bottom margin (0,6,0) and shrinks 16px under stretch.
+   Override must match that specificity, so anchor through .bt-idle. */
+.bt-popover.embedded .bt-cols > .section { margin: 0; }
+.bt-popover.embedded .bt-idle .bt-cols > .section:last-child { margin: 0; }
+/* RECORD columns: configure wider than recent, per prototype (1.65fr / 1fr). */
+.bt-popover.embedded .bt-idle .bt-cols { grid-template-columns: 1.65fr 1fr; }
+
+/* section header label + right meta */
+.bt-popover.embedded .sect-hd {
+  display: flex; align-items: baseline; margin: 0 0 14px; padding-left: 0;
+  font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim);
+}
+/* No amber side-stripe — the prototype (and DESIGN.md) use plain grey labels
+   flush to the card edge, not a colored left bar. */
+.bt-popover.embedded .sect-hd::before { display: none; }
+.bt-popover.embedded .sect-hd .meta {
+  /* Sans hint (not mono) — the prototype uses Inter for notes, mono only for data. */
+  margin-left: auto; font: 400 10px var(--sans); letter-spacing: 0; color: var(--label-dim);
+}
+
+/* ── config form — stacked label-over-controls, pill chips ─────────────── */
+.bt-popover.embedded .cfg-form { display: block; margin: 0; }
+.bt-popover.embedded .cfg-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.bt-popover.embedded .cfg-row .cfg-rk {
+  width: 66px; flex: none; margin: 0;
+  font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--label-dim);
+}
+.bt-popover.embedded .cfg-range-hint { font: 400 10.5px var(--mono); color: #6a6b6c; margin-left: 2px; align-self: center; }
+
+/* every chip group → detached pills */
+.bt-popover.embedded .cfg-row .seg,
+.bt-popover.embedded .cfg-presets,
+.bt-popover.embedded .cfg-multi {
+  display: flex; align-items: center; gap: 6px; border: 0; overflow: visible; margin: 0; flex-wrap: wrap;
+}
+.bt-popover.embedded .cfg-row .seg .s,
+.bt-popover.embedded .cfg-preset,
+.bt-popover.embedded .cfg-chip {
+  display: inline-flex; align-items: center; flex: 0 0 auto; height: auto;
+  font: 500 10.5px var(--sans); letter-spacing: 0;
+  padding: 4px 11px; border-radius: var(--r-pill);
+  background: transparent; color: var(--label);
+  border: 1px solid var(--border); gap: 5px;
+}
+.bt-popover.embedded .cfg-row .seg .s.on,
+.bt-popover.embedded .cfg-preset.on,
+.bt-popover.embedded .cfg-chip.on {
+  background: var(--cs-onfill); color: var(--value-strong); font-weight: 600;
+  border: 1px solid var(--border-d);
+}
+/* neutralize the legacy floating-popover checkbox box (app.css) — the redesign
+   chip carries a plain green ✓, not a bordered checkbox. */
+.bt-popover.embedded .cfg-chip .ck { display: none; width: auto; height: auto; border: 0; border-radius: 0; background: transparent; }
+.bt-popover.embedded .cfg-chip.on .ck { display: inline-block; border: 0; color: var(--green); font-size: 10px; }
+
+/* custom-date inputs */
+.bt-popover.embedded .cfg-dates { align-items: flex-end; gap: 10px; margin-top: 2px; }
+.bt-popover.embedded .cfg-date .dk { color: var(--label-dim); font-size: 8.5px; letter-spacing: .07em; }
+.bt-popover.embedded .cfg-date input {
+  background: var(--surface-3); border: 1px solid var(--border);
+  color: var(--value); border-radius: var(--r-sm);
+}
+
+/* plan + cost helper lines */
+.bt-popover.embedded .cfg-plan { font: 400 12px var(--sans); color: var(--label); line-height: 1.5; margin-top: 18px; }
+.bt-popover.embedded .cfg-plan b { color: var(--value-strong); font-weight: 600; }
+.bt-popover.embedded .cfg-plan-arrow { color: #6a6b6c; }
+.bt-popover.embedded .cfg-plan-dates { font-family: var(--mono); color: var(--value); }
+.bt-popover.embedded .cfg-plan .warn { color: var(--amber); }
+.bt-popover.embedded .cfg-cost { margin-top: 6px; font: 400 11px var(--sans); color: var(--label-dim); letter-spacing: 0; }
+
+/* ── START row — white primary pill (no divider, per prototype) ────────── */
+.bt-popover.embedded .start-row {
+  display: flex; align-items: center; margin-top: 16px; padding-top: 0; border-top: 0;
+  gap: 12px;
+}
+.bt-popover.embedded .start-btn {
+  display: inline-flex; align-items: center; width: auto; margin-top: 0;
+  font: 600 12px var(--sans); letter-spacing: 0;
+  color: #000; background: #fff; border: 0;
+  padding: 9px 17px; border-radius: var(--r-md); gap: 9px;
+}
+.bt-popover.embedded .start-btn svg { display: block; }
+.bt-popover.embedded .start-btn:hover { background: var(--primary-active); }
+.bt-popover.embedded .start-btn:disabled {
+  color: var(--label-dim); background: var(--surface-2);
+  border: 1px solid var(--border); cursor: not-allowed;
+}
+.bt-popover.embedded .cfg-hint { font-size: 9.5px; color: var(--label-dim); }
+
+/* stop button (running/pause) */
+.bt-popover.embedded .stop-btn {
+  background: transparent; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  color: var(--red); border-radius: 7px; width: auto; margin-top: 12px;
+  font: 500 9.5px var(--sans); letter-spacing: .04em; padding: 5px 14px;
+}
+
+/* ── RECENT list ───────────────────────────────────────────────────────── */
+.bt-popover.embedded .recent-summary { color: var(--label); font-size: 10.5px; margin-bottom: 12px; }
+.bt-popover.embedded .recent-summary b { color: var(--value-strong); font-weight: 500; }
+.bt-popover.embedded .run-row {
+  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.bt-popover.embedded .run-row .date { color: var(--value); }
+.bt-popover.embedded .run-row .arr { color: var(--label-dim); }
+.bt-popover.embedded .view-all {
+  margin: 12px -16px -16px; border-top: 1px solid var(--border);
+  font-size: 10px; letter-spacing: .08em; color: var(--label);
+}
+
+/* grade minis inside rows / cards → filled tint chips (drop the box border) */
+.bt-popover.embedded .run-row .gp,
+.bt-popover.embedded .setup-card .gp {
+  height: auto; padding: 1px 8px; border: 0; border-radius: var(--r-xs);
+  font-size: 9px; letter-spacing: .04em;
+}
+.bt-popover.embedded .gp.green { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.bt-popover.embedded .gp.amber { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.bt-popover.embedded .gp.dim   { color: var(--label); background: var(--cs-onfill); }
+
+/* ── RUNNING — blue progress bar ───────────────────────────────────────── */
+.bt-popover.embedded .progress { height: 4px; border-radius: 2px; background: #1c1e1f; margin: 12px 0 6px; }
+.bt-popover.embedded .progress .fill { background: var(--blue); }
+.bt-popover.embedded .progress-meta { color: var(--label); font-size: 9.5px; letter-spacing: .06em; }
+.bt-popover.embedded .form-row { border-bottom: 1px solid rgba(255,255,255,.05); }
+.bt-popover.embedded .form-row .k { color: var(--label); }
+.bt-popover.embedded .form-row .v { color: var(--value); }
+
+/* ── setup card ────────────────────────────────────────────────────────── */
+.bt-popover.embedded .setup-card {
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-3); padding: 12px; margin-top: 10px;
+}
+/* Outcome-tinted borders stay subtle full hairlines, never a heavy colored box. */
+.bt-popover.embedded .setup-card.live { border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.bt-popover.embedded .setup-card.win  { border-color: color-mix(in srgb, var(--green) 30%, transparent); }
+.bt-popover.embedded .setup-card.loss { border-color: color-mix(in srgb, var(--red) 30%, transparent); }
+.bt-popover.embedded .setup-card .hd { border-bottom: 1px solid rgba(255,255,255,.05); }
+.bt-popover.embedded .setup-card .outcome { border-top: 1px solid rgba(255,255,255,.05); }
+.bt-popover.embedded .setup-card .side.l { color: var(--green); }
+.bt-popover.embedded .setup-card .side.s { color: var(--red); }
+.bt-popover.embedded .setup-card .model { color: var(--value); }
+.bt-popover.embedded .setup-card .ts { color: var(--label-dim); font-family: var(--mono); }
+/* ENTRY/STOP/TP1 all mono; entry (uncolored) reads value-strong, stop red, tp1 green. */
+.bt-popover.embedded .setup-card .lvls .lv .v { font-family: var(--mono); }
+.bt-popover.embedded .setup-card .lvls .lv .v:not(.red):not(.green) { color: var(--value-strong); }
+.bt-popover.embedded .rationale-block {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--label); font-size: 10.5px; line-height: 1.5;
+}
+
+/* pause banner + decide buttons (accept/reject primitives) */
+.bt-popover.embedded .pause-banner {
+  background: color-mix(in srgb, var(--red) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  border-radius: var(--r-md); color: var(--red); font-size: 10px; letter-spacing: .06em;
+}
+.bt-popover.embedded .decide { gap: 8px; margin-top: 12px; }
+.bt-popover.embedded .decide .btn {
+  border-radius: 7px; font: 500 10px var(--sans); letter-spacing: .04em; padding: 8px 14px;
+}
+.bt-popover.embedded .decide .btn.accept {
+  color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+}
+.bt-popover.embedded .decide .btn.reject {
+  color: var(--red); background: transparent;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+}
+
+/* ── stat-cell grid — ONE borderless style shared by DONE (record sub-state),
+   DETAIL SUMMARY, and AGGREGATE (BASELINE): letter-spaced sans label on top, a
+   big mono value below, thin hairline vertical dividers only — no boxes.
+   Matches the RECORD/BASELINE prototype's clean stat cells. ──────────────── */
+.bt-popover.embedded .agg-grid,
+.bt-popover.embedded .done-grid {
+  display: grid; gap: 0;
+}
+.bt-popover.embedded .agg-grid { grid-template-columns: repeat(5, 1fr); }
+.bt-popover.embedded .done-grid { grid-template-columns: repeat(4, 1fr); }
+.bt-popover.embedded .agg-grid .lcell,
+.bt-popover.embedded .done-grid .lcell {
+  background: transparent; border: 0; border-right: 1px solid var(--border);
+  border-radius: 0; padding: 2px 16px;
+}
+.bt-popover.embedded .agg-grid .lcell:first-child,
+.bt-popover.embedded .done-grid .lcell:first-child { padding-left: 0; }
+.bt-popover.embedded .agg-grid .lcell:last-child,
+.bt-popover.embedded .done-grid .lcell:last-child { border-right: 0; padding-right: 0; }
+.bt-popover.embedded .agg-grid .lcell .k,
+.bt-popover.embedded .done-grid .lcell .k {
+  display: block; color: var(--label); font-size: 9.5px; letter-spacing: .08em;
+}
+.bt-popover.embedded .agg-grid .lcell .v,
+.bt-popover.embedded .done-grid .lcell .v {
+  display: block; font: 500 20px var(--mono); color: var(--value-strong);
+  margin-top: 6px; font-variant-numeric: tabular-nums;
+}
+.bt-popover.embedded .agg-grid .lcell .v.green,
+.bt-popover.embedded .done-grid .lcell .v.green { color: var(--green); }
+.bt-popover.embedded .agg-grid .lcell .v.red,
+.bt-popover.embedded .done-grid .lcell .v.red   { color: var(--red); }
+.bt-popover.embedded .agg-grid .lcell .v.amber,
+.bt-popover.embedded .done-grid .lcell .v.amber { color: var(--amber); }
+.bt-popover.embedded .agg-grid .lcell .sub,
+.bt-popover.embedded .done-grid .lcell .sub {
+  display: block; color: var(--label-dim); font-size: 9px; letter-spacing: .04em; margin-top: 3px;
+}
+
+/* ── action button row ─────────────────────────────────────────────────── */
+.bt-popover.embedded .actions .btn {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); font-size: 10.5px; letter-spacing: .04em;
+}
+.bt-popover.embedded .actions .btn.primary {
+  color: #000; background: #fff; border: 0;
+}
+.bt-popover.embedded .actions .btn.primary:hover { background: var(--primary-active); }
+.bt-popover.embedded .actions .btn.secondary { color: var(--value); }
+.bt-popover.embedded .actions .btn.danger { color: var(--label-dim); }
+
+/* DETAIL RE-RUN / DELETE — ghost pills; DELETE carries a subtle red tint. */
+.bt-popover.embedded .actions .cs-btn-ghost-sm { letter-spacing: .06em; }
+.bt-popover.embedded .actions .cs-btn-ghost-sm:hover { color: var(--value-strong); border-color: var(--cs-onborder); }
+.bt-popover.embedded .actions .cs-btn-ghost-sm.danger {
+  color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent);
+}
+.bt-popover.embedded .actions .cs-btn-ghost-sm.danger:hover {
+  color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, transparent);
+}
+
+/* ── DETAIL header — clean ghost back pill + filled tint run chips ──────── */
+.bt-popover.embedded .head .back {
+  color: var(--label); font: 400 9.5px var(--sans); letter-spacing: .08em;
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.bt-popover.embedded .head .back:hover { color: var(--value); border-color: var(--cs-onborder); }
+.bt-popover.embedded .head .cs-tag.red {
+  color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+/* ── DETAIL LLM ACTIVITY LOG — clean rows, no boxed container ───────────── */
+.bt-popover.embedded .log {
+  background: transparent; border: 0; border-radius: 0; padding: 0;
+}
+.bt-popover.embedded .log .ln {
+  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.bt-popover.embedded .log .ln:last-child { border-bottom: 0; }
+.bt-popover.embedded .log .ln .t { color: var(--label-dim); font-family: var(--mono); }
+.bt-popover.embedded .log .ln .ph { color: var(--label-dim); }
+.bt-popover.embedded .log .ln .msg { color: var(--label); }
+
+/* ── LIBRARY / COMPARE / TESTS table ───────────────────────────────────── */
+.bt-popover.embedded .lib-table { font-size: 11px; }
+.bt-popover.embedded .lib-table th {
+  color: var(--label); letter-spacing: .08em; font-size: 9px; font-weight: 400;
+  padding: 4px 8px; border-bottom: 1px solid var(--border);
+}
+/* No amber sorted-column chrome — keep the header neutral like RECORD. */
+.bt-popover.embedded .lib-table th.sorted,
+.bt-popover.embedded .lib-table th.sorted .arr { color: var(--value); }
+.bt-popover.embedded .lib-table td {
+  padding: 9px 8px; color: var(--value); border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.bt-popover.embedded .lib-table td.dim,
+.bt-popover.embedded .lib-table td.ses { color: var(--label); }
+.bt-popover.embedded .lib-table tbody tr:hover td,
+.bt-popover.embedded .lib-table tr:hover td { background: rgba(87,193,255,.04); }
+.bt-popover.embedded .lib-table .green { color: var(--green); }
+.bt-popover.embedded .lib-table .red { color: var(--red); }
+.bt-popover.embedded .lib-table .pill {
+  height: auto; padding: 1px 8px; border: 0; border-radius: var(--r-xs);
+  font-size: 9px; letter-spacing: .04em;
+}
+.bt-popover.embedded .lib-table .pill.green { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.bt-popover.embedded .lib-table .pill.amber { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.bt-popover.embedded .lib-table .pill.dim   { color: var(--label); background: var(--cs-onfill); }
+.bt-popover.embedded .agree-mark .ok { color: var(--green); }
+.bt-popover.embedded .agree-mark .no { color: var(--red); }
+
+/* ── filters row (BASELINE) — segpills + round ghost add-filter ─────────── */
+.bt-popover.embedded .filters { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; row-gap: 10px; }
+.bt-popover.embedded .filter { display: flex; align-items: center; gap: 8px; }
+.bt-popover.embedded .filter .k {
+  color: var(--label-dim); font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase;
+}
+.bt-popover.embedded .btn-add {
+  display: grid; place-items: center; width: 26px; height: 26px; flex: none; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--r-pill); background: transparent;
+  color: var(--label); cursor: pointer;
+}
+.bt-popover.embedded .btn-add svg { display: block; }
+.bt-popover.embedded .btn-add:hover { color: var(--value); border-color: var(--cs-onborder); }
+
+/* ── segpill group wrapper (INSTRUMENT + filters) ──────────────────────── */
+.bt-popover.embedded .bt-seg {
+  display: inline-flex; gap: 0; padding: 2px; flex-wrap: nowrap;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.bt-popover.embedded .bt-seg .cs-segpill {
+  border: 1px solid transparent; background: transparent;
+  font: 500 11px var(--sans); letter-spacing: .02em; padding: 4px 12px;
+}
+.bt-popover.embedded .bt-seg .cs-segpill.is-on {
+  background: var(--cs-onfill); border-color: var(--cs-onborder); color: var(--value-strong); font-weight: 600;
+}
+
+/* ── INSTRUMENT bar (BASELINE) — compact left-aligned segpills ─────────── */
+.bt-popover.embedded .bt-sym-bar { padding: 12px 18px 0; border-bottom: 0; gap: 10px; }
+.bt-popover.embedded .bt-sym-bar .bt-sym-label { color: var(--label-dim); font: 400 9px var(--sans); letter-spacing: .08em; }
+
+/* ── FAITHFUL BASELINE header actions — ghost refold + mono total ──────── */
+.bt-popover.embedded .bl-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.bt-popover.embedded .bl-actions .cs-btn-ghost-sm:disabled {
+  color: var(--label-dim); background: var(--surface-2);
+  border-color: var(--border); cursor: default; opacity: .6;
+}
+.bt-popover.embedded .bl-total { margin-left: auto; font: 500 13px var(--mono); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .bl-total.up   { color: var(--green); }
+.bt-popover.embedded .bl-total.down { color: var(--red); }
+
+/* ── COMPARE — title line ──────────────────────────────────────────────── */
+.bt-popover.embedded .ft-title {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 0 0 2px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
+}
+.bt-popover.embedded .ft-title-l { display: flex; align-items: baseline; gap: 9px; }
+.bt-popover.embedded .ft-title-t { font: 600 13px var(--sans); letter-spacing: .02em; color: var(--value-strong); }
+.bt-popover.embedded .ft-title-sym { font: 400 12px var(--mono); color: var(--label); }
+.bt-popover.embedded .ft-title-meta { font: 400 11px var(--sans); color: var(--label-dim); }
+.bt-popover.embedded .ft-title-meta .mono { font-family: var(--mono); }
+
+/* ── COMPARE — fold-test form + helper ─────────────────────────────────── */
+.bt-popover.embedded .ft-form { display: flex; gap: 8px; align-items: stretch; margin: 16px 0 10px; }
+.bt-popover.embedded .ft-in {
+  flex: 1; background: var(--surface-3); border: 1px solid var(--border);
+  border-radius: 7px; color: var(--value-strong);
+  font: 400 12.5px var(--sans); padding: 9px 12px;
+}
+.bt-popover.embedded .ft-in::placeholder { color: var(--label-dim); }
+.bt-popover.embedded .ft-in:focus { outline: 0; border-color: var(--border-d); }
+.bt-popover.embedded .ft-in.ft-gate { flex: none; width: 280px; font: 400 11.5px var(--mono); color: var(--value); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-form .cs-btn-primary-run { font: 600 12px var(--sans); padding: 9px 16px; border-radius: var(--r-md); }
+.bt-popover.embedded .cs-btn-primary-run:disabled {
+  color: var(--label-dim); background: var(--surface-2);
+  border: 1px solid var(--border); cursor: not-allowed;
+}
+.bt-popover.embedded .ft-help { font: 400 11px var(--sans); line-height: 1.4; color: var(--label-dim); }
+.bt-popover.embedded .ft-err { color: var(--red); font-size: 10.5px; padding: 6px 0 2px; }
+
+/* empty state — centered ⊘ glyph */
+.bt-popover.embedded .ft-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 52px 0 46px; }
+.bt-popover.embedded .ft-empty-glyph {
+  width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--border);
+  display: grid; place-items: center; color: #5a5b5c; font-size: 16px;
+}
+.bt-popover.embedded .ft-empty-t { font: 500 12.5px var(--sans); color: var(--label); }
+.bt-popover.embedded .ft-empty-sub { font: 400 11.5px var(--sans); color: var(--label-dim); }
+
+/* ── COMPARE — fold result cards ───────────────────────────────────────── */
+.bt-popover.embedded .ft-list { display: flex; flex-direction: column; gap: 10px; padding: 18px 0 6px; }
+.bt-popover.embedded .ft-card { background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.bt-popover.embedded .ft-row { display: flex; align-items: center; gap: 16px; padding: 14px 15px; cursor: pointer; }
+.bt-popover.embedded .ft-row-main { flex: 1; min-width: 0; }
+.bt-popover.embedded .ft-row-name { font: 500 13px var(--sans); line-height: 1.3; color: var(--value-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-popover.embedded .ft-row-gate { margin-top: 5px; font: 400 11px var(--mono); color: var(--label-dim); }
+.bt-popover.embedded .ft-corpus-warn { color: var(--amber); }
+.bt-popover.embedded .ft-col { text-align: right; flex: none; }
+.bt-popover.embedded .ft-col-sessions { width: 64px; }
+.bt-popover.embedded .ft-col-k { font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--label-dim); }
+.bt-popover.embedded .ft-col-v { margin-top: 5px; font: 500 15px var(--mono); color: var(--value); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-col-sessions .ft-col-v { font-size: 13px; }
+.bt-popover.embedded .ft-col-v.up { color: var(--green); }
+.bt-popover.embedded .ft-col-v.down { color: var(--red); }
+.bt-popover.embedded .ft-chip { flex: none; padding: 3px 9px; border-radius: var(--r-pill); font: 600 10px var(--sans); letter-spacing: .05em; }
+.bt-popover.embedded .ft-chip.ok   { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.bt-popover.embedded .ft-chip.bad  { color: var(--red);   background: color-mix(in srgb, var(--red) 12%, transparent); }
+.bt-popover.embedded .ft-chip.pend { color: var(--blue);  background: color-mix(in srgb, var(--blue) 12%, transparent); }
+.bt-popover.embedded .ft-caret { flex: none; width: 12px; text-align: center; color: var(--label-dim); font-size: 15px; }
+
+/* ── COMPARE — expand: baseline → candidate ────────────────────────────── */
+.bt-popover.embedded .ft-expand { border-top: 1px solid var(--border); padding: 4px 15px 15px; }
+.bt-popover.embedded .ft-bc-hd { font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--label-dim); padding: 14px 0 2px; }
+.bt-popover.embedded .ft-metric { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #17191a; }
+.bt-popover.embedded .ft-metric-l { flex: 1; font: 400 12px var(--sans); color: var(--value); }
+.bt-popover.embedded .ft-metric-old { width: 74px; text-align: right; font: 400 12px var(--mono); color: var(--label); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-metric-arrow { padding: 0 11px; font: 400 12px var(--mono); color: #5a5b5c; }
+.bt-popover.embedded .ft-metric-new { width: 74px; font: 400 12px var(--mono); color: var(--value-strong); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-metric-imp { width: 78px; text-align: right; font: 400 12px var(--mono); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-metric-imp.up   { color: var(--green); }
+.bt-popover.embedded .ft-metric-imp.down { color: var(--red); }
+.bt-popover.embedded .ft-detail-loading { font: 400 10.5px var(--sans); color: var(--label-dim); padding: 8px 0 0; }
+.bt-popover.embedded .ft-actions { display: flex; align-items: center; gap: 8px; padding-top: 16px; }
+.bt-popover.embedded .ft-actions .cs-btn-accept { font: 600 11.5px var(--sans); padding: 7px 14px; border: 0; background: color-mix(in srgb, var(--green) 12%, transparent); }
+.bt-popover.embedded .ft-actions .cs-btn-reject { font: 600 11.5px var(--sans); padding: 7px 14px; }
+.bt-popover.embedded .ft-actions-sp { flex: 1; }
+.bt-popover.embedded .ft-btn-promote {
+  font: 600 11.5px var(--sans); padding: 7px 16px; border-radius: 7px; cursor: pointer;
+  color: var(--green); background: color-mix(in srgb, var(--green) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+}
+.bt-popover.embedded .ft-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.bt-popover.embedded .ft-foot-meta { font: 400 10px var(--sans); color: var(--label-dim); }
+.bt-popover.embedded .ft-link { background: none; border: 0; color: var(--label-dim); font-size: 10px; cursor: pointer; }
+.bt-popover.embedded .ft-link:hover { color: var(--red); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   IDLE restructure — two-column config+summary over a full-width LIBRARY
+   table (Command Shell prototype shape). Shared card language reused by
+   every sub-state (RECORD / BASELINE / COMPARE / RUNNING / DONE / DETAIL).
+   ═══════════════════════════════════════════════════════════════════════ */
+.bt-popover.embedded .bt-idle { display: flex; flex-direction: column; }
+
+/* right summary card — clean metric rows (label left · mono value right) */
+.bt-popover.embedded .bt-summary { display: flex; flex-direction: column; }
+.bt-popover.embedded .bt-metrics { display: flex; flex-direction: column; }
+.bt-popover.embedded .bt-metric {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid #17191a;
+}
+.bt-popover.embedded .bt-metric:last-child { border-bottom: 0; }
+.bt-popover.embedded .bt-metric .ml { color: var(--label-dim); font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
+.bt-popover.embedded .bt-metric .mv {
+  color: var(--value-strong); font: 500 16px var(--mono); font-variant-numeric: tabular-nums;
+}
+.bt-popover.embedded .bt-metric .mv.green { color: var(--green); }
+.bt-popover.embedded .bt-metric .mv.red   { color: var(--red); }
+
+.bt-popover.embedded .bt-view-all-btn {
+  margin-top: auto; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  font: 500 11px var(--sans); letter-spacing: .02em; color: var(--value);
+  background: transparent; border: 1px solid var(--border); border-radius: 7px;
+  padding: 8px 12px; cursor: pointer;
+}
+.bt-popover.embedded .bt-view-all-btn .mono { font-family: var(--mono); }
+.bt-popover.embedded .bt-view-all-btn:hover { color: var(--value-strong); border-color: var(--cs-onborder); }
+
+/* neutral (grey) status chip — reuses .cs-tag geometry, grey fill */
+.bt-popover.embedded .cs-tag.neutral { color: var(--label); background: var(--cs-onfill); }
+/* RECENT header count pill — pill shape + darker fill, per prototype */
+.bt-popover.embedded .bt-summary .sect-hd .cs-tag.neutral {
+  background: #141516; border: 1px solid var(--border); border-radius: var(--r-pill);
+  padding: 1px 8px; font-weight: 600; font-size: 10px;
+}
+/* status chip trailing the sub-state title (RUNNING / DONE) */
+.bt-popover.embedded .bt-hd-chip { margin-left: 9px; }
+
+/* full-width LIBRARY table beneath the two columns */
+.bt-popover.embedded .bt-lib-preview .bt-cnt { color: var(--label-dim); font-weight: 400; margin-left: 4px; }
+.bt-popover.embedded .bt-lib-idle { width: 100%; border-collapse: collapse; }
+.bt-popover.embedded .bt-lib-idle th:first-child,
+.bt-popover.embedded .bt-lib-idle td:first-child { padding-left: 0; }
+.bt-popover.embedded .bt-lib-idle th:last-child,
+.bt-popover.embedded .bt-lib-idle td:last-child { padding-right: 0; text-align: right; }
+
+.bt-popover.embedded .bt-empty { color: var(--label-dim); font-size: 11px; padding: 10px 0 4px; }
+
+/* ── VERDICT headline — the go-live gate, top of the BASELINE view ──────── */
+.bt-popover.embedded .bt-verdict {
+  display: flex; align-items: center; gap: 14px;
+  margin: 14px 18px 0; padding: 16px 20px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg);
+}
+.bt-popover.embedded .bt-verdict-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--label-dim); }
+.bt-popover.embedded .bt-verdict.is-green .bt-verdict-dot { background: var(--green); }
+.bt-popover.embedded .bt-verdict.is-amber .bt-verdict-dot { background: var(--amber); }
+.bt-popover.embedded .bt-verdict.is-red   .bt-verdict-dot { background: var(--red); }
+.bt-popover.embedded .bt-verdict-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bt-popover.embedded .bt-verdict-line { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.bt-popover.embedded .bt-verdict-head { font: 600 22px var(--sans); letter-spacing: -.015em; color: var(--value-strong); }
+.bt-popover.embedded .bt-verdict.is-green .bt-verdict-head { color: var(--green); }
+.bt-popover.embedded .bt-verdict.is-amber .bt-verdict-head { color: var(--amber); }
+.bt-popover.embedded .bt-verdict.is-red   .bt-verdict-head { color: var(--red); }
+.bt-popover.embedded .bt-verdict.is-dim   .bt-verdict-head { color: var(--label); }
+.bt-popover.embedded .bt-verdict-stat { font: 500 13.5px var(--mono); color: var(--value); }
+.bt-popover.embedded .bt-verdict-sub { font: 400 12.5px var(--sans); color: var(--label); line-height: 1.4; }
+.bt-popover.embedded .bt-verdict-refold {
+  margin-left: auto; flex: none; align-self: center;
+  border-radius: var(--r-pill); padding: 7px 15px; font: 500 11.5px var(--sans); color: var(--value);
+}
+
+/* ── BASELINE flat panel (handoff): verdict → stats → filters → table, all one
+   card divided by HORIZONTAL hairlines; stat cells split by VERTICAL hairlines.
+   No per-section bordered cards, no AGGREGATE label. ─────────────────────── */
+.bt-popover.embedded .bt-baseline { padding: 0 20px 6px; }
+.bt-popover.embedded .bt-baseline .bt-verdict {
+  margin: 0; padding: 20px 0; background: transparent; border: 0;
+  border-bottom: 1px solid var(--border); border-radius: 0;
+}
+.bt-popover.embedded .bt-baseline .bt-verdict-head { font: 500 22px var(--sans); }
+.bt-popover.embedded .bt-stats {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  padding: 18px 0; border-bottom: 1px solid var(--border);
+}
+.bt-popover.embedded .bt-stats .lcell {
+  display: flex; flex-direction: column; gap: 8px; padding: 0 20px;
+  border-left: 1px solid var(--border);          /* vertical hairline divider */
+}
+.bt-popover.embedded .bt-stats .lcell:first-child { border-left: 0; padding-left: 0; }
+.bt-popover.embedded .bt-stats .lcell .k { font: 600 9.5px var(--sans); letter-spacing: .08em; color: var(--label-dim); }
+.bt-popover.embedded .bt-stats .lcell .v { font: 500 24px var(--mono); color: var(--value-strong); line-height: 1; }
+.bt-popover.embedded .bt-stats .lcell .v.green { color: var(--green); }
+.bt-popover.embedded .bt-stats .lcell .v.red { color: var(--red); }
+.bt-popover.embedded .bt-stats .lcell .v.amber { color: var(--amber); }
+.bt-popover.embedded .bt-stats .lcell .sub { font: 400 10px var(--mono); color: var(--label-dim); }
+.bt-popover.embedded .bt-filters-row {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 16px 0; border-bottom: 1px solid var(--border);
+}
+.bt-popover.embedded .bt-lib-flat { width: 100%; margin-top: 2px; }

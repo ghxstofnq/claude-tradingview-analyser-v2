@@ -6,7 +6,8 @@
 // drives routing (the adapter routes by the confirmed account, not this flag).
 // `armReady` is reused for the live confirm gate; guardrails still persist here.
 
-export const GUARD_DEFAULTS = { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120 };
+export const GUARD_DEFAULTS = { perTradeMax: 250, dailyLimit: 600, defaultRisk: 120,
+                                maxTrades: 4, maxConsec: 3, maxContracts: 4 };
 
 // Derive the TRUTHFUL account view from the main-process broker state
 // (execution.account.get → { active, confirmed, ... }). The CONFIRMED account

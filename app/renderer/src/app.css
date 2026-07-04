@@ -27,7 +27,7 @@
   --border:     #242728;   /* hairline — carries every card edge (no shadows) */
   --border-d:   rgba(255,255,255,0.16); /* hairline-strong */
   --label:      #9c9c9d;   /* mute — metadata / secondary captions */
-  --label-dim:  #6a6b6c;   /* ash — disabled / lowest emphasis */
+  --label-dim:  #7e7f81;   /* ash — lowest emphasis; 4.7:1 on surface-2 (WCAG AA) */
   --value:      #cdcdcd;   /* body */
   --value-strong: #f4f4f6; /* ink — headlines / key values */
   --prose:      #cdcdcd;   /* body — brief prose */
@@ -4598,7 +4598,7 @@ button { border-radius: var(--r-sm); }
 .cmd-news-t  { color: var(--amber); }
 .cmd-meter {
   width: 44px; height: 3px; border-radius: 2px; overflow: hidden;
-  background: color-mix(in srgb, var(--label-dim) 35%, transparent);
+  background: var(--cs-track);
 }
 .cmd-meter > span { display: block; height: 100%; background: var(--amber); }
 .cmd-meter > span.red { background: var(--red); }
@@ -4617,7 +4617,7 @@ button { border-radius: var(--r-sm); }
 .cmd-ver.bad  { color: var(--red);   letter-spacing: .05em; }
 .cmd-k-btn {
   display: flex; align-items: center; gap: 8px;
-  background: var(--surface-3); border-radius: var(--r-pill);
+  background: var(--cs-onfill); border-radius: var(--r-pill);
   padding: 4px 6px 4px 12px; cursor: pointer; color: var(--value); font-size: 10px;
 }
 .cmd-k-btn .kcap {
@@ -4639,15 +4639,16 @@ button { border-radius: var(--r-sm); }
   animation: cmd-dim-in .2s ease-out;
 }
 .shell-page {
-  /* Batch B — one geometry for every page: 980 × 82vh @ top:9vh, radius 16. */
+  /* Prototype geometry: 880 × 82vh @ top:9vh, radius 16 (Briefing/Review/
+     Backtest/Settings/System). Narrow pages (Live) use 620 @ top:11vh. */
   position: fixed; left: 50%; top: 9vh; transform: translateX(-50%);
-  width: min(980px, 94vw); max-height: 82vh; z-index: 66;
+  width: min(880px, 94vw); max-height: 82vh; z-index: 66;
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-xl);
   animation: cmd-page-in .28s cubic-bezier(.16,1,.3,1);
 }
-/* .wide is now an alias — kept so pages that still pass `wide` don't break. */
-.shell-page.wide { width: min(980px, 94vw); }
+.shell-page.wide { width: min(880px, 94vw); }
+.shell-page.narrow { width: min(620px, 94vw); top: 11vh; }
 
 /* Agent sidecar (Polish Plan / README §5): a flush right rail beside the chart —
    no scrim dim, chart shrinks (.sidecar-open). Not a floating card. */
@@ -4689,8 +4690,9 @@ button { border-radius: var(--r-sm); }
   border-top: 1px solid var(--border); font-size: 9.5px; color: var(--label-dim);
 }
 .shell-page > .head {
-  display: flex; align-items: center; gap: 10px; flex: none;
-  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 11px; flex: none;
+  padding: 13px 18px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--surface-1); z-index: 2;
 }
 .shell-page > .head .icon {
   width: 26px; height: 26px; border-radius: var(--r-sm); flex: none;
@@ -4743,6 +4745,7 @@ button { border-radius: var(--r-sm); }
 .cmd-set-arm-input.ok { border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 .cmd-set-arm-btn { font-size: 10.5px; font-weight: 500; color: #000; background: #fff; padding: 8px 14px; border-radius: var(--r-md); border: 0; cursor: pointer; }
 .cmd-set-arm-btn.off { color: var(--label-dim); background: var(--surface-3); border: 1px solid var(--border); cursor: not-allowed; }
+.cmd-set-arm-btn.revert { color: var(--value); background: var(--surface-3); border: 1px solid var(--border); }
 .cmd-set-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--value) 4%, transparent); }
 .cmd-set-row:last-child { border-bottom: 0; }
 .cmd-set-row .rk { flex: 1; display: flex; flex-direction: column; gap: 2px; }
@@ -4793,6 +4796,15 @@ button { border-radius: var(--r-sm); }
 .cmd-sys-filepill .name { font: 400 10px var(--mono); color: var(--value); }
 .cmd-sys-filepill .open { font-size: 8.5px; letter-spacing: .06em; color: var(--blue); cursor: pointer; padding: 1px 5px; }
 .cmd-sys-filepill .reveal { font-size: 8.5px; letter-spacing: .06em; color: var(--label-dim); cursor: pointer; padding: 1px 5px; }
+.cmd-sys-fxhd { display: flex; align-items: center; margin-bottom: 10px; }
+.cmd-sys-fxrow { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--value) 4%, transparent); }
+.cmd-sys-fxrow:last-child { border-bottom: 0; }
+.cmd-sys-fxrow .nm { flex: 1; font-size: 11px; color: var(--value); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-sys-fxrow .fxst { font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase; }
+.cmd-sys-fxrow .fxst.pass { color: var(--green); }
+.cmd-sys-fxrow .fxst.fail { color: var(--red); }
+.cmd-sys-fxrow .fxst.skipped { color: var(--label-dim); }
+.cmd-sys-fxrow .fxst.running { color: var(--amber); }
 
 /* ── Prep wizard — 560px 4-step overlay (⌘K "Start prep") ──────────────── */
 .cmd-prep {
@@ -4871,6 +4883,26 @@ button { border-radius: var(--r-sm); }
 .cmd-tv-signin .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
 .cmd-tv-signin .m { font-size: 11.5px; color: var(--value); }
 .cmd-tv-signin .pill.primary { font-size: 11px; font-weight: 500; padding: 5px 13px; border-radius: var(--r-md); cursor: pointer; white-space: nowrap; }
+
+/* ── Ask-view evidence chips + card (real brief levels only) ───────────── */
+.cmd-ev-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.cmd-ev-chip { font-size: 10px; font-family: var(--mono); color: var(--label); padding: 2px 9px; border-radius: var(--r-pill); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; user-select: none; }
+.cmd-ev-chip:hover { color: var(--value); }
+.cmd-ev-chip.on { color: var(--value-strong); background: var(--surface-2); border-color: color-mix(in srgb, var(--blue) 35%, transparent); }
+.cmd-ev-chip b { color: var(--value); font-weight: 500; }
+.cmd-ev-card { margin-top: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; }
+.cmd-ev-card .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.cmd-ev-card .hd .nm { font-size: 12px; font-weight: 500; color: var(--value-strong); }
+.cmd-ev-card .hd .px { font-family: var(--mono); font-size: 12px; color: var(--value); flex: 1; }
+.cmd-ev-card .hd .st { font-size: 8.5px; letter-spacing: .06em; padding: 1px 7px; border-radius: var(--r-xs); }
+.cmd-ev-card .hd .st.on { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cmd-ev-card .hd .st.dim { color: var(--label-dim); }
+.cmd-ev-card .rows { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.cmd-ev-card .r { display: flex; align-items: baseline; gap: 10px; font-size: 10.5px; }
+.cmd-ev-card .r .k { color: var(--label-dim); width: 60px; flex: none; }
+.cmd-ev-card .r .v { color: var(--value); font-family: var(--mono); }
+.cmd-ev-card .r .v.cite { font-size: 9px; color: var(--label); word-break: break-all; }
+.cmd-ev-card .acts { display: flex; gap: 8px; }
 
 /* hosted legacy popover bodies (PR1 bridge — native pages land in PR2). Any
    .bt-popover rendered inside a page-host is neutralized to a static, full-size

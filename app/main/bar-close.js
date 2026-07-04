@@ -963,6 +963,16 @@ async function runDeterministicPacketTruthForBar(ev, session) {
       const { runTrancheManager } = await import("./execution/tranche-manager.js");
       const price = ev?.ohlc?.close ?? null;
       const r = await runTrancheManager({ bestPacket: truth.surfacePayload, price });
+      if (r && r.action === "suggest") {
+        // SUGGEST mode: the setup is already surfaced (surfaceSetup above); add a
+        // proactive desktop notification so the trader is alerted to accept/reject
+        // even when away. Nothing fires — accept is still manual. Best-effort.
+        try {
+          const { notifySystem } = await import("./notify.js");
+          const s = truth.surfacePayload || {};
+          notifySystem({ title: "Setup proposed", body: `${(s.side || "").toUpperCase()} ${s.model || ""} — accept or reject on the Live page`.trim() });
+        } catch { /* notify unavailable */ }
+      }
       if (r && r.action !== "manual" && r.action !== "none") {
         // eslint-disable-next-line no-console
         console.log(`[tranche] ${r.action}${r.reason ? ` — ${r.reason}` : ""}`);
