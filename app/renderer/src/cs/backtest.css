@@ -55,6 +55,8 @@
    Override must match that specificity, so anchor through .bt-idle. */
 .bt-popover.embedded .bt-cols > .section { margin: 0; }
 .bt-popover.embedded .bt-idle .bt-cols > .section:last-child { margin: 0; }
+/* RECORD columns: configure wider than recent, per prototype (1.65fr / 1fr). */
+.bt-popover.embedded .bt-idle .bt-cols { grid-template-columns: 1.65fr 1fr; }
 
 /* section header label + right meta */
 .bt-popover.embedded .sect-hd {
@@ -71,37 +73,38 @@
 
 /* ── config form — stacked label-over-controls, pill chips ─────────────── */
 .bt-popover.embedded .cfg-form { display: block; margin: 0; }
-.bt-popover.embedded .cfg-row { display: block; margin-bottom: 16px; }
+.bt-popover.embedded .cfg-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 .bt-popover.embedded .cfg-row .cfg-rk {
-  display: block; margin-bottom: 6px;
-  font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim);
+  width: 66px; flex: none; margin: 0;
+  font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--label-dim);
 }
-.bt-popover.embedded .cfg-row .cfg-rk .cfg-rk-hint {
-  margin-left: 6px; color: var(--label-dim); font-size: 8.5px;
-}
+.bt-popover.embedded .cfg-range-hint { font: 400 10.5px var(--mono); color: #6a6b6c; margin-left: 2px; align-self: center; }
 
 /* every chip group → detached pills */
 .bt-popover.embedded .cfg-row .seg,
 .bt-popover.embedded .cfg-presets,
 .bt-popover.embedded .cfg-multi {
-  display: flex; gap: 4px; border: 0; overflow: visible; margin: 0;
+  display: flex; align-items: center; gap: 6px; border: 0; overflow: visible; margin: 0; flex-wrap: wrap;
 }
 .bt-popover.embedded .cfg-row .seg .s,
 .bt-popover.embedded .cfg-preset,
 .bt-popover.embedded .cfg-chip {
-  flex: 0 0 auto; height: auto;
-  font: 400 9.5px var(--sans); letter-spacing: .06em;
-  padding: 3px 11px; border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; flex: 0 0 auto; height: auto;
+  font: 500 10.5px var(--sans); letter-spacing: 0;
+  padding: 4px 11px; border-radius: var(--r-pill);
   background: transparent; color: var(--label);
   border: 1px solid var(--border); gap: 5px;
 }
 .bt-popover.embedded .cfg-row .seg .s.on,
 .bt-popover.embedded .cfg-preset.on,
 .bt-popover.embedded .cfg-chip.on {
-  background: #18191a; color: var(--value-strong);
-  border: 1px solid rgba(255,255,255,.16);
+  background: var(--cs-onfill); color: var(--value-strong); font-weight: 600;
+  border: 1px solid var(--border-d);
 }
-.bt-popover.embedded .cfg-chip .ck { display: none; }               /* prototype pills carry no checkbox */
+/* neutralize the legacy floating-popover checkbox box (app.css) — the redesign
+   chip carries a plain green ✓, not a bordered checkbox. */
+.bt-popover.embedded .cfg-chip .ck { display: none; width: auto; height: auto; border: 0; border-radius: 0; background: transparent; }
+.bt-popover.embedded .cfg-chip.on .ck { display: inline-block; border: 0; color: var(--green); font-size: 10px; }
 
 /* custom-date inputs */
 .bt-popover.embedded .cfg-dates { align-items: flex-end; gap: 10px; margin-top: 2px; }
@@ -112,23 +115,25 @@
 }
 
 /* plan + cost helper lines */
-.bt-popover.embedded .cfg-plan { font-size: 10.5px; color: var(--label); line-height: 1.55; margin-top: 4px; }
-.bt-popover.embedded .cfg-plan b { color: var(--value-strong); font-weight: 500; }
-.bt-popover.embedded .cfg-cost { margin-top: 5px; font-size: 10px; color: var(--label-dim); letter-spacing: .04em; }
+.bt-popover.embedded .cfg-plan { font: 400 12px var(--sans); color: var(--label); line-height: 1.5; margin-top: 18px; }
+.bt-popover.embedded .cfg-plan b { color: var(--value-strong); font-weight: 600; }
+.bt-popover.embedded .cfg-plan-arrow { color: #6a6b6c; }
+.bt-popover.embedded .cfg-plan-dates { font-family: var(--mono); color: var(--value); }
+.bt-popover.embedded .cfg-plan .warn { color: var(--amber); }
+.bt-popover.embedded .cfg-cost { margin-top: 6px; font: 400 11px var(--sans); color: var(--label-dim); letter-spacing: 0; }
 
-/* ── START row — hairline divider + white primary pill ─────────────────── */
+/* ── START row — white primary pill (no divider, per prototype) ────────── */
 .bt-popover.embedded .start-row {
-  margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; margin-top: 16px; padding-top: 0; border-top: 0;
   gap: 12px;
 }
 .bt-popover.embedded .start-btn {
-  /* Sized to match the VIEW BASELINE pill (9.5px / 5px 13px / pill), kept white
-     + weight 500 as the primary CTA. */
-  width: auto; margin-top: 0;
-  font: 500 9.5px var(--sans); letter-spacing: .08em;
+  display: inline-flex; align-items: center; width: auto; margin-top: 0;
+  font: 600 12px var(--sans); letter-spacing: 0;
   color: #000; background: #fff; border: 0;
-  padding: 5px 13px; border-radius: var(--r-pill); gap: 8px;
+  padding: 9px 17px; border-radius: var(--r-md); gap: 9px;
 }
+.bt-popover.embedded .start-btn svg { display: block; }
 .bt-popover.embedded .start-btn:hover { background: var(--primary-active); }
 .bt-popover.embedded .start-btn:disabled {
   color: var(--label-dim); background: var(--surface-2);
@@ -329,28 +334,18 @@
 .bt-popover.embedded .agree-mark .ok { color: var(--green); }
 .bt-popover.embedded .agree-mark .no { color: var(--red); }
 
-/* ── filters row (BASELINE) — segpills + clean search + ghost add ──────── */
-.bt-popover.embedded .filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; row-gap: 10px; }
-.bt-popover.embedded .filter { display: flex; align-items: center; gap: 6px; }
+/* ── filters row (BASELINE) — segpills + round ghost add-filter ─────────── */
+.bt-popover.embedded .filters { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; row-gap: 10px; }
+.bt-popover.embedded .filter { display: flex; align-items: center; gap: 8px; }
 .bt-popover.embedded .filter .k {
-  color: var(--label-dim); font: 400 9.5px var(--sans); letter-spacing: .08em;
+  color: var(--label-dim); font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase;
 }
-.bt-popover.embedded .filters .search-wrap {
-  display: flex; align-items: center; flex: 1; min-width: 90px; max-width: 220px;
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
-  padding: 0 10px;
-}
-.bt-popover.embedded .filters .search-wrap:focus-within { border-color: var(--border-d); }
-.bt-popover.embedded .filters .search-wrap input {
-  width: 100%; background: transparent; border: 0; outline: 0;
-  color: var(--value); font: 400 10.5px var(--sans); padding: 7px 0;
-}
-.bt-popover.embedded .filters .search-wrap input::placeholder { color: var(--label-dim); }
 .bt-popover.embedded .btn-add {
-  display: grid; place-items: center; width: 28px; height: 28px;
-  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2);
-  color: var(--label); font-size: 14px; cursor: pointer;
+  display: grid; place-items: center; width: 26px; height: 26px; flex: none; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--r-pill); background: transparent;
+  color: var(--label); cursor: pointer;
 }
+.bt-popover.embedded .btn-add svg { display: block; }
 .bt-popover.embedded .btn-add:hover { color: var(--value); border-color: var(--cs-onborder); }
 
 /* ── segpill group wrapper (INSTRUMENT + filters) ──────────────────────── */
@@ -370,51 +365,90 @@
 .bt-popover.embedded .bl-total.up   { color: var(--green); }
 .bt-popover.embedded .bl-total.down { color: var(--red); }
 
-/* ── FOLD TEST form (COMPARE) — clean inputs + white primary ───────────── */
-.bt-popover.embedded .ft-form { display: flex; gap: 8px; align-items: stretch; margin: 6px 0 14px; }
+/* ── COMPARE — title line ──────────────────────────────────────────────── */
+.bt-popover.embedded .ft-title {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 0 0 2px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
+}
+.bt-popover.embedded .ft-title-l { display: flex; align-items: baseline; gap: 9px; }
+.bt-popover.embedded .ft-title-t { font: 600 13px var(--sans); letter-spacing: .02em; color: var(--value-strong); }
+.bt-popover.embedded .ft-title-sym { font: 400 12px var(--mono); color: var(--label); }
+.bt-popover.embedded .ft-title-meta { font: 400 11px var(--sans); color: var(--label-dim); }
+.bt-popover.embedded .ft-title-meta .mono { font-family: var(--mono); }
+
+/* ── COMPARE — fold-test form + helper ─────────────────────────────────── */
+.bt-popover.embedded .ft-form { display: flex; gap: 8px; align-items: stretch; margin: 16px 0 10px; }
 .bt-popover.embedded .ft-in {
-  flex: 1; background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: var(--r-md); color: var(--value);
-  font: 400 10.5px var(--sans); padding: 8px 10px;
+  flex: 1; background: var(--surface-3); border: 1px solid var(--border);
+  border-radius: 7px; color: var(--value-strong);
+  font: 400 12.5px var(--sans); padding: 9px 12px;
 }
 .bt-popover.embedded .ft-in::placeholder { color: var(--label-dim); }
 .bt-popover.embedded .ft-in:focus { outline: 0; border-color: var(--border-d); }
-.bt-popover.embedded .ft-in.ft-gate { flex: 1.2; font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-in.ft-gate { flex: none; width: 280px; font: 400 11.5px var(--mono); color: var(--value); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-form .cs-btn-primary-run { font: 600 12px var(--sans); padding: 9px 16px; border-radius: var(--r-md); }
 .bt-popover.embedded .cs-btn-primary-run:disabled {
   color: var(--label-dim); background: var(--surface-2);
   border: 1px solid var(--border); cursor: not-allowed;
 }
-.bt-popover.embedded .ft-err { color: var(--red); font-size: 10.5px; padding: 2px 0 8px; }
-.bt-popover.embedded .ft-empty { color: var(--label-dim); font-size: 11px; padding: 8px 0 4px; line-height: 1.5; }
+.bt-popover.embedded .ft-help { font: 400 11px var(--sans); line-height: 1.4; color: var(--label-dim); }
+.bt-popover.embedded .ft-err { color: var(--red); font-size: 10.5px; padding: 6px 0 2px; }
 
-/* ── FOLD TEST rows (COMPARE) — hairline rules, mono deltas, tint chips ── */
-.bt-popover.embedded .test-item { border-bottom: 1px solid rgba(255,255,255,.05); }
-.bt-popover.embedded .test-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; cursor: pointer; }
-.bt-popover.embedded .test-row:hover { background: transparent; }
-.bt-popover.embedded .test-row .caret { color: var(--label-dim); width: 10px; }
-.bt-popover.embedded .t-label { flex: 1; color: var(--value); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bt-popover.embedded .t-delta { font-weight: 500; min-width: 56px; text-align: right; }
-.bt-popover.embedded .t-tot { color: var(--label); font-size: 10px; min-width: 130px; text-align: right; }
-.bt-popover.embedded .t-status {
-  padding: 1px 7px; border-radius: var(--r-xs); border: 0;
-  font: 400 8.5px var(--sans); letter-spacing: .08em;
+/* empty state — centered ⊘ glyph */
+.bt-popover.embedded .ft-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 52px 0 46px; }
+.bt-popover.embedded .ft-empty-glyph {
+  width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--border);
+  display: grid; place-items: center; color: #5a5b5c; font-size: 16px;
 }
-.bt-popover.embedded .t-status.ok  { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
-.bt-popover.embedded .t-status.bad { color: var(--red);   background: color-mix(in srgb, var(--red) 12%, transparent); }
-.bt-popover.embedded .t-status.pend,
-.bt-popover.embedded .t-status.warn { color: var(--label); background: var(--cs-onfill); }
-.bt-popover.embedded .test-expand { padding: 4px 0 12px; }
-.bt-popover.embedded .t-reason { color: var(--label); font-style: italic; font-size: 11px; margin: 4px 0 8px; }
-.bt-popover.embedded .t-verdict { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
-.bt-popover.embedded .t-reason-input {
-  flex: 1; background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: var(--r-md); color: var(--value); font: 400 10.5px var(--sans); padding: 7px 10px;
+.bt-popover.embedded .ft-empty-t { font: 500 12.5px var(--sans); color: var(--label); }
+.bt-popover.embedded .ft-empty-sub { font: 400 11.5px var(--sans); color: var(--label-dim); }
+
+/* ── COMPARE — fold result cards ───────────────────────────────────────── */
+.bt-popover.embedded .ft-list { display: flex; flex-direction: column; gap: 10px; padding: 18px 0 6px; }
+.bt-popover.embedded .ft-card { background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.bt-popover.embedded .ft-row { display: flex; align-items: center; gap: 16px; padding: 14px 15px; cursor: pointer; }
+.bt-popover.embedded .ft-row-main { flex: 1; min-width: 0; }
+.bt-popover.embedded .ft-row-name { font: 500 13px var(--sans); line-height: 1.3; color: var(--value-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-popover.embedded .ft-row-gate { margin-top: 5px; font: 400 11px var(--mono); color: var(--label-dim); }
+.bt-popover.embedded .ft-corpus-warn { color: var(--amber); }
+.bt-popover.embedded .ft-col { text-align: right; flex: none; }
+.bt-popover.embedded .ft-col-sessions { width: 64px; }
+.bt-popover.embedded .ft-col-k { font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--label-dim); }
+.bt-popover.embedded .ft-col-v { margin-top: 5px; font: 500 15px var(--mono); color: var(--value); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-col-sessions .ft-col-v { font-size: 13px; }
+.bt-popover.embedded .ft-col-v.up { color: var(--green); }
+.bt-popover.embedded .ft-col-v.down { color: var(--red); }
+.bt-popover.embedded .ft-chip { flex: none; padding: 3px 9px; border-radius: var(--r-pill); font: 600 10px var(--sans); letter-spacing: .05em; }
+.bt-popover.embedded .ft-chip.ok   { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.bt-popover.embedded .ft-chip.bad  { color: var(--red);   background: color-mix(in srgb, var(--red) 12%, transparent); }
+.bt-popover.embedded .ft-chip.pend { color: var(--blue);  background: color-mix(in srgb, var(--blue) 12%, transparent); }
+.bt-popover.embedded .ft-caret { flex: none; width: 12px; text-align: center; color: var(--label-dim); font-size: 15px; }
+
+/* ── COMPARE — expand: baseline → candidate ────────────────────────────── */
+.bt-popover.embedded .ft-expand { border-top: 1px solid var(--border); padding: 4px 15px 15px; }
+.bt-popover.embedded .ft-bc-hd { font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--label-dim); padding: 14px 0 2px; }
+.bt-popover.embedded .ft-metric { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #17191a; }
+.bt-popover.embedded .ft-metric-l { flex: 1; font: 400 12px var(--sans); color: var(--value); }
+.bt-popover.embedded .ft-metric-old { width: 74px; text-align: right; font: 400 12px var(--mono); color: var(--label); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-metric-arrow { padding: 0 11px; font: 400 12px var(--mono); color: #5a5b5c; }
+.bt-popover.embedded .ft-metric-new { width: 74px; font: 400 12px var(--mono); color: var(--value-strong); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-metric-imp { width: 78px; text-align: right; font: 400 12px var(--mono); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .ft-metric-imp.up   { color: var(--green); }
+.bt-popover.embedded .ft-metric-imp.down { color: var(--red); }
+.bt-popover.embedded .ft-detail-loading { font: 400 10.5px var(--sans); color: var(--label-dim); padding: 8px 0 0; }
+.bt-popover.embedded .ft-actions { display: flex; align-items: center; gap: 8px; padding-top: 16px; }
+.bt-popover.embedded .ft-actions .cs-btn-accept { font: 600 11.5px var(--sans); padding: 7px 14px; border: 0; background: color-mix(in srgb, var(--green) 12%, transparent); }
+.bt-popover.embedded .ft-actions .cs-btn-reject { font: 600 11.5px var(--sans); padding: 7px 14px; }
+.bt-popover.embedded .ft-actions-sp { flex: 1; }
+.bt-popover.embedded .ft-btn-promote {
+  font: 600 11.5px var(--sans); padding: 7px 16px; border-radius: 7px; cursor: pointer;
+  color: var(--green); background: color-mix(in srgb, var(--green) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
 }
-.bt-popover.embedded .t-reason-input::placeholder { color: var(--label-dim); }
-.bt-popover.embedded .t-reason-input:focus { outline: 0; border-color: var(--border-d); }
-.bt-popover.embedded .t-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
-.bt-popover.embedded .t-link { background: none; border: 0; color: var(--label-dim); font-size: 10px; cursor: pointer; }
-.bt-popover.embedded .t-link:hover { color: var(--red); }
+.bt-popover.embedded .ft-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.bt-popover.embedded .ft-foot-meta { font: 400 10px var(--sans); color: var(--label-dim); }
+.bt-popover.embedded .ft-link { background: none; border: 0; color: var(--label-dim); font-size: 10px; cursor: pointer; }
+.bt-popover.embedded .ft-link:hover { color: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════════════
    IDLE restructure — two-column config+summary over a full-width LIBRARY
@@ -428,26 +462,33 @@
 .bt-popover.embedded .bt-metrics { display: flex; flex-direction: column; }
 .bt-popover.embedded .bt-metric {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+  padding: 11px 0; border-bottom: 1px solid #17191a;
 }
 .bt-popover.embedded .bt-metric:last-child { border-bottom: 0; }
-.bt-popover.embedded .bt-metric .ml { color: var(--value); font-size: 12px; letter-spacing: .01em; }
+.bt-popover.embedded .bt-metric .ml { color: var(--label-dim); font: 600 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
 .bt-popover.embedded .bt-metric .mv {
-  color: var(--value-strong); font: 500 12px var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--value-strong); font: 500 16px var(--mono); font-variant-numeric: tabular-nums;
 }
 .bt-popover.embedded .bt-metric .mv.green { color: var(--green); }
 .bt-popover.embedded .bt-metric .mv.red   { color: var(--red); }
 
 .bt-popover.embedded .bt-view-all-btn {
-  margin-top: auto; align-self: flex-start;
-  font: 400 9.5px var(--sans); letter-spacing: .08em; color: var(--label);
-  background: transparent; border: 1px solid var(--border); border-radius: var(--r-pill);
-  padding: 5px 13px; cursor: pointer;
+  margin-top: auto; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  font: 500 11px var(--sans); letter-spacing: .02em; color: var(--value);
+  background: transparent; border: 1px solid var(--border); border-radius: 7px;
+  padding: 8px 12px; cursor: pointer;
 }
-.bt-popover.embedded .bt-view-all-btn:hover { color: var(--value); border-color: var(--cs-onborder); }
+.bt-popover.embedded .bt-view-all-btn .mono { font-family: var(--mono); }
+.bt-popover.embedded .bt-view-all-btn:hover { color: var(--value-strong); border-color: var(--cs-onborder); }
 
 /* neutral (grey) status chip — reuses .cs-tag geometry, grey fill */
 .bt-popover.embedded .cs-tag.neutral { color: var(--label); background: var(--cs-onfill); }
+/* RECENT header count pill — pill shape + darker fill, per prototype */
+.bt-popover.embedded .bt-summary .sect-hd .cs-tag.neutral {
+  background: #141516; border: 1px solid var(--border); border-radius: var(--r-pill);
+  padding: 1px 8px; font-weight: 600; font-size: 10px;
+}
 /* status chip trailing the sub-state title (RUNNING / DONE) */
 .bt-popover.embedded .bt-hd-chip { margin-left: 9px; }
 
@@ -473,10 +514,14 @@
 .bt-popover.embedded .bt-verdict.is-red   .bt-verdict-dot { background: var(--red); }
 .bt-popover.embedded .bt-verdict-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .bt-popover.embedded .bt-verdict-line { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.bt-popover.embedded .bt-verdict-head { font: 500 18px var(--sans); letter-spacing: .01em; color: var(--value-strong); }
+.bt-popover.embedded .bt-verdict-head { font: 600 22px var(--sans); letter-spacing: -.015em; color: var(--value-strong); }
 .bt-popover.embedded .bt-verdict.is-green .bt-verdict-head { color: var(--green); }
 .bt-popover.embedded .bt-verdict.is-amber .bt-verdict-head { color: var(--amber); }
 .bt-popover.embedded .bt-verdict.is-red   .bt-verdict-head { color: var(--red); }
-.bt-popover.embedded .bt-verdict-stat { font: 500 13px var(--mono); color: var(--value); }
-.bt-popover.embedded .bt-verdict-sub { font: 400 11px var(--sans); color: var(--label-dim); }
-.bt-popover.embedded .bt-verdict-refold { margin-left: auto; flex: none; align-self: center; }
+.bt-popover.embedded .bt-verdict.is-dim   .bt-verdict-head { color: var(--label); }
+.bt-popover.embedded .bt-verdict-stat { font: 500 13.5px var(--mono); color: var(--value); }
+.bt-popover.embedded .bt-verdict-sub { font: 400 12.5px var(--sans); color: var(--label); line-height: 1.4; }
+.bt-popover.embedded .bt-verdict-refold {
+  margin-left: auto; flex: none; align-self: center;
+  border-radius: var(--r-pill); padding: 7px 15px; font: 500 11.5px var(--sans); color: var(--value);
+}
