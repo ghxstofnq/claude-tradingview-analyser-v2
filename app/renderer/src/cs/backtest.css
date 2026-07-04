@@ -58,9 +58,12 @@
 
 /* section header label + right meta */
 .bt-popover.embedded .sect-hd {
-  display: flex; align-items: baseline; margin: 0 0 14px;
+  display: flex; align-items: baseline; margin: 0 0 14px; padding-left: 0;
   font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim);
 }
+/* No amber side-stripe — the prototype (and DESIGN.md) use plain grey labels
+   flush to the card edge, not a colored left bar. */
+.bt-popover.embedded .sect-hd::before { display: none; }
 .bt-popover.embedded .sect-hd .meta {
   /* Sans hint (not mono) — the prototype uses Inter for notes, mono only for data. */
   margin-left: auto; font: 400 10px var(--sans); letter-spacing: 0; color: var(--label-dim);
