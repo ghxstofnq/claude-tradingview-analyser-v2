@@ -589,31 +589,38 @@ const fmtFoldTime = (iso) => {
 // SAME object as `tv backtest verdict` (shared verdictFromBaseline), so the GUI
 // headline and an agent read one source of truth.
 const VERDICT_WORDS = { NET_POSITIVE: "NET-POSITIVE", NOT_READY: "NOT READY", NEEDS_MORE_DATA: "NEEDS MORE DATA", NO_CORPUS: "NO CORPUS" };
-function BaselineVerdict({ baseline, loading, symbolView }) {
+function BaselineVerdict({ baseline, loading, symbolView, onRefold, refolding, builtAt, sha }) {
   const v = verdictFromBaseline(baseline);
   const label = symbolView ? String(symbolView).replace("1!", "") : "";
+  const refoldBtn = onRefold ? (
+    <button className="cs-btn-ghost-sm bt-verdict-refold" onClick={onRefold} disabled={refolding}
+      aria-label="re-fold the baseline">{refolding ? "RE-FOLDING…" : "RE-FOLD"}</button>
+  ) : null;
   if (loading && !v) {
     return (
       <div className="bt-verdict is-dim">
         <span className="bt-verdict-dot" />
-        <span className="bt-verdict-head">folding baseline…</span>
+        <span className="bt-verdict-head" role="heading" aria-level={3}>folding baseline…</span>
+        {refoldBtn}
       </div>
     );
   }
   const tone = v ? verdictTone(v.verdict) : "dim";
   const word = v ? (VERDICT_WORDS[v.verdict] || v.verdict) : "NO CORPUS";
+  const foldedWhen = builtAt ? new Date(builtAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) : null;
   return (
     <div className={"bt-verdict is-" + tone}>
       <span className="bt-verdict-dot" />
       <div className="bt-verdict-main">
         <div className="bt-verdict-line">
-          <span className="bt-verdict-head">{word}</span>
+          <span className="bt-verdict-head" role="heading" aria-level={3}>{word}</span>
           {v && v.verdict !== "NO_CORPUS" && (
             <span className="bt-verdict-stat">{label ? label + " · " : ""}{v.cum_r >= 0 ? "+" : ""}{v.cum_r}R · {v.sessions} session{v.sessions === 1 ? "" : "s"}</span>
           )}
         </div>
-        <span className="bt-verdict-sub">{v ? v.reason : "record a session to build the baseline"}</span>
+        <span className="bt-verdict-sub">{v ? v.reason : "record a session to build the baseline"}{foldedWhen ? ` · folded ${foldedWhen}${sha ? " · " + sha : ""}` : ""}</span>
       </div>
+      {refoldBtn}
     </div>
   );
 }
@@ -827,13 +834,19 @@ function LibraryBody({ state, actions, symbolView }) {
 
   return (
     <>
-      <BaselineVerdict baseline={baseline} loading={loading || refolding} symbolView={symbolView} />
-      <BaselineHeader baseline={baseline} loading={loading} refolding={refolding}
-        onRefold={() => refold()} symbolView={symbolView} />
+      {/* Lead with the verdict: it carries the fold status + the RE-FOLD action.
+          The old FAITHFUL BASELINE card was redundant with it and is dropped;
+          the empty PERFORMANCE card only shows once there's real data. */}
+      <BaselineVerdict baseline={baseline} loading={loading || refolding} symbolView={symbolView}
+        onRefold={() => refold()} refolding={refolding} builtAt={baseline?.built_at} sha={baseline?.code_sha} />
 
-      <Analytics A={A} loading={loading || refolding} />
+      {(A.n_trades > 0 || (baseline?.corpus?.n_sessions ?? 0) > 0) && (
+        <Analytics A={A} loading={loading || refolding} />
+      )}
 
-      <BaselineHistory history={history} current={baseline?.total_r ?? null} />
+      {history?.length > 0 && (
+        <BaselineHistory history={history} current={baseline?.total_r ?? null} />
+      )}
 
       <div className="section">
         <div className="sect-hd">

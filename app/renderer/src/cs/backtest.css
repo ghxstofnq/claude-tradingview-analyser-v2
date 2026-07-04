@@ -479,3 +479,4 @@
 .bt-popover.embedded .bt-verdict.is-red   .bt-verdict-head { color: var(--red); }
 .bt-popover.embedded .bt-verdict-stat { font: 500 13px var(--mono); color: var(--value); }
 .bt-popover.embedded .bt-verdict-sub { font: 400 11px var(--sans); color: var(--label-dim); }
+.bt-popover.embedded .bt-verdict-refold { margin-left: auto; flex: none; align-self: center; }

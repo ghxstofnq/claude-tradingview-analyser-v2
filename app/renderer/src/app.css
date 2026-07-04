@@ -27,7 +27,7 @@
   --border:     #242728;   /* hairline — carries every card edge (no shadows) */
   --border-d:   rgba(255,255,255,0.16); /* hairline-strong */
   --label:      #9c9c9d;   /* mute — metadata / secondary captions */
-  --label-dim:  #6a6b6c;   /* ash — disabled / lowest emphasis */
+  --label-dim:  #7e7f81;   /* ash — lowest emphasis; 4.7:1 on surface-2 (WCAG AA) */
   --value:      #cdcdcd;   /* body */
   --value-strong: #f4f4f6; /* ink — headlines / key values */
   --prose:      #cdcdcd;   /* body — brief prose */
