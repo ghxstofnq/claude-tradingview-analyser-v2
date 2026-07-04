@@ -65,7 +65,7 @@ export function BacktestCell() {
           {state.ui === "LIBRARY" && (
             <div className="bt-sym-bar">
               <span className="bt-sym-label">INSTRUMENT</span>
-              <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
+              <SegPills value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
             </div>
           )}
           <div className="body">
@@ -97,7 +97,7 @@ export function BacktestBody({ onClose }) {
       {state.ui === "LIBRARY" && (
         <div className="bt-sym-bar">
           <span className="bt-sym-label">INSTRUMENT</span>
-          <Seg value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
+          <SegPills value={symbolView} onChange={setSymbolView} options={[["MNQ1!", "MNQ"], ["MES1!", "MES"]]} />
         </div>
       )}
       <div className="body">
@@ -598,11 +598,11 @@ function BaselineHeader({ baseline, loading, refolding, onRefold, symbolView }) 
         <span className="meta">{meta}</span>
       </div>
       <div className="bl-actions">
-        <button className="btn secondary" disabled={refolding} onClick={onRefold}>
+        <button className="cs-btn-ghost-sm" disabled={refolding} onClick={onRefold}>
           {refolding ? "RE-FOLDING…" : "RE-FOLD BASELINE"}
         </button>
         {baseline && (
-          <span className={"bl-total " + (baseline.total_r >= 0 ? "green" : "red")}>{fmtR(baseline.total_r)}</span>
+          <span className={"bl-total cs-num " + (baseline.total_r >= 0 ? "up" : "down")}>{fmtR(baseline.total_r)}</span>
         )}
       </div>
     </div>
@@ -668,7 +668,7 @@ function FoldTestForm({ running, onRun }) {
              value={gate} onChange={(e) => setGate(e.target.value)}
              autoComplete="off" spellCheck="false"
              onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
-      <button className="btn primary" disabled={running} onClick={submit}>
+      <button className="cs-btn-primary-run" disabled={running} onClick={submit}>
         {running ? "FOLDING…" : "RUN FOLD TEST"}
       </button>
     </div>
@@ -710,8 +710,8 @@ function TestsBody({ symbolView }) {
           <div className={"test-row" + (expandedId === t.id ? " open" : "")} onClick={() => toggle(t.id)}>
             <span className="caret">{expandedId === t.id ? "▾" : "▸"}</span>
             <span className="t-label" title={t.label}>{t.label}</span>
-            <span className={"t-delta " + (t.delta >= 0 ? "green" : "red")}>{fmtR(t.delta)}</span>
-            <span className="t-tot">{fmtR(t.treatment_total)} vs {fmtR(t.baseline_total)}</span>
+            <span className={"t-delta cs-num " + (t.delta >= 0 ? "up" : "down")}>{fmtR(t.delta)}</span>
+            <span className="t-tot cs-num">{fmtR(t.treatment_total)} vs {fmtR(t.baseline_total)}</span>
             {!t.corpus_match && <span className="t-status warn" title="folded set differs from the baseline — delta mixes code + corpus">CORPUS≠</span>}
             <span className={"t-status " + testStatusCls(t.status)}>{String(t.status).toUpperCase()}</span>
           </div>
@@ -724,8 +724,8 @@ function TestsBody({ symbolView }) {
                 <div className="t-verdict">
                   <input className="t-reason-input" placeholder="reason for accept / reject…"
                     value={reasonDraft[t.id] ?? ""} onChange={(e) => setReason(t.id, e.target.value)} />
-                  <button className="t-btn ok" onClick={() => setVerdict(t.id, "accepted", reasonDraft[t.id] || null)}>ACCEPT</button>
-                  <button className="t-btn bad" onClick={() => setVerdict(t.id, "rejected", reasonDraft[t.id] || null)}>REJECT</button>
+                  <button className="cs-btn-accept" onClick={() => setVerdict(t.id, "accepted", reasonDraft[t.id] || null)}>ACCEPT</button>
+                  <button className="cs-btn-reject" onClick={() => setVerdict(t.id, "rejected", reasonDraft[t.id] || null)}>REJECT</button>
                 </div>
               )}
 
@@ -1006,15 +1006,7 @@ function Filter({ label, value, onChange, options }) {
   return (
     <div className="filter">
       <span className="k">{label}</span>
-      <div className="seg">
-        {options.map(([v, lbl]) => (
-          <div
-            key={String(v)}
-            className={"s" + (value === v ? " on" : "")}
-            onClick={() => onChange(v)}
-          >{lbl}</div>
-        ))}
-      </div>
+      <SegPills value={value} onChange={onChange} options={options} />
     </div>
   );
 }
@@ -1079,6 +1071,23 @@ function Seg({ value, onChange, options }) {
           className={"s" + (value === v ? " on" : "")}
           onClick={() => onChange(v)}
         >{lbl}</div>
+      ))}
+    </div>
+  );
+}
+
+// Command-Shell segmented pills — detached .cs-segpill group (RECORD-page
+// look). Drop-in for <Seg> where the redesign calls for pills, not boxes.
+function SegPills({ value, onChange, options }) {
+  return (
+    <div className="bt-seg">
+      {options.map(([v, lbl]) => (
+        <button
+          key={String(v)}
+          type="button"
+          className={"cs-segpill" + (value === v ? " is-on" : "")}
+          onClick={() => onChange(v)}
+        >{lbl}</button>
       ))}
     </div>
   );

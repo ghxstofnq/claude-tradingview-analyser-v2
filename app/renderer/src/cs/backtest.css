@@ -209,28 +209,46 @@
   border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
 }
 
-/* ── summary / aggregate cells ─────────────────────────────────────────── */
-.bt-popover.embedded .done-grid,
-.bt-popover.embedded .agg-grid { gap: 12px; }
-.bt-popover.embedded .done-grid .lcell,
-.bt-popover.embedded .agg-grid .lcell {
+/* ── DONE summary cells (record sub-state) — boxed stat tiles ──────────── */
+.bt-popover.embedded .done-grid { gap: 12px; }
+.bt-popover.embedded .done-grid .lcell {
   background: var(--surface-3); border: 1px solid var(--border);
   border-radius: var(--r-lg); padding: 13px 15px;
 }
-.bt-popover.embedded .done-grid .lcell .k,
-.bt-popover.embedded .agg-grid .lcell .k {
+.bt-popover.embedded .done-grid .lcell .k {
   color: var(--label); font-size: 9.5px; letter-spacing: .08em;
 }
-.bt-popover.embedded .done-grid .lcell .v,
-.bt-popover.embedded .agg-grid .lcell .v {
+.bt-popover.embedded .done-grid .lcell .v {
   font: 500 20px var(--mono); color: var(--value-strong); margin-top: 5px;
 }
-.bt-popover.embedded .done-grid .lcell .v.green,
+.bt-popover.embedded .done-grid .lcell .v.green { color: var(--green); }
+.bt-popover.embedded .done-grid .lcell .v.red   { color: var(--red); }
+.bt-popover.embedded .done-grid .lcell .v.amber { color: var(--amber); }
+
+/* ── AGGREGATE (BASELINE) — borderless stat grid, hairline dividers only,
+   matching the RECORD prototype's clean stat cells (no heavy boxes). ────── */
+.bt-popover.embedded .agg-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+}
+.bt-popover.embedded .agg-grid .lcell {
+  background: transparent; border: 0; border-right: 1px solid var(--border);
+  border-radius: 0; padding: 2px 16px;
+}
+.bt-popover.embedded .agg-grid .lcell:first-child { padding-left: 0; }
+.bt-popover.embedded .agg-grid .lcell:last-child { border-right: 0; padding-right: 0; }
+.bt-popover.embedded .agg-grid .lcell .k {
+  display: block; color: var(--label); font-size: 9.5px; letter-spacing: .08em;
+}
+.bt-popover.embedded .agg-grid .lcell .v {
+  display: block; font: 500 20px var(--mono); color: var(--value-strong);
+  margin-top: 6px; font-variant-numeric: tabular-nums;
+}
 .bt-popover.embedded .agg-grid .lcell .v.green { color: var(--green); }
-.bt-popover.embedded .done-grid .lcell .v.red,
-.bt-popover.embedded .agg-grid .lcell .v.red { color: var(--red); }
-.bt-popover.embedded .done-grid .lcell .v.amber,
+.bt-popover.embedded .agg-grid .lcell .v.red   { color: var(--red); }
 .bt-popover.embedded .agg-grid .lcell .v.amber { color: var(--amber); }
+.bt-popover.embedded .agg-grid .lcell .sub {
+  display: block; color: var(--label-dim); font-size: 9px; letter-spacing: .04em; margin-top: 3px;
+}
 
 /* ── action button row ─────────────────────────────────────────────────── */
 .bt-popover.embedded .actions .btn {
@@ -250,6 +268,9 @@
   color: var(--label); letter-spacing: .08em; font-size: 9px; font-weight: 400;
   padding: 4px 8px; border-bottom: 1px solid var(--border);
 }
+/* No amber sorted-column chrome — keep the header neutral like RECORD. */
+.bt-popover.embedded .lib-table th.sorted,
+.bt-popover.embedded .lib-table th.sorted .arr { color: var(--value); }
 .bt-popover.embedded .lib-table td {
   padding: 9px 8px; color: var(--value); border-bottom: 1px solid rgba(255,255,255,.05);
 }
@@ -269,60 +290,92 @@
 .bt-popover.embedded .agree-mark .ok { color: var(--green); }
 .bt-popover.embedded .agree-mark .no { color: var(--red); }
 
-/* ── filters row ───────────────────────────────────────────────────────── */
-.bt-popover.embedded .filters { gap: 10px; }
-.bt-popover.embedded .filter .k { color: var(--label-dim); font-size: 9.5px; letter-spacing: .08em; }
-.bt-popover.embedded .filter .seg {
-  border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden;
+/* ── filters row (BASELINE) — segpills + clean search + ghost add ──────── */
+.bt-popover.embedded .filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; row-gap: 10px; }
+.bt-popover.embedded .filter { display: flex; align-items: center; gap: 6px; }
+.bt-popover.embedded .filter .k {
+  color: var(--label-dim); font: 400 9.5px var(--sans); letter-spacing: .08em;
 }
-.bt-popover.embedded .filter .seg .s {
-  font: 400 9.5px var(--sans); letter-spacing: .04em; padding: 3px 9px;
-  color: var(--label); border-radius: 0;
+.bt-popover.embedded .filters .search-wrap {
+  display: flex; align-items: center; flex: 1; min-width: 90px; max-width: 220px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 0 10px;
 }
-.bt-popover.embedded .filter .seg .s.on { background: #18191a; color: var(--value-strong); }
-.bt-popover.embedded .search-wrap {
-  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-3);
+.bt-popover.embedded .filters .search-wrap:focus-within { border-color: var(--border-d); }
+.bt-popover.embedded .filters .search-wrap input {
+  width: 100%; background: transparent; border: 0; outline: 0;
+  color: var(--value); font: 400 10.5px var(--sans); padding: 7px 0;
 }
-.bt-popover.embedded .search-wrap:focus-within { border-color: var(--border-d); }
+.bt-popover.embedded .filters .search-wrap input::placeholder { color: var(--label-dim); }
 .bt-popover.embedded .btn-add {
-  border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--label);
-  background: var(--surface-3);
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2);
+  color: var(--label); font-size: 14px; cursor: pointer;
 }
+.bt-popover.embedded .btn-add:hover { color: var(--value); border-color: var(--cs-onborder); }
 
-/* ── baseline header + instrument bar + fold tests ─────────────────────── */
-.bt-popover.embedded .bt-sym-bar { padding: 12px 18px 0; border-bottom: 0; }
-.bt-popover.embedded .bt-sym-bar .bt-sym-label { color: var(--label-dim); font-size: 9px; letter-spacing: .08em; }
-.bt-popover.embedded .bt-sym-bar .seg .s { border-radius: 0; }
-.bt-popover.embedded .bl-actions .btn {
-  border: 1px solid var(--border); border-radius: var(--r-md);
-  background: var(--surface-3); color: var(--value); font-size: 10.5px;
+/* ── segpill group wrapper (INSTRUMENT + filters) ──────────────────────── */
+.bt-popover.embedded .bt-seg { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* ── INSTRUMENT bar (BASELINE) — compact left-aligned segpills ─────────── */
+.bt-popover.embedded .bt-sym-bar { padding: 12px 18px 0; border-bottom: 0; gap: 10px; }
+.bt-popover.embedded .bt-sym-bar .bt-sym-label { color: var(--label-dim); font: 400 9px var(--sans); letter-spacing: .08em; }
+
+/* ── FAITHFUL BASELINE header actions — ghost refold + mono total ──────── */
+.bt-popover.embedded .bl-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.bt-popover.embedded .bl-actions .cs-btn-ghost-sm:disabled {
+  color: var(--label-dim); background: var(--surface-2);
+  border-color: var(--border); cursor: default; opacity: .6;
 }
-.bt-popover.embedded .bl-total.green { color: var(--green); }
-.bt-popover.embedded .bl-total.red { color: var(--red); }
+.bt-popover.embedded .bl-total { margin-left: auto; font: 500 13px var(--mono); font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .bl-total.up   { color: var(--green); }
+.bt-popover.embedded .bl-total.down { color: var(--red); }
 
-.bt-popover.embedded .ft-form { gap: 8px; margin: 6px 0 12px; }
+/* ── FOLD TEST form (COMPARE) — clean inputs + white primary ───────────── */
+.bt-popover.embedded .ft-form { display: flex; gap: 8px; align-items: stretch; margin: 6px 0 14px; }
 .bt-popover.embedded .ft-in {
-  background: var(--surface-3); border: 1px solid var(--border);
-  border-radius: var(--r-sm); color: var(--value);
+  flex: 1; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); color: var(--value);
+  font: 400 10.5px var(--sans); padding: 8px 10px;
 }
-.bt-popover.embedded .ft-in:focus { border-color: var(--border-d); }
-.bt-popover.embedded .ft-form .btn.primary {
-  color: #000; background: #fff; border: 0; border-radius: var(--r-md);
-  font: 500 10.5px var(--sans);
+.bt-popover.embedded .ft-in::placeholder { color: var(--label-dim); }
+.bt-popover.embedded .ft-in:focus { outline: 0; border-color: var(--border-d); }
+.bt-popover.embedded .ft-in.ft-gate { flex: 1.2; font-variant-numeric: tabular-nums; }
+.bt-popover.embedded .cs-btn-primary-run:disabled {
+  color: var(--label-dim); background: var(--surface-2);
+  border: 1px solid var(--border); cursor: not-allowed;
 }
-.bt-popover.embedded .test-row { padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+.bt-popover.embedded .ft-err { color: var(--red); font-size: 10.5px; padding: 2px 0 8px; }
+.bt-popover.embedded .ft-empty { color: var(--label-dim); font-size: 11px; padding: 8px 0 4px; line-height: 1.5; }
+
+/* ── FOLD TEST rows (COMPARE) — hairline rules, mono deltas, tint chips ── */
+.bt-popover.embedded .test-item { border-bottom: 1px solid rgba(255,255,255,.05); }
+.bt-popover.embedded .test-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; cursor: pointer; }
 .bt-popover.embedded .test-row:hover { background: transparent; }
-.bt-popover.embedded .t-label { color: var(--value); font-size: 11px; }
+.bt-popover.embedded .test-row .caret { color: var(--label-dim); width: 10px; }
+.bt-popover.embedded .t-label { flex: 1; color: var(--value); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-popover.embedded .t-delta { font-weight: 500; min-width: 56px; text-align: right; }
+.bt-popover.embedded .t-tot { color: var(--label); font-size: 10px; min-width: 130px; text-align: right; }
 .bt-popover.embedded .t-status {
   padding: 1px 7px; border-radius: var(--r-xs); border: 0;
-  font-size: 8.5px; letter-spacing: .06em;
+  font: 400 8.5px var(--sans); letter-spacing: .08em;
 }
 .bt-popover.embedded .t-status.ok  { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
 .bt-popover.embedded .t-status.bad { color: var(--red);   background: color-mix(in srgb, var(--red) 12%, transparent); }
 .bt-popover.embedded .t-status.pend,
-.bt-popover.embedded .t-status.warn { color: var(--label); background: #18191a; }
-.bt-popover.embedded .t-btn.ok  { color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); border-radius: var(--r-sm); }
-.bt-popover.embedded .t-btn.bad { color: var(--red);   border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: var(--r-sm); }
+.bt-popover.embedded .t-status.warn { color: var(--label); background: var(--cs-onfill); }
+.bt-popover.embedded .test-expand { padding: 4px 0 12px; }
+.bt-popover.embedded .t-reason { color: var(--label); font-style: italic; font-size: 11px; margin: 4px 0 8px; }
+.bt-popover.embedded .t-verdict { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.bt-popover.embedded .t-reason-input {
+  flex: 1; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); color: var(--value); font: 400 10.5px var(--sans); padding: 7px 10px;
+}
+.bt-popover.embedded .t-reason-input::placeholder { color: var(--label-dim); }
+.bt-popover.embedded .t-reason-input:focus { outline: 0; border-color: var(--border-d); }
+.bt-popover.embedded .t-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+.bt-popover.embedded .t-link { background: none; border: 0; color: var(--label-dim); font-size: 10px; cursor: pointer; }
+.bt-popover.embedded .t-link:hover { color: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════════════
    IDLE restructure — two-column config+summary over a full-width LIBRARY
