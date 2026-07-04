@@ -16,16 +16,23 @@
 .bt-popover.embedded > .head .t { gap: 0; }
 .bt-popover.embedded > .head .t .bt-title { display: none; }        /* Page frame already titles "Backtest" */
 
-.bt-popover.embedded .bt-modes { display: flex; gap: 4px; }
+/* Segmented control: ONE group container (surface-2 + hairline + 2px pad),
+   borderless segments, active segment filled — per the handoff (not individual
+   bordered pills). */
+.bt-popover.embedded .bt-modes {
+  display: inline-flex; gap: 0; padding: 2px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
 .bt-popover.embedded .bt-mode {
-  font: 400 9.5px var(--sans); letter-spacing: .06em;
-  padding: 3px 11px; border-radius: var(--r-pill);
+  font: 500 11.5px var(--sans); letter-spacing: .02em;
+  padding: 4px 13px; border-radius: var(--r-pill);
   background: transparent; color: var(--label);
-  border: 1px solid var(--border); cursor: pointer;
+  border: 1px solid transparent; cursor: pointer;
 }
 .bt-popover.embedded .bt-mode.on {
-  background: #18191a; color: var(--value-strong);
-  border: 1px solid rgba(255,255,255,.16);
+  background: var(--cs-onfill); color: var(--value-strong); font-weight: 600;
+  border-color: var(--cs-onborder);
 }
 .bt-popover.embedded .bt-mode.locked { opacity: .4; cursor: default; }
 
@@ -349,7 +356,18 @@
 .bt-popover.embedded .btn-add:hover { color: var(--value); border-color: var(--cs-onborder); }
 
 /* ── segpill group wrapper (INSTRUMENT + filters) ──────────────────────── */
-.bt-popover.embedded .bt-seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.bt-popover.embedded .bt-seg {
+  display: inline-flex; gap: 0; padding: 2px; flex-wrap: nowrap;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.bt-popover.embedded .bt-seg .cs-segpill {
+  border: 1px solid transparent; background: transparent;
+  font: 500 11px var(--sans); letter-spacing: .02em; padding: 4px 12px;
+}
+.bt-popover.embedded .bt-seg .cs-segpill.is-on {
+  background: var(--cs-onfill); border-color: var(--cs-onborder); color: var(--value-strong); font-weight: 600;
+}
 
 /* ── INSTRUMENT bar (BASELINE) — compact left-aligned segpills ─────────── */
 .bt-popover.embedded .bt-sym-bar { padding: 12px 18px 0; border-bottom: 0; gap: 10px; }
