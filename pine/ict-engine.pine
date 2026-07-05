@@ -13,6 +13,12 @@ indicator("ICT Engine V5", "ICT-V5", overlay = true, max_lines_count = 500, max_
 // The bump is intentional — the old parser (supports {1,2,3}) rejects schema 4
 // as a safety gate; only the rebuilt parser accepts it.
 SCHEMA_VERSION = 4
+// Deploy-drift guard (gate corpus): BUMP ON EVERY CHANGE TO THIS FILE. The
+// backend pins the expected value (EXPECTED_CODE_REV in ict-engine-parser.js)
+// and live-check blocks with pine_code_rev_mismatch when the deployed copy
+// drifts from the repo — the 2026-07-02 live session ran a weeks-stale deploy
+// undetected. Every emitted bar carries this stamp in meta.
+CODE_REV = 1
 // Worst case at the old 120: 14 levels + 14 sweeps + 24 fvg + 12 bpr +
 // 26 swings + 24 structures + 12 pools + 1 quality = 127 — table.cell past
 // the row cap is a runtime error. 140 leaves headroom.
@@ -1419,7 +1425,8 @@ emitMeta(int count) =>
               "|tf=" + timeframe.period +
               "|symbol=" + syminfo.ticker +
               "|bar_ms=" + str.tostring(time) +
-              "|bar_closed=" + (barstate.isconfirmed ? "1" : "0")
+              "|bar_closed=" + (barstate.isconfirmed ? "1" : "0") +
+              "|code_rev=" + str.tostring(CODE_REV)
     table.cell(evidence, 0, 0, "meta")
     table.cell(evidence, 1, 0, payload)
 

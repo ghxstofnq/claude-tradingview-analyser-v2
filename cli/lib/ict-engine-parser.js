@@ -20,6 +20,11 @@ export const SUPPORTED_SCHEMAS = new Set([1, 2, 3, 4]);
 // the schema_current flag rather than a silent accept.
 export const CURRENT_SCHEMA = 4;
 
+// Deploy-drift guard: the Pine's CODE_REV const must equal this. Bumped in
+// lockstep with every pine/ict-engine.pine change; live-check blocks with
+// pine_code_rev_mismatch when the deployed indicator drifts from the repo.
+export const EXPECTED_CODE_REV = 1;
+
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
 // `displacement` is intentionally per-type: a bool on structure rows, a string
@@ -33,7 +38,7 @@ export const CURRENT_SCHEMA = 4;
 // backend can re-use Wilder ATR instead of running its own proxy.
 const ROW_FIELD_TYPES = {
   // V3 adds bar_ms (open time of the bar the emit reflects) + bar_closed.
-  meta: { schema: 'num', count: 'num', emit_ms: 'num', bar_ms: 'num', bar_closed: 'bool' },
+  meta: { schema: 'num', count: 'num', emit_ms: 'num', bar_ms: 'num', bar_closed: 'bool', code_rev: 'num' },
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },
   // Dual-emit (gate corpus): rejected_rw = the reaction-window variant of the
   // rejection read, always emitted alongside the lever-selected `rejected`.

@@ -1,4 +1,5 @@
 import { evaluateSourceHealth, isTradableSourceHealth } from '../../app/main/strategy/context/source-health.js';
+import { EXPECTED_CODE_REV } from './ict-engine-parser.js';
 
 const DEFAULT_SYMBOL_PATTERNS = [/MNQ/i, /MES/i];
 const DEFAULT_TIMEFRAMES = new Set(['1', '5', '15']);
@@ -151,6 +152,10 @@ export function evaluateLiveReadiness({
   const engineBlockers = [];
   const knownStudy = engineStudyKnown(ui, healthEngine);
   if (knownStudy === false) engineBlockers.push('ict_engine_study_missing_or_unknown');
+  // Deploy-drift guard: the deployed Pine stamps every emit with code_rev;
+  // absent or mismatched means the on-chart indicator is not the repo's code
+  // (the 2026-07-02 live session ran a weeks-stale deploy undetected).
+  if (Number(healthEngine?.meta?.code_rev) !== EXPECTED_CODE_REV) engineBlockers.push('pine_code_rev_mismatch');
   if (sourceHealth.blockers.length) engineBlockers.push(...sourceHealth.blockers);
   checks.ictEngine = engineBlockers.length ? fail([...new Set(engineBlockers)], { sourceHealth }) : pass({ sourceHealth });
 
