@@ -122,3 +122,12 @@ Signal: the user corrected two Inversion stops (29714.25 / 29526.25) with a labe
   compute conclusions independently; users read panel output as bot output.
   Action: keep the visual-aid disclaimer; roadmap item accepted 2026-07-03 —
   surface the walker's ACTUAL live verdict on-chart via an app-side bridge.
+- Signal: the 2026-07-05 adversarially-verified Pine audit (24 findings, 15
+  confirmed) found ZERO bot-corrupting bugs — every bot-impact claim died
+  because the walker recomputes taps/confirmation/stops from raw bars — but
+  the checklist panel had real logic bugs (minute-0 open vote, no Inversion
+  model, first-latch orSwept) and several emitted fields were wrong at the
+  source (wick_tapped=1 from birth, Asia-window overnight_dir chop bias).
+  Action: treat the panel + raw emit fields as the weak layer; when adding
+  any new emitted field, hand-check its value on the zone's own formation
+  bar and on off-session bars before trusting it anywhere.

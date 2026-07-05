@@ -466,17 +466,32 @@ if ovActive and not ovActive[1]
 if ovActive
     ovClose := close
 ovNet = na(ovOpen) or na(ovClose) ? na : ovClose - ovOpen
-ovHi = na(asiaH) ? lonH : na(lonH) ? asiaH : math.max(asiaH, lonH)
-ovLo = na(asiaL) ? lonL : na(lonL) ? asiaL : math.min(asiaL, lonL)
+// Only blend London extremes once THIS overnight's London has started —
+// during the Asia window lonH/lonL still hold the PRIOR cycle's session
+// (§3: overnight = the current Asia/London), which inflated ovRange and
+// skewed ovDir toward "chop" on every Asia-window read.
+ovLonLive = na(asiaSpanStart) or (not na(lonSpanStart) and lonSpanStart > asiaSpanStart)
+ovHi = ovLonLive ? (na(asiaH) ? lonH : na(lonH) ? asiaH : math.max(asiaH, lonH)) : asiaH
+ovLo = ovLonLive ? (na(asiaL) ? lonL : na(lonL) ? asiaL : math.min(asiaL, lonL)) : asiaL
 ovRange = na(ovHi) or na(ovLo) ? na : ovHi - ovLo
 ovDir = na(ovNet) or na(ovRange) or ovRange <= 0 ? "na" : math.abs(ovNet) < OVERNIGHT_CHOP_FRAC * ovRange ? "chop" : ovNet > 0 ? "bull" : "bear"
 // NY open-reaction window — first 30 min of ny_am: range high/low + which
 // overnight level got swept in the window (the reaction off the open Lanto reads).
 OR_WINDOW_MS = 30 * 60 * 1000
+// §4: the reaction resolves from minute 15 (daily-bias.md "first 15–30
+// minutes"; mirrors the backend resolver's minute-15 boundary).
+OR_RESOLVE_MIN = 15
 var float orHigh = na
 var float orLow = na
 var int orStartMs = na
 var string orSwept = "none"
+// New trading day (Asia rising edge, 18:00) clears yesterday's opening
+// range so off-session emits don't carry a stale OR.
+if inAsia and not inAsia[1]
+    orHigh := na
+    orLow := na
+    orStartMs := na
+    orSwept := "none"
 if inNyam and not inNyam[1]
     orHigh := high
     orLow := low
@@ -485,8 +500,21 @@ if inNyam and not inNyam[1]
 else if inNyam and not na(orStartMs) and time - orStartMs <= OR_WINDOW_MS
     orHigh := math.max(orHigh, high)
     orLow := math.min(orLow, low)
-if orSwept == "none" and not na(orStartMs)
-    orSwept := not na(asiaHSweptMs) and asiaHSweptMs >= orStartMs and asiaHSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.H" : not na(asiaLSweptMs) and asiaLSweptMs >= orStartMs and asiaLSweptMs - orStartMs <= OR_WINDOW_MS ? "AS.L" : not na(lonHSweptMs) and lonHSweptMs >= orStartMs and lonHSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.H" : not na(lonLSweptMs) and lonLSweptMs >= orStartMs and lonLSweptMs - orStartMs <= OR_WINDOW_MS ? "LO.L" : "none"
+// §4: the REACTION wins — track the most recent in-window sweep, not the
+// first (the old first-latch kept a 09:31 grab over a decisive 09:40
+// sweep). Recomputed each bar; freezes after minute 30 since per-level
+// sweptMs latches and session levels don't re-form until their own session.
+if not na(orStartMs)
+    orSwMs = array.from(asiaHSweptMs, asiaLSweptMs, lonHSweptMs, lonLSweptMs)
+    orSwNm = array.from("AS.H", "AS.L", "LO.H", "LO.L")
+    int orBestMs = na
+    string orBestNm = "none"
+    for oi = 0 to 3
+        oMs = array.get(orSwMs, oi)
+        if not na(oMs) and oMs >= orStartMs and oMs - orStartMs <= OR_WINDOW_MS and (na(orBestMs) or oMs > orBestMs)
+            orBestMs := oMs
+            orBestNm := array.get(orSwNm, oi)
+    orSwept := orBestNm
 
 // §4's other reaction site: the key HTF gap — "whatever we do off this
 // hourly — reject or invert — will dictate my narrative". Inside the
@@ -497,7 +525,9 @@ if orSwept == "none" and not na(orStartMs)
 var int orGapVote = 0
 var int orGapMs = na
 var bool orGapInvert = false
-if inNyam and not inNyam[1]
+// Cleared at the NY-AM open AND at the new trading day (18:00) so the
+// stale gap vote doesn't linger through the overnight.
+if (inNyam and not inNyam[1]) or (inAsia and not inAsia[1])
     orGapVote := 0
     orGapMs := na
     orGapInvert := false
@@ -677,6 +707,14 @@ fvgFillState(Fvg f) =>
 // pattern the fill-state update above uses — so the result persists.
 if barstate.isconfirmed
     for f in fvgs
+        // Skip the zone's own formation bar (createdMs was assigned time[1]
+        // at creation): a tap/entry/confirm requires a later RETRACE
+        // (entry-models.md / confirmation.md) — without this every zone was
+        // born wick_tapped=1 and a clean displacement candle could
+        // confirm_close its own gap with zero retrace. The inversion and
+        // fill-state tests cannot fire on the formation bar by construction.
+        if f.createdMs == time[1]
+            continue
         bool runReaction = false
         if f.kind == "fvg"
             // A body close fully through the gap inverts the FVG: it flips
@@ -697,6 +735,7 @@ if barstate.isconfirmed
                 f.confirmClose := false
                 f.confirmDir := "none"
                 f.confirmMs := na
+                f.confirmStrict := false
                 f.chop15 := false
                 f.wickTapped := false
                 f.deepPx := na
@@ -770,6 +809,10 @@ bprStateRank(string s) =>
 
 if barstate.isconfirmed
     for b in bprs
+        // Skip the zone's own formation bar — same retrace rule as FVGs
+        // (a bull BPR whose top is the new gap's top was born "tapped").
+        if b.createdMs == time[1]
+            continue
         newState = b.state
         if b.dir == "bull"
             if close < b.bottom
@@ -1056,6 +1099,9 @@ barcolor(showStructCandles and not na(lastExtStruct) ? color.new(lastExtStruct.d
 // 3/3 grades A+, 2/3 grades B, <2 blocks. Killzone weighting lives in the
 // backend (in_killzone gate), not here.
 qRangeBars = math.max(1, int(QUALITY_RANGE_HOURS * 3600 / timeframe.in_seconds()))
+// TFs coarser than the window (4h, D) collapse qRangeBars to a single bar —
+// a one-bar "3h range" structurally reads tight, so the verdict goes "na".
+qTfCoarse = timeframe.in_seconds() > QUALITY_RANGE_HOURS * 3600
 qRange3h = ta.highest(qRangeBars) - ta.lowest(qRangeBars)
 
 qBarRng  = high - low
@@ -1079,7 +1125,7 @@ qPrevRng = high[1] - low[1]
 qEngulfing = bar_index >= 2 and not na(qPrevRng) and qPrevRng > 0 and high[1] >= high[2] and low[1] <= low[2] and math.abs(close[1] - open[1]) / qPrevRng >= QUALITY_CLEAN_BODY
 
 // Verdicts.
-qRangeQuality = bar_index < qRangeBars or na(atr14) or atr14 <= 0 ? "na" : qRange3h >= atr14 * QUALITY_RANGE_ATR_MULT ? "good" : "tight"
+qRangeQuality = qTfCoarse or bar_index < qRangeBars or na(atr14) or atr14 <= 0 ? "na" : qRange3h >= atr14 * QUALITY_RANGE_ATR_MULT ? "good" : "tight"
 qDisplacement = bar_index < QUALITY_DISP_BARS ? "na" : qCleanRecent >= QUALITY_DISP_CLEAN ? "clean" : qCleanRecent >= QUALITY_DISP_ACCEPT ? "acceptable" : "weak"
 qCandle = qDojiWickRecent > 0 ? "doji_wick" : qEngulfing ? "engulfing" : "normal"
 
@@ -1087,7 +1133,7 @@ qCandle = qDojiWickRecent > 0 ? "doji_wick" : qEngulfing ? "engulfing" : "normal
 qRegime = (qDisplacement == "clean" or qDisplacement == "acceptable") and qRangeQuality == "good" ? "displacement" : "consolidation"
 // Range vs normal — the 3h range in ATR units. Lanto judges range/gap size
 // against the instrument's own recent normal, not fixed points (PRICE 12:26).
-qRangeVsNormal = atr14 > 0 ? qRange3h / atr14 : na
+qRangeVsNormal = not qTfCoarse and atr14 > 0 ? qRange3h / atr14 : na
 
 // Directional coherence — efficiency ratio (net move / gross path travelled)
 // over a trailing window. Low = two-sided / round-trip whipsaw (stand aside,
@@ -1610,7 +1656,9 @@ renderZones() =>
             f = array.get(fvgs, i)
             isIfvg = f.kind == "ifvg"
             wantKind = isIfvg ? showIfvgs : showFvgs
-            skipTiny = hideTinyZones and f.sizeQuality == "tiny"
+            // iFVGs are never size/overlap-hidden — the inversion is the
+            // strategy's entry array (entry-models.md §Inversion).
+            skipTiny = hideTinyZones and f.sizeQuality == "tiny" and not isIfvg
             isDead = f.state == "invalidated" or f.state == "filled"
             if wantKind and not skipTiny and isDead and showHistorical and ghosts < maxZonesDrawn
                 // Dead: ghost from creation (or inversion) to mitigation.
@@ -1618,7 +1666,7 @@ renderZones() =>
                 gDead = not na(f.mitigatedMs) ? f.mitigatedMs : time
                 drawGhostZone(gLeft, f.top, f.bottom, gDead)
                 ghosts += 1
-            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+            if wantKind and not skipTiny and not isDead and drawn < maxZonesDrawn and not (hideOverlapZones and not isIfvg and zoneSwallowed(f.top, f.bottom, f.dir))
                 // Active. An iFVG re-anchors at its inversion bar; its
                 // pre-inversion life shows as a ghost behind it.
                 zLeft = isIfvg and not na(f.invertedMs) ? f.invertedMs : f.createdMs
@@ -1808,7 +1856,7 @@ renderChecklist() =>
     useGap = orGapVote != 0 and (orLvlVote == 0 or (not na(orGapMs) and not na(orLvlMs) and orGapMs > orLvlMs))
     orVote = not orLive ? 0 : useGap ? orGapVote : orLvlVote
     orRej = orSwept == "AS.H" ? asiaHRej : orSwept == "AS.L" ? asiaLRej : orSwept == "LO.H" ? lonHRej : orSwept == "LO.L" ? lonLRej : false
-    orPending = orMin < 0 or (orVote == 0 and orMin < 30)
+    orPending = orMin < 0 or orMin < OR_RESOLVE_MIN or (orVote == 0 and orMin < 30)
     // hands off: the open reverses an AGREED bias (daily-bias.md §4)
     handsOff = htfVote != 0 and ovVote == htfVote and orVote != 0 and not orPending and orVote != htfVote
     baseLean = htfVote != 0 and ovVote != 0 ? (htfVote == ovVote ? htfVote : 0) : (htfVote != 0 ? htfVote : ovVote)
@@ -1859,7 +1907,7 @@ renderChecklist() =>
             // panel must move to the next array, not dwell on a corpse.
             live = (f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted") and not f.chop15
             fDist = close > f.top ? close - f.top : close < f.bottom ? f.bottom - close : 0.0
-            if live and f.dir == sideStr and fDist <= nearLim and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+            if live and f.dir == sideStr and fDist <= nearLim and not (hideTinyZones and f.sizeQuality == "tiny" and f.kind != "ifvg") and not (hideOverlapZones and f.kind != "ifvg" and zoneSwallowed(f.top, f.bottom, f.dir))
                 sc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
                 if sc >= candScore
                     candScore := sc
@@ -1880,7 +1928,7 @@ renderChecklist() =>
             for f in fvgs
                 fLive = (f.state == "fresh" or f.state == "ce_tapped" or f.state == "inverted") and not f.chop15
                 lockDist = close > f.top ? close - f.top : close < f.bottom ? f.bottom - close : 0.0
-                if fLive and f.dir == sideStr and lockDist <= nearLim and math.abs(f.top - lockTop) < syminfo.mintick and math.abs(f.bottom - lockBot) < syminfo.mintick and not (hideTinyZones and f.sizeQuality == "tiny") and not (hideOverlapZones and zoneSwallowed(f.top, f.bottom, f.dir))
+                if fLive and f.dir == sideStr and lockDist <= nearLim and math.abs(f.top - lockTop) < syminfo.mintick and math.abs(f.bottom - lockBot) < syminfo.mintick and not (hideTinyZones and f.sizeQuality == "tiny" and f.kind != "ifvg") and not (hideOverlapZones and f.kind != "ifvg" and zoneSwallowed(f.top, f.bottom, f.dir))
                     lockSc = (f.state == "fresh" or f.state == "inverted" ? 1000.0 : 0.0) + (f.tookLiq ? 100.0 : 0.0) + math.min(f.dispScore, 99.0)
                     if lockSc >= candScore - 50.0
                         cand := f
@@ -1938,6 +1986,12 @@ renderChecklist() =>
         if st.dir == sideStr
             model := st.event == "mss" ? "MSS" : "TREND"
             modelMs := st.confirmedMs
+    // Aggressive inversion (entry-models.md §Inversion): a live in-dir iFVG
+    // IS the Reversal signal taken off the FVG break — swing structure may
+    // not have flipped yet, so don't blank the banner behind it.
+    if model == "" and hasCand and candKind == "ifvg"
+        model := "INV"
+        modelMs := candBornMs
 
     // grade (README: A+ = 3/3 bias AND good price AND clean entry; any
     // weaker element -> B; conflict / <2 votes / bad price -> no trade)
