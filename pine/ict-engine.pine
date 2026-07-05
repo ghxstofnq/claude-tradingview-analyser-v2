@@ -426,58 +426,66 @@ trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
     var bool swept = false
     var int sweptBarIndex = na
     var int sweptMs = na
-    var bool rejected = false
+    // Dual-emit (gate corpus, docs/intent/2026-07-05-gate-corpus.md): BOTH
+    // rejection variants are computed every bar so one recording carries both
+    // worlds. `rejected` (the legacy field) follows the lever; `rejWindow` is
+    // ALWAYS returned so the emit can carry it additively as rejected_rw.
+    var bool rejLegacy = false
+    var bool rejWindow = false
     // Reset when the tracked level is re-formed (its price changed) so the
     // sweep latch follows the current level, not a stale one from history.
     if levelPrice != levelPrice[1]
         swept := false
         sweptBarIndex := na
         sweptMs := na
-        rejected := false
+        rejLegacy := false
+        rejWindow := false
     if levelComplete and not na(levelPrice)
         if not swept
             if isHighSide and high > levelPrice
                 swept := true
                 sweptBarIndex := bar_index
                 sweptMs := time
-                rejected := close < levelPrice
+                rejLegacy := close < levelPrice
+                rejWindow := rejLegacy
             else if (not isHighSide) and low < levelPrice
                 swept := true
                 sweptBarIndex := bar_index
                 sweptMs := time
-                rejected := close > levelPrice
-        else if useReactionWindowRejection
-            // Reaction-window read (lever): rejected is the CURRENT read of
-            // whether price holds back through the level — revisable in BOTH
+                rejLegacy := close > levelPrice
+                rejWindow := rejLegacy
+        else
+            // Legacy 3-bar latch: a close back through the level within
+            // SWEEP_REJECTION_BARS flips rejLegacy on, permanently. sweptMs
+            // is left alone so it always reflects the original wick.
+            if not rejLegacy and not na(sweptBarIndex) and bar_index - sweptBarIndex <= SWEEP_REJECTION_BARS
+                if isHighSide and close < levelPrice
+                    rejLegacy := true
+                else if (not isHighSide) and close > levelPrice
+                    rejLegacy := true
+            // Reaction-window read: rejWindow is the CURRENT read of whether
+            // price holds back through the level — revisable in BOTH
             // directions for SWEEP_REACTION_WINDOW_MS after the sweep, frozen
-            // when the window closes. One transient close no longer fixes the
-            // verdict in either direction. A much-later decisive re-break
-            // does NOT re-open it (new-interaction semantics are a future
-            // derivation). sweptMs is left alone. Derivation doc §1.
+            // when the window closes. A much-later decisive re-break does NOT
+            // re-open it (new-interaction semantics are a future derivation).
+            // Derivation doc §1.
             if not na(sweptMs) and time - sweptMs <= SWEEP_REACTION_WINDOW_MS
-                rejected := isHighSide ? close < levelPrice : close > levelPrice
-        else if not rejected and not na(sweptBarIndex) and bar_index - sweptBarIndex <= SWEEP_REJECTION_BARS
-            // Post-sweep window: a close back through the level within
-            // SWEEP_REJECTION_BARS still flips rejected on. sweptMs is left
-            // alone so it always reflects the original wick, not the close.
-            if isHighSide and close < levelPrice
-                rejected := true
-            else if (not isHighSide) and close > levelPrice
-                rejected := true
-    [swept, sweptMs, rejected]
+                rejWindow := isHighSide ? close < levelPrice : close > levelPrice
+    rejected = useReactionWindowRejection ? rejWindow : rejLegacy
+    [swept, sweptMs, rejected, rejWindow]
 
-[asiaHSwept, asiaHSweptMs, asiaHRej] = trackSweep(asiaH, true, not inAsia)
-[asiaLSwept, asiaLSweptMs, asiaLRej] = trackSweep(asiaL, false, not inAsia)
-[lonHSwept, lonHSweptMs, lonHRej] = trackSweep(lonH, true, not inLondon)
-[lonLSwept, lonLSweptMs, lonLRej] = trackSweep(lonL, false, not inLondon)
-[nyamHSwept, nyamHSweptMs, nyamHRej] = trackSweep(nyamH, true, not inNyam)
-[nyamLSwept, nyamLSweptMs, nyamLRej] = trackSweep(nyamL, false, not inNyam)
-[nypmHSwept, nypmHSweptMs, nypmHRej] = trackSweep(nypmH, true, not inNypm)
-[nypmLSwept, nypmLSweptMs, nypmLRej] = trackSweep(nypmL, false, not inNypm)
-[pdhSwept, pdhSweptMs, pdhRej] = trackSweep(pdh, true, true)
-[pdlSwept, pdlSweptMs, pdlRej] = trackSweep(pdl, false, true)
-[pwhSwept, pwhSweptMs, pwhRej] = trackSweep(pwh, true, true)
-[pwlSwept, pwlSweptMs, pwlRej] = trackSweep(pwl, false, true)
+[asiaHSwept, asiaHSweptMs, asiaHRej, asiaHRejRw] = trackSweep(asiaH, true, not inAsia)
+[asiaLSwept, asiaLSweptMs, asiaLRej, asiaLRejRw] = trackSweep(asiaL, false, not inAsia)
+[lonHSwept, lonHSweptMs, lonHRej, lonHRejRw] = trackSweep(lonH, true, not inLondon)
+[lonLSwept, lonLSweptMs, lonLRej, lonLRejRw] = trackSweep(lonL, false, not inLondon)
+[nyamHSwept, nyamHSweptMs, nyamHRej, nyamHRejRw] = trackSweep(nyamH, true, not inNyam)
+[nyamLSwept, nyamLSweptMs, nyamLRej, nyamLRejRw] = trackSweep(nyamL, false, not inNyam)
+[nypmHSwept, nypmHSweptMs, nypmHRej, nypmHRejRw] = trackSweep(nypmH, true, not inNypm)
+[nypmLSwept, nypmLSweptMs, nypmLRej, nypmLRejRw] = trackSweep(nypmL, false, not inNypm)
+[pdhSwept, pdhSweptMs, pdhRej, pdhRejRw] = trackSweep(pdh, true, true)
+[pdlSwept, pdlSweptMs, pdlRej, pdlRejRw] = trackSweep(pdl, false, true)
+[pwhSwept, pwhSweptMs, pwhRej, pwhRejRw] = trackSweep(pwh, true, true)
+[pwlSwept, pwlSweptMs, pwlRej, pwlRejRw] = trackSweep(pwl, false, true)
 
 // ── Overnight direction + NY open-reaction (Pillar 1 evidence) ────────
 // Overnight (Asia 18:00 -> London 09:30): open captured at Asia start, close
@@ -1080,10 +1088,18 @@ trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand
 // event confirms, updated every confirmed bar. Unlike pivots (which confirm
 // SWING_*_LEN bars late) these are live the bar they print: the structural
 // stop anchor the strategy's §6 "stop at structural invalidation" wants.
-var float legHigh = na
-var int legHighMs = na
-var float legLow = na
-var int legLowMs = na
+// Dual-emit (gate corpus): BOTH leg sets are tracked every bar — the legacy
+// break-bar-reset set and the origin-anchored set — so one recording carries
+// both worlds. The lever picks which set the render + legacy emit read; the
+// origin set is ALWAYS emitted additively as leg_*_org.
+var float legHighL = na
+var int legHighLMs = na
+var float legLowL = na
+var int legLowLMs = na
+var float legHighO = na
+var int legHighOMs = na
+var float legLowO = na
+var int legLowOMs = na
 
 if barstate.isconfirmed
     atrBand = STRUCT_ATR_MULT * atr17
@@ -1098,16 +1114,21 @@ if barstate.isconfirmed
         if array.size(structuresInt) > STRUCT_MAX_PER_TIER
             array.shift(structuresInt)
     if array.size(extEvs) > 0
-        // Direction-aware reset (lever useOriginLegAnchor): the protected /
-        // strong extreme is the ORIGIN of the leg that produced the break —
-        // which is exactly the running extreme accumulated since the last
-        // opposite event — NOT the break bar, which sits at the far end of
-        // the leg. Only the with-trend side starts fresh at the break bar.
-        // Dual-direction bars keep the legacy both-reset. Consecutive
-        // same-direction events keep the WHOLE structure's origin (the
-        // documented choice; the trail-to-recent-swing variant needs its own
-        // fold). Authority: derivation doc §2 — the renderLeg comment below
-        // already states this convention; the legacy reset contradicted it.
+        // Legacy set: both extremes snap to the break bar.
+        legHighL := high
+        legHighLMs := time
+        legLowL := low
+        legLowLMs := time
+        // Origin set — direction-aware reset: the protected / strong extreme
+        // is the ORIGIN of the leg that produced the break — which is exactly
+        // the running extreme accumulated since the last opposite event — NOT
+        // the break bar, which sits at the far end of the leg. Only the
+        // with-trend side starts fresh at the break bar. Dual-direction bars
+        // keep the both-reset. Consecutive same-direction events keep the
+        // WHOLE structure's origin (the documented choice; the
+        // trail-to-recent-swing variant needs its own fold). Authority:
+        // derivation doc §2 — the renderLeg comment below already states this
+        // convention; the legacy reset contradicts it.
         bool evBull = false
         bool evBear = false
         for ev in extEvs
@@ -1115,31 +1136,44 @@ if barstate.isconfirmed
                 evBull := true
             else
                 evBear := true
-        if useOriginLegAnchor and not (evBull and evBear)
+        if not (evBull and evBear)
             if evBull
-                legHigh := high
-                legHighMs := time
-                if na(legLow)
-                    legLow := low
-                    legLowMs := time
+                legHighO := high
+                legHighOMs := time
+                if na(legLowO)
+                    legLowO := low
+                    legLowOMs := time
             else
-                legLow := low
-                legLowMs := time
-                if na(legHigh)
-                    legHigh := high
-                    legHighMs := time
+                legLowO := low
+                legLowOMs := time
+                if na(legHighO)
+                    legHighO := high
+                    legHighOMs := time
         else
-            legHigh := high
-            legHighMs := time
-            legLow := low
-            legLowMs := time
+            legHighO := high
+            legHighOMs := time
+            legLowO := low
+            legLowOMs := time
     else
-        if na(legHigh) or high > legHigh
-            legHigh := high
-            legHighMs := time
-        if na(legLow) or low < legLow
-            legLow := low
-            legLowMs := time
+        if na(legHighL) or high > legHighL
+            legHighL := high
+            legHighLMs := time
+        if na(legLowL) or low < legLowL
+            legLowL := low
+            legLowLMs := time
+        if na(legHighO) or high > legHighO
+            legHighO := high
+            legHighOMs := time
+        if na(legLowO) or low < legLowO
+            legLowO := low
+            legLowOMs := time
+
+// Lever-selected leg view — everything downstream (render, legacy emit)
+// reads these exactly as before.
+legHigh = useOriginLegAnchor ? legHighO : legHighL
+legHighMs = useOriginLegAnchor ? legHighOMs : legHighLMs
+legLow = useOriginLegAnchor ? legLowO : legLowL
+legLowMs = useOriginLegAnchor ? legLowOMs : legLowLMs
 
 // LuxAlgo-style structure-state candles (default OFF — overrides the
 // chart's own candle colors): full accent while an MSS regime is active,
@@ -1207,7 +1241,7 @@ qCoherence = bar_index < qCohBars or qGross <= 0 ? na : math.abs(close - close[q
 // ── Emitters ─────────────────────────────────────────────────────────
 // Emit one `level` record and, when it has been swept, the matching `sweep`
 // record. Skips a level whose price is na. Returns the next free row.
-emitLevelAndSweep(int row, string name, float price, string state, int formedMs, bool isHighSide, bool swept, int sweptMs, bool rejected) =>
+emitLevelAndSweep(int row, string name, float price, string state, int formedMs, bool isHighSide, bool swept, int sweptMs, bool rejected, bool rejectedRw) =>
     int next = row
     if not na(price)
         levelPayload = "name=" + name +
@@ -1224,6 +1258,7 @@ emitLevelAndSweep(int row, string name, float price, string state, int formedMs,
                            "|side=" + (isHighSide ? "buy" : "sell") +
                            "|swept_ms=" + str.tostring(na(sweptMs) ? 0 : sweptMs) +
                            "|rejected=" + (rejected ? "1" : "0") +
+                           "|rejected_rw=" + (rejectedRw ? "1" : "0") +
                            "|significance=session_level"
             table.cell(evidence, 0, next, "sweep")
             table.cell(evidence, 1, next, sweepPayload)
@@ -1353,7 +1388,9 @@ emitLiquidity(int row, Liquidity p) =>
 // Returns the next free row.
 emitQuality(int row) =>
     legPart = (na(legHigh) ? "" : "|leg_high=" + str.tostring(legHigh, format.mintick) + "|leg_high_ms=" + str.tostring(na(legHighMs) ? 0 : legHighMs)) +
-              (na(legLow) ? "" : "|leg_low=" + str.tostring(legLow, format.mintick) + "|leg_low_ms=" + str.tostring(na(legLowMs) ? 0 : legLowMs))
+              (na(legLow) ? "" : "|leg_low=" + str.tostring(legLow, format.mintick) + "|leg_low_ms=" + str.tostring(na(legLowMs) ? 0 : legLowMs)) +
+              (na(legHighO) ? "" : "|leg_high_org=" + str.tostring(legHighO, format.mintick) + "|leg_high_org_ms=" + str.tostring(na(legHighOMs) ? 0 : legHighOMs)) +
+              (na(legLowO) ? "" : "|leg_low_org=" + str.tostring(legLowO, format.mintick) + "|leg_low_org_ms=" + str.tostring(na(legLowOMs) ? 0 : legLowOMs))
     payload = "range_3h=" + str.tostring(qRange3h, format.mintick) +
               "|range_quality=" + qRangeQuality +
               "|displacement=" + qDisplacement +
@@ -1395,18 +1432,18 @@ if barstate.islast
     // C18: clear the data region before rewriting so a shrink can't leave stale
     // tail rows from a prior larger emit for the parser to read.
     table.clear(evidence, 0, 1, 1, MAX_ROWS)
-    row := emitLevelAndSweep(row, "AS.H", asiaH, asiaState, asiaHMs, true, asiaHSwept, asiaHSweptMs, asiaHRej)
-    row := emitLevelAndSweep(row, "AS.L", asiaL, asiaState, asiaLMs, false, asiaLSwept, asiaLSweptMs, asiaLRej)
-    row := emitLevelAndSweep(row, "LO.H", lonH, lonState, lonHMs, true, lonHSwept, lonHSweptMs, lonHRej)
-    row := emitLevelAndSweep(row, "LO.L", lonL, lonState, lonLMs, false, lonLSwept, lonLSweptMs, lonLRej)
-    row := emitLevelAndSweep(row, "NYAM.H", nyamH, nyamState, nyamHMs, true, nyamHSwept, nyamHSweptMs, nyamHRej)
-    row := emitLevelAndSweep(row, "NYAM.L", nyamL, nyamState, nyamLMs, false, nyamLSwept, nyamLSweptMs, nyamLRej)
-    row := emitLevelAndSweep(row, "NYPM.H", nypmH, nypmState, nypmHMs, true, nypmHSwept, nypmHSweptMs, nypmHRej)
-    row := emitLevelAndSweep(row, "NYPM.L", nypmL, nypmState, nypmLMs, false, nypmLSwept, nypmLSweptMs, nypmLRej)
-    row := emitLevelAndSweep(row, "PDH", pdh, "complete", na, true, pdhSwept, pdhSweptMs, pdhRej)
-    row := emitLevelAndSweep(row, "PDL", pdl, "complete", na, false, pdlSwept, pdlSweptMs, pdlRej)
-    row := emitLevelAndSweep(row, "PWH", pwh, "complete", na, true, pwhSwept, pwhSweptMs, pwhRej)
-    row := emitLevelAndSweep(row, "PWL", pwl, "complete", na, false, pwlSwept, pwlSweptMs, pwlRej)
+    row := emitLevelAndSweep(row, "AS.H", asiaH, asiaState, asiaHMs, true, asiaHSwept, asiaHSweptMs, asiaHRej, asiaHRejRw)
+    row := emitLevelAndSweep(row, "AS.L", asiaL, asiaState, asiaLMs, false, asiaLSwept, asiaLSweptMs, asiaLRej, asiaLRejRw)
+    row := emitLevelAndSweep(row, "LO.H", lonH, lonState, lonHMs, true, lonHSwept, lonHSweptMs, lonHRej, lonHRejRw)
+    row := emitLevelAndSweep(row, "LO.L", lonL, lonState, lonLMs, false, lonLSwept, lonLSweptMs, lonLRej, lonLRejRw)
+    row := emitLevelAndSweep(row, "NYAM.H", nyamH, nyamState, nyamHMs, true, nyamHSwept, nyamHSweptMs, nyamHRej, nyamHRejRw)
+    row := emitLevelAndSweep(row, "NYAM.L", nyamL, nyamState, nyamLMs, false, nyamLSwept, nyamLSweptMs, nyamLRej, nyamLRejRw)
+    row := emitLevelAndSweep(row, "NYPM.H", nypmH, nypmState, nypmHMs, true, nypmHSwept, nypmHSweptMs, nypmHRej, nypmHRejRw)
+    row := emitLevelAndSweep(row, "NYPM.L", nypmL, nypmState, nypmLMs, false, nypmLSwept, nypmLSweptMs, nypmLRej, nypmLRejRw)
+    row := emitLevelAndSweep(row, "PDH", pdh, "complete", na, true, pdhSwept, pdhSweptMs, pdhRej, pdhRejRw)
+    row := emitLevelAndSweep(row, "PDL", pdl, "complete", na, false, pdlSwept, pdlSweptMs, pdlRej, pdlRejRw)
+    row := emitLevelAndSweep(row, "PWH", pwh, "complete", na, true, pwhSwept, pwhSweptMs, pwhRej, pwhRejRw)
+    row := emitLevelAndSweep(row, "PWL", pwl, "complete", na, false, pwlSwept, pwlSweptMs, pwlRej, pwlRejRw)
     for f in fvgs
         row := emitFvg(row, f)
     for b in bprs

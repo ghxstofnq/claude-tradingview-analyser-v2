@@ -35,7 +35,9 @@ const ROW_FIELD_TYPES = {
   // V3 adds bar_ms (open time of the bar the emit reflects) + bar_closed.
   meta: { schema: 'num', count: 'num', emit_ms: 'num', bar_ms: 'num', bar_closed: 'bool' },
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },
-  sweep: { price: 'num', swept_ms: 'num', rejected: 'bool' },
+  // Dual-emit (gate corpus): rejected_rw = the reaction-window variant of the
+  // rejection read, always emitted alongside the lever-selected `rejected`.
+  sweep: { price: 'num', swept_ms: 'num', rejected: 'bool', rejected_rw: 'bool' },
   // V2 (schema=2) added per-zone lifecycle fields (entered_ms..entry_state) on
   // both fvg and bpr. They're additive — V1 emits leave them absent and the
   // parser drops absent keys. String-typed enums (size_quality, confirm_dir,
@@ -73,7 +75,7 @@ const ROW_FIELD_TYPES = {
   liquidity: { price: 'num', swept: 'bool' },
   // V2 dropped has_chop, added session (str default). atr_14/17 stay num.
   // V3 adds the current leg's running extremes (stop-anchor evidence).
-  quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num', leg_high: 'num', leg_low: 'num', leg_high_ms: 'num', leg_low_ms: 'num', range_vs_normal: 'num', coherence: 'num', overnight_net: 'num', or_high: 'num', or_low: 'num' },
+  quality: { range_3h: 'num', has_chop: 'bool', atr_14: 'num', atr_17: 'num', leg_high: 'num', leg_low: 'num', leg_high_ms: 'num', leg_low_ms: 'num', leg_high_org: 'num', leg_low_org: 'num', leg_high_org_ms: 'num', leg_low_org_ms: 'num', range_vs_normal: 'num', coherence: 'num', overnight_net: 'num', or_high: 'num', or_low: 'num' },
 };
 
 // U1: the indicator rounds ce (FVG/BPR midpoint) to mintick before emitting, so

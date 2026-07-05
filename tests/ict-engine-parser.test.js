@@ -229,6 +229,22 @@ test('parseIctEngineTable accepts schema=3 and coerces the V3 additive fields', 
   assert.equal(parsed.quality.leg_low_ms, 1781295000000);
 });
 
+test('parseIctEngineTable coerces the gate-corpus dual-emit fields (rejected_rw, leg_*_org)', () => {
+  const rows = [
+    'meta | schema=4|count=2|emit_ny=09:44:00|emit_ms=1783269000000|tf=1|symbol=MNQ1!|bar_ms=1783268940000|bar_closed=1',
+    'level | name=LO.H|price=30040.75|state=complete|swept=1|formed_ms=1783252000000',
+    'sweep | target=LO.H|price=30040.75|side=buy|swept_ms=1783268640000|rejected=0|rejected_rw=1|significance=session_level',
+    'quality | range_3h=120.5|range_quality=good|displacement=clean|candle=normal|atr_14=12.25|atr_17=13.5|session=ny_am|leg_high=29920.5|leg_low=29744.25|leg_high_ms=1781290000000|leg_low_ms=1781295000000|leg_high_org=29985.75|leg_low_org=29744.25|leg_high_org_ms=1781288000000|leg_low_org_ms=1781295000000',
+  ];
+  const parsed = parseIctEngineTable(rows);
+  assert.equal(parsed.sweeps[0].rejected, false);
+  assert.equal(parsed.sweeps[0].rejected_rw, true);
+  assert.equal(parsed.quality.leg_high_org, 29985.75);
+  assert.equal(parsed.quality.leg_low_org, 29744.25);
+  assert.equal(parsed.quality.leg_high_org_ms, 1781288000000);
+  assert.equal(parsed.quality.leg_low_org_ms, 1781295000000);
+});
+
 test('parseRow coerces the 3 FVG forming candles (V3) to numbers', () => {
   const r = parseRow('fvg | kind=fvg|dir=bull|top=21000|bottom=20980|created_ms=1781010000000|c1o=20970|c1h=20980|c1l=20960|c1c=20975|c2o=20982|c2h=21010|c2l=20981|c2c=21005|c3o=21006|c3h=21020|c3l=21000|c3c=21015');
   assert.equal(r.fields.c1h, 20980);
