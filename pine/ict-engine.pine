@@ -65,6 +65,14 @@ REACT_ATR_MULT = 0.5
 // only; 3 captures the typical ICT "next-1-or-2-bar" reversal.
 SWEEP_REJECTION_BARS = 3
 
+// Reaction-window rejection (lever `useReactionWindowRejection`): when
+// enabled, the reject-vs-accept verdict is a REVISABLE read over this window
+// after the sweep, frozen at window end — replacing the permanent 3-bar
+// latch. 15 min = the conservative end of Lanto's 15-30 min reaction window
+// (BIAS 23:21/27:42) and his 10-15 min failed-interaction bound (PRICE
+// 25:34). Authority: derivation doc 2026-07-05 §1.
+SWEEP_REACTION_WINDOW_MS = 15 * 60 * 1000
+
 // Pillar-2 quality-metric tuning (v3, 2026-05-25 — doc-literal rewrite):
 //   - Range threshold: % of price, not ATR multiple, so it scales across TFs.
 //   - Displacement:    clean-bar count in a 6-bar window.
@@ -223,6 +231,13 @@ showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
 showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
 showSessShade  = input.bool(false, "Killzone boxes",     group = GRP_VIZ)
 showStructCandles = input.bool(false, "Structure-tinted candles", group = GRP_VIZ)
+
+// Fold-gated behavior levers — default OFF: emitted evidence keeps the legacy
+// semantics until each lever is validated by a full-corpus fold. Authority:
+// docs/research/2026-07-05-sweep-rejection-and-leg-origin-derivation.md.
+GRP_LEVERS = "Behavior levers (fold-gated, default off)"
+useOriginLegAnchor = input.bool(false, "Leg SH/SL anchors at leg origin", group = GRP_LEVERS, tooltip = "Strong extreme = the origin swing of the leg that produced the break, not the break bar. Changes emitted leg_high/leg_low — enable only after the fold.")
+useReactionWindowRejection = input.bool(false, "Sweep rejection = 15-min reaction-window read", group = GRP_LEVERS, tooltip = "rejected is revisable for 15 min after the sweep, then frozen — replaces the permanent 3-bar latch. Changes emitted sweep.rejected — enable only after the fold.")
 showInternal   = input.bool(false, "Show internal tier", group = GRP_VIZ)
 showHistorical = input.bool(false, "Show historical",    group = GRP_VIZ)
 // Visual-only filter: tiny zones (width < 0.5x ATR14 at creation) stay in
@@ -431,6 +446,16 @@ trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
                 sweptBarIndex := bar_index
                 sweptMs := time
                 rejected := close > levelPrice
+        else if useReactionWindowRejection
+            // Reaction-window read (lever): rejected is the CURRENT read of
+            // whether price holds back through the level — revisable in BOTH
+            // directions for SWEEP_REACTION_WINDOW_MS after the sweep, frozen
+            // when the window closes. One transient close no longer fixes the
+            // verdict in either direction. A much-later decisive re-break
+            // does NOT re-open it (new-interaction semantics are a future
+            // derivation). sweptMs is left alone. Derivation doc §1.
+            if not na(sweptMs) and time - sweptMs <= SWEEP_REACTION_WINDOW_MS
+                rejected := isHighSide ? close < levelPrice : close > levelPrice
         else if not rejected and not na(sweptBarIndex) and bar_index - sweptBarIndex <= SWEEP_REJECTION_BARS
             // Post-sweep window: a close back through the level within
             // SWEEP_REJECTION_BARS still flips rejected on. sweptMs is left
@@ -1073,10 +1098,41 @@ if barstate.isconfirmed
         if array.size(structuresInt) > STRUCT_MAX_PER_TIER
             array.shift(structuresInt)
     if array.size(extEvs) > 0
-        legHigh := high
-        legHighMs := time
-        legLow := low
-        legLowMs := time
+        // Direction-aware reset (lever useOriginLegAnchor): the protected /
+        // strong extreme is the ORIGIN of the leg that produced the break —
+        // which is exactly the running extreme accumulated since the last
+        // opposite event — NOT the break bar, which sits at the far end of
+        // the leg. Only the with-trend side starts fresh at the break bar.
+        // Dual-direction bars keep the legacy both-reset. Consecutive
+        // same-direction events keep the WHOLE structure's origin (the
+        // documented choice; the trail-to-recent-swing variant needs its own
+        // fold). Authority: derivation doc §2 — the renderLeg comment below
+        // already states this convention; the legacy reset contradicted it.
+        bool evBull = false
+        bool evBear = false
+        for ev in extEvs
+            if ev.dir == "bull"
+                evBull := true
+            else
+                evBear := true
+        if useOriginLegAnchor and not (evBull and evBear)
+            if evBull
+                legHigh := high
+                legHighMs := time
+                if na(legLow)
+                    legLow := low
+                    legLowMs := time
+            else
+                legLow := low
+                legLowMs := time
+                if na(legHigh)
+                    legHigh := high
+                    legHighMs := time
+        else
+            legHigh := high
+            legHighMs := time
+            legLow := low
+            legLowMs := time
     else
         if na(legHigh) or high > legHigh
             legHigh := high

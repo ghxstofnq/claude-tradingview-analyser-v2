@@ -55,11 +55,16 @@ function buildPillar2(engine, blocked, sessionChain = {}) {
   const p2 = engine?.pillar2 ?? {};
   const lockedP2 = sessionChain?.pillar2 ?? {};
   const current = p2.current_tf ?? {};
+  // chop15m stays derived for display/tests, but it is no longer a blocker:
+  // schema 4 stripped chop_15m from the quality row so this could never fire,
+  // and the chop cutoff is enforced twice elsewhere — Pine bakes it into
+  // confirm_close (a chopped zone never confirms) and the walkers carry their
+  // own TAP_CONFIRMATION_TIMEOUT_MS. See
+  // docs/research/2026-07-05-sweep-rejection-and-leg-origin-derivation.md §3.
   const chop15m = p2.chop_15m === true || p2.chop15m === true || p2.chop_15m === 1 || current.chop_15m === true;
   const blockers = [...blocked];
   if (!current.candle) blockers.push('missing_candle_quality');
   if (!current.displacement) blockers.push('missing_displacement');
-  if (chop15m) blockers.push('chop_15m');
   if (['blocked', 'block', 'poor', 'no-trade', 'no_trade'].includes(String(lockedP2.status ?? lockedP2.verdict ?? '').toLowerCase())) {
     blockers.push('pillar2_prep_blocked');
   }

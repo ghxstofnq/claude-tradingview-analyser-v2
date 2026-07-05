@@ -435,3 +435,26 @@ No emitted key changed; parser/gates/walker untouched. Deferred pending
 strategy derivation: sweep rejected-latch semantics, leg-origin anchor,
 merged-label price, disp_atr ATR snapshot, JS dead-code cleanup (bar_closed,
 chop_15m contract, entry_state filter).
+
+## 2026-07-05 — Deferred audit items: derived semantics shipped behind fold-gated levers
+
+Transcript+Discord derivation (quote-verified; full authority in
+docs/research/2026-07-05-sweep-rejection-and-leg-origin-derivation.md) settled the two
+deferred behavior items from the Pine audit, and both ship DEFAULT-OFF as Pine inputs
+(GRP_LEVERS) pending the full-corpus fold:
+1. Sweep rejection = a revisable 15-min reaction-window read (`useReactionWindowRejection`),
+   replacing the permanent 3-bar latch. One transient close no longer fixes the verdict in
+   either direction; frozen at window end; a much-later re-break stays a future
+   new-interaction derivation. Ruling basis: BIAS 39:20 / 30:30 / 38:23 / 20:33, PRICE 27:25
+   / 25:34, Discord 06-11 11:06 two-outcome zone, 06-22 "until 1:30ET" deadline posture.
+2. Leg SH/SL anchors at the leg ORIGIN (`useOriginLegAnchor`) — direction-aware reset keeps
+   the opposite accumulated extreme (which at event time IS the origin), with-trend side
+   restarts at the break bar; dual-direction bars keep legacy. Consecutive same-direction
+   events anchor at the WHOLE structure's origin (documented choice; trail variant would
+   need its own fold). The renderLeg comment already stated this convention; the reset code
+   contradicted it.
+Enablement gate for BOTH: full-corpus fold old-vs-new (blocked on the corpus re-record) +
+two hand-graded case days for the rejection lever. Also shipped un-gated: the
+build-strategy-context chop_15m blocker deleted (could never fire post-schema-4; chop is
+enforced in Pine confirm gating + walker tap timeout). bar_closed kept as honest metadata;
+the bridge entry_state filter left documented as V2 test back-compat (removal = test rewrite).
