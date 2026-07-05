@@ -414,3 +414,24 @@ visuals (checklist panel + ✓ confirm marker) key on confirm_close and carry
 a visual-aid-only disclaimer — the walker chain remains the single setup
 brain. Fold caveat: backtest corpus currently 1 run (wiped in cleanup);
 re-record requires the app stopped.
+
+## 2026-07-05 — Pine audit batch 1: 9 confirmed defects fixed (values-only, schema stays 4)
+
+A 74-agent adversarially-verified audit of pine/ict-engine.pine confirmed 15
+defects; the 9 small, authority-backed ones ship in one PR: (A1) panel NY-open
+vote pending until minute 15 (daily-bias.md "first 15-30 minutes"; mirrors
+open-reaction-resolver's boundary); (A2) panel model falls back to INV for a
+live in-direction iFVG candidate (entry-models.md aggressive inversion); (A3)
+FVG/BPR mitigation loops skip the zone's own formation bar — kills
+wick_tapped=1-from-birth and zero-retrace same-bar confirm_close; (A4)
+overnight ovHi/ovLo exclude the PRIOR cycle's London extremes during the Asia
+window (un-skews overnight_dir for the 02:00 ET London brief via
+overnightVote); (B1) orSwept = most recent in-window sweep, not first-latch;
+(B2) confirmStrict cleared on inversion; (B3) live iFVGs exempt from
+hideTinyZones/zoneSwallowed (render, candidate scan, hysteresis lock); (B4)
+range_quality/range_vs_normal go "na" on TFs coarser than the 3h window;
+(B5) opening-range vars + gap vote cleared at the 18:00 trading-day edge.
+No emitted key changed; parser/gates/walker untouched. Deferred pending
+strategy derivation: sweep rejected-latch semantics, leg-origin anchor,
+merged-label price, disp_atr ATR snapshot, JS dead-code cleanup (bar_closed,
+chop_15m contract, entry_state filter).
