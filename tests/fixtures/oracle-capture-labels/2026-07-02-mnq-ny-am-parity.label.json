@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-07-02-mnq-ny-am-parity",
+  "fixtureSource": "gate-corpus-parity-proof",
+  "label_status": "capture_only",
+  "reviewer": "gate-corpus-2026-07-05",
+  "source_message": "Parity-proof recording for the gate corpus (docs/intent/2026-07-05-gate-corpus.md step 2). Capture-only: no model/side/entry expectations. This day has real live walker-inputs on disk (state/session/2026-07-02/ny-am/) to diff against bar-by-bar.",
+  "trade_date": "2026-07-02",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY AM",
+  "expected": {
+    "outcome": "unknown",
+    "model": null,
+    "side": null,
+    "grade": null,
+    "entry": null,
+    "stop": null,
+    "tp1": null,
+    "tp2": null
+  }
+}

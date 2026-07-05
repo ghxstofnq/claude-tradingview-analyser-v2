@@ -8,7 +8,7 @@ import {
 } from '../cli/lib/live-readiness.js';
 
 const healthyEngine = {
-  meta: { schema_supported: true, stale: false },
+  meta: { schema_supported: true, stale: false, code_rev: 1 },
   rows: [{ evidenceRef: 'pd.large.bull', kind: 'fvg', dir: 'bull' }],
 };
 
@@ -50,7 +50,7 @@ test('evaluateLiveReadiness accepts raw parsed ICT Engine V2 shape from live tab
     engine: {
       schema: 2,
       schema_supported: true,
-      meta: { schema: 2, emit_ms: Date.parse('2026-06-02T22:12:27.730Z'), tf: '1', symbol: 'MNQ1!' },
+      meta: { schema: 2, emit_ms: Date.parse('2026-06-02T22:12:27.730Z'), tf: '1', symbol: 'MNQ1!', code_rev: 1 },
       levels: [{ name: 'PDH', price: 30763.5 }],
       fvgs: [{ kind: 'fvg', dir: 'bull', top: 30718.5, bottom: 30705.5 }],
       bprs: [],
@@ -86,6 +86,7 @@ test('evaluateLiveReadiness blocks live trading on stale or wrong source instead
     'chart_symbol_not_mnq_mes',
     'unexpected_timeframe',
     'ict_engine_study_missing_or_unknown',
+    'pine_code_rev_mismatch',
     'unsupported_ict_schema',
     'stale_source',
     'missing_ict_engine_rows',
@@ -123,7 +124,7 @@ test('classifyEvaluationAvailability differentiates source-health failure from c
 });
 
 test('buildLiveDryRunRecord never creates an actionable setup when readiness is blocked', () => {
-  const readiness = evaluateLiveReadiness(baseInputs({ engine: { meta: { schema_supported: true, stale: true }, rows: [{ kind: 'fvg' }] } }));
+  const readiness = evaluateLiveReadiness(baseInputs({ engine: { meta: { schema_supported: true, stale: true, code_rev: 1 }, rows: [{ kind: 'fvg' }] } }));
   const record = buildLiveDryRunRecord({ readiness, truth: { bestPacket: { entry: { price: 1 } }, finalVerdict: 'manual_candidate' } });
 
   assert.equal(record.mode, 'live-dry-run');
