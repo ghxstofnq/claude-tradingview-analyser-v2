@@ -88,7 +88,7 @@ function runOne(date, session) {
     // BACKTEST_LEADER makes the engine stamp the index entry's symbol (headless
     // passes no symbol arg); without it the entry is symbol:null and the fold,
     // which filters symbol===MNQ1!, would silently skip the run.
-    const p = spawn("node", [HEADLESS, date, session, "auto"], { cwd: REPO, env: { ...process.env, BACKTEST_LEADER: SYMBOL } });
+    const p = spawn("node", [HEADLESS, date, session, "auto"], { cwd: REPO, env: { ...process.env, BACKTEST_LEADER: SYMBOL, GOFNQ_CORPUS_RECORD_ALL: "1" } });
     let err = "";
     p.stdout.on("data", () => {}); // drain
     p.stderr.on("data", (b) => { err += b.toString(); });

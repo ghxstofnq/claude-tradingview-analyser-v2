@@ -20,6 +20,7 @@ import path from "node:path";
 // code actually reads. Sorted for stable, diffable output.
 export const KNOWN_GOFNQ_KEYS = Object.freeze([
   "GOFNQ_BRIEF_DIR_OVERRIDE",
+  "GOFNQ_CORPUS_RECORD_ALL",
   "GOFNQ_D5_ELEVATION_RESPECTS_CAP",
   "GOFNQ_FAITHFUL_LEADER",
   "GOFNQ_FRESH_DRAW_HOLD",

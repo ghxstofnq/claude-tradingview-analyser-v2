@@ -121,3 +121,53 @@ test("no-context label: a genuine hard reason stays data_gap; absent payloads fa
   assert.equal(await chainStatusForReason("session_closed"), "no_context:data_gap");
   assert.equal(await chainStatusForReason(null), "no_context:data_gap");
 });
+
+// Gate-corpus mode: a no-trade context must still record its tape (the fold
+// needs every session's bars — skipping no-trade days is corpus survivorship),
+// while genuine capture failures keep short-circuiting.
+async function corpusRun(reason) {
+  const dir = tmpStateDir("bt-corpus-");
+  let recorded = 0;
+  const seenP1 = [];
+  const deps = {
+    loadDayContext: async () => null,
+    runDirectBrief: async ({ runId }) => {
+      const sessionDir = resolveRunDir({ stateDir: dir, runId });
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionDir, "brief-payloads.json"), JSON.stringify([{ symbol: "MNQ1!", pillar_grade: "no-trade", no_trade_reason: reason, pillar2_verdict: reason === "pillar2_poor" ? "poor" : "good" }]));
+      return null;
+    },
+    recordEntries: async ({ context }) => {
+      recorded += 1;
+      const entries = [entryAt("09:35"), entryAt("09:46")];
+      for (const e of entries) e.inputs.session_state = context.session_state;
+      return { entries, warnings: [] };
+    },
+    truthFn: async ({ inputs }) => {
+      seenP1.push(inputs.session_state?.pillar1?.status ?? null);
+      return { walkers: [], bestPacket: null, surfacePayload: null };
+    },
+    gradeFn: () => ({ outcome: "pending" }),
+  };
+  process.env.GOFNQ_CORPUS_RECORD_ALL = "1";
+  try {
+    const { summary } = await runBacktest({ date: DATE, session: SESSION, mode: "auto", bus: new EventEmitter(), stateDir: dir, deps });
+    return { summary, recorded, seenP1 };
+  } finally {
+    delete process.env.GOFNQ_CORPUS_RECORD_ALL;
+  }
+}
+
+test("gate-corpus mode: a no-trade day records its tape with walkers blocked and the honest label kept", async () => {
+  const { summary, recorded, seenP1 } = await corpusRun("pillar2_poor");
+  assert.equal(recorded, 1, "recordEntries must run despite the null context");
+  assert.equal(summary.chain_status, "no_context:pillar2_poor");
+  assert.ok(seenP1.length >= 1, "the truthFn must see recorded bars");
+  assert.ok(seenP1.every((v) => v === "fail"), `pillar1 must stay fail-blocked, got ${JSON.stringify(seenP1)}`);
+});
+
+test("gate-corpus mode: a genuine data_gap still short-circuits without recording", async () => {
+  const { summary, recorded } = await corpusRun("data_gap");
+  assert.equal(recorded, 0, "a capture failure must not fake a tape");
+  assert.equal(summary.chain_status, "no_context:data_gap");
+});
