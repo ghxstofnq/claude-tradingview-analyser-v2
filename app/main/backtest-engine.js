@@ -35,6 +35,7 @@ import { closeAtMarket, gradeRunner } from "./backtest-grader.js";
 import { generateRunId, resolveRunDir, writeIndexEntry } from "./backtest-store.js";
 import { etToEpochSeconds } from "../../cli/lib/tape-recorder.js";
 import { canonicalSymbol } from "../../cli/lib/run-symbol.js";
+import { PAIR_PRIMARY } from "./config.js";
 import { writeEnvSnapshotFile } from "./env-snapshot.js";
 // The fold's open-reaction read is the SAME resolver the live chain uses — one
 // source of truth (no parallel copy to drift). Circular with live-ltf-resolver
@@ -268,24 +269,54 @@ export async function runBacktest({
       // file is absent → fall back to data_gap (unchanged for those callers).
       const HARD_GAP = new Set(["data_gap", "engine_stale", "session_closed"]);
       let nullReason = "data_gap";
+      let leadPayload = null;
       try {
         const pj = JSON.parse(fs.readFileSync(path.join(sessionDir, "brief-payloads.json"), "utf8"));
-        const reason = (Array.isArray(pj) ? pj[0] : pj)?.no_trade_reason ?? null;
+        leadPayload = (Array.isArray(pj) ? pj[0] : pj) ?? null;
+        const reason = leadPayload?.no_trade_reason ?? null;
         // Surface the brief's real reason (open_unconfirmed / no_bias /
         // pillar2_poor / htf_unclear) — only genuine capture failures stay
         // data_gap. Falls back to data_gap when the brief named no reason.
         if (reason) nullReason = HARD_GAP.has(reason) ? "data_gap" : reason;
       } catch { /* no payloads on disk (fold/test) → keep data_gap */ }
       chainStatus = `no_context:${nullReason}`;
-      const summary = buildSummary({
-        runId, date, session, mode, symbol: runSymbol, startedAt,
-        surfaced: [], closedTrades: [], openTrades: [], chainStatus, contextSource,
-      });
-      persistSummary({ sessionDir, stateDir, summary });
-      bus.emit("backtest:event", { type: "done", runId, summary });
-      bus.off("backtest:command", stopHandler);
-      await runCleanup(deps, runId);
-      return { runId, summary };
+      // Gate-corpus mode (GOFNQ_CORPUS_RECORD_ALL=1): a no-trade context still
+      // records its session tape — the fold must see EVERY session's bars
+      // (skipping no-trade days is corpus survivorship; a lever under fold can
+      // turn one into a trade). Walkers stay blocked by the fail-state
+      // session_state, mirroring live behavior on such days. Genuine capture
+      // failures (data_gap family) still short-circuit — those are retryable
+      // capture problems, not market verdicts.
+      // (Overlaps with GOFNQ_RECORD_BARS_ON_NULL, which wins earlier in
+      // runDirectBrief when both are set — record-corpus.mjs sets only this one.)
+      if (process.env.GOFNQ_CORPUS_RECORD_ALL === "1" && nullReason !== "data_gap") {
+        const p2v = leadPayload?.pillar2_verdict ?? null;
+        context = {
+          session,
+          leader: runSymbol || PAIR_PRIMARY,
+          brief_digest: null,
+          ltf_bias_context: {
+            bias: null, htf_ltf_alignment: "unclear", is_retrace_day: false,
+            entry_model_priority: "undecided", grade_cap: "no-trade",
+          },
+          session_state: {
+            pillar1: { status: "fail", reason: nullReason },
+            pillar2: /^(fail|poor)$/i.test(String(p2v ?? "")) ? { status: "fail", verdict: p2v } : { status: "pass", verdict: p2v },
+          },
+          untaken_targets: { untaken_above: [], untaken_below: [] },
+        };
+        contextSource = "corpus_null_surrogate";
+      } else {
+        const summary = buildSummary({
+          runId, date, session, mode, symbol: runSymbol, startedAt,
+          surfaced: [], closedTrades: [], openTrades: [], chainStatus, contextSource,
+        });
+        persistSummary({ sessionDir, stateDir, summary });
+        bus.emit("backtest:event", { type: "done", runId, summary });
+        bus.off("backtest:command", stopHandler);
+        await runCleanup(deps, runId);
+        return { runId, summary };
+      }
     }
     appendActivity({ kind: "context", source: contextSource });
 
