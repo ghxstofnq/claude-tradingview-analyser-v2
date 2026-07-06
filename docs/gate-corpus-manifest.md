@@ -12,6 +12,12 @@ MNQ1! and MES1! (two sequential passes), recorded via
 Holidays skipped by the runner's `HOLIDAYS` set. 2026-07-03 ny-pm is an expected FAIL
 (early close 13:00 ET — no PM bars); it logs as a failure on every resume pass, harmlessly.
 
+**No-trade days are recorded** (`GOFNQ_CORPUS_RECORD_ALL=1`, set by the runner; PR #212):
+a hard no-trade anchor context (pillar2_poor / no_bias / open_unconfirmed …) records its
+full session tape with walkers honestly blocked and `chain_status: no_context:<reason>` —
+skipping them would bake survivorship into the gate instrument. Only genuine capture
+failures (`data_gap` family) short-circuit, as retryable problems.
+
 ## Pipeline (per session)
 
 `record-corpus.mjs` → one process per (date, session) → `run-backtest-headless.js` →
