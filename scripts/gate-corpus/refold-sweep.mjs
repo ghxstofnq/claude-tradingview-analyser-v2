@@ -25,14 +25,15 @@ import { runBacktest } from "../../app/main/backtest-engine.js";
 import { contextFromBriefPayloads } from "../../app/main/backtest-context.js";
 import { gradeOpenTrade } from "../../app/main/backtest-grader.js";
 import { __test as barCloseTruth } from "../../app/main/bar-close.js";
+import { pillar2Verdict } from "../../cli/lib/pillar2-verdict.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
 
 const argIdx = process.argv.indexOf("--mode");
 const MODE = argIdx >= 0 ? process.argv[argIdx + 1] : "baseline";
-if (["lean-only", "unfrozen-lean"].includes(MODE)) process.env.GOFNQ_P1_LEAN_ONLY = "1";
-if (!["baseline", "p2-unfrozen", "rejection-window", "leg-origin", "lean-only", "unfrozen-lean"].includes(MODE)) {
+if (["lean-only", "unfrozen-lean", "p2-fixed"].includes(MODE)) process.env.GOFNQ_P1_LEAN_ONLY = "1";
+if (!["baseline", "p2-unfrozen", "rejection-window", "leg-origin", "lean-only", "unfrozen-lean", "p2-fixed"].includes(MODE)) {
   console.error("--mode must be baseline | p2-unfrozen | rejection-window | leg-origin");
   process.exit(2);
 }
@@ -77,8 +78,34 @@ function transformEntries(entries) {
 const index = JSON.parse(fs.readFileSync(path.join(REPO, "state", "backtest", "index.json"), "utf8"));
 const runs = (index.runs ?? []).filter((r) => (r.bars ?? 0) >= 20);
 
-function buildContextForMode(session, payloads) {
+// p2-fixed: the corpus proved pillar2_verdict is a broken constant — 477/478
+// sessions grade "poor" because the m5/m15 range tight-veto uses Pine's
+// 10xATR threshold, which is calibrated on the 1m row (~0.3% of price) but
+// demands 600-925 MNQ points on m15. Recompute the verdict with m5/m15
+// range_quality REPLACED by the 1m row's (calibrated) read, preserving the
+// module's coherence-primary design, and rebuild the context from the
+// corrected payload (un-skips the lean fallback; pillar2.status follows).
+function correctedVerdict(bundle) {
+  const q1 = bundle?.engine?.quality ?? {};
+  const tf = bundle?.engine_by_tf ?? {};
+  const fix = (row) => (row ? { ...row, range_quality: q1.range_quality ?? row.range_quality } : row);
+  return pillar2Verdict({ m5: fix(tf.m5?.quality), m15: fix(tf.m15?.quality), current_tf: q1 });
+}
+
+function buildContextForMode(session, payloads, bundle) {
   if (MODE === "baseline" || MODE === "rejection-window" || MODE === "leg-origin" || MODE === "lean-only") return contextFromBriefPayloads({ session, payloads });
+  if (MODE === "p2-fixed") {
+    const v = bundle ? correctedVerdict(bundle) : null;
+    const fixed = payloads.map((p) => {
+      if (!p || !v) return p;
+      const q = { ...p, pillar2_verdict: v.verdict };
+      if (q.pillar_grade === "no-trade" && q.no_trade_reason === "pillar2_poor" && v.verdict !== "poor") {
+        q.no_trade_reason = "open_unconfirmed";
+      }
+      return q;
+    });
+    return contextFromBriefPayloads({ session, payloads: fixed });
+  }
   // p2-unfrozen: allow pillar2_poor days into the lean fallback by swapping the
   // skip-listed reason for a non-skip one (everything else on the payload —
   // draw, bias, pillar2_verdict — is untouched), then force pillar2.status pass.
@@ -109,7 +136,13 @@ for (const r of runs) {
   const deps = {
     recordEntries: async () => ({ entries: transformEntries(tape.entries), warnings: [] }),
     loadDayContext: async () => null,
-    runDirectBrief: async () => buildContextForMode(r.session, payloads),
+    runDirectBrief: async () => {
+      let bundle = null;
+      if (MODE === "p2-fixed") {
+        try { bundle = JSON.parse(fs.readFileSync(path.join(dir, "brief-bundle.json"), "utf8")); } catch { /* verdict stays as recorded */ }
+      }
+      return buildContextForMode(r.session, payloads, bundle);
+    },
     truthFn: barCloseTruth.buildDeterministicPacketTruthFromInputs,
     gradeFn: gradeOpenTrade,
   };

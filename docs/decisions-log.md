@@ -495,3 +495,28 @@ evidence; the two accidental gates are protective for the CURRENT packet constru
 the +117R-era numbers are not recoverable by un-gating — they were a different brain/fold
 era. Ops: refold runs persist ~30MB tapes each — the sweep now deletes per-run scratch
 (a 5-sweep run filled the disk to 100%).
+
+## 2026-07-07 — ROOT CAUSE: pillar2_verdict is a broken constant (477/478 sessions "poor")
+
+The user's "these numbers are unbelievably incorrect" instinct was right, and the corpus
+found the mechanism. cli/lib/pillar2-verdict.js hard-vetoes any session where an m5/m15
+row reads range_quality=tight — but Pine's tight threshold (range_3h >= 10x ATR(14), the
+I22 knob) is calibrated on the 1m row (~0.3% of price ≈ 90-230 MNQ pts) and evaluated
+per-TF: on m15 it demands 600-925 points every 3 hours. Result: 477 of 478 corpus
+sessions grade poor — including 06-09, the best day of the frozen +60R week. The
+module's own coherence-primary design (oracle-calibrated 06-23) NEVER EXECUTES because
+the veto short-circuits first; the 06-23 verification passed only because June's live
+captures came from the DRIFTED Pine deploy whose older range semantics masked the
+mis-calibration. Downstream of the constant: the lean fallback never fires (pillar2_poor
+in NO_LEAN_SKIP → zero lean-only contexted days), A+ is mathematically impossible, and
+59/120 MNQ AM days null out. FOLD of the honest fix (sweep mode p2-fixed: veto reads the
+calibrated 1m row, coherence-primary restored): MES +7.92R/24 trades (baseline +5.67/20),
+MNQ +4.25R/22 (baseline +8.38/13) — combined ≈ flat; the days the broken gate excluded
+trade at bad R:R under the current packet construction (7 new full −1R losers vs 2 small
+Trend winners on MNQ). CONCLUSION HELD FOR THE USER: the frozen-era references (+60R
+week, +117R baselines) were produced by earlier brains reading drifted-Pine evidence and
+are not reproducible by un-gating today's brain — the corpus-true performance of the
+current system is ~+12-14R/6mo however these gates are set. Open threads: anchor
+draw-selection diverges from the live-era read (06-10 live found a daily draw, the
+corpus anchor finds none); lean-day packets target session levels at ~0.3R vs full-R
+stops (structural R:R defect worth strategy work + refold).
