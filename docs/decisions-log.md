@@ -472,3 +472,26 @@ code_rev guard (PR #210) prevents recurrence. The 239-session MNQ pass
 (2026-01-10..2026-07-03, ny-am+ny-pm) started 2026-07-06 ~12:15 ET via
 scripts/record-corpus.mjs; MES pass follows. Fold gate per the confirmed intent:
 net-positive over this window on this corpus = green light to arm real money.
+
+## 2026-07-07 — Gate-corpus folds: baseline validated; all four relaxations decline or do nothing
+
+Baseline (recorded summaries = the fold; refold determinism 3/3 + full-sweep aggregate
+reproduction): MNQ +8.38R (13 trades / 120 AM sessions), MES +5.67R (20 trades). All PM
+sessions structurally zero (PM carry-only + per-session recording). Investigating the
+"very off" trade count exposed two stacked unfolded gates: (1) pillar2_prep_blocked
+(shipped 2026-07-02, corpus-less era) froze the pre-open quality verdict over whole days —
+59/120 MNQ AM days null-context, 11/15 sampled turn "good" in-session; (2) buildPillar1
+(2026-05-29 source-health gate) hard-requires htf_draw + primary_draw, so the lean-only
+"two out of three" path (backtest-context.js, 2026-06-27) NEVER fired — zero lean-only
+contexted days exist in the baseline corpus. Folds over all 478 tapes
+(scripts/gate-corpus/refold-sweep.mjs): p2-unfrozen → identical R (freed days then block
+on the draw gate); rejection-window lever → −1.00R MNQ (one bad flip, 02-02); leg-origin
+lever → zero behavioral delta; unfrozen-lean (both gates lifted via new default-off
+GOFNQ_P1_LEAN_ONLY) → trade count doubles but MNQ −9.15R / MES −1.38R vs baseline: 12 new
+−1R losers vs 4 tiny Trend winners (+0.28..+1.62) spread across all months. The freed
+lean-only days trade with structurally bad R:R (session-level targets ≈ 0.3R vs full-R
+stops). CONCLUSIONS HELD FOR THE USER: neither dual-emit lever earns enablement on this
+evidence; the two accidental gates are protective for the CURRENT packet construction;
+the +117R-era numbers are not recoverable by un-gating — they were a different brain/fold
+era. Ops: refold runs persist ~30MB tapes each — the sweep now deletes per-run scratch
+(a 5-sweep run filled the disk to 100%).
