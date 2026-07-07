@@ -458,3 +458,17 @@ two hand-graded case days for the rejection lever. Also shipped un-gated: the
 build-strategy-context chop_15m blocker deleted (could never fire post-schema-4; chop is
 enforced in Pine confirm gating + walker tap timeout). bar_closed kept as honest metadata;
 the bridge entry_state filter left documented as V2 test back-compat (removal = test rewrite).
+
+## 2026-07-06 — Gate corpus certified and recording started (real-money-gate instrument)
+
+Parity certification complete (scripts/gate-corpus/parity-diff.py): recorder determinism
+proven 07-05 (twice-recorded 07-02 byte-identical except wall-clock emit stamps); price
+identity proven both days (all live bars, OHLC exact); and on identical code (2026-07-06,
+live + replay both v29/code_rev=1) ZERO hard engine mismatches across 135 bars. Known
+bounded divergences documented in docs/gate-corpus-manifest.md (forming-tick quality
+scalars ~7% of bars; context domain). Incidental finding formalized: live sessions before
+2026-07-05 ran a drifted Pine deploy — their engine evidence is not ground truth; the
+code_rev guard (PR #210) prevents recurrence. The 239-session MNQ pass
+(2026-01-10..2026-07-03, ny-am+ny-pm) started 2026-07-06 ~12:15 ET via
+scripts/record-corpus.mjs; MES pass follows. Fold gate per the confirmed intent:
+net-positive over this window on this corpus = green light to arm real money.
