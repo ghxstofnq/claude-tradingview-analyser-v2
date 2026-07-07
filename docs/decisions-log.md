@@ -472,3 +472,51 @@ code_rev guard (PR #210) prevents recurrence. The 239-session MNQ pass
 (2026-01-10..2026-07-03, ny-am+ny-pm) started 2026-07-06 ~12:15 ET via
 scripts/record-corpus.mjs; MES pass follows. Fold gate per the confirmed intent:
 net-positive over this window on this corpus = green light to arm real money.
+
+## 2026-07-07 — Gate-corpus folds: baseline validated; all four relaxations decline or do nothing
+
+Baseline (recorded summaries = the fold; refold determinism 3/3 + full-sweep aggregate
+reproduction): MNQ +8.38R (13 trades / 120 AM sessions), MES +5.67R (20 trades). All PM
+sessions structurally zero (PM carry-only + per-session recording). Investigating the
+"very off" trade count exposed two stacked unfolded gates: (1) pillar2_prep_blocked
+(shipped 2026-07-02, corpus-less era) froze the pre-open quality verdict over whole days —
+59/120 MNQ AM days null-context, 11/15 sampled turn "good" in-session; (2) buildPillar1
+(2026-05-29 source-health gate) hard-requires htf_draw + primary_draw, so the lean-only
+"two out of three" path (backtest-context.js, 2026-06-27) NEVER fired — zero lean-only
+contexted days exist in the baseline corpus. Folds over all 478 tapes
+(scripts/gate-corpus/refold-sweep.mjs): p2-unfrozen → identical R (freed days then block
+on the draw gate); rejection-window lever → −1.00R MNQ (one bad flip, 02-02); leg-origin
+lever → zero behavioral delta; unfrozen-lean (both gates lifted via new default-off
+GOFNQ_P1_LEAN_ONLY) → trade count doubles but MNQ −9.15R / MES −1.38R vs baseline: 12 new
+−1R losers vs 4 tiny Trend winners (+0.28..+1.62) spread across all months. The freed
+lean-only days trade with structurally bad R:R (session-level targets ≈ 0.3R vs full-R
+stops). CONCLUSIONS HELD FOR THE USER: neither dual-emit lever earns enablement on this
+evidence; the two accidental gates are protective for the CURRENT packet construction;
+the +117R-era numbers are not recoverable by un-gating — they were a different brain/fold
+era. Ops: refold runs persist ~30MB tapes each — the sweep now deletes per-run scratch
+(a 5-sweep run filled the disk to 100%).
+
+## 2026-07-07 — ROOT CAUSE: pillar2_verdict is a broken constant (477/478 sessions "poor")
+
+The user's "these numbers are unbelievably incorrect" instinct was right, and the corpus
+found the mechanism. cli/lib/pillar2-verdict.js hard-vetoes any session where an m5/m15
+row reads range_quality=tight — but Pine's tight threshold (range_3h >= 10x ATR(14), the
+I22 knob) is calibrated on the 1m row (~0.3% of price ≈ 90-230 MNQ pts) and evaluated
+per-TF: on m15 it demands 600-925 points every 3 hours. Result: 477 of 478 corpus
+sessions grade poor — including 06-09, the best day of the frozen +60R week. The
+module's own coherence-primary design (oracle-calibrated 06-23) NEVER EXECUTES because
+the veto short-circuits first; the 06-23 verification passed only because June's live
+captures came from the DRIFTED Pine deploy whose older range semantics masked the
+mis-calibration. Downstream of the constant: the lean fallback never fires (pillar2_poor
+in NO_LEAN_SKIP → zero lean-only contexted days), A+ is mathematically impossible, and
+59/120 MNQ AM days null out. FOLD of the honest fix (sweep mode p2-fixed: veto reads the
+calibrated 1m row, coherence-primary restored): MES +7.92R/24 trades (baseline +5.67/20),
+MNQ +4.25R/22 (baseline +8.38/13) — combined ≈ flat; the days the broken gate excluded
+trade at bad R:R under the current packet construction (7 new full −1R losers vs 2 small
+Trend winners on MNQ). CONCLUSION HELD FOR THE USER: the frozen-era references (+60R
+week, +117R baselines) were produced by earlier brains reading drifted-Pine evidence and
+are not reproducible by un-gating today's brain — the corpus-true performance of the
+current system is ~+12-14R/6mo however these gates are set. Open threads: anchor
+draw-selection diverges from the live-era read (06-10 live found a daily draw, the
+corpus anchor finds none); lean-day packets target session levels at ~0.3R vs full-R
+stops (structural R:R defect worth strategy work + refold).

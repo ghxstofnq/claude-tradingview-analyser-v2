@@ -38,9 +38,16 @@ function buildPillar1(engine, blocked, sessionChain = {}) {
   const htfBias = p1.htfBias ?? lockedP1.htfBias ?? lockedP1.htf_bias;
   const htfDraw = p1.htfDraw ?? lockedP1.htfDraw ?? lockedP1.htf_draw;
   const primaryDraw = p1.primaryDraw ?? lockedP1.primaryDraw ?? lockedP1.primary_draw;
+  // GOFNQ_P1_LEAN_ONLY=1 (default off, fold-gated): Pillar 1 passes on a
+  // directional LEAN without an HTF draw — Lanto's "two out of three" (Daily
+  // Bias 22:25), the semantics backtest-context.js's lean fallback was built
+  // for. Without this, every lean-only day builds a context and then blocks
+  // per-bar on missing_htf_draw/missing_primary_draw — the 2026-07-07 corpus
+  // fold showed the gate silently sat out every no-draw day.
+  const leanOnly = process.env.GOFNQ_P1_LEAN_ONLY === '1' && Boolean(htfBias);
   if (!htfBias) blockers.push('missing_htf_bias');
-  if (!htfDraw) blockers.push('missing_htf_draw');
-  if (!primaryDraw) blockers.push('missing_primary_draw');
+  if (!htfDraw && !leanOnly) blockers.push('missing_htf_draw');
+  if (!primaryDraw && !leanOnly) blockers.push('missing_primary_draw');
   return {
     status: blockers.length === 0 && (lockedP1.status == null || lockedP1.status === 'pass') ? 'pass' : 'blocked',
     htfBias: htfBias ?? 'unknown',
