@@ -187,7 +187,7 @@ export function registerExecutionIpc() {
       if (!ctx) return { ok: false, error: "no_context" };
       const guards = readExecConfig().guards || {};
       const riskUsd = arg.riskUsd ?? guards.defaultRisk ?? 120;
-      const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd, maxRiskUsd: guards.perTradeMax });
+      const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, fvgs: ctx.fvgs, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd, maxRiskUsd: guards.perTradeMax });
       return { ok: true, preview, context: ctx };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
@@ -200,7 +200,7 @@ export function registerExecutionIpc() {
       const ctx = await getOrderContext();
       const guards = readExecConfig().guards || {};
       const riskUsd = arg.riskUsd ?? guards.defaultRisk ?? 120;
-      const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd, maxRiskUsd: guards.perTradeMax });
+      const preview = buildOrderPreview({ side: arg.side, entry: ctx.price, symbol: ctx.symbol, candidates: ctx.candidates, fvgs: ctx.fvgs, draws: ctx.draws, typedStop: arg.typedStop, typedTp: arg.typedTp, riskUsd, maxRiskUsd: guards.perTradeMax });
       if (preview.block) return { ok: false, blocked: true, code: preview.block, preview };
       const gate = await guarded({ hasStop: preview.stop != null, sizing: { withinTolerance: preview.withinTolerance, contracts: preview.contracts, actualRisk: preview.actualRiskUsd }, guards: readExecConfig().guards });
       if (!gate.ok) return { ok: false, blocked: true, ...gate, preview };

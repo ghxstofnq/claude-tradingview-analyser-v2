@@ -2,7 +2,7 @@
 // Pure logic for the ORDERS manual ticket. No IO. Gathers structural stop
 // candidates + untaken draws from a tv analyze bundle's engine gates, then
 // computes the auto-stop, the TP draw list, sizing (sizing-core), and R:R.
-import { bufferedStopPrice, sizeFromStop, STOP_BUFFER_TICKS } from "./sizing-core.js";
+import { bufferedStopPrice, sizeFromStop, STOP_BUFFER_TICKS, roundToTick, tickSize } from "./sizing-core.js";
 
 const num = (v) => { if (v == null || v === "") return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 const isLong = (side) => side === "buy" || side === "long";
@@ -39,6 +39,60 @@ export function structuralStopCandidates(bundle) {
   return out;
 }
 
+// FVG candle stop anchors (manual BUY/SELL ticket, plan 2026-07-10). Each
+// alive FVG yields two anchors from its forming candles (V3+ emit: c1 oldest,
+// c2 displacement): a long stops below the bull FVG's candle lows, a short
+// above the bear FVG's candle highs. "1/3 FVG" = first candle (default,
+// wider), "2/3 FVG" = displacement candle (tighter). Dead zones
+// (filled/inverted/invalidated) are spent — no stop protection there. Candle
+// fields are NaN on zones formed before the V5 reload — those anchors are
+// dropped, never guessed.
+const DEAD_FVG_STATES = new Set(["filled", "inverted", "invalidated"]);
+
+export function fvgStopCandidates(bundle) {
+  const fvgs = bundle?.gates?.engine?.pillar3?.fvgs ?? [];
+  const out = [];
+  for (let i = 0; i < fvgs.length; i++) {
+    const f = fvgs[i];
+    const dir = String(f?.dir ?? "");
+    if (dir !== "bull" && dir !== "bear") continue;
+    if (DEAD_FVG_STATES.has(String(f?.state ?? ""))) continue;
+    const top = num(f?.top), bottom = num(f?.bottom);
+    if (top == null || bottom == null) continue;
+    const long = dir === "bull";
+    const c1 = num(long ? f?.c1l : f?.c1h);
+    const c2 = num(long ? f?.c2l : f?.c2h);
+    const zoneName = `${bottom}–${top}`;
+    const anchors = [];
+    if (c1 != null) anchors.push({ kind: "fvg_c1", price: c1, name: `1/3 FVG ${zoneName}` });
+    if (c2 != null) anchors.push({ kind: "fvg_c2", price: c2, name: `2/3 FVG ${zoneName}` });
+    if (!anchors.length) continue;
+    out.push({
+      forSide: long ? "buy" : "sell",
+      top, bottom, state: String(f?.state ?? ""),
+      anchors: anchors.map((a) => ({ ...a, ref: `gates.engine.pillar3.fvgs[${i}]` })),
+    });
+  }
+  return out;
+}
+
+// The FVG the trade is entering off: nearest zone in the trade direction —
+// for a BUY the nearest bull FVG at/below entry (in-zone counts as distance
+// 0), mirrored for a SELL.
+export function nearestEntryFvg({ side, entry, fvgs }) {
+  const e = num(entry);
+  if (e == null || !Array.isArray(fvgs)) return null;
+  const long = isLong(side);
+  const eligible = fvgs.filter((z) => z.forSide === (long ? "buy" : "sell")
+    && (long ? z.bottom < e : z.top > e));
+  if (!eligible.length) return null;
+  const dist = (z) => (long
+    ? (e > z.top ? e - z.top : 0)
+    : (e < z.bottom ? z.bottom - e : 0));
+  eligible.sort((a, b) => dist(a) - dist(b) || (long ? b.bottom - a.bottom : a.top - b.top));
+  return eligible[0];
+}
+
 export function untakenDraws(bundle) {
   const p1 = bundle?.gates?.engine?.pillar1 ?? {};
   const above = [], below = [];
@@ -52,24 +106,39 @@ export function untakenDraws(bundle) {
   return { above, below };
 }
 
-// structural levels on the stop side (below for long, above for short),
-// nearest-first, each with the buffered stopPrice the picker would use.
-export function stopSideOptions({ side, entry, candidates, symbol }) {
-  const e = num(entry); if (e == null || !Array.isArray(candidates)) return [];
+// Stop options for the ticket, default-first:
+//   1. the nearest entry-direction FVG's candle anchors — 1/3 FVG (DEFAULT),
+//      then 2/3 FVG (manual BUY/SELL ticket decision, plan 2026-07-10)
+//   2. structural levels on the stop side (swing/session/leg), nearest-first
+// Every option carries the 2-tick-buffered stopPrice the picker would use.
+export function stopSideOptions({ side, entry, candidates, fvgs, symbol }) {
+  const e = num(entry); if (e == null) return [];
   const long = isLong(side);
-  const beyond = candidates.filter((c) => stopKindOk(c.kind, long) && (long ? c.price < e : c.price > e));
+  const mk = (kind, name, levelPrice, ref) => ({
+    kind, name, levelPrice,
+    stopPrice: bufferedStopPrice({ symbol, side, levelPrice, bufferTicks: STOP_BUFFER_TICKS }),
+    ref,
+  });
+
+  const out = [];
+  const zone = nearestEntryFvg({ side, entry: e, fvgs });
+  if (zone) {
+    for (const a of zone.anchors) {
+      // anchor must still sit on the stop side of entry (a shallow c2 low can
+      // sit above a deep in-zone entry — dropped, never a wrong-side stop)
+      if (long ? a.price < e : a.price > e) out.push(mk(a.kind, a.name, a.price, a.ref));
+    }
+  }
+
+  const beyond = (Array.isArray(candidates) ? candidates : [])
+    .filter((c) => stopKindOk(c.kind, long) && (long ? c.price < e : c.price > e));
   beyond.sort((a, b) => (long ? b.price - a.price : a.price - b.price));
-  return beyond.map((c) => ({
-    kind: c.kind,
-    name: c.name,
-    levelPrice: c.price,
-    stopPrice: bufferedStopPrice({ symbol, side, levelPrice: c.price, bufferTicks: STOP_BUFFER_TICKS }),
-    ref: c.ref,
-  }));
+  for (const c of beyond) out.push(mk(c.kind, c.name, c.price, c.ref));
+  return out;
 }
 
-export function pickAutoStop({ side, entry, candidates, symbol }) {
-  const opts = stopSideOptions({ side, entry, candidates, symbol });
+export function pickAutoStop({ side, entry, candidates, fvgs, symbol }) {
+  const opts = stopSideOptions({ side, entry, candidates, fvgs, symbol });
   if (!opts.length) return null;
   const o = opts[0];
   return { price: o.stopPrice, levelPrice: o.levelPrice, kind: o.kind, name: o.name, ref: o.ref };
@@ -87,14 +156,22 @@ export function rr({ side, entry, stop, tp }) {
   return Math.round((Math.abs(t - e) / risk) * 10) / 10;
 }
 
-export function buildOrderPreview({ side, entry, symbol, candidates, draws, typedStop, typedTp, riskUsd, maxRiskUsd }) {
+export function buildOrderPreview({ side, entry, symbol, candidates, draws, fvgs, typedStop, typedTp, riskUsd, maxRiskUsd }) {
   const e = num(entry); const long = isLong(side);
-  const auto = pickAutoStop({ side, entry: e, candidates, symbol });
+  const auto = pickAutoStop({ side, entry: e, candidates, fvgs, symbol });
   const typed = num(typedStop);
   const stop = typed != null ? typed : (auto?.price ?? null);
   const stopSource = typed != null ? "typed" : (auto ? auto.kind : null);
-  const stopOptions = stopSideOptions({ side, entry: e, candidates, symbol });
-  const tp = num(typedTp);
+  const stopOptions = stopSideOptions({ side, entry: e, candidates, fvgs, symbol });
+  // TP defaults to 1:2 from the working stop (manual ticket decision,
+  // plan 2026-07-10) — an untouched ticket confirms to entry ± 2×risk. A typed
+  // or draw-picked TP overrides.
+  const tpDefault = (e != null && stop != null && (long ? stop < e : stop > e))
+    ? roundToTick(long ? e + 2 * (e - stop) : e - 2 * (stop - e), tickSize(symbol))
+    : null;
+  const typedTpNum = num(typedTp);
+  const tp = typedTpNum ?? tpDefault;
+  const tpSource = typedTpNum != null ? "typed" : (tpDefault != null ? "rr_default" : null);
   const tpDraws = tpDrawsForSide({ side, entry: e, draws }).map((d) => ({ ...d, rr: rr({ side, entry: e, stop, tp: d.price }) }));
 
   let block = null;
@@ -117,7 +194,7 @@ export function buildOrderPreview({ side, entry, symbol, candidates, draws, type
   return {
     symbol, side, entry: e,
     stop, stopSource, stopAuto: auto, stopOptions,
-    tp: tp ?? null, tpDraws,
+    tp: tp ?? null, tpSource, tpDefault, tpDraws,
     riskUsd: num(riskUsd),
     contracts: sizing.contracts, stopPts: sizing.stopPts, actualRiskUsd: sizing.actualRiskUsd, withinTolerance: sizing.withinTolerance,
     rr: rr({ side, entry: e, stop, tp }),

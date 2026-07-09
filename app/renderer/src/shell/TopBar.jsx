@@ -30,7 +30,7 @@ function verView(v) {
 export function TopBar({
   symbol, setSymbol, guards, exec,
   alertCount, newsCount, newsImminent,
-  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick, onRelaunchTv, onOpenBriefing,
+  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick, onRelaunchTv, onOpenBriefing, onOpenTicket,
 }) {
   const version = useVersion();
   const lastBar = useLastBar();
@@ -118,6 +118,14 @@ export function TopBar({
           {pnl && <span className={"cmd-pos-pnl " + (pnl.tone === "red" ? "down" : "up")}>{pnl.v}</span>}
         </div>
         <span className="sp" />
+        {/* Manual BUY/SELL — opens the palette ticket seeded with the side
+            (plan 2026-07-10): stop defaults to the nearest FVG's 1/3 candle,
+            TP to 1:2, risk to Settings defaultRisk; one confirm places the
+            guarded market bracket. */}
+        <span className="cmd-trade">
+          <span className="cmd-trade-btn sell" {...clickable(() => onOpenTicket?.("short"), { label: "sell ticket" })}>SELL</span>
+          <span className="cmd-trade-btn buy" {...clickable(() => onOpenTicket?.("long"), { label: "buy ticket" })}>BUY</span>
+        </span>
         {ver && <span className={"cmd-ver " + ver.cls} title={ver.title} {...clickable(onVerClick)}>{ver.label}</span>}
         <div className="cmd-k-btn" {...clickable(onOpenPalette)}>
           <span>Command</span><span className="kcap">⌘ K</span>
