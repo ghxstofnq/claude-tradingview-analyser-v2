@@ -1,69 +1,122 @@
-# Gate-corpus capture manifest
+# Gate-Corpus Capture Manifest
 
-The real-money-gate corpus (intent: [docs/intent/2026-07-05-gate-corpus.md](intent/2026-07-05-gate-corpus.md)).
-This document is the "data exactly known" contract: what is recorded, by which code,
-through which pipeline, with which proven guarantees and which known divergences.
+Intent: [docs/intent/2026-07-05-gate-corpus.md](intent/2026-07-05-gate-corpus.md).
+
+This is the real-money-gate corpus contract: data is trusted only when the recorded artifacts prove the session was captured through the backtest replay pipeline, with healthy brief context, full tape coverage, and a machine-generated parity certificate.
 
 ## What
 
-Every NY AM (09:30–12:00 ET) and NY PM (13:00–16:00 ET) session, **2026-01-10 → 2026-07-03**,
-MNQ1! and MES1! (two sequential passes), recorded via
-`scripts/record-corpus.mjs --from 2026-01-10 --to 2026-07-03 [--symbol MES1!]`.
-Holidays skipped by the runner's `HOLIDAYS` set. 2026-07-03 ny-pm is an expected FAIL
-(early close 13:00 ET — no PM bars); it logs as a failure on every resume pass, harmlessly.
+Window: 2026-01-10 through 2026-07-03.
 
-**No-trade days are recorded** (`GOFNQ_CORPUS_RECORD_ALL=1`, set by the runner; PR #212):
-a hard no-trade anchor context (pillar2_poor / no_bias / open_unconfirmed …) records its
-full session tape with walkers honestly blocked and `chain_status: no_context:<reason>` —
-skipping them would bake survivorship into the gate instrument. Only genuine capture
-failures (`data_gap` family) short-circuit, as retryable problems.
+Symbols: `MNQ1!`, `MES1!`.
 
-## Pipeline (per session)
+Sessions: `ny-am`, `ny-pm`.
 
-`record-corpus.mjs` → one process per (date, session) → `run-backtest-headless.js` →
-`backtest-engine.js` (deterministic, $0, no LLM) → `recordEntries` — the SAME capture core
-`tv record-tape` uses and the parity certification covered. Per bar: full detector-input
-shape (`event` OHLC + bar times, `inputs.bundle` incl. `engine` + `engine_by_tf` + gates,
-`ltf_bias_context`, `session_state`, `untaken_targets`) — identical to live
-`buildDetectorInputs`. Output: `state/backtest/<run-id>/<session>/walker-inputs.jsonl` +
-index entry in `state/backtest/index.json`.
+Expected full sessions per symbol: **239**.
 
-## Code identity
+- `ny-am`: 120 sessions, each with 152 one-minute tape entries from 09:29 through 12:00 ET.
+- `ny-pm`: 119 sessions, each with 182 one-minute tape entries from 12:59 through 16:00 ET.
+- 2026-07-03 `ny-pm` is excluded because the early close at 13:00 ET means there is no full PM session. A recorded attempt is reported as an expected exception/unexpected artifact, not as ordinary full-session coverage.
 
-- Pine: **ICT Engine V5, CODE_REV = 1, schema 4** (repo main @ `946b23a`, TV script v29).
-  Every recorded bar carries `engine.meta.code_rev` — a corpus bar without `code_rev=1`
-  was NOT recorded by this code and must not be folded.
-- Both fold-gated levers (`useReactionWindowRejection`, `useOriginLegAnchor`) recorded OFF
-  (production semantics) with the lever-ON variants dual-emitted additively on every bar:
-  sweep `rejected_rw`, quality `leg_high_org/leg_low_org(+_ms)`. One recording, both worlds.
+Holidays skipped by the runner: 2026-01-19, 2026-02-16, 2026-04-03, 2026-05-25, 2026-06-19.
 
-## Proven guarantees (certification, scripts/gate-corpus/parity-diff.py)
+No-trade days are still recorded with `GOFNQ_CORPUS_RECORD_ALL=1`; a deterministic no-trade is valid evidence when the capture artifacts are healthy. Genuine `data_gap` capture failures remain retryable failures and cannot certify.
 
-1. **Recorder determinism** (2026-07-05, 07-02 recorded twice): byte-identical except
-   `emit_ms`/`emit_ny` wall-clock stamps. Fold comparisons must ignore only those.
-2. **Replay price identity vs live** (07-02 and 07-06): every live bar present, OHLC exact.
-3. **Engine-value parity vs live on identical code** (2026-07-06, both sides v29):
-   **0 hard mismatches** across 135 bars — levels, sweeps (incl. `rejected`/`rejected_rw`),
-   zone boundaries and lifecycle fields, structures, pools, session/overnight/OR quality
-   fields all identical.
+## Pipeline
 
-## Known bounded divergences vs live (documented, not defects)
+`scripts/record-corpus.mjs` -> `run-backtest-headless.js` -> `app/main/backtest-engine.js` -> `recordEntries`.
 
-- **Forming-tick quality scalars** (~7% of bars on 07-06: `atr_14/atr_17/coherence/
-  range_vs_normal/displacement/candle/regime` on the current-TF quality row): the live
-  capture reads the emit ~1s into the forming bar; replay reads at the bar boundary.
-  Bounded and irrelevant to fold self-consistency (the corpus is internally deterministic).
-- **Context domain** (`ltf_bias_context`, brief-derived fields): the backtest derives
-  context deterministically at the anchor; live may carry the day's LLM-written chain.
-  This is the long-documented context-parity domain, out of scope for evidence parity.
-- Live sessions recorded **before 2026-07-05** ran a drifted Pine deploy (caught by the
-  07-02 parity diff: wrong session labels for 58 NY-AM bars, old disp_score formula).
-  Their engine evidence must not be treated as ground truth; the corpus replaces it.
+Required artifact identity per selected run:
 
-## Operational rules
+- `state/backtest/index.json` row has `engine: "deterministic-walker-chain"`.
+- The index row has a parseable `created_at`, which is required for deterministic retry ordering.
+- `tape.json` top-level `date`, `session`, and `source: "backtest-engine"` match the index row and expected backtest pipeline.
+- `brief-bundle.json` parses and every required `engine_by_tf` row (`daily`, `h4`, `h1`, `m30`, `m15`, `m5`, `m1`) has matching schema, Pine `code_rev`, and symbol. The duplicate top-level `engine` may be null; if present, its meta must also match.
+- `brief-bundle.json` has explicitly healthy capture status: `capture_health.ok === true` and `capture_health.missing` is an empty array.
+- Every `tape.json` entry has `event.tf === "1m"` and matching `inputs.bundle.engine.meta`, not only the first or last entry.
 
-- The recorder must be the SOLE CDP driver: app stopped, no manual chart use.
-- Pause any time: `pkill -f record-corpus` — fully resumable, healthy (date, session)
-  runs are skipped on re-run; failures retry.
-- Resume/nights: re-run the same command (`--force` needed inside 09:25–16:05 ET weekdays).
-- MES pass: same command + `--symbol MES1!` after the MNQ pass completes.
+Artifact paths are fail-closed: empty or unsafe `run_id` path segments are rejected before joining paths, and both lexical and real (symlink-resolved) artifact paths must remain under `state/backtest`.
+
+## Certification CLI
+
+`./bin/tv backtest certify` reads only disk artifacts, respects `GOFNQ_STATE_DIR`, prints the full machine-readable report, and exits nonzero when `certified:false`.
+
+Report shape includes:
+
+```json
+{
+  "manifest_id": "gate-corpus-2026-h1-v1",
+  "certified": false,
+  "requirements": {},
+  "selection_digest": "<sha256>",
+  "symbols": {
+    "MNQ1!": {
+      "expected": 239,
+      "valid": 0,
+      "missing": [],
+      "duplicates": [],
+      "retries": [],
+      "invalid": [],
+      "selected": {},
+      "selected_artifacts": {},
+      "no_trade_sessions": [],
+      "unexpected": [],
+      "exceptions": []
+    }
+  },
+  "parity": {},
+  "blockers": []
+}
+```
+
+Selection policy is stable: for each `(date, session, symbol)` key, the latest valid artifact wins. Failed newer retries do not invalidate an older valid artifact, but they are reported.
+
+- `retries`: present for any key with more than one candidate. Includes all candidate run IDs and `created_at` values, each candidate validation status and reasons, the selected valid winner, and whether the newest attempt was invalid.
+- `duplicates`: present only when more than one candidate is valid. It does not include failed retries.
+- `valid` counts selected keys only and cannot be inflated by retries.
+- `selected_artifacts` records the selected run ID and SHA-256 hashes of its tape and brief; `selection_digest` binds all selected keys, run IDs, and artifact bytes.
+- `no_trade_sessions` preserves selected deterministic no-trade keys instead of dropping them from coverage.
+
+## Parity Certificate
+
+Parity certification requires a structured machine-generated artifact at `state/backtest/parity-certificate.json`. A handwritten/free-form object such as `{ "certified": true, "evidence": "..." }` is not valid evidence.
+
+Generate the certificate with `scripts/gate-corpus/parity-diff.py` after selecting the corpus:
+
+```bash
+python3 scripts/gate-corpus/parity-diff.py \
+  /abs/path/to/tape.json \
+  /abs/path/to/walker-inputs.jsonl \
+  --certificate-out state/backtest/parity-certificate.json \
+  --manifest-id gate-corpus-2026-h1-v1 \
+  --selection-digest <report.selection_digest> \
+  --schema 4 \
+  --code-rev 1
+```
+
+The script deletes any stale requested output before validation and writes a positive certificate atomically only on exact `PASS`. Empty inputs, duplicate or missing event keys, absent OHLC evidence, malformed selection digests, `FAIL`, and `PASS-WITH-NOTES` all exit nonzero and leave no positive certificate.
+
+The certifier validates:
+
+- schema version and generator ID
+- `PASS` verdict
+- ISO, non-future `generated_at`
+- manifest ID, 64-hex selection digest, schema, and code revision
+- symbol/date/session scope identifying one selected manifest key
+- absolute source tape/live paths
+- SHA-256 hash of each current source file
+- parity tape hash equality with the selected corpus tape for the scoped key
+- zero alignment, OHLC, and hard-mismatch counts
+
+Malformed, stale, handwritten, mismatched, unselected-tape, or hash-drifted certificates fail closed.
+
+## Current Status
+
+Do not claim the corpus is certified. The current real corpus is blocked by missing/invalid MNQ and MES coverage plus the absence of a valid parity certificate. Rows where `brief-bundle.json` has `capture_health.ok === false` correctly fail certification as data gaps.
+
+## Operational Rules
+
+- Recorder must be the only CDP driver: app stopped, no manual chart use.
+- Pause with `pkill -f record-corpus`; recording is resumable.
+- Resume with the same command; use `--force` only when deliberately running inside market-session guard hours.
+- MES pass uses the same command plus `--symbol MES1!` after MNQ completes.

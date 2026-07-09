@@ -146,7 +146,7 @@ async function execute(handler, values, positionals) {
     const result = await handler(values, positionals);
     console.log(JSON.stringify(result, null, 2));
     await safeDisconnect();
-    process.exit(0);
+    process.exit(process.exitCode ?? 0);
   } catch (err) {
     await safeDisconnect();
     handleError(err);

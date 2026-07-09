@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import {
   symbolSlug, buildSetupRows, shouldSnapshot, diffPerDay, round2,
@@ -18,26 +17,44 @@ import {
 import { buildAnalytics } from "../cli/lib/backtest-analytics.js";
 
 // The refold path folds RECORDED brief-bundles, which bake the capture-time
-// gates.engine.pillar1. recomputeGate must re-derive pillar1 with the current
-// code so the faithfulness levers fire. 2026-06-09 is the canonical case: the
-// baked HTF vote is the stale bullish (h4 inverted ifvg); the current
-// GOFNQ_HTF_INTRADAY_DRAW lever picks the fresh near-price h1 bear FVG and
-// votes bearish — the faithful side that carries the day's +9.47R shorts.
-const BACKTEST_DIR = fileURLToPath(new URL("../state/backtest/", import.meta.url));
-function find0609MnqBundle() {
-  try {
-    const idx = JSON.parse(fs.readFileSync(path.join(BACKTEST_DIR, "index.json"), "utf8"));
-    const r = idx.runs.find((x) => x.symbol === "MNQ1!" && x.date === "2026-06-09" && x.session === "ny-am");
-    if (!r) return null;
-    const bp = path.join(BACKTEST_DIR, r.run_id, r.session, "brief-bundle.json");
-    return fs.existsSync(bp) ? bp : null;
-  } catch { return null; }
+// gates.engine.pillar1. recomputeGate must re-derive pillar1 with the CURRENT
+// code so the faithfulness levers fire on old recordings. This is exercised on
+// a TEST-OWNED engine (no dependency on the gitignored state/ corpus, which
+// makes CI deterministic): an h4 bear FVG that INVERTED — voting a stale
+// bullish HTF lean — sitting over a FRESH m5 bear FVG near price. The
+// GOFNQ_HTF_INTRADAY_DRAW lever (default-on) promotes the fresh opposing array,
+// so a refold flips the baked bullish vote to the faithful bearish. Mirrors the
+// canonical 06-09 case without pinning to a recording that may be re-graded.
+function mkFlipBundle() {
+  const price = 21000;
+  // Near price = within NEAR_PRICE_PCT (0.3%) of 21000 ≈ ±63pt; both CEs are ~30pt away.
+  const invertedBullH4 = {
+    dir: "bear", kind: "fvg", state: "inverted", disp_score: 0.9, size_quality: "large",
+    took_liq: true, top: 21040, bottom: 21020, ce: 21030,
+  }; // inverted bear FVG, ds ≥ INVERSION_DISP_MIN -> votes BULLISH (the stale lean)
+  const freshBearM5 = {
+    dir: "bear", kind: "fvg", state: "fresh", disp_score: 0.8, size_quality: "large",
+    took_liq: true, top: 20980, bottom: 20960, ce: 20970,
+  }; // fresh bear FVG -> votes BEARISH (the fresh opposing array the lever promotes)
+  const emptyTf = () => ({ fvgs: [], bprs: [] });
+  return {
+    quote: { last: price },
+    engine: {
+      schema: 4, schema_supported: true, meta: { tf: "1", symbol: "MNQ1!" },
+      levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [], pools: [],
+      quality: { overnight_dir: "na", session: "ny-am" },
+    },
+    engine_by_tf: {
+      daily: emptyTf(), h4: { fvgs: [invertedBullH4], bprs: [] }, h1: emptyTf(),
+      m15: emptyTf(), m5: { fvgs: [freshBearM5], bprs: [] }, m1: emptyTf(),
+    },
+    // Capture-time baked gate: the stale bullish HTF vote a refold must overwrite.
+    gates: { engine: { confirmation: {}, pillar1: { bias: { htf: { vote: "bullish" } } } } },
+  };
 }
 
-test("recomputeGate re-derives pillar1 with current levers (06-09 HTF vote: bullish baked -> bearish)", (t) => {
-  const bp = find0609MnqBundle();
-  if (!bp) { t.skip("06-09 MNQ corpus bundle not present (gitignored state/) — covered by the foldSymbol integration check"); return; }
-  const bundle = JSON.parse(fs.readFileSync(bp, "utf8"));
+test("recomputeGate re-derives pillar1 with current levers (stale bullish HTF vote -> faithful bearish)", () => {
+  const bundle = mkFlipBundle();
   assert.equal(bundle.gates.engine.pillar1.bias.htf.vote, "bullish", "precondition: baked bundle carries the stale bullish vote");
   recomputeGate(bundle);
   assert.equal(bundle.gates.engine.pillar1.bias.htf.vote, "bearish", "recompute applies GOFNQ_HTF_INTRADAY_DRAW -> faithful bearish");

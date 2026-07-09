@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { register } from "../router.js";
 import { foldSymbol } from "../../app/main/backtest-baseline.js";
 import { computeVerdict, DEFAULT_MIN_SESSIONS } from "../lib/backtest-verdict.js";
+import { certifyCorpus } from "../lib/corpus-certification.js";
 
 const DEFAULT_SYMBOL = "MNQ1!";
 
@@ -85,6 +86,15 @@ register("backtest", {
         symbol: { type: "string", description: "Filter to a symbol" },
       },
       handler: listCmd,
+    }],
+    ["certify", {
+      description: "Certify the gate corpus vs the 2026-H1 manifest (deterministic coverage + parity, fails closed)",
+      options: {},
+      handler: () => {
+        const report = certifyCorpus({ stateDir: stateDir() });
+        if (report.certified === false) process.exitCode = 1;
+        return report;
+      },
     }],
   ]),
 });
