@@ -14,6 +14,7 @@ export function buildCommands(ctx = {}) {
     detectorRunning = false,
     automationMode = "manual",
     symbol = "MNQ1!",
+    cdpDown = false,
   } = ctx;
 
   const rows = [];
@@ -50,6 +51,13 @@ export function buildCommands(ctx = {}) {
   rows.push({ id: "sym", icon: "▦", tint: "mute", root: true,
     label: `Switch to ${symbol === "MNQ1!" ? "MES1!" : "MNQ1!"}`,
     action: { type: "switch-symbol" } });
+
+  // Surfaces at root the moment TV Desktop runs without the CDP flag — the
+  // one failure that blinds everything (2026-07-07→09) and has a one-click fix.
+  rows.push({ id: "tv-relaunch", icon: "⟳", tint: cdpDown ? "red" : "mute", root: cdpDown,
+    label: "Relaunch TradingView with CDP",
+    detail: cdpDown ? "CDP 9225 down — system can't read the chart" : "quit + reopen with the debug flag",
+    action: { type: "tv-relaunch" } });
 
   rows.push({ id: "detector", icon: "◉", tint: detectorRunning ? "red" : "green", root: false,
     label: detectorRunning ? "Stop detector" : "Start detector",
@@ -95,6 +103,7 @@ const VERB_SHORTCUTS = [
   [/^arm\b/, (c) => c.id.startsWith("arm:")],
   [/^(manual|auto)\b/, (c, m) => c.id === `auto:${m[1]}`],
   [/^(detector|start|stop)\b/, (c) => c.id === "detector"],
+  [/^(relaunch|cdp|tradingview)\b/, (c) => c.id === "tv-relaunch"],
 ];
 
 export function visibleRows(all, qRaw) {

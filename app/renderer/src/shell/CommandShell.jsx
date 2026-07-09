@@ -146,9 +146,19 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     [brief]);
   const hasPosition = !!exec?.position;
   const detectorRunning = health?.loop === "healthy";
+  const cdpDown = health?.cdp === "down";
   const commands = useMemo(
-    () => buildCommands({ tripped: false, levels, hasPosition, detectorRunning, automationMode, symbol }),
-    [levels, hasPosition, detectorRunning, automationMode, symbol]);
+    () => buildCommands({ tripped: false, levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown }),
+    [levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown]);
+
+  // One-click TV Desktop relaunch with the CDP flag (constraint #1 recipe).
+  // Takes ~10-20s: quit → reopen → wait for 9225 to answer.
+  const relaunchTv = useCallback(async () => {
+    addToast("Relaunching TradingView with CDP — takes ~15s…", "amber");
+    const r = await window.api?.tv?.relaunch?.().catch((e) => ({ ok: false, error: String(e?.message || e) }));
+    if (r?.ok) addToast(r.already ? "TradingView CDP already up" : "TradingView relaunched — CDP 9225 up", "green");
+    else addToast(`Relaunch failed — ${r?.error || "unknown error"}`, "red");
+  }, [addToast]);
 
   // ── palette open/close ────────────────────────────────────────────────
   const openPalette = (query = "") => setPal({ open: true, query, sel: 0, forced: null, askQuery: null });
@@ -216,9 +226,10 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       } return;
       case "theme": closePalette(); onToggleTheme?.(); return;
       case "startPrep": startPrep(); return;
+      case "tv-relaunch": closePalette(); await relaunchTv(); return;
       default: return;
     }
-  }, [symbol, detectorRunning, addToast, setSymbol, onToggleTheme]);
+  }, [symbol, detectorRunning, addToast, setSymbol, onToggleTheme, relaunchTv]);
 
   // ── palette Enter: run selected, or fall through to ask ───────────────
   const paletteEnter = () => {
@@ -354,7 +365,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         onOpenPalette={() => openPalette()}
         onOpenNews={() => openPalette("news")}
         onOpenAlerts={() => openPalette("alerts")}
-        onVerClick={cycleVer} />
+        onVerClick={cycleVer} onRelaunchTv={relaunchTv} />
 
       <div className="chart-host">
         <div className="chart-body">
