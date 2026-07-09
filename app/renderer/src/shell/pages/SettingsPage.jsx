@@ -193,6 +193,8 @@ export function SettingsPage({ guards, setGuards, symbol = "MNQ1!", onClose, onT
             <Toggle name="Desktop notification on alert" desc="system notification when a price alert fires" on={prefs.notif} onToggle={() => setPref("notif", !prefs.notif)} />
             <Toggle name="Sound on alert" desc="short tick when a price alert fires" on={prefs.sound} onToggle={() => setPref("sound", !prefs.sound)} />
             <Toggle name="Auto-open palette on alert" desc="pops ⌘K when a price alert fires" on={prefs.autoTicket} onToggle={() => setPref("autoTicket", !prefs.autoTicket)} />
+            <Toggle name="Walker chimes" desc="distinct tones as the chain taps, awaits confirm, and fires" on={prefs.walkerChimes} onToggle={() => setPref("walkerChimes", !prefs.walkerChimes)} />
+            <Toggle name="Walker packet notification" desc="desktop notification when a packet fires" on={prefs.walkerNotif} onToggle={() => setPref("walkerNotif", !prefs.walkerNotif)} />
           </Card>
         </div>
       </div>

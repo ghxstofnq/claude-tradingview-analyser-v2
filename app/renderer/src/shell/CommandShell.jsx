@@ -39,6 +39,8 @@ import {
 } from "../hooks/useAlerts.js";
 import { useCalendar } from "../hooks/useCalendar.js";
 import { readPrefs } from "../hooks/usePrefs.js";
+import { classifyWalkerTransitions, describeSignal, signalEffects } from "./walkerSignals.helpers.js";
+import { playChime } from "./chimes.js";
 
 let TOAST_SEQ = 0;
 
@@ -150,6 +152,32 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const commands = useMemo(
     () => buildCommands({ tripped: false, levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown }),
     [levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown]);
+
+  // Walker stage-change chimes + packet notifications (plan 2026-07-09 Task 1).
+  // Consecutive deterministic:packet truths are classified into signals; the
+  // packet chime fires on the rising edge only (a packet that persists across
+  // bars doesn't re-chime), and re-folds of the same bar are skipped entirely.
+  const walkerSigRef = useRef({ ts: null, walkers: [], hadPacket: false });
+  useEffect(() => {
+    const off = window.api?.deterministic?.onPacket?.((truth) => {
+      const st = walkerSigRef.current;
+      const ts = truth?.eventTimeUtc ?? null;
+      if (ts != null && ts === st.ts) { st.walkers = truth?.walkers ?? st.walkers; return; }
+      const signals = classifyWalkerTransitions({
+        prevWalkers: st.walkers, truth, packetAlreadySignaled: st.hadPacket,
+      });
+      walkerSigRef.current = { ts, walkers: truth?.walkers ?? [], hadPacket: !!truth?.bestPacket };
+      if (!signals.length) return;
+      const prefs = readPrefs();
+      for (const sig of signals) {
+        const fx = signalEffects(sig);
+        if (fx.chime && prefs.walkerChimes) playChime(fx.chime);
+        if (fx.notify && prefs.walkerNotif) notifyDesktop("Walker packet", describeSignal(sig));
+        if (fx.toast) addToast(describeSignal(sig), sig.kind === "packet_fired" ? "amber" : "green");
+      }
+    });
+    return () => off?.();
+  }, [addToast]);
 
   // One-click TV Desktop relaunch with the CDP flag (constraint #1 recipe).
   // Takes ~10-20s: quit → reopen → wait for 9225 to answer.
