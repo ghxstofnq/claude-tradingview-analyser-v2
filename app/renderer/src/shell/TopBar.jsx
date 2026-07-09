@@ -9,6 +9,9 @@ import { useVersion } from "../hooks/useVersion.js";
 import { useLastBar } from "../hooks/useLastBar.js";
 import { useHealth } from "../hooks/useHealth.js";
 import { useFills } from "../hooks/useFills.js";
+import { useSessionBrief } from "../hooks/useSessionBrief.js";
+import { useOpenReaction } from "../hooks/useOpenReaction.js";
+import { buildDayChip } from "./dayChip.helpers.js";
 import { liveGridFromTrade } from "../Live.helpers.js";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
@@ -27,13 +30,20 @@ function verView(v) {
 export function TopBar({
   symbol, setSymbol, guards, exec,
   alertCount, newsCount, newsImminent,
-  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick, onRelaunchTv,
+  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick, onRelaunchTv, onOpenBriefing,
 }) {
   const version = useVersion();
   const lastBar = useLastBar();
   const health = useHealth();
   const { fills } = useFills(TODAY());
   const ver = verView(version);
+
+  // Day chip — the operating rules at a glance (plan 2026-07-09 Task 3):
+  // grade (live cap wins over the brief) · bias votes · day-of-week size rule;
+  // hard red HANDS OFF when the open reverses the bias.
+  const { brief } = useSessionBrief();
+  const { latest, ltf } = useOpenReaction();
+  const dayChip = buildDayChip({ brief, latest, ltf });
 
   const loop = health?.loop;
   // TV Desktop running without the CDP flag blinds the whole system — outranks
@@ -72,6 +82,10 @@ export function TopBar({
             <span key={s} className={"cs-sympill" + (s === symbol ? " is-on" : "")}
                   {...clickable(() => setSymbol(s))}>{s}</span>
           ))}
+        </span>
+        <span className={"cmd-daychip " + dayChip.state + " " + (dayChip.tone || "dim")}
+              title={dayChip.title} {...clickable(onOpenBriefing, { label: "open briefing" })}>
+          {dayChip.text}
         </span>
         <span className="sp" />
         <span className="cmd-lastbar" title="last bar">{lastBar?.hhmm || "—"} · {lastBar?.age_label || "—"}</span>
