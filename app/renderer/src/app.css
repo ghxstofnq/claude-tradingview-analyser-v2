@@ -4573,7 +4573,7 @@ button { border-radius: var(--r-sm); }
   border-bottom: 1px solid var(--border); background: var(--surface-0);
   -webkit-app-region: drag;
 }
-.cmd-topbar .cmd-sym, .cmd-topbar .cmd-health, .cmd-topbar .cmd-lastbar, .cmd-topbar .cmd-cdp-fix { -webkit-app-region: no-drag; }
+.cmd-topbar .cmd-sym, .cmd-topbar .cmd-health, .cmd-topbar .cmd-lastbar, .cmd-topbar .cmd-cdp-fix, .cmd-topbar .cmd-daychip { -webkit-app-region: no-drag; }
 .cmd-sym { display: flex; gap: 2px; }
 .cmd-sym .pill { cursor: pointer; }
 .cmd-phase { font: 500 10px var(--mono); letter-spacing: .06em; color: var(--amber); white-space: nowrap; }
@@ -4583,6 +4583,19 @@ button { border-radius: var(--r-sm); }
 .cmd-health { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
 .cmd-health.warn { background: var(--amber); }
 .cmd-health.off  { background: var(--label-dim); }
+/* Day chip — grade · bias votes · size rule (plan 2026-07-09 Task 3). Filled
+   tint status chip per DESIGN.md (never a colored outline); mono = data. */
+.cmd-daychip {
+  font: 500 10px var(--mono); letter-spacing: .05em; white-space: nowrap;
+  padding: 2px 8px; border-radius: 4px; margin-left: 8px; cursor: pointer;
+}
+.cmd-daychip.none { color: var(--label-dim); background: var(--surface-2); }
+.cmd-daychip.ok.green { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cmd-daychip.ok.amber { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cmd-daychip.ok.red   { color: var(--red);   background: color-mix(in srgb, var(--red) 12%, transparent); }
+.cmd-daychip.ok.dim   { color: var(--label); background: var(--surface-2); }
+.cmd-daychip.handsoff { color: var(--red);   background: color-mix(in srgb, var(--red) 18%, transparent); font-weight: 600; }
+
 /* One-click TV relaunch — red is status (system blind), per DESIGN.md hue rule. */
 .cmd-cdp-fix {
   font: 500 10px var(--mono); letter-spacing: .06em; white-space: nowrap;
