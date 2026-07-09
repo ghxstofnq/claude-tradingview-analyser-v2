@@ -393,7 +393,8 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         onOpenPalette={() => openPalette()}
         onOpenNews={() => openPalette("news")}
         onOpenAlerts={() => openPalette("alerts")}
-        onVerClick={cycleVer} onRelaunchTv={relaunchTv} onOpenBriefing={() => openPage("briefing")} />
+        onVerClick={cycleVer} onRelaunchTv={relaunchTv} onOpenBriefing={() => openPage("briefing")}
+        onOpenTicket={(side) => setPal({ open: true, query: side, sel: 0, forced: null, askQuery: null })} />
 
       <div className="chart-host">
         <div className="chart-body">

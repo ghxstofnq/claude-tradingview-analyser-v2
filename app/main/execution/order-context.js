@@ -9,7 +9,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { REPO_ROOT } from "./config.js";
-import { structuralStopCandidates, untakenDraws } from "./manual-order.js";
+import { structuralStopCandidates, untakenDraws, fvgStopCandidates } from "./manual-order.js";
 
 const execFileAsync = promisify(execFile);
 const ORDERS_SCAN = path.join(REPO_ROOT, "state", "orders-scan.json");
@@ -28,6 +28,7 @@ export function parseBundle(bundle, source) {
   return {
     symbol, price,
     candidates: structuralStopCandidates(bundle),
+    fvgs: fvgStopCandidates(bundle),
     draws: untakenDraws(bundle),
     ts: Date.now(),
     source,
@@ -52,7 +53,7 @@ export async function getOrderContext() {
     if (b) { _cache = parseBundle(b, "webview"); return _cache; }
   } catch { /* fall through */ }
   if (_cache) return { ..._cache, stale: true };
-  return { symbol: null, price: null, candidates: [], draws: { above: [], below: [] }, ts: Date.now(), source: "none", stale: true };
+  return { symbol: null, price: null, candidates: [], fvgs: [], draws: { above: [], below: [] }, ts: Date.now(), source: "none", stale: true };
 }
 
 export function cachedOrderContext() { return _cache; }

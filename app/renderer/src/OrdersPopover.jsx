@@ -135,11 +135,13 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
             </span>
           </div>
           <div className="row">
-            <span className="k">TP <span className="ord-opt">optional</span></span>
+            <span className="k">TP <span className="ord-opt">1:2 default</span></span>
             <span className="v ord-field">
-              <input className="ord-in" placeholder="none" value={typedTp} onChange={(e) => setTypedTp(e.target.value)} />
-              <span className="ord-hint">{preview?.rr != null ? `${preview.rr}R` : ""}</span>
-              {typedTp !== "" && <span className="pill interactive" onClick={() => setTypedTp("")}>clear</span>}
+              <input className="ord-in" placeholder={preview?.tpDefault != null ? String(preview.tpDefault) : "type"} value={typedTp} onChange={(e) => setTypedTp(e.target.value)} />
+              <span className="ord-hint">
+                {preview?.tpSource === "rr_default" ? `1:2 · ${fmt(preview.tp)}` : preview?.rr != null ? `${preview.rr}R` : ""}
+              </span>
+              {typedTp !== "" && <span className="pill interactive" onClick={() => setTypedTp("")}>1:2</span>}
             </span>
           </div>
           <div className="row">

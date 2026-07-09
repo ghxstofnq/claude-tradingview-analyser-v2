@@ -149,3 +149,100 @@ describe("buildOrderPreview", () => {
     assert.equal(p.block, "over_max");
   });
 });
+
+// ── FVG candle stops + 1:2 default TP (manual BUY/SELL ticket, 2026-07-10) ──
+import { fvgStopCandidates, nearestEntryFvg } from "../app/main/execution/manual-order.js";
+
+// Bull FVG 20980–20990 (c1 low 20975, c2 low 20984); a farther bull FVG below;
+// a bear FVG above (20040–21050); a dead (filled) zone; a pre-V5 zone with NaN candles.
+function fvgBundle() {
+  const b = bundle();
+  b.gates.engine.pillar3.fvgs = [
+    { dir: "bull", state: "fresh",  top: 20990, bottom: 20980, c1l: 20975, c1h: 20990, c2l: 20984, c2h: 20998 },
+    { dir: "bull", state: "tapped", top: 20960, bottom: 20950, c1l: 20945, c1h: 20960, c2l: 20953, c2h: 20968 },
+    { dir: "bear", state: "fresh",  top: 21050, bottom: 21040, c1l: 21040, c1h: 21055, c2l: 21030, c2h: 21046 },
+    { dir: "bull", state: "filled", top: 20998, bottom: 20994, c1l: 20991, c1h: 20998, c2l: 20995, c2h: 21004 },
+    { dir: "bull", state: "fresh",  top: 20972, bottom: 20966, c1l: NaN, c1h: NaN, c2l: NaN, c2h: NaN },
+  ];
+  return b;
+}
+
+describe("fvgStopCandidates", () => {
+  it("bull zones anchor candle LOWS, bear zones candle HIGHS, dead + NaN dropped", () => {
+    const z = fvgStopCandidates(fvgBundle());
+    assert.equal(z.length, 3); // filled + NaN-candles dropped
+    const bull = z[0];
+    assert.equal(bull.forSide, "buy");
+    assert.deepEqual(bull.anchors.map((a) => [a.kind, a.price]), [["fvg_c1", 20975], ["fvg_c2", 20984]]);
+    assert.match(bull.anchors[0].name, /^1\/3 FVG 20980–20990$/);
+    const bear = z.find((x) => x.forSide === "sell");
+    assert.deepEqual(bear.anchors.map((a) => [a.kind, a.price]), [["fvg_c1", 21055], ["fvg_c2", 21046]]);
+  });
+});
+
+describe("nearestEntryFvg", () => {
+  const fvgs = () => fvgStopCandidates(fvgBundle());
+  it("BUY picks the nearest bull zone at/below entry", () => {
+    assert.equal(nearestEntryFvg({ side: "buy", entry: 21000, fvgs: fvgs() }).bottom, 20980);
+  });
+  it("in-zone entry counts as distance zero", () => {
+    assert.equal(nearestEntryFvg({ side: "buy", entry: 20985, fvgs: fvgs() }).bottom, 20980);
+  });
+  it("SELL picks the nearest bear zone at/above entry; none → null", () => {
+    assert.equal(nearestEntryFvg({ side: "sell", entry: 21000, fvgs: fvgs() }).top, 21050);
+    assert.equal(nearestEntryFvg({ side: "sell", entry: 21060, fvgs: fvgs() }), null);
+  });
+});
+
+describe("FVG-first stop options + 1:2 TP default", () => {
+  const c = () => structuralStopCandidates(fvgBundle());
+  const f = () => fvgStopCandidates(fvgBundle());
+
+  it("BUY options lead with the nearest FVG's 1/3 then 2/3, both 2-tick buffered", () => {
+    const opts = stopSideOptions({ side: "buy", entry: 21000, candidates: c(), fvgs: f(), symbol: "MNQ1!" });
+    assert.deepEqual(opts.slice(0, 2).map((o) => [o.kind, o.levelPrice, o.stopPrice]),
+      [["fvg_c1", 20975, 20974.5], ["fvg_c2", 20984, 20983.5]]);
+    assert.equal(opts[2].kind, "leg_low"); // structural list follows, nearest-first
+  });
+
+  it("an anchor on the wrong side of entry is dropped, not offered", () => {
+    // entry deep in-zone at 20983: c2 low 20984 sits ABOVE entry → only c1 offered
+    const opts = stopSideOptions({ side: "buy", entry: 20983, candidates: c(), fvgs: f(), symbol: "MNQ1!" });
+    assert.equal(opts[0].kind, "fvg_c1");
+    assert.equal(opts.some((o) => o.kind === "fvg_c2"), false);
+  });
+
+  it("preview defaults: stop = 1/3 FVG, TP = 1:2 from the working stop", () => {
+    const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), fvgs: f(),
+      draws: untakenDraws(fvgBundle()), riskUsd: 120 });
+    assert.equal(p.stopSource, "fvg_c1");
+    assert.equal(p.stop, 20974.5);
+    assert.equal(p.tpSource, "rr_default");
+    assert.equal(p.tp, 21051); // 21000 + 2 × 25.5
+    assert.equal(p.rr, 2);
+  });
+
+  it("typed TP overrides the default; clearing restores it", () => {
+    const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), fvgs: f(),
+      draws: untakenDraws(fvgBundle()), typedTp: "21120", riskUsd: 120 });
+    assert.equal(p.tpSource, "typed");
+    assert.equal(p.tp, 21120);
+    assert.equal(p.tpDefault, 21051); // still exposed for the placeholder
+  });
+
+  it("no live FVG → structural default, TP still 1:2; no fvgs field (stale ctx) is safe", () => {
+    const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: structuralStopCandidates(bundle()),
+      draws: untakenDraws(bundle()), riskUsd: 120 });
+    assert.equal(p.stopSource, "leg_low");
+    assert.equal(p.tpSource, "rr_default");
+    assert.equal(p.tp, 21061); // 21000 + 2 × 30.5
+  });
+
+  it("SELL mirror: 1/3 FVG above entry, TP below", () => {
+    const p = buildOrderPreview({ side: "sell", entry: 21000, symbol: "MNQ1!", candidates: c(), fvgs: f(),
+      draws: untakenDraws(fvgBundle()), riskUsd: 120 });
+    assert.equal(p.stopSource, "fvg_c1");
+    assert.equal(p.stop, 21055.5); // c1h 21055 + 2 ticks
+    assert.equal(p.tp, 20889); // 21000 - 2 × 55.5
+  });
+});

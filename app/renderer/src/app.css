@@ -4583,6 +4583,18 @@ button { border-radius: var(--r-sm); }
 .cmd-health { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
 .cmd-health.warn { background: var(--amber); }
 .cmd-health.off  { background: var(--label-dim); }
+/* Manual BUY/SELL (plan 2026-07-10) — bottom-strip right side. Filled tints;
+   direction is status (long green / short red), same family as .cs-dir. */
+.cmd-strip .cmd-trade { display: flex; gap: 6px; margin-right: 10px; -webkit-app-region: no-drag; }
+.cmd-trade-btn {
+  font: 600 10px var(--sans); letter-spacing: .08em; padding: 3px 12px;
+  border-radius: 4px; cursor: pointer; white-space: nowrap;
+}
+.cmd-trade-btn.buy  { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cmd-trade-btn.buy:hover  { background: color-mix(in srgb, var(--green) 20%, transparent); }
+.cmd-trade-btn.sell { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.cmd-trade-btn.sell:hover { background: color-mix(in srgb, var(--red) 20%, transparent); }
+
 /* Day chip — grade · bias votes · size rule (plan 2026-07-09 Task 3). Filled
    tint status chip per DESIGN.md (never a colored outline); mono = data. */
 .cmd-daychip {

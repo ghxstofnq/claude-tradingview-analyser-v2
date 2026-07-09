@@ -10,6 +10,7 @@ const STOP_LABEL = {
   leg_low: "leg low", leg_high: "leg high",
   swing_low: "swing low", swing_high: "swing high",
   session_level_low: "session level", session_level_high: "session level", session_level: "session level",
+  fvg_c1: "1/3 FVG", fvg_c2: "2/3 FVG",
   typed: "typed",
 };
 export function formatStopSource(kind) {
