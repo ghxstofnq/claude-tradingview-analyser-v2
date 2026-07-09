@@ -20,7 +20,9 @@ import {
   explainNoTradeReason,
   liveGuardBudgets,
   fillChips,
+  walkerHuntRows,
 } from "./Live.helpers.js";
+import { useWalkers } from "./hooks/useWalkers.js";
 import { stripCitations, openReactionVerdict } from "./Prep.helpers.js";
 import { realAccountView } from "./Account.helpers.js";
 import { walkerTruthToProse } from "./Brain.helpers.js";
@@ -362,13 +364,37 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
 function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAccept, onReject, openReaction, brief, session, symbol }) {
   const [showEv, setShowEv] = useState(false);
   const read = latestReadText(chat?.messages || []);
+  const walkers = useWalkers();
 
   // ── no candidate: a clean feed of the latest brain read + why-no-trade ──
   if (!setup) {
     const ex = explainNoTradeReason(noTradeReason, { ltf: openReaction?.ltf, latest: openReaction?.latest });
     const sh = noTrade?.sourceHealth;
+    const hunt = walkerHuntRows(walkers, lastBarPrice);
     return (
       <div className="cs-feed">
+        {/* Hunt view (plan 2026-07-09 Task 2): what the chain is walking and
+            what each walker waits for — instead of a blank stare. */}
+        {hunt.length > 0 && (
+          <div className="lv-box lv-hunt">
+            <div className="lv-box-hd">WALKERS · {hunt.length}</div>
+            {hunt.slice(0, 6).map((r) => (
+              <div key={r.id} className="lv-hunt-row">
+                <div className="lv-hunt-top">
+                  <span className={"cs-dir " + (r.side === "long" ? "long" : "short")}>{r.side ?? "—"}</span>
+                  <span className="lv-hunt-model">{r.model}</span>
+                  <span className="lv-hunt-stage">{r.stageLabel}</span>
+                  <span className="sp" />
+                  <span className="lv-hunt-dist">{r.distText}</span>
+                </div>
+                <div className="lv-hunt-sub">
+                  zone <span className="lv-hunt-zone">{r.zoneText}</span> · waiting for {r.waiting} · dies on <span className="lv-hunt-zone">{r.dies}</span>
+                </div>
+              </div>
+            ))}
+            {hunt.length > 6 ? <div className="lv-hunt-more">+{hunt.length - 6} more, further out</div> : null}
+          </div>
+        )}
         {read?.text && (
           <div className="cs-feed-row">
             <span className="cs-feed-row__ts">{read.t || ""}</span>
@@ -378,7 +404,7 @@ function EntryHuntView({ setup, lastBarPrice, chat, noTrade, noTradeReason, onAc
         <div className="cs-feed-row">
           <span className="cs-feed-row__ts" />
           <div style={{ flex: 1 }}>
-            <p className="cs-narr">{ex ? ex.text : (noTradeReason ? "No-trade — standing aside." : "Awaiting next walker fire.")}</p>
+            <p className="cs-narr">{ex ? ex.text : (noTradeReason ? "No-trade — standing aside." : (hunt.length > 0 ? "Hunting — the chain advances on each bar close." : "No PD arrays being walked yet — the chain spawns walkers off a sweep + displacement into a fresh zone."))}</p>
             {ex?.sub ? <p className="cs-narr-sub">{ex.sub}</p> : null}
             {noTrade?.blockers?.length ? <p className="cs-narr-sub">blockers: {noTrade.blockers.join(", ")}</p> : null}
             {noTrade?.evidenceRefs?.length ? <p className="cs-narr-sub">evidence: {noTrade.evidenceRefs.join(", ")}</p> : null}

@@ -13,6 +13,8 @@ import {
   explainNoTradeReason,
   liveGuardBudgets,
   fillChips,
+  walkerZoneBounds,
+  walkerHuntRows,
 } from "../app/renderer/src/Live.helpers.js";
 
 describe("liveGuardBudgets", () => {
@@ -337,5 +339,75 @@ describe("explainNoTradeReason", () => {
   it("unknown chain-incomplete blocker strips the noisy prefix", () => {
     const ex = explainNoTradeReason("cannot evaluate: strategy chain incomplete: missing_grade_cap", {});
     assert.equal(ex.text, "Chain incomplete — missing_grade_cap");
+  });
+});
+
+// ── walkerHuntRows / walkerZoneBounds (plan 2026-07-09 Task 2) ──────────────
+describe("walkerZoneBounds", () => {
+  it("prefers the bridged engine row's numeric bounds", () => {
+    const w = { evidence: { pdArray: { rawPayload: { top: 29931.25, bottom: 29925.5 } } }, pdArrayRef: "zone:1-2" };
+    assert.deepEqual(walkerZoneBounds(w), { top: 29931.25, bottom: 29925.5 });
+  });
+  it("falls back to parsing the boundary-based zone ref", () => {
+    assert.deepEqual(
+      walkerZoneBounds({ pdArrayRef: "zone:29925.5-29931.25" }),
+      { bottom: 29925.5, top: 29931.25 },
+    );
+  });
+  it("null when neither source carries numbers", () => {
+    assert.equal(walkerZoneBounds({ pdArrayRef: "gates.engine.pillar3.fvgs[2]" }), null);
+    assert.equal(walkerZoneBounds({}), null);
+  });
+});
+
+describe("walkerHuntRows", () => {
+  const zone = (bottom, top) => ({ evidence: { pdArray: { rawPayload: { bottom, top } } } });
+  it("builds a row with stage label, distance, waiting and dies text", () => {
+    const rows = walkerHuntRows(
+      [{ id: "a", model: "MSS", side: "short", stage: "tap_seen", ...zone(29900, 29910) }],
+      29943.25,
+    );
+    assert.equal(rows.length, 1);
+    const r = rows[0];
+    assert.equal(r.stageLabel, "tapped");
+    assert.equal(r.distText, "33.3 pts above");
+    assert.equal(r.zoneText, "29900–29910");
+    assert.match(r.waiting, /1m close/);
+    assert.equal(r.dies, "1m close above 29910");
+  });
+  it("in-zone and below-zone distances; long dies below the zone", () => {
+    const rows = walkerHuntRows(
+      [
+        { id: "in", model: "Trend", side: "long", stage: "confirmation_pending", ...zone(29940, 29950) },
+        { id: "below", model: "MSS", side: "long", stage: "watching", ...zone(29980, 29990) },
+      ],
+      29943.25,
+    );
+    assert.equal(rows[0].id, "in"); // later stage sorts first
+    assert.equal(rows[0].distText, "in zone");
+    assert.equal(rows[0].dies, "1m close below 29940");
+    assert.equal(rows[1].distText, "36.8 pts below");
+  });
+  it("terminal walkers are excluded; missing price degrades honestly", () => {
+    const rows = walkerHuntRows(
+      [
+        { id: "dead", model: "MSS", side: "short", stage: "expired", ...zone(1, 2) },
+        { id: "alive", model: "MSS", side: "short", stage: "watching", ...zone(29900, 29910) },
+      ],
+      null,
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, "alive");
+    assert.equal(rows[0].distText, "—");
+  });
+  it("same stage sorts nearer zone first", () => {
+    const rows = walkerHuntRows(
+      [
+        { id: "far", model: "MSS", side: "long", stage: "watching", ...zone(29800, 29810) },
+        { id: "near", model: "MSS", side: "long", stage: "watching", ...zone(29930, 29935) },
+      ],
+      29943.25,
+    );
+    assert.deepEqual(rows.map((r) => r.id), ["near", "far"]);
   });
 });

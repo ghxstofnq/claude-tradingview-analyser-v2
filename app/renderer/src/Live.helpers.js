@@ -260,3 +260,70 @@ export function explainNoTradeReason(reason, ctx = {}) {
   const cleaned = raw.replace(/^cannot evaluate:\s*strategy chain incomplete:\s*/i, "Chain incomplete — ");
   return { text: cleaned, sub: cleaned === raw ? null : raw };
 }
+
+// ── WALKERS hunt panel (plan 2026-07-09 Task 2) ─────────────────────────────
+// Rows for the LIVE FEED's hunt view: what each active walker is, how far its
+// zone sits from price, what it's waiting for, and what kills it. Stage
+// vocabulary mirrors app/main/strategy/walkers/walker-state.js. All numbers
+// come from the walker's own zone evidence + the live price (code arithmetic —
+// constraint #7 keeps this out of any LLM).
+
+const HUNT_STAGE_META = {
+  watching:             { label: "watching",      waiting: "price to reach the zone", step: 1 },
+  pd_identified:        { label: "pd identified", waiting: "price to tap the zone", step: 2 },
+  tap_seen:             { label: "tapped",        waiting: "a 1m close confirming off the zone", step: 3 },
+  confirmation_pending: { label: "await confirm", waiting: "a deliberate 1m close in the trade direction", step: 4 },
+  confirmed:            { label: "confirmed",     waiting: "packet gates (stop · size · targets)", step: 5 },
+};
+
+// Zone bounds from walker evidence: the bridged engine row (top/bottom) wins;
+// otherwise parse the boundary-based ref ("zone:<bottom>-<top>",
+// app/main/bar-close.js zoneRef). Null when neither carries numbers.
+export function walkerZoneBounds(walker) {
+  const raw = walker?.evidence?.pdArray?.rawPayload ?? {};
+  const top = Number(raw.top);
+  const bottom = Number(raw.bottom);
+  if (Number.isFinite(top) && Number.isFinite(bottom)) return { top, bottom };
+  const m = /^zone:(-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)$/.exec(walker?.pdArrayRef ?? "");
+  if (m) return { bottom: Number(m[1]), top: Number(m[2]) };
+  return null;
+}
+
+function distanceText(zone, price) {
+  if (!zone || !Number.isFinite(price)) return { text: "—", pts: null };
+  if (price > zone.top) { const d = price - zone.top; return { text: `${d.toFixed(1)} pts above`, pts: d }; }
+  if (price < zone.bottom) { const d = zone.bottom - price; return { text: `${d.toFixed(1)} pts below`, pts: d }; }
+  return { text: "in zone", pts: 0 };
+}
+
+export function walkerHuntRows(walkers, price) {
+  // Number(null) is 0 — a missing price must stay NaN so distances read "—".
+  const p = price == null ? NaN : Number(price);
+  const rows = [];
+  for (const w of walkers ?? []) {
+    const meta = HUNT_STAGE_META[w?.stage];
+    if (!meta) continue; // terminal walkers (packet_ready/blocked/expired) don't hunt
+    const zone = walkerZoneBounds(w);
+    const dist = distanceText(zone, p);
+    const side = normalizeSide(w.side);
+    rows.push({
+      id: w.id,
+      model: w.model ?? "—",
+      side,
+      stageLabel: meta.label,
+      step: meta.step,
+      zoneText: zone ? `${zone.bottom}–${zone.top}` : "—",
+      distText: dist.text,
+      distPts: dist.pts,
+      waiting: meta.waiting,
+      dies: zone
+        ? (side === "long" ? `1m close below ${zone.bottom}` : side === "short" ? `1m close above ${zone.top}` : "zone violation")
+        : "zone violation / expiry",
+    });
+  }
+  // Closest-to-entry first: later stage wins, then nearer zone.
+  rows.sort((a, b) => (b.step - a.step)
+    || ((a.distPts ?? Infinity) - (b.distPts ?? Infinity))
+    || String(a.id).localeCompare(String(b.id)));
+  return rows;
+}
