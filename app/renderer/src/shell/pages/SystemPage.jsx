@@ -44,6 +44,17 @@ function SystemBody({ pushToast }) {
   const loop = health?.loop; // healthy | stale | off
   const loopTone = loop === "healthy" ? "ok" : loop === "stale" ? "warn" : "bad";
   const loopVal = loop === "healthy" ? "running" : loop === "stale" ? "stale" : "stopped";
+  const cdp = health?.cdp; // up | down | unknown
+  const [tvBusy, setTvBusy] = useState(false);
+  const relaunchTv = async () => {
+    if (tvBusy) return;
+    setTvBusy(true);
+    pushToast?.("Relaunching TradingView with CDP — takes ~15s…", "amber");
+    const r = await window.api?.tv?.relaunch?.().catch((e) => ({ ok: false, error: String(e?.message || e) }));
+    setTvBusy(false);
+    if (r?.ok) pushToast?.(r.already ? "TradingView CDP already up" : "TradingView relaunched — CDP 9225 up", "green");
+    else pushToast?.(`Relaunch failed — ${r?.error || "unknown error"}`, "red");
+  };
   const calN = (events || []).length;
   const calTone = calN > 0 ? "ok" : "warn";
   const retryCal = () => { window.api?.calendar?.thisWeek?.().catch(() => {}); pushToast?.("Calendar feed refreshed", "green"); };
@@ -89,6 +100,12 @@ function SystemBody({ pushToast }) {
           <span className="cs-card-label-lg">HEALTH</span>
           <div className="cs-health-list">
             <HRow tone={loopTone} name="Agent loop" value={loopVal} />
+            <HRow tone={cdp === "up" ? "ok" : cdp === "down" ? "bad" : "warn"} name="TradingView CDP"
+                  value={cdp === "up" ? "9225 up" : cdp === "down" ? "9225 down — system blind" : "checking…"}
+                  valWarn={cdp === "down"}
+                  action={cdp === "down"
+                    ? <span className="cs-health-retry" {...clickable(relaunchTv, { label: "relaunch TradingView with CDP" })}>{tvBusy ? "RELAUNCHING…" : "RELAUNCH"}</span>
+                    : null} />
             <HRow tone="ok" name="IPC bridge" value="ok" />
             <HRow tone={calTone} name="Calendar feed" value={calN > 0 ? `${calN} events` : "no feed"} valWarn={calN === 0}
                   action={calN === 0 ? <span className="cs-health-retry" {...clickable(retryCal, { label: "retry calendar" })}>RETRY</span> : null} />

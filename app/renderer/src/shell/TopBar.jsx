@@ -27,7 +27,7 @@ function verView(v) {
 export function TopBar({
   symbol, setSymbol, guards, exec,
   alertCount, newsCount, newsImminent,
-  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick,
+  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick, onRelaunchTv,
 }) {
   const version = useVersion();
   const lastBar = useLastBar();
@@ -36,8 +36,12 @@ export function TopBar({
   const ver = verView(version);
 
   const loop = health?.loop;
-  const healthCls = loop === "healthy" ? "" : loop === "stale" ? "warn" : "off";
-  const healthTitle = loop === "healthy" ? "loop healthy" : loop === "stale" ? "detector stale" : "detector stopped";
+  // TV Desktop running without the CDP flag blinds the whole system — outranks
+  // every other health read and gets a one-click fix on the dot itself.
+  const cdpDown = health?.cdp === "down";
+  const healthCls = cdpDown ? "off" : loop === "healthy" ? "" : loop === "stale" ? "warn" : "off";
+  const healthTitle = cdpDown ? "TradingView CDP down — click to relaunch with the debug flag"
+    : loop === "healthy" ? "loop healthy" : loop === "stale" ? "detector stale" : "detector stopped";
 
   // Guard meter — today's realized loss vs the daily limit (same tally the
   // Settings guardrail readout uses: sum of negative fill USD for today).
@@ -71,7 +75,14 @@ export function TopBar({
         </span>
         <span className="sp" />
         <span className="cmd-lastbar" title="last bar">{lastBar?.hhmm || "—"} · {lastBar?.age_label || "—"}</span>
-        <span className={"cmd-health " + healthCls} title={healthTitle} />
+        {cdpDown && (
+          <span className="cmd-cdp-fix" {...clickable(onRelaunchTv, { label: "relaunch TradingView with CDP" })}
+                title="TradingView is running without the debug flag — the system can't read the chart. Click to quit + relaunch it with CDP.">
+            TV CDP DOWN · RELAUNCH
+          </span>
+        )}
+        <span className={"cmd-health " + healthCls} title={healthTitle}
+              {...(cdpDown ? clickable(onRelaunchTv, { label: "relaunch TradingView with CDP" }) : {})} />
       </div>
 
       <div className="cmd-strip">

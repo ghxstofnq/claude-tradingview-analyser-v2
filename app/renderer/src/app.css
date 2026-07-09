@@ -4573,7 +4573,7 @@ button { border-radius: var(--r-sm); }
   border-bottom: 1px solid var(--border); background: var(--surface-0);
   -webkit-app-region: drag;
 }
-.cmd-topbar .cmd-sym, .cmd-topbar .cmd-health, .cmd-topbar .cmd-lastbar { -webkit-app-region: no-drag; }
+.cmd-topbar .cmd-sym, .cmd-topbar .cmd-health, .cmd-topbar .cmd-lastbar, .cmd-topbar .cmd-cdp-fix { -webkit-app-region: no-drag; }
 .cmd-sym { display: flex; gap: 2px; }
 .cmd-sym .pill { cursor: pointer; }
 .cmd-phase { font: 500 10px var(--mono); letter-spacing: .06em; color: var(--amber); white-space: nowrap; }
@@ -4583,6 +4583,13 @@ button { border-radius: var(--r-sm); }
 .cmd-health { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
 .cmd-health.warn { background: var(--amber); }
 .cmd-health.off  { background: var(--label-dim); }
+/* One-click TV relaunch — red is status (system blind), per DESIGN.md hue rule. */
+.cmd-cdp-fix {
+  font: 500 10px var(--mono); letter-spacing: .06em; white-space: nowrap;
+  color: var(--red); border: 1px solid var(--red); border-radius: 4px;
+  padding: 2px 8px; cursor: pointer;
+}
+.cmd-cdp-fix:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
 .cmd-topbar .sp { flex: 1; }
 
 /* ── ambient strip (row 3) ───────────────────────────────────────────────── */

@@ -3,6 +3,7 @@
 import { ipcMain } from "electron";
 import { userTurn, cancelCurrentTurn, resetSession, addActivityListener } from "./sdk.js";
 import { startDetector, stopDetector } from "./bar-close.js";
+import { relaunchTvWithCdp } from "./tv-launcher.js";
 import { record as recordMetric, readRows as loadMetricRows } from "./metrics.js";
 import { summarizeUsage, todayET } from "./usage.js";
 import { getPersistentMemory } from "./persistent-memory.js";
@@ -52,6 +53,14 @@ export function registerIpc(win) {
     // noteManualStop tells the session supervisor not to auto-re-arm for the
     // remainder of this session — a deliberate stop must stay stopped.
     try { noteManualStop(); stopDetector(); setMode("prep"); send("health:update", { detector: "stopped" }); ipc.send("mode:current", { mode: "prep" }); return { ok: true }; }
+    catch (err) { return { ok: false, error: String(err?.message || err) }; }
+  });
+
+  // Relaunch TV Desktop with the CDP debug flag (hard constraint #1 recipe).
+  // No detector restart needed: the poll loop retries connection errors every
+  // bar boundary, so it self-heals the moment 9225 answers again.
+  ipcMain.handle("tv:relaunch", async () => {
+    try { return await relaunchTvWithCdp(); }
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
