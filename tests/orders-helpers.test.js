@@ -55,3 +55,63 @@ describe("orders helpers", () => {
     assert.equal(blockMessage(null), "");
   });
 });
+
+// ── chooser rows (refined BUY/SELL ticket, 2026-07-10) ──────────────────────
+import { stopChooserRows, tpChooserRows, stopTag } from "../app/renderer/src/Orders.helpers.js";
+
+const PREVIEW = {
+  entry: 21000,
+  tpDefault: 21051,
+  stopOptions: [
+    { kind: "fvg_c1", name: "1/3 FVG 20980–20990", levelPrice: 20975, stopPrice: 20974.5 },
+    { kind: "fvg_c2", name: "2/3 FVG 20980–20990", levelPrice: 20984, stopPrice: 20983.5 },
+    { kind: "swing_low", name: "swing low", levelPrice: 20940, stopPrice: 20939.5 },
+    { kind: "session_level_low", name: "NYAM.L", levelPrice: 20900, stopPrice: 20899.5 },
+  ],
+  tpDraws: [
+    { name: "NYAM.H", price: 21120, kind: "session_level", rr: 4.7 },
+    { name: "eqh", price: 21150, kind: "eqh", rr: 5.9 },
+  ],
+};
+
+describe("stopChooserRows", () => {
+  it("untouched ticket selects the default (first) row; rows carry tag/label/pts", () => {
+    const { rows, customSel } = stopChooserRows(PREVIEW, "");
+    assert.equal(customSel, false);
+    assert.deepEqual(rows.map((r) => [r.tag, r.sel]), [["1/3 FVG", true], ["2/3 FVG", false], ["SL", false], ["session", false]]);
+    assert.equal(rows[0].label, "20980–20990"); // zone bounds, tag stripped
+    assert.equal(rows[0].pts, 25.5);
+    assert.equal(rows[0].value, ""); // default row writes "" → placement re-derives fresh
+    assert.equal(rows[3].label, "NYAM.L");
+  });
+  it("typed price matching an option selects that row; unknown price selects custom", () => {
+    const a = stopChooserRows(PREVIEW, "20939.5");
+    assert.equal(a.rows.find((r) => r.sel).tag, "SL");
+    const b = stopChooserRows(PREVIEW, "20955");
+    assert.equal(b.rows.some((r) => r.sel), false);
+    assert.equal(b.customSel, true);
+  });
+});
+
+describe("tpChooserRows", () => {
+  it("1:2 default first + tagged draws; untouched selects the default", () => {
+    const { rows } = tpChooserRows(PREVIEW, "");
+    assert.deepEqual(rows.map((r) => [r.tag, r.sel]), [["1:2", true], ["session", false], ["pool", false]]);
+    assert.equal(rows[0].price, 21051);
+    assert.equal(rows[0].rr, 2);
+  });
+  it("picking a draw selects it; custom otherwise; no tpDefault → no 1:2 row", () => {
+    assert.equal(tpChooserRows(PREVIEW, "21120").rows.find((r) => r.sel).label, "NYAM.H");
+    assert.equal(tpChooserRows(PREVIEW, "21500").customSel, true);
+    assert.equal(tpChooserRows({ ...PREVIEW, tpDefault: null }, "").rows.some((r) => r.tag === "1:2"), false);
+  });
+});
+
+describe("stopTag", () => {
+  it("maps every stop kind to its display tag", () => {
+    assert.equal(stopTag("fvg_c1"), "1/3 FVG");
+    assert.equal(stopTag("swing_high"), "SH");
+    assert.equal(stopTag("leg_low"), "leg");
+    assert.equal(stopTag("mystery"), "mystery");
+  });
+});

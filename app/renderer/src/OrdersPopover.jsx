@@ -9,10 +9,10 @@ import { clickable } from "./a11y.js";
 import { useFloat } from "./hooks/useFloat.js";
 import { Panel, Row } from "./Shared.jsx";
 import { executionAdapter } from "./execution/executionAdapter.js";
-import { formatStopSource, routingLabel, blockMessage, orderResultToast } from "./Orders.helpers.js";
+import { routingLabel, blockMessage, orderResultToast, stopChooserRows, tpChooserRows } from "./Orders.helpers.js";
 
 const fmt = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
-const sameNum = (a, b) => a !== "" && a != null && Number(a) === Number(b);
+const symShort = (s) => String(s || "").replace(/1!$/, "") || "—";
 
 function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
   const [ctx, setCtx] = useState(null);
@@ -91,8 +91,23 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
   const routable = acct?.gate?.route === true;
   const blocked = preview?.block;
   const canPlace = routable && !blocked && !busy && preview?.contracts >= 1;
-  const stopOptions = preview?.stopOptions ?? [];
-  const tpDraws = preview?.tpDraws ?? [];
+  const stopRows = stopChooserRows(preview, typedStop);
+  const tpRows = tpChooserRows(preview, typedTp);
+
+  // Enter confirms (refined ticket decision, 2026-07-10): buttons → glance →
+  // ⏎ places. Ignored while typing in a field; esc still closes via the shell.
+  const placeRef = useRef(null);
+  placeRef.current = canPlace ? place : null;
+  useEffect(() => {
+    const h = (e) => {
+      if (e.key !== "Enter" || e.repeat) return;
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (placeRef.current) { e.preventDefault(); placeRef.current(); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   const routeRight = (
     <span className="ord-head-right">
@@ -104,18 +119,16 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
   return (
     <>
       <div className="body orders-scroll">
-        {/* POSITION */}
-        <Panel title="POSITION" right={pos ? ctx?.symbol : "flat"}>
-          {pos ? (
-            <>
-              <Row k="SIDE / QTY" v={`${(pos.side || "").toUpperCase()} ${pos.qty}`} tone={pos.side === "buy" ? "ok" : "bad"} />
-              <Row k="AVG FILL" v={fmt(pos.avgFill)} />
-              <Row k="uPnL" v={pos.uPnlUsd != null ? `$${fmt(pos.uPnlUsd)}` : "—"} tone={pos.uPnlUsd > 0 ? "ok" : pos.uPnlUsd < 0 ? "bad" : ""} />
-            </>
-          ) : <div className="ord-empty">no open position</div>}
-        </Panel>
+        {/* POSITION — only when one exists (the refined ticket is for entries) */}
+        {pos && (
+          <Panel title="POSITION" right={ctx?.symbol}>
+            <Row k="SIDE / QTY" v={`${(pos.side || "").toUpperCase()} ${pos.qty}`} tone={pos.side === "buy" ? "ok" : "bad"} />
+            <Row k="AVG FILL" v={fmt(pos.avgFill)} />
+            <Row k="uPnL" v={pos.uPnlUsd != null ? `$${fmt(pos.uPnlUsd)}` : "—"} tone={pos.uPnlUsd > 0 ? "ok" : pos.uPnlUsd < 0 ? "bad" : ""} />
+          </Panel>
+        )}
 
-        {/* ORDER TICKET */}
+        {/* ORDER — side · symbol · live price (stacked chooser, 2026-07-10) */}
         <Panel title="ORDER" right={routeRight}>
           <div className="row">
             <span className="k">SIDE</span>
@@ -126,58 +139,61 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
           </div>
           <Row k="SYMBOL" v={ctx?.symbol ?? "—"} tone={ctx?.stale ? "warn" : ""} />
           <Row k="PRICE" v={fmt(ctx?.price)} />
-          <div className="row">
-            <span className="k">STOP</span>
-            <span className="v ord-field">
-              <input className="ord-in" placeholder={preview?.stopAuto ? String(preview.stopAuto.price) : "type"} value={typedStop} onChange={(e) => setTypedStop(e.target.value)} />
-              <span className="ord-hint">{preview?.stopSource ? `${formatStopSource(preview.stopSource)} · ${fmt(preview.stop)}` : "—"}</span>
-              {typedStop !== "" && <span className="pill interactive" onClick={() => setTypedStop("")}>auto</span>}
-            </span>
+          {blocked && <div className="orders-block">{blockMessage(blocked)}</div>}
+        </Panel>
+
+        {/* STOP — choose one; default = nearest entry-FVG's 1/3 candle.
+            Picking the default writes "" so placement re-derives it fresh. */}
+        <Panel title="STOP" right={side === "buy" ? "lows below" : "highs above"}>
+          {stopRows.rows.map((r) => (
+            <div key={r.key} className={"ord-choice" + (r.sel ? " sel" : "")} onClick={() => setTypedStop(r.value)}>
+              <span className="dot">{r.sel ? "●" : "○"}</span>
+              <span className="tag">{r.tag}</span>
+              <span className="nm">{r.label}</span>
+              <span className="px">{fmt(r.stopPrice)}</span>
+              <span className="pts">{r.pts != null ? `${fmt(r.pts)} pts` : ""}</span>
+            </div>
+          ))}
+          {!stopRows.rows.length && <div className="ord-empty">no structure on the stop side — type one below</div>}
+          <div className={"ord-choice custom" + (stopRows.customSel ? " sel" : "")}>
+            <span className="dot">{stopRows.customSel ? "●" : "○"}</span>
+            <span className="tag">custom</span>
+            <input className="ord-in" placeholder="price" value={typedStop} onChange={(e) => setTypedStop(e.target.value)} />
+            {typedStop !== "" && <span className="pill interactive" onClick={() => setTypedStop("")}>default</span>}
           </div>
-          <div className="row">
-            <span className="k">TP <span className="ord-opt">1:2 default</span></span>
-            <span className="v ord-field">
-              <input className="ord-in" placeholder={preview?.tpDefault != null ? String(preview.tpDefault) : "type"} value={typedTp} onChange={(e) => setTypedTp(e.target.value)} />
-              <span className="ord-hint">
-                {preview?.tpSource === "rr_default" ? `1:2 · ${fmt(preview.tp)}` : preview?.rr != null ? `${preview.rr}R` : ""}
-              </span>
-              {typedTp !== "" && <span className="pill interactive" onClick={() => setTypedTp("")}>1:2</span>}
-            </span>
+        </Panel>
+
+        {/* TP — choose one; default = 1:2 from the working stop. */}
+        <Panel title="TP" right={side === "buy" ? "above" : "below"}>
+          {tpRows.rows.map((r) => (
+            <div key={r.key} className={"ord-choice" + (r.sel ? " sel" : "")} onClick={() => setTypedTp(r.value)}>
+              <span className="dot">{r.sel ? "●" : "○"}</span>
+              <span className="tag">{r.tag}</span>
+              <span className="nm">{r.label}</span>
+              <span className="px">{fmt(r.price)}</span>
+              <span className="pts">{r.rr != null ? `${fmt(r.rr)}R` : ""}</span>
+            </div>
+          ))}
+          {!tpRows.rows.length && <div className="ord-empty">no TP available — type one below</div>}
+          <div className={"ord-choice custom" + (tpRows.customSel ? " sel" : "")}>
+            <span className="dot">{tpRows.customSel ? "●" : "○"}</span>
+            <span className="tag">custom</span>
+            <input className="ord-in" placeholder="price" value={typedTp} onChange={(e) => setTypedTp(e.target.value)} />
+            {typedTp !== "" && <span className="pill interactive" onClick={() => setTypedTp("")}>1:2</span>}
           </div>
+        </Panel>
+
+        {/* RISK — seeds from Settings defaultRisk; sizing is live. */}
+        <Panel title="RISK">
           <div className="row">
             <span className="k">RISK $</span>
             <span className="v ord-field">
               <input className="ord-in" value={risk ?? ""} onChange={(e) => setRisk(e.target.value === "" ? "" : Number(e.target.value))} />
               <span className={"ord-hint" + (preview && !preview.withinTolerance ? " warn" : "")}>
-                {preview ? `${preview.contracts}c · $${fmt(preview.actualRiskUsd)}${preview.rr != null ? ` · ${preview.rr}R` : ""}` : ""}
+                {preview ? `→ ${preview.contracts} ${symShort(ctx?.symbol)} · $${fmt(preview.actualRiskUsd)} actual${preview.rr != null ? ` · ${preview.rr}R` : ""}` : ""}
               </span>
             </span>
           </div>
-          {blocked && <div className="orders-block">{blockMessage(blocked)}</div>}
-        </Panel>
-
-        {/* STOP LEVELS — clickable structure on the stop side */}
-        <Panel title="STOP LEVELS" right={side === "buy" ? "lows below" : "highs above"}>
-          {stopOptions.length ? stopOptions.map((o, i) => (
-            <div key={i} className={"ord-pick" + (sameNum(typedStop, o.stopPrice) ? " sel" : "")} onClick={() => setTypedStop(String(o.stopPrice))}>
-              <span className="nm">{formatStopSource(o.kind)}</span>
-              <span className="lv">{fmt(o.levelPrice)}</span>
-              <span className="ar">stop</span>
-              <span className="sp">{fmt(o.stopPrice)}</span>
-            </div>
-          )) : <div className="ord-empty">no structure on the stop side — type a stop</div>}
-        </Panel>
-
-        {/* TARGET DRAWS — clickable untaken draws on the target side */}
-        <Panel title="TARGET DRAWS" right={side === "buy" ? "above" : "below"}>
-          {tpDraws.length ? tpDraws.map((d, i) => (
-            <div key={i} className={"ord-pick" + (sameNum(typedTp, d.price) ? " sel" : "")} onClick={() => setTypedTp(String(d.price))}>
-              <span className="nm">{d.name}</span>
-              <span className="lv">{fmt(d.price)}</span>
-              <span className="ar" />
-              <span className="sp">{d.rr != null ? `${d.rr}R` : ""}</span>
-            </div>
-          )) : <div className="ord-empty">no untaken draws on the target side</div>}
         </Panel>
       </div>
 
@@ -186,7 +202,8 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
         {!routable && <div className="orders-block">account not routable — confirm an account in Settings</div>}
         <div className="orders-actions">
           <button className={"pill big " + (side === "buy" ? "green" : "red")} disabled={!canPlace} onClick={place}>
-            PLACE {side.toUpperCase()}{preview?.contracts >= 1 ? ` ${preview.contracts}c` : ""}
+            CONFIRM — {side.toUpperCase()}{preview?.contracts >= 1 ? ` ${preview.contracts} ${symShort(ctx?.symbol)}` : ""} MARKET
+            {canPlace ? <span className="ord-kbd">⏎</span> : null}
           </button>
           <button className="pill big" disabled={!pos} onClick={flatten}>FLATTEN</button>
         </div>

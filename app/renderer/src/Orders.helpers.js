@@ -53,3 +53,54 @@ export function orderResultToast(r, { side, contracts, symbol } = {}) {
   const why = r?.result?.status ? `HTTP ${r.result.status}` : (r?.error || r?.result?.body || "broker rejected");
   return `ORDER FAILED · ${String(why).slice(0, 80)}`;
 }
+
+// ── Stacked chooser rows (refined BUY/SELL ticket, 2026-07-10) ──────────────
+// The ticket asks the trader to CHOOSE the stop and TP from named options,
+// defaults pre-selected (1/3 FVG stop · 1:2 TP). Pure: rows carry everything
+// the renderer prints; `value` is what selecting the row writes into the
+// typed field ("" = the default → placement re-derives it on a fresh read).
+
+const STOP_TAG = {
+  fvg_c1: "1/3 FVG", fvg_c2: "2/3 FVG",
+  swing_low: "SL", swing_high: "SH",
+  session_level_low: "session", session_level_high: "session", session_level: "session",
+  leg_low: "leg", leg_high: "leg",
+};
+export function stopTag(kind) { return STOP_TAG[kind] ?? (kind || "level"); }
+
+export function stopChooserRows(preview, typedStop) {
+  const opts = preview?.stopOptions ?? [];
+  const entry = Number(preview?.entry);
+  const raw = String(typedStop ?? "");
+  const typed = raw === "" ? null : Number(raw);
+  const rows = opts.map((o, i) => {
+    const tag = stopTag(o.kind);
+    const label = String(o.kind).startsWith("fvg_")
+      ? String(o.name ?? "").replace(tag, "").trim()
+      : (o.name ?? tag);
+    const pts = Number.isFinite(entry) && Number.isFinite(Number(o.stopPrice))
+      ? Number(Math.abs(entry - o.stopPrice).toFixed(2)) : null;
+    return {
+      key: `${o.kind}:${o.stopPrice}`, tag, label,
+      levelPrice: o.levelPrice, stopPrice: o.stopPrice, pts,
+      sel: typed == null ? i === 0 : Number(o.stopPrice) === typed,
+      isDefault: i === 0,
+      value: i === 0 ? "" : String(o.stopPrice),
+    };
+  });
+  return { rows, customSel: typed != null && !rows.some((r) => r.sel) };
+}
+
+export function tpChooserRows(preview, typedTp) {
+  const raw = String(typedTp ?? "");
+  const typed = raw === "" ? null : Number(raw);
+  const rows = [];
+  if (preview?.tpDefault != null) {
+    rows.push({ key: "rr_default", tag: "1:2", label: "default", price: preview.tpDefault, rr: 2, sel: typed == null, isDefault: true, value: "" });
+  }
+  for (const d of preview?.tpDraws ?? []) {
+    const tag = d.kind === "session_level" ? "session" : /^eq/.test(String(d.kind ?? "")) ? "pool" : "level";
+    rows.push({ key: `draw:${d.price}`, tag, label: d.name ?? tag, price: d.price, rr: d.rr ?? null, sel: typed != null && Number(d.price) === typed, isDefault: false, value: String(d.price) });
+  }
+  return { rows, customSel: typed != null && !rows.some((r) => r.sel) };
+}

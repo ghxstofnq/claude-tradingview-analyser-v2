@@ -4294,6 +4294,30 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .orders-pop .ord-pick .sp { color: var(--amber); text-align: right; font-variant-numeric: tabular-nums; }
 .orders-pop .ord-empty { color: var(--label-dim); font-size: 10.5px; padding: 4px 0; }
 
+/* stacked chooser rows (refined BUY/SELL ticket, 2026-07-10) — radio-style
+   pick lists for STOP and TP; dot + tag chip + name (sans), prices/pts (mono) */
+.orders-pop .ord-choice {
+  display: grid; grid-template-columns: 14px 64px 1fr 92px 76px; gap: 8px; align-items: center;
+  padding: 6px 8px; margin: 0 -8px; font-size: 11px; cursor: pointer;
+  border-bottom: 1px solid var(--border); border-radius: var(--r-xs);
+}
+.orders-pop .ord-choice:last-child { border-bottom: 0; }
+.orders-pop .ord-choice:hover { background: var(--surface-2); }
+.orders-pop .ord-choice.sel { background: var(--cs-onfill); }
+.orders-pop .ord-choice .dot { color: var(--label-dim); font-size: 9px; }
+.orders-pop .ord-choice.sel .dot { color: var(--green); }
+.orders-pop .ord-choice .tag {
+  font-size: 9px; letter-spacing: 0.06em; color: var(--label);
+  background: var(--surface-2); border-radius: var(--r-xs); padding: 1px 5px; text-align: center;
+}
+.orders-pop .ord-choice.sel .tag { color: var(--value-strong); }
+.orders-pop .ord-choice .nm { color: var(--label); letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orders-pop .ord-choice .px { font-family: var(--mono); color: var(--value); text-align: right; font-variant-numeric: tabular-nums; }
+.orders-pop .ord-choice .pts { font-family: var(--mono); color: var(--label-dim); text-align: right; font-variant-numeric: tabular-nums; font-size: 10px; }
+.orders-pop .ord-choice.custom { cursor: default; grid-template-columns: 14px 64px 1fr auto; }
+.orders-pop .ord-choice.custom .ord-in { width: 110px; }
+.ord-kbd { margin-left: 8px; font-family: var(--mono); font-size: 9px; opacity: 0.7; }
+
 /* alerts + footer */
 .orders-block { font-size: 10.5px; color: var(--amber); background: rgba(255,197,51,0.08);
   border: 1px solid rgba(255,197,51,0.3); padding: 5px 8px; border-radius: 4px; margin-top: 8px; }
