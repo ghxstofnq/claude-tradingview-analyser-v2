@@ -115,3 +115,19 @@ describe("stopTag", () => {
     assert.equal(stopTag("mystery"), "mystery");
   });
 });
+
+describe("iFVG chooser labels (2026-07-10)", () => {
+  it("ifvg kinds tag as 1/3–2/3 iFVG and strip the tag from the zone label", () => {
+    const preview = {
+      entry: 21000, tpDefault: 21051, tpDraws: [],
+      stopOptions: [
+        { kind: "ifvg_c1", name: "1/3 iFVG 20990–20995", levelPrice: 20990, stopPrice: 20989.5 },
+        { kind: "ifvg_c2", name: "2/3 iFVG 20990–20995", levelPrice: 20984, stopPrice: 20983.5 },
+        { kind: "swing_low", name: "swing low", levelPrice: 20940, stopPrice: 20939.5 },
+      ],
+    };
+    const { rows } = stopChooserRows(preview, "");
+    assert.deepEqual(rows.map((r) => [r.tag, r.label, r.sel]),
+      [["1/3 iFVG", "20990–20995", true], ["2/3 iFVG", "20990–20995", false], ["SL", "swing low", false]]);
+  });
+});

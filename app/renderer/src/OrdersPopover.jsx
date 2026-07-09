@@ -147,7 +147,7 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
         <Panel title="STOP" right={side === "buy" ? "lows below" : "highs above"}>
           {stopRows.rows.map((r) => (
             <div key={r.key} className={"ord-choice" + (r.sel ? " sel" : "")} onClick={() => setTypedStop(r.value)}>
-              <span className="dot">{r.sel ? "●" : "○"}</span>
+              <i className={"dot" + (r.sel ? " on" : "")} />
               <span className="tag">{r.tag}</span>
               <span className="nm">{r.label}</span>
               <span className="px">{fmt(r.stopPrice)}</span>
@@ -156,7 +156,7 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
           ))}
           {!stopRows.rows.length && <div className="ord-empty">no structure on the stop side — type one below</div>}
           <div className={"ord-choice custom" + (stopRows.customSel ? " sel" : "")}>
-            <span className="dot">{stopRows.customSel ? "●" : "○"}</span>
+            <i className={"dot" + (stopRows.customSel ? " on" : "")} />
             <span className="tag">custom</span>
             <input className="ord-in" placeholder="price" value={typedStop} onChange={(e) => setTypedStop(e.target.value)} />
             {typedStop !== "" && <span className="pill interactive" onClick={() => setTypedStop("")}>default</span>}
@@ -167,7 +167,7 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
         <Panel title="TP" right={side === "buy" ? "above" : "below"}>
           {tpRows.rows.map((r) => (
             <div key={r.key} className={"ord-choice" + (r.sel ? " sel" : "")} onClick={() => setTypedTp(r.value)}>
-              <span className="dot">{r.sel ? "●" : "○"}</span>
+              <i className={"dot" + (r.sel ? " on" : "")} />
               <span className="tag">{r.tag}</span>
               <span className="nm">{r.label}</span>
               <span className="px">{fmt(r.price)}</span>
@@ -176,7 +176,7 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
           ))}
           {!tpRows.rows.length && <div className="ord-empty">no TP available — type one below</div>}
           <div className={"ord-choice custom" + (tpRows.customSel ? " sel" : "")}>
-            <span className="dot">{tpRows.customSel ? "●" : "○"}</span>
+            <i className={"dot" + (tpRows.customSel ? " on" : "")} />
             <span className="tag">custom</span>
             <input className="ord-in" placeholder="price" value={typedTp} onChange={(e) => setTypedTp(e.target.value)} />
             {typedTp !== "" && <span className="pill interactive" onClick={() => setTypedTp("")}>1:2</span>}
@@ -201,7 +201,7 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
       <div className="orders-foot">
         {!routable && <div className="orders-block">account not routable — confirm an account in Settings</div>}
         <div className="orders-actions">
-          <button className={"pill big " + (side === "buy" ? "green" : "red")} disabled={!canPlace} onClick={place}>
+          <button className={"ord-confirm " + side} disabled={!canPlace} onClick={place}>
             CONFIRM — {side.toUpperCase()}{preview?.contracts >= 1 ? ` ${preview.contracts} ${symShort(ctx?.symbol)}` : ""} MARKET
             {canPlace ? <span className="ord-kbd">⏎</span> : null}
           </button>

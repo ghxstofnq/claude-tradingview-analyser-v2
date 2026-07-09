@@ -15,13 +15,17 @@ export function structuralStopCandidates(bundle) {
   const eng = bundle?.gates?.engine;
   if (!eng) return [];
   const out = [];
+  // Swing-tier pivots ONLY, never swept (trader decision 2026-07-10): internal
+  // 1m micro-pivots made the "closest SL" a meaningless too-tight stop — the
+  // same failure the walker stop pool hit on 2026-06-12 — and a swept low is
+  // broken structure, not protection.
   const swings = eng.pillar3?.swings ?? {};
-  for (const tier of ["swing", "internal"]) {
-    const arr = swings[tier] ?? [];
+  {
+    const arr = swings.swing ?? [];
     for (let i = 0; i < arr.length; i++) {
       const s = arr[i]; const price = num(s?.price);
-      if (price == null) continue;
-      out.push({ kind: s.is_high ? "swing_high" : "swing_low", price, name: s.is_high ? "swing high" : "swing low", swept: s.swept === true, ref: `gates.engine.pillar3.swings.${tier}[${i}]` });
+      if (price == null || s?.swept === true) continue;
+      out.push({ kind: s.is_high ? "swing_high" : "swing_low", price, name: s.is_high ? "swing high" : "swing low", swept: false, ref: `gates.engine.pillar3.swings.swing[${i}]` });
     }
   }
   const levels = eng.pillar1?.session_levels ?? {};
@@ -36,15 +40,19 @@ export function structuralStopCandidates(bundle) {
   return out;
 }
 
-// FVG candle stop anchors (manual BUY/SELL ticket, plan 2026-07-10). Each
-// alive FVG yields two anchors from its forming candles (V3+ emit: c1 oldest,
-// c2 displacement): a long stops below the bull FVG's candle lows, a short
-// above the bear FVG's candle highs. "1/3 FVG" = first candle (default,
-// wider), "2/3 FVG" = displacement candle (tighter). Dead zones
-// (filled/inverted/invalidated) are spent — no stop protection there. Candle
-// fields are NaN on zones formed before the V5 reload — those anchors are
-// dropped, never guessed.
-const DEAD_FVG_STATES = new Set(["filled", "inverted", "invalidated"]);
+// FVG / iFVG candle stop anchors (manual BUY/SELL ticket, plan 2026-07-10).
+// Each usable zone yields two anchors from its forming candles (V3+ emit:
+// c1 oldest, c2 displacement): "1/3" = first candle (default, wider), "2/3" =
+// displacement candle (tighter). A long stops below candle lows, a short above
+// candle highs. Two zone families serve a side:
+//   - a LIVE FVG in the trade direction (bull → buy), states fresh/tapped/…
+//   - an INVERTED zone of the opposite direction (bear FVG that price closed
+//     through now acts as buy-side support — the trader's Inversion array;
+//     added by decision 2026-07-10), labeled iFVG.
+// filled/invalidated zones are spent — no stop protection. Candle fields are
+// NaN on zones formed before the V5 reload — those anchors are dropped, never
+// guessed.
+const DEAD_FVG_STATES = new Set(["filled", "invalidated"]);
 
 export function fvgStopCandidates(bundle) {
   const fvgs = bundle?.gates?.engine?.pillar3?.fvgs ?? [];
@@ -53,20 +61,25 @@ export function fvgStopCandidates(bundle) {
     const f = fvgs[i];
     const dir = String(f?.dir ?? "");
     if (dir !== "bull" && dir !== "bear") continue;
-    if (DEAD_FVG_STATES.has(String(f?.state ?? ""))) continue;
+    const state = String(f?.state ?? "");
+    if (DEAD_FVG_STATES.has(state)) continue;
     const top = num(f?.top), bottom = num(f?.bottom);
     if (top == null || bottom == null) continue;
-    const long = dir === "bull";
-    const c1 = num(long ? f?.c1l : f?.c1h);
-    const c2 = num(long ? f?.c2l : f?.c2h);
+    const inverted = state === "inverted";
+    // The side this zone SERVES: a live bull FVG or an inverted bear zone is
+    // buy-side; the mirror for sells.
+    const servesBuy = inverted ? dir === "bear" : dir === "bull";
+    const c1 = num(servesBuy ? f?.c1l : f?.c1h);
+    const c2 = num(servesBuy ? f?.c2l : f?.c2h);
+    const label = inverted ? "iFVG" : "FVG";
     const zoneName = `${bottom}–${top}`;
     const anchors = [];
-    if (c1 != null) anchors.push({ kind: "fvg_c1", price: c1, name: `1/3 FVG ${zoneName}` });
-    if (c2 != null) anchors.push({ kind: "fvg_c2", price: c2, name: `2/3 FVG ${zoneName}` });
+    if (c1 != null) anchors.push({ kind: inverted ? "ifvg_c1" : "fvg_c1", price: c1, name: `1/3 ${label} ${zoneName}` });
+    if (c2 != null) anchors.push({ kind: inverted ? "ifvg_c2" : "fvg_c2", price: c2, name: `2/3 ${label} ${zoneName}` });
     if (!anchors.length) continue;
     out.push({
-      forSide: long ? "buy" : "sell",
-      top, bottom, state: String(f?.state ?? ""),
+      forSide: servesBuy ? "buy" : "sell",
+      top, bottom, state, inverted,
       anchors: anchors.map((a) => ({ ...a, ref: `gates.engine.pillar3.fvgs[${i}]` })),
     });
   }
@@ -132,7 +145,7 @@ export function stopSideOptions({ side, entry, candidates, fvgs, symbol }) {
   // SL/SH. Leg extremes and session levels are NOT offered as stops (session
   // levels remain TP draws).
   const swings = (Array.isArray(candidates) ? candidates : [])
-    .filter((c) => c.kind === (long ? "swing_low" : "swing_high") && (long ? c.price < e : c.price > e));
+    .filter((c) => c.kind === (long ? "swing_low" : "swing_high") && c.swept !== true && (long ? c.price < e : c.price > e));
   swings.sort((a, b) => (long ? b.price - a.price : a.price - b.price));
   if (swings.length) out.push(mk(swings[0].kind, swings[0].name, swings[0].price, swings[0].ref));
   return out;
