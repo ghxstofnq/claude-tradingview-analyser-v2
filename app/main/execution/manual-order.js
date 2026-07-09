@@ -10,9 +10,6 @@ const isLong = (side) => side === "buy" || side === "long";
 // (entry-models.md stop placement). Generic session levels (no H/L suffix) are
 // eligible either side. This is why a short's auto stop is a swing HIGH, not
 // just the nearest structure above price (which could be a low sitting above).
-const isHighKind = (k) => String(k || "").endsWith("_high");
-const isLowKind = (k) => String(k || "").endsWith("_low");
-const stopKindOk = (k, long) => (long ? isLowKind(k) : isHighKind(k)) || k === "session_level";
 
 export function structuralStopCandidates(bundle) {
   const eng = bundle?.gates?.engine;
@@ -130,10 +127,14 @@ export function stopSideOptions({ side, entry, candidates, fvgs, symbol }) {
     }
   }
 
-  const beyond = (Array.isArray(candidates) ? candidates : [])
-    .filter((c) => stopKindOk(c.kind, long) && (long ? c.price < e : c.price > e));
-  beyond.sort((a, b) => (long ? b.price - a.price : a.price - b.price));
-  for (const c of beyond) out.push(mk(c.kind, c.name, c.price, c.ref));
+  // Only the CLOSEST swing follows the FVG anchors — the trader's spec
+  // (2026-07-10) is exactly three stop kinds: 1/3 FVG · 2/3 FVG · closest
+  // SL/SH. Leg extremes and session levels are NOT offered as stops (session
+  // levels remain TP draws).
+  const swings = (Array.isArray(candidates) ? candidates : [])
+    .filter((c) => c.kind === (long ? "swing_low" : "swing_high") && (long ? c.price < e : c.price > e));
+  swings.sort((a, b) => (long ? b.price - a.price : a.price - b.price));
+  if (swings.length) out.push(mk(swings[0].kind, swings[0].name, swings[0].price, swings[0].ref));
   return out;
 }
 
