@@ -245,3 +245,54 @@ describe("FVG-first stop options + 1:2 TP default", () => {
     assert.equal(p.tp, 20889); // 21000 - 2 × 55.5
   });
 });
+
+// ── iFVG anchors + swing-tier/swept rules (2026-07-10 refinement) ───────────
+describe("iFVG + swing filters", () => {
+  it("an inverted bear zone serves BUYS with candle-low anchors, labeled iFVG", () => {
+    const b = bundle();
+    b.gates.engine.pillar3.fvgs = [
+      { dir: "bear", state: "inverted", top: 20995, bottom: 20990, c1l: 20990, c1h: 21002, c2l: 20984, c2h: 20996 },
+    ];
+    const z = fvgStopCandidates(b);
+    assert.equal(z.length, 1);
+    assert.equal(z[0].forSide, "buy");
+    assert.equal(z[0].inverted, true);
+    assert.deepEqual(z[0].anchors.map((a) => [a.kind, a.price]), [["ifvg_c1", 20990], ["ifvg_c2", 20984]]);
+    assert.match(z[0].anchors[0].name, /^1\/3 iFVG 20990–20995$/);
+  });
+
+  it("an inverted bull zone serves SELLS with candle-high anchors", () => {
+    const b = bundle();
+    b.gates.engine.pillar3.fvgs = [
+      { dir: "bull", state: "inverted", top: 21010, bottom: 21005, c1l: 21005, c1h: 21012, c2l: 20998, c2h: 21020 },
+    ];
+    const z = fvgStopCandidates(b);
+    assert.equal(z[0].forSide, "sell");
+    assert.deepEqual(z[0].anchors.map((a) => [a.kind, a.price]), [["ifvg_c1", 21012], ["ifvg_c2", 21020]]);
+  });
+
+  it("nearest array wins between a live FVG and an iFVG on the same side", () => {
+    const b = bundle();
+    b.gates.engine.pillar3.fvgs = [
+      { dir: "bull", state: "fresh",    top: 20960, bottom: 20950, c1l: 20945, c1h: 20960, c2l: 20953, c2h: 20968 },
+      { dir: "bear", state: "inverted", top: 20995, bottom: 20990, c1l: 20990, c1h: 21002, c2l: 20984, c2h: 20996 },
+    ];
+    const zone = nearestEntryFvg({ side: "buy", entry: 21000, fvgs: fvgStopCandidates(b) });
+    assert.equal(zone.inverted, true); // iFVG at 20990–20995 is nearer than the FVG at 20950–20960
+    const opts = stopSideOptions({ side: "buy", entry: 21000, candidates: structuralStopCandidates(b), fvgs: fvgStopCandidates(b), symbol: "MNQ1!" });
+    assert.deepEqual(opts.map((o) => o.kind), ["ifvg_c1", "ifvg_c2", "swing_low"]);
+  });
+
+  it("internal-tier and swept swings never reach the candidates", () => {
+    const b = bundle();
+    b.gates.engine.pillar3.swings = {
+      swing: [
+        { price: 20940, is_high: false, swept: false },
+        { price: 20985, is_high: false, swept: true },  // swept — broken structure
+      ],
+      internal: [{ price: 20995, is_high: false, swept: false }], // micro pivot
+    };
+    const kinds = structuralStopCandidates(b).filter((c) => c.kind === "swing_low").map((c) => c.price);
+    assert.deepEqual(kinds, [20940]);
+  });
+});

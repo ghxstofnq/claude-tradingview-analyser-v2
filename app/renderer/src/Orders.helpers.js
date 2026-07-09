@@ -62,6 +62,7 @@ export function orderResultToast(r, { side, contracts, symbol } = {}) {
 
 const STOP_TAG = {
   fvg_c1: "1/3 FVG", fvg_c2: "2/3 FVG",
+  ifvg_c1: "1/3 iFVG", ifvg_c2: "2/3 iFVG",
   swing_low: "SL", swing_high: "SH",
   session_level_low: "session", session_level_high: "session", session_level: "session",
   leg_low: "leg", leg_high: "leg",
@@ -75,7 +76,7 @@ export function stopChooserRows(preview, typedStop) {
   const typed = raw === "" ? null : Number(raw);
   const rows = opts.map((o, i) => {
     const tag = stopTag(o.kind);
-    const label = String(o.kind).startsWith("fvg_")
+    const label = /fvg_c[12]$/.test(String(o.kind))
       ? String(o.name ?? "").replace(tag, "").trim()
       : (o.name ?? tag);
     const pts = Number.isFinite(entry) && Number.isFinite(Number(o.stopPrice))

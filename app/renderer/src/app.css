@@ -4295,28 +4295,57 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 .orders-pop .ord-empty { color: var(--label-dim); font-size: 10.5px; padding: 4px 0; }
 
 /* stacked chooser rows (refined BUY/SELL ticket, 2026-07-10) — radio-style
-   pick lists for STOP and TP; dot + tag chip + name (sans), prices/pts (mono) */
+   pick lists for STOP and TP. Selected row uses the documented on-state pair
+   (--cs-onfill + --cs-onborder, DESIGN.md Command Shell); dot is a real radio
+   circle; tag chip follows the badge idiom; prices/pts mono + tabular. */
 .orders-pop .ord-choice {
-  display: grid; grid-template-columns: 14px 64px 1fr 92px 76px; gap: 8px; align-items: center;
-  padding: 6px 8px; margin: 0 -8px; font-size: 11px; cursor: pointer;
-  border-bottom: 1px solid var(--border); border-radius: var(--r-xs);
+  display: grid; grid-template-columns: 12px 68px 1fr 92px 76px; gap: 8px; align-items: center;
+  min-height: 30px; padding: 4px 10px; margin: 0 -10px; font-size: 11px; cursor: pointer;
+  border-radius: var(--r-sm);
 }
-.orders-pop .ord-choice:last-child { border-bottom: 0; }
+.orders-pop .ord-choice + .ord-choice { margin-top: 2px; }
 .orders-pop .ord-choice:hover { background: var(--surface-2); }
-.orders-pop .ord-choice.sel { background: var(--cs-onfill); }
-.orders-pop .ord-choice .dot { color: var(--label-dim); font-size: 9px; }
-.orders-pop .ord-choice.sel .dot { color: var(--green); }
-.orders-pop .ord-choice .tag {
-  font-size: 9px; letter-spacing: 0.06em; color: var(--label);
-  background: var(--surface-2); border-radius: var(--r-xs); padding: 1px 5px; text-align: center;
+.orders-pop .ord-choice.sel { background: var(--cs-onfill); box-shadow: inset 0 0 0 1px var(--cs-onborder); }
+.orders-pop .ord-choice .dot {
+  width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--cs-dim);
+  background: transparent; justify-self: center;
 }
-.orders-pop .ord-choice.sel .tag { color: var(--value-strong); }
+.orders-pop .ord-choice .dot.on { border-color: var(--green); background: var(--green); box-shadow: inset 0 0 0 2px var(--surface-1); }
+.orders-pop .ord-choice .tag {
+  font-size: 9px; letter-spacing: 0.06em; color: var(--label); text-align: center;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-xs); padding: 2px 5px;
+  white-space: nowrap;
+}
+.orders-pop .ord-choice.sel .tag { color: var(--value-strong); border-color: var(--cs-onborder); }
 .orders-pop .ord-choice .nm { color: var(--label); letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orders-pop .ord-choice.sel .nm { color: var(--value); }
 .orders-pop .ord-choice .px { font-family: var(--mono); color: var(--value); text-align: right; font-variant-numeric: tabular-nums; }
+.orders-pop .ord-choice.sel .px { color: var(--value-strong); }
 .orders-pop .ord-choice .pts { font-family: var(--mono); color: var(--label-dim); text-align: right; font-variant-numeric: tabular-nums; font-size: 10px; }
-.orders-pop .ord-choice.custom { cursor: default; grid-template-columns: 14px 64px 1fr auto; }
+.orders-pop .ord-choice.custom { cursor: default; grid-template-columns: 12px 68px 1fr auto; }
 .orders-pop .ord-choice.custom .ord-in { width: 110px; }
-.ord-kbd { margin-left: 8px; font-family: var(--mono); font-size: 9px; opacity: 0.7; }
+
+/* confirm — the accept recipe (tint fill + 35% border, 7px action-pill radius
+   is the registered prototype exception), full-width, direction = status */
+.orders-actions .ord-confirm {
+  flex: 1; height: 34px; border-radius: 7px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; border: 1px solid transparent; cursor: pointer;
+}
+.orders-actions .ord-confirm.buy {
+  color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent);
+  border-color: color-mix(in srgb, var(--green) 35%, transparent);
+}
+.orders-actions .ord-confirm.buy:not(:disabled):hover { background: color-mix(in srgb, var(--green) 18%, transparent); }
+.orders-actions .ord-confirm.sell {
+  color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent);
+  border-color: color-mix(in srgb, var(--red) 35%, transparent);
+}
+.orders-actions .ord-confirm.sell:not(:disabled):hover { background: color-mix(in srgb, var(--red) 18%, transparent); }
+.orders-actions .ord-confirm:disabled { color: var(--cs-dim); background: var(--surface-2); border-color: var(--border); cursor: default; }
+.ord-kbd {
+  margin-left: 8px; font-family: var(--mono); font-size: 9px; color: inherit; opacity: 0.8;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent); border-radius: 3px; padding: 0 4px;
+}
 
 /* alerts + footer */
 .orders-block { font-size: 10.5px; color: var(--amber); background: rgba(255,197,51,0.08);
