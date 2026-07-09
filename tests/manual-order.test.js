@@ -53,11 +53,12 @@ describe("manual-order gathering", () => {
 describe("manual-order decisions", () => {
   const c = () => structuralStopCandidates(bundle());
 
-  it("auto stop BUY = nearest level below entry minus 2-tick buffer", () => {
-    // nearest below 21000 is leg_low 20970 → 20970 - 0.5 = 20969.5
+  it("auto stop BUY (no FVG) = CLOSEST swing low minus 2-tick buffer — legs/sessions are not stops (2026-07-10 spec)", () => {
+    // closest swing low below 21000 is 20940 → 20940 - 0.5 = 20939.5
     const s = pickAutoStop({ side: "buy", entry: 21000, candidates: c(), symbol: "MNQ1!" });
-    assert.equal(s.price, 20969.5);
-    assert.equal(s.levelPrice, 20970);
+    assert.equal(s.price, 20939.5);
+    assert.equal(s.levelPrice, 20940);
+    assert.equal(s.kind, "swing_low");
   });
   it("auto stop SELL = nearest level above entry plus 2-tick buffer", () => {
     // nearest above 21000 is swing_high 21080 → 21080 + 0.5 = 21080.5
@@ -90,10 +91,9 @@ describe("manual-order decisions", () => {
     assert.equal(pickAutoStop({ side: "buy", entry: 21000, candidates: [], symbol: "MNQ1!" }), null);
     assert.equal(pickAutoStop({ side: "sell", entry: 21200, candidates: only, symbol: "MNQ1!" }), null);
   });
-  it("stopSideOptions are side-filtered + nearest-first + buffered", () => {
+  it("stopSideOptions (no FVG) = the closest swing ONLY — never leg/session rows", () => {
     const opts = stopSideOptions({ side: "buy", entry: 21000, candidates: c(), symbol: "MNQ1!" });
-    assert.deepEqual(opts.map((o) => o.levelPrice), [20970, 20940, 20900]);
-    assert.equal(opts[0].stopPrice, 20969.5);
+    assert.deepEqual(opts.map((o) => [o.kind, o.levelPrice, o.stopPrice]), [["swing_low", 20940, 20939.5]]);
   });
   it("tpDrawsForSide BUY = above-entry only", () => {
     const d = untakenDraws(bundle());
@@ -111,10 +111,10 @@ describe("buildOrderPreview", () => {
   const d = () => untakenDraws(bundle());
 
   it("clean BUY: auto stop, sized, R:R when TP typed", () => {
-    const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), draws: d(), typedStop: null, typedTp: 21120, riskUsd: 120 });
+    const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: c(), draws: d(), typedStop: null, typedTp: 21120, riskUsd: 150 });
     assert.equal(p.block, null);
-    assert.equal(p.stop, 20969.5);
-    assert.equal(p.stopSource, "leg_low");
+    assert.equal(p.stop, 20939.5); // closest swing low, buffered (60.5 pts → 1c at $121 ≤ $150)
+    assert.equal(p.stopSource, "swing_low");
     assert.ok(p.contracts >= 1);
     assert.equal(p.tp, 21120);
     assert.ok(p.rr > 0);
@@ -198,11 +198,10 @@ describe("FVG-first stop options + 1:2 TP default", () => {
   const c = () => structuralStopCandidates(fvgBundle());
   const f = () => fvgStopCandidates(fvgBundle());
 
-  it("BUY options lead with the nearest FVG's 1/3 then 2/3, both 2-tick buffered", () => {
+  it("BUY options are EXACTLY 1/3 FVG · 2/3 FVG · closest SL — nothing else (2026-07-10 spec)", () => {
     const opts = stopSideOptions({ side: "buy", entry: 21000, candidates: c(), fvgs: f(), symbol: "MNQ1!" });
-    assert.deepEqual(opts.slice(0, 2).map((o) => [o.kind, o.levelPrice, o.stopPrice]),
-      [["fvg_c1", 20975, 20974.5], ["fvg_c2", 20984, 20983.5]]);
-    assert.equal(opts[2].kind, "leg_low"); // structural list follows, nearest-first
+    assert.deepEqual(opts.map((o) => [o.kind, o.levelPrice, o.stopPrice]),
+      [["fvg_c1", 20975, 20974.5], ["fvg_c2", 20984, 20983.5], ["swing_low", 20940, 20939.5]]);
   });
 
   it("an anchor on the wrong side of entry is dropped, not offered", () => {
@@ -230,12 +229,12 @@ describe("FVG-first stop options + 1:2 TP default", () => {
     assert.equal(p.tpDefault, 21051); // still exposed for the placeholder
   });
 
-  it("no live FVG → structural default, TP still 1:2; no fvgs field (stale ctx) is safe", () => {
+  it("no live FVG → closest-swing default, TP still 1:2; no fvgs field (stale ctx) is safe", () => {
     const p = buildOrderPreview({ side: "buy", entry: 21000, symbol: "MNQ1!", candidates: structuralStopCandidates(bundle()),
-      draws: untakenDraws(bundle()), riskUsd: 120 });
-    assert.equal(p.stopSource, "leg_low");
+      draws: untakenDraws(bundle()), riskUsd: 150 });
+    assert.equal(p.stopSource, "swing_low");
     assert.equal(p.tpSource, "rr_default");
-    assert.equal(p.tp, 21061); // 21000 + 2 × 30.5
+    assert.equal(p.tp, 21121); // 21000 + 2 × 60.5
   });
 
   it("SELL mirror: 1/3 FVG above entry, TP below", () => {
