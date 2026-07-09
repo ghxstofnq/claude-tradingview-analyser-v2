@@ -8,7 +8,12 @@
 import { useEffect, useState } from "react";
 
 export const PREFS_KEY = "workstation:prefs";
-export const PREFS_DEFAULT = { notif: false, sound: false, autoTicket: false };
+export const PREFS_DEFAULT = {
+  notif: false, sound: false, autoTicket: false,
+  // Walker chain signals (plan 2026-07-09 Task 1) — ON by default: the chain
+  // firing is the one thing the manual trader must never miss.
+  walkerChimes: true, walkerNotif: true,
+};
 
 export function loadPrefs() {
   try {
