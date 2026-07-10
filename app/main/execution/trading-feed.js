@@ -27,6 +27,16 @@ let lastRealizedUsd = null;
 const workingOrders = new Map(); // id → { id, type, side, price, symbol } (status:working)
 let sock = null, reconnectTimer = null, stopped = false;
 
+// On disconnect the last position frame is no longer trustworthy — a fill can
+// land during the gap. Reset the proven-flag so reconciler reads report
+// ok:false until the reconnected feed re-sends a position_update.
+export function markDisconnected() {
+  state.connected = false;
+  hasReceivedPositionUpdate = false;
+}
+
+export const __test = { setPositionUpdateReceived(v) { hasReceivedPositionUpdate = v; state.connected = v; } };
+
 export function getTradingState() {
   return {
     connected: state.connected, position: state.position, balance: state.balance,
@@ -143,7 +153,7 @@ async function connect() {
     sock = new WebSocket(t.webSocketDebuggerUrl);
     sock.on("open", () => { state.connected = true; sock.send(JSON.stringify({ id: 1, method: "Network.enable" })); });
     sock.on("message", onMessage);
-    sock.on("close", () => { state.connected = false; scheduleReconnect(); });
+    sock.on("close", () => { markDisconnected(); scheduleReconnect(); });
     sock.on("error", () => { try { sock.close(); } catch { /* noop */ } });
   } catch { scheduleReconnect(); }
 }
