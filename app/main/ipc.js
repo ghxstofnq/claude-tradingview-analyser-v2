@@ -429,6 +429,38 @@ export function registerIpc(win) {
     }
   });
 
+  // Weekly coach narration (Track 2 §2b item 2). Read the persisted coach.md
+  // (absent → no card); the renderer parses/sanitizes the raw text.
+  ipcMain.handle("review:coach_get", async () => {
+    try {
+      const { readCoachRaw } = await import("./coach-assist.js");
+      return { ok: true, coach: await readCoachRaw() };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  // On-demand: build the deterministic digest over recent sessions and run one
+  // coach turn. In-flight guarded (a re-click while running is rejected). On
+  // any failure NO file is written and the error is surfaced via app:error so
+  // the renderer shows a toast and re-enables the button.
+  ipcMain.handle("review:coach_generate", async (_evt, args = {}) => {
+    try {
+      const { getRecentJournals } = await import("./review.js");
+      const { generateCoach, COACH_DEFAULT_SESSIONS } = await import("./coach-assist.js");
+      const limit = Number(args?.limit) > 0 ? Number(args.limit) : COACH_DEFAULT_SESSIONS;
+      const journals = await getRecentJournals({ limit });
+      const res = await generateCoach({ journals, limit });
+      if (!res.ok && !res.inFlight) {
+        send("app:error", { source: "review:coach", level: "warn", message: res.error || "coach read failed" });
+      }
+      return res;
+    } catch (err) {
+      send("app:error", { source: "review:coach", level: "warn", message: String(err?.message || err) });
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
   ipcMain.handle("status:last_bar_get", async () => {
     try {
       return { ok: true, last_bar: await getLastBar() };

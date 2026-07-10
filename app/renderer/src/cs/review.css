@@ -43,6 +43,16 @@
 .cs-cell.card.critique { border-left: 2px solid var(--border); }
 .cs-cell.card.critique .cs-wrap-text + .cs-wrap-text { margin-top: 8px; }
 
+/* ── coach read (Track 2 §2b item 2): on-demand recent-performance narration ─ */
+/* Header holds the trigger; the card mirrors the critique's neutral hairline. */
+.cs-coach-hd { display: flex; align-items: center; gap: 10px; padding: 10px 18px 0; }
+.cs-coach-hd__lbl { font: 400 10px var(--mono); letter-spacing: .06em; color: var(--label-dim); }
+.cs-coach-btn { margin-left: auto; letter-spacing: .06em; }
+.cs-coach-btn:hover:not(:disabled) { color: var(--value-strong); border-color: var(--cs-onborder); }
+.cs-coach-btn:disabled { opacity: .5; cursor: default; }
+.cs-cell.card.coach { border-left: 2px solid var(--border); }
+.cs-cell.card.coach .cs-wrap-text + .cs-wrap-text { margin-top: 8px; }
+
 /* empty states */
 .cs-empty { color: var(--label-dim); font-size: 11px; padding: 10px 0; }
 

@@ -50,6 +50,9 @@ const EXPECTED_SECTIONS = {
   journal: [
     "## JOURNAL NOTE PROTOCOL",
   ],
+  coach: [
+    "## COACH READ PROTOCOL",
+  ],
 };
 
 for (const [purpose, sections] of Object.entries(EXPECTED_SECTIONS)) {
@@ -90,4 +93,11 @@ test("composed prompt for journal does NOT contain analysis-only sections", asyn
   assert.ok(!prompt.includes("<bundle_fields>"), "journal must not carry bundle_fields");
   assert.ok(!prompt.includes("<examples>"), "journal must not carry examples");
   assert.ok(!prompt.includes("<anti_patterns>\n"), "journal must not carry anti_patterns");
+});
+
+test("composed prompt for coach does NOT contain analysis-only sections", async () => {
+  const prompt = joinSystemPrompt(await loadSystemPrompt("coach"));
+  assert.ok(!prompt.includes("<bundle_fields>"), "coach must not carry bundle_fields");
+  assert.ok(!prompt.includes("<examples>"), "coach must not carry examples");
+  assert.ok(!prompt.includes("<anti_patterns>\n"), "coach must not carry anti_patterns");
 });

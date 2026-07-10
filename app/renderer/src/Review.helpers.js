@@ -582,6 +582,16 @@ export function critiqueViewModel(raw) {
   return { ts: meta.ts, session: meta.session, provider: meta.provider, paragraphs };
 }
 
+// ── Coach narration (Track 2 §2b item 2) ────────────────────────────────────
+// The coach.md the coach turn writes has the SAME shape as critique.md — a
+// small `--- ts/provider/digest_hash ---` frontmatter then plain-text
+// paragraphs — so it reuses the same defensive, HTML-inert parser. Every
+// paragraph is rendered as a React text node, so an embedded `<script>` is
+// inert text, never executed markup. Returns null when there's nothing to show.
+export function coachViewModel(raw) {
+  return critiqueViewModel(raw);
+}
+
 // Compact, human label for the critique card's provider · time meta line.
 // Purely cosmetic — never fabricates data (returns "" when a part is absent).
 export function critiqueMetaLabel({ provider, ts } = {}) {

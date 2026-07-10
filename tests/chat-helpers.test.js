@@ -26,6 +26,7 @@ describe("isNarrationPurpose", () => {
     assert.equal(isNarrationPurpose("review"), false);
     assert.equal(isNarrationPurpose("chat"), false);
     assert.equal(isNarrationPurpose("journal"), false);
+    assert.equal(isNarrationPurpose("coach"), false);
     assert.equal(isNarrationPurpose(undefined), false);
     assert.equal(isNarrationPurpose(null), false);
   });

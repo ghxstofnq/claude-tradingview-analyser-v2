@@ -232,6 +232,8 @@ export function buildFixtureApi(scenario = {}) {
       journal: async () => ({ ok: true, journal: st.review.journal }),
       library: async () => ({ ok: true, rows: st.review.library || [] }),
       exportSession: async () => ({ ok: true }),
+      coach: async () => ({ ok: true, coach: st.review.coach ?? null }),
+      generateCoach: async () => ({ ok: true, coach: st.review.coach ?? null }),
     },
     memory: { read: async () => ({ ok: true, user: "", memory: "" }) },
     usage: { today: async () => ({ ok: true, byPurpose: {}, byModel: {}, total_cost_usd: 0 }) },
