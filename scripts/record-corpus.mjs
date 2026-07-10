@@ -18,6 +18,7 @@
 //           (CLAUDE.md constraint #10 is about LLM grading, not this).
 
 import { spawn } from "node:child_process";
+import { tapeCodeRev } from "../cli/lib/tape-code-rev.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -28,6 +29,7 @@ const LOG = path.join(REPO, "state", "backtest", "record-corpus.log");
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i >= 0 ? process.argv[i + 1] : d; };
 const has = (k) => process.argv.includes(`--${k}`);
+const REQUIRE_CODE_REV = arg("require-code-rev", null) != null ? Number(arg("require-code-rev", null)) : null;
 const FROM = arg("from", "2026-01-01");
 const TO = arg("to", new Date().toISOString().slice(0, 10));
 const SESSIONS = arg("sessions", "ny-am,ny-pm").split(",").map((s) => s.trim()).filter(Boolean);
@@ -65,7 +67,14 @@ function alreadyDone() {
   const done = new Set();
   for (const r of readIndex().runs ?? []) {
     if (!isOurs(r)) continue;
-    if ((r.bars ?? 0) >= MIN_BARS) done.add(`${r.date}|${r.session}`);
+    if ((r.bars ?? 0) < MIN_BARS) continue;
+    if (REQUIRE_CODE_REV != null) {
+      // Rev-aware resume: only a tape captured under the required Pine
+      // CODE_REV counts as done (null/old rev => re-record, fail-safe).
+      const dir = path.join(REPO, "state", "backtest", r.run_id ?? r.id ?? "");
+      if (tapeCodeRev(dir, r.session) !== REQUIRE_CODE_REV) continue;
+    }
+    done.add(`${r.date}|${r.session}`);
   }
   return done;
 }
