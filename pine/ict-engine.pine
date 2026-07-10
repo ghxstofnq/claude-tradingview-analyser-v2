@@ -18,7 +18,7 @@ SCHEMA_VERSION = 4
 // and live-check blocks with pine_code_rev_mismatch when the deployed copy
 // drifts from the repo — the 2026-07-02 live session ran a weeks-stale deploy
 // undetected. Every emitted bar carries this stamp in meta.
-CODE_REV = 2
+CODE_REV = 3
 // Worst case at the old 120: 14 levels + 14 sweeps + 24 fvg + 12 bpr +
 // 26 swings + 24 structures + 12 pools + 1 quality = 127 — table.cell past
 // the row cap is a runtime error. 140 leaves headroom.
@@ -1428,10 +1428,12 @@ emitStructure(int row, Structure s) =>
               // I27: reversal-leg magnitude in ATRs — Lanto validates an MSS when
               // the reversal displacement MATCHES the speed of the move that took
               // the liquidity. Additive evidence; the walker does the comparison.
-              // Audit fix 2026-07-10: the ratio is snapshotted at the event bar
-              // (Structure.dispAtr); the old current-bar fallback only covers
-              // rows created before this revision loaded.
-              "|disp_atr=" + str.tostring(na(s.dispAtr) ? (na(atr14) or atr14 <= 0 ? na : s.dispPts / atr14) : s.dispAtr, "#.##")
+              // Audit fix C8 (rev 3): the ratio is snapshotted at the event bar
+              // (Structure.dispAtr). na means the event bar had no valid ATR
+              // (warmup) — emit na, NOT a recompute against the CURRENT (drifted)
+              // ATR: honest absence beats a wrong number. The walker MSS speed
+              // gate fails OPEN on a missing disp_atr (mss-lifecycle.js).
+              "|disp_atr=" + str.tostring(s.dispAtr, "#.##")
     table.cell(evidence, 0, row, "structure")
     table.cell(evidence, 1, row, payload)
     row + 1
@@ -1663,7 +1665,12 @@ mergeLevel(float price, string name, int x1, int labelCol) =>
                     if not array.get(lvlMixed, i)
                         array.set(lvlNm, i, array.get(lvlNm, i) + " " + str.tostring(array.get(lvlPx, i), format.mintick))
                         array.set(lvlMixed, i, true)
-                    array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name + (samePx ? "" : " " + str.tostring(price, format.mintick)))
+                    // Audit fix C14 (rev 3): every member of a mixed cluster
+                    // states its OWN price — including one that ties the seed's
+                    // price but arrives AFTER the cluster went mixed (the old
+                    // `samePx ? ""` suppressed it, leaving that member priceless
+                    // and ambiguous between the cluster's distinct prices).
+                    array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name + " " + str.tostring(price, format.mintick))
                 // Trace the merged line back to the OLDEST member's origin.
                 array.set(lvlMs, i, math.min(array.get(lvlMs, i), x1))
                 merged := true

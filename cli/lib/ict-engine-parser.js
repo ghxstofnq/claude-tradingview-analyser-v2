@@ -23,7 +23,7 @@ export const CURRENT_SCHEMA = 4;
 // Deploy-drift guard: the Pine's CODE_REV const must equal this. Bumped in
 // lockstep with every pine/ict-engine.pine change; live-check blocks with
 // pine_code_rev_mismatch when the deployed indicator drifts from the repo.
-export const EXPECTED_CODE_REV = 2;
+export const EXPECTED_CODE_REV = 3;
 
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
