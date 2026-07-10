@@ -23,6 +23,7 @@ import { startDetector } from "./main/bar-close.js";
 import { startTradeTickerWatchdog } from "./main/trade-ticker-watchdog.js";
 import { startSessionSupervisor } from "./main/session-supervisor.js";
 import { createVersionPoll } from "./main/version-status.js";
+import { registerReadinessIpc } from "./main/ipc-readiness.js";
 import { stateRoot } from "./main/sessions.js";
 import { writeEnvSnapshotFile } from "./main/env-snapshot.js";
 import { shellChordFromInput } from "./main/shell-keys.js";
@@ -157,6 +158,10 @@ app.whenReady().then(async () => {
   // BEFORE the supervisor so arming can refuse to run live on stale code.
   const versionPoll = createVersionPoll({ send: ipc.send }).start();
   ipcMain.handle("version:get", () => versionPoll.get());
+  // Unified readiness truth (Task C1): the pure reducer over the git version
+  // poll + health snapshot + account gate, exposed as one object rendered by
+  // System / Backtest / Settings. Registered here so it can read versionPoll.get.
+  registerReadinessIpc({ getVersion: () => versionPoll.get() });
   // Session supervisor: auto-arms the live loop during session windows,
   // watchdogs the detector heartbeat, and runs the pre-open readiness
   // check. June 2026: with the mode tabs gone, nothing flipped mode to

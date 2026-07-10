@@ -7,6 +7,8 @@ import { clickable } from "./a11y.js";
 import { useFloat } from "./hooks/useFloat.js";
 import { useBacktest } from "./hooks/useBacktest.js";
 import { useBaseline } from "./hooks/useBaseline.js";
+import { useReadiness } from "./hooks/useReadiness.js";
+import { ReadinessCard } from "./Readiness.jsx";
 import { useTests } from "./hooks/useTests.js";
 import Analytics from "./Analytics.jsx";
 import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
@@ -897,6 +899,10 @@ function LibraryBody({ state, actions, symbolView }) {
   // Dashboard reads the FAITHFUL fold-week baseline (regen + AM->PM carry), not
   // a live re-fold of raw setups.jsonl. Same Analytics component, honest data.
   const { baseline, readiness, history, loading, refolding, refold } = useBaseline(symbolView);
+  // The unified operational readiness (Task C1) — the SAME object System +
+  // Settings render. Sits beside the net-R go-live verdict: "is the system safe
+  // to arm right now" vs "is the strategy net-positive + approved".
+  const { readiness: sysReadiness, loading: sysRdyLoading } = useReadiness(symbolView);
   const A = useMemo(() => buildAnalytics(baseline?.run_details ?? []), [baseline]);
   // Grade win% from the SAME faithful fold the dashboard uses (BE-excluded), so
   // the AGGREGATE grid agrees with the BY GRADE card — not the stale
@@ -919,6 +925,11 @@ function LibraryBody({ state, actions, symbolView }) {
     <div className="bt-baseline">
       <BaselineVerdict baseline={baseline} readiness={readiness} loading={loading || refolding} symbolView={symbolView}
         onRefold={() => refold()} refolding={refolding} builtAt={baseline?.built_at} sha={baseline?.code_sha} />
+
+      <div className="bt-rdy-hero">
+        <span className="bt-rdy-hero-label">SYSTEM READINESS</span>
+        <ReadinessCard readiness={sysReadiness} loading={sysRdyLoading} variant="compact" />
+      </div>
 
       <div className="bt-stats">
         <div className="lcell">

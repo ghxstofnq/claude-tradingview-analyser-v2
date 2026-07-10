@@ -169,3 +169,6 @@
 .lv-hunt-sub { margin-top: 3px; color: var(--label-dim); font-size: 10.5px; line-height: 1.5; }
 .lv-hunt-zone { font-family: var(--mono); font-size: 10.5px; color: var(--value); }
 .lv-hunt-more { padding-top: 6px; color: var(--label-dim); font-size: 10px; }
+
+/* AUTO-mode footer accent (C2-c): auto-fire is a status the trader must notice. */
+.cs-live-foot-auto { color: var(--amber); }

@@ -140,6 +140,9 @@ contextBridge.exposeInMainWorld("api", {
       set(patch) { return ipcRenderer.invoke("execution:config", { action: "set", patch }); },
     },
     guardState() { return ipcRenderer.invoke("execution:guardState"); },
+    // Broker/journal reconcile — status / retry / recovery. The readiness card's
+    // "retry broker read" action calls reconcile({ action: "retry" }).
+    reconcile(opts) { return ipcRenderer.invoke("execution:reconcile", opts || {}); },
     account: {
       get() { return ipcRenderer.invoke("execution:account"); },
       confirm(typed) { return ipcRenderer.invoke("execution:confirmAccount", { typed }); },
@@ -302,6 +305,13 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("version:status", listener);
       return () => ipcRenderer.removeListener("version:status", listener);
     },
+  },
+
+  // Unified readiness truth (Task C1) — one object rendered by System / Backtest
+  // / Settings. On-demand only (the reducer is cheap); the useReadiness hook
+  // re-fetches on health:update / version:status.
+  readiness: {
+    get(symbol) { return ipcRenderer.invoke("readiness:get", { symbol }); },
   },
   backtest: {
     start(cfg) {

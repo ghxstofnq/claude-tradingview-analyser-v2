@@ -436,7 +436,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
   if (page === "agent") Object.assign(pageProps, { chats });
   if (page === "settings") Object.assign(pageProps, { guards, setGuards, symbol, onToast: addToast });
-  if (page === "system") Object.assign(pageProps, { pushToast: addToast });
+  if (page === "system") Object.assign(pageProps, { pushToast: addToast, symbol });
   const scrimShown = pal.open || flat.open || prep.open || !!page;
 
   return (

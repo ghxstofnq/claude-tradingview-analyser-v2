@@ -29,6 +29,14 @@ let _lastBarAt = 0;
 let _cdpUp = null; // null until the first probe resolves
 let _tick = 0;
 let _probing = false;
+let _lastHealth = null; // last pushed health:update payload + its push time
+
+// Snapshot of the most recent health:update payload, stamped with when it was
+// pushed (as_of). The readiness collector reads this instead of subscribing —
+// one shared truth, no second monitor. Null until the first tick completes.
+export function getLastHealth() {
+  return _lastHealth;
+}
 
 export function startHealthMonitor(send) {
   _send = send;
@@ -73,7 +81,7 @@ async function tick() {
     ? Math.max(0, (Date.now() - Math.max(_lastTurnCompleteAt, _lastBarAt)) / 1000)
     : 0;
 
-  _send?.("health:update", {
+  const payload = {
     loop: deriveLoop({ hbAge, turnLagSec, cdpUp: _cdpUp }),
     heartbeat_age_s: hbAge === Infinity ? null : Math.round(hbAge),
     turn_lag_s: Math.round(turnLagSec),
@@ -98,5 +106,7 @@ async function tick() {
       });
       return { healthy: getProtectionOk(), state: getLastProtectionState(), blocked: r.blocked, blocker: r.blocker };
     })(),
-  });
+  };
+  _lastHealth = { ...payload, as_of: Date.now() };
+  _send?.("health:update", payload);
 }

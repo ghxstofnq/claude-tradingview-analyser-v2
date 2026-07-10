@@ -85,7 +85,7 @@ export function createVersionPoll({ repoRoot = REPO_ROOT, send, execFn = execGit
     }
     if (!facts.diskSha) return status;
     if (bootSha == null) bootSha = facts.diskSha;
-    status = computeVersionStatus({ bootSha, diskSha: facts.diskSha, behind: facts.behind });
+    status = { ...computeVersionStatus({ bootSha, diskSha: facts.diskSha, behind: facts.behind }), checked_at: Date.now() };
     send?.("version:status", status);
     return status;
   }

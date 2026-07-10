@@ -4888,6 +4888,8 @@ button { border-radius: var(--r-sm); }
 .cmd-set-foot.warn { color: var(--amber); }
 .cmd-set-foot.bad { color: var(--red); }
 .cmd-set-calc { margin-top: 10px; background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 12px; font: 400 10.5px var(--mono); color: var(--value); }
+.cmd-set-calc.is-example { color: var(--label-dim); }
+.cmd-set-rdy { grid-column: 1 / -1; }
 .cmd-set-switch { width: 30px; height: 17px; border-radius: var(--r-pill); position: relative; cursor: pointer; flex: none; background: var(--border); transition: background .15s; }
 .cmd-set-switch.on { background: var(--green); }
 .cmd-set-switch i { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--value-strong); transition: left .15s; }
