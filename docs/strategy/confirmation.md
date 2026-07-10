@@ -89,6 +89,10 @@ a clean confirming close, the trade is dead — that is bad price, not a setup.
 
 The 1m-close confirmation (`confirm_close` + CE-held + 15m-chop guard) and the
 15-minute fight-timeout are **faithful**. The explicit **candle-body / engulfing**
-discipline is only enforced on the Trend wick-tap path (body ≥ 0.6); the main path
-trusts the engine's confirmation flags. Details + `file:line`:
-[`lanto-source-of-truth.md`](lanto-source-of-truth.md) §3.4.
+discipline is only enforced on the Trend wick-tap path (body ≥ 0.6,
+`trend-lifecycle.js:80-81`; `tests/confirmation-body.test.js`); the main path trusts the
+engine's confirmation flags. The `confirm_strict` emit (prior-bar tap + engulfing close)
+is parser-typed but **dormant** — it must not gate the chain without a fresh full-corpus
+fold (same-candle confirmation is canonical). Full trace (re-verified 2026-07-10):
+[`../audits/2026-07-10-strategy-gap-matrix.md`](../audits/2026-07-10-strategy-gap-matrix.md)
+(row 3.4) and [`lanto-source-of-truth.md`](lanto-source-of-truth.md) §3.4.
