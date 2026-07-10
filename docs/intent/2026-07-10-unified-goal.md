@@ -146,9 +146,11 @@ go-live ladder live in the absorbed plan. Remaining sequence, updated:
 10. **Pine closure** — fold the two #208 levers on the re-recorded corpus;
     derive merged-label price + disp_atr semantics from transcripts; every
     Pine evidence change bumps `code_rev` and re-certifies.
-11. **F1 + F2** — certify SMT leader selection (fold leader-only vs
-    both-symbols, review every day the leader changes the trade); record and
-    certify a London corpus before London AUTO eligibility.
+11. **F1** — certify SMT leader selection (fold leader-only vs both-symbols,
+    review every day the leader changes the trade). **F2 (London) moves
+    post-arming** per the 2026-07-10 ruling: real money arms on NY;
+    London window derivation, recording, and certification start only after
+    NY live is stable.
 
 **Real-money arming** follows the plan's go-live ladder (§5) exactly — a
 sequence of evidence, not a date. A positive fold alone never skips steps.
@@ -199,27 +201,45 @@ Each is a small standalone PR. Ordered by expected value:
    plain language.
 6. **Journal vision assist** — post-close LLM pass over the auto-journal
    screenshot proposing the trade note the user currently types by hand.
-   *Blocked on a user decision:* constraint #5 says screenshots never feed
-   analysis; this is post-trade journaling, not analysis input, but the
-   carve-out must be explicit.
-7. **catch-up purpose: revive or delete** — the phase prompt, tool map,
-   metrics bucket, and BRAIN routing all exist with no caller. Decide, then
-   either wire a gap-return re-orientation trigger or remove the dead
-   scaffolding.
+   *Approved 2026-07-10 as a full vision carve-out:* the shipping PR updates
+   constraint #5 with an explicit, named exception scoped to post-close
+   journaling only — screenshots stay banned from analysis input.
+7. **Delete the catch-up purpose** — the phase prompt, tool map, metrics
+   bucket, and BRAIN routing all exist with no caller. *Decided 2026-07-10:*
+   remove the dead scaffolding; git history keeps it.
 
-## User decision checkpoints
+## User decision checkpoints — ruled 2026-07-10
 
-Asked only when the relevant evidence is ready (plan §7, extended):
+All seven were put to the user one by one on 2026-07-10:
 
-1. Corpus window approval after certification is green.
-2. Runner style — structural trail vs current BE + fixed TP2 (E3d), after a
-   side-by-side fold.
-3. Each strategy lever — approve from the moved-session report, never from
-   aggregate R.
-4. First live-risk cap for bring-up.
-5. London runtime window, confirmed from transcripts before recording.
-6. **New:** constraint #5 carve-out for the journal-screenshot LLM note.
-7. **New:** catch-up purpose — revive or delete.
+1. **Corpus window — approved as defined.** `gate-corpus-2026-h1-v1`
+   (2026-01-10 → 2026-07-03, MNQ1!+MES1!, NY AM/PM) is the real-money
+   evidence set. Final sign-off remains gated on certification running green.
+2. **Runner style — derive from transcripts first.** Re-derive Lanto's actual
+   runner management from the transcripts + Discord PDF with citations, then
+   run the side-by-side fold on the certified corpus, then the user rules.
+   No implementation before that ruling.
+3. **Fold queue — Pine levers first.** When corpus passes finish: fold the
+   two #208 levers (reaction-window rejection, origin-leg anchor) first to
+   close the Pine audit and stabilize `code_rev`, then the strategy folds
+   (E3a 5m-gap preference, runner side-by-side).
+4. **First live-risk cap — normal size from day one.** Full strategy sizing
+   and the standard caps from the first armed session; the backtest evidence
+   is the gate, so live matches it exactly.
+5. **London — NY first, London after.** London is deprioritized entirely
+   until real money is armed and stable on NY. No London recording or window
+   derivation until then (F2 moves post-arming).
+6. **Journal assist — full vision carve-out.** The LLM may read the
+   auto-journal screenshot when drafting the post-close trade note. When the
+   feature ships, constraint #5 gains an explicit, named exception scoped to
+   post-close journaling only; screenshots stay banned from analysis input.
+7. **catch-up purpose — delete.** Remove the dormant prompt, tool map,
+   metrics bucket, and routing; git history keeps it.
+
+Still evidence-gated (asked when the evidence exists): final corpus sign-off
+after green certification; each lever's approval from its moved-session
+report (never from aggregate R); the runner ruling after the transcript
+derivation + fold.
 
 ## Definition of done
 
