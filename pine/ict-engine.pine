@@ -18,7 +18,7 @@ SCHEMA_VERSION = 4
 // and live-check blocks with pine_code_rev_mismatch when the deployed copy
 // drifts from the repo — the 2026-07-02 live session ran a weeks-stale deploy
 // undetected. Every emitted bar carries this stamp in meta.
-CODE_REV = 4
+CODE_REV = 5
 // Worst case at the old 120: 14 levels + 14 sweeps + 24 fvg + 12 bpr +
 // 26 swings + 24 structures + 12 pools + 1 quality = 127 — table.cell past
 // the row cap is a runtime error. 140 leaves headroom.
@@ -239,7 +239,7 @@ showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
 showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
 // Phase 3 additions (plan 2026-07-09): both display-only.
 showOpenWindow = input.bool(true,  "NY-open window",     group = GRP_VIZ, tooltip = "09:30 open marker + minute-15→30 decision-window shading (daily-bias.md §4 'wait 15–30 min'). Intraday TFs (≤15m) only.")
-showSmt        = input.bool(true,  "SMT row",            group = GRP_VIZ, tooltip = "Rolling-extremes SMT read vs the sibling micro (MNQ↔MES): a new swing extreme here that the sibling fails to confirm = cracked correlation. Panel + additive emit — never gates the chain.")
+showSmt        = input.bool(true,  "SMT row",            group = GRP_VIZ, tooltip = "Per-bar SMT read vs the sibling micro (MNQ↔MES): one side pushes beyond its own prior swing pivot while the sibling doesn't = cracked correlation on this bar. Current-state (no latch), symmetric on both charts, names the diverging symbol. Panel + additive emit — never gates the chain.")
 smtSiblingIn   = input.symbol("",  "SMT sibling (blank = auto MNQ↔MES)", group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
 showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
@@ -401,35 +401,51 @@ htfLean() =>
 
 // ── SMT vs the sibling micro (plan 2026-07-09 Phase 3 — display-only) ──────
 // Lanto picks the day's instrument via SMT (lanto-discord-actual-calls):
-// correlated micros should confirm each other's extremes; a new rolling
-// extreme HERE that the sibling fails to print on the same bar = cracked
-// correlation on that side. Rolling-extremes read (not swing-pair matching) —
-// lightweight, latched, decays after SMT_HOLD_BARS. Confirmed-bar values
-// ([1] + lookahead_on, the htfLean convention) so the read never repaints.
-SMT_WIN = 20
-SMT_HOLD_BARS = 24
+// correlated micros should confirm each other's swings. Per-bar CURRENT read
+// (rev 5): each side is scored against its OWN prior swing pivot using the
+// SAME params. When exactly one micro has pushed beyond its last pivot and the
+// sibling has not, that side holds an unconfirmed extreme = cracked correlation
+// on THIS bar. Both booleans are absolute-symbol, so the verdict is symmetric —
+// both charts derive the same state, and `who` names the diverging symbol root.
+// The state clears the instant the laggard confirms (both push) or price falls
+// back inside its pivot (no push) — no latch. Confirmed-bar values ([1] +
+// lookahead_on, the htfLean convention) so the read never repaints intrabar.
+SMT_PIV = 5
+SMT_AGE_BARS = 5
 smtSibling = smtSiblingIn != "" ? smtSiblingIn : str.contains(syminfo.root, "MES") ? "CME_MINI:MNQ1!" : "CME_MINI:MES1!"
-smtExtremes() =>
-    nh = high >= ta.highest(high, SMT_WIN)
-    nl = low <= ta.lowest(low, SMT_WIN)
-    [nh[1], nl[1]]
-[sibNewHigh, sibNewLow] = request.security(smtSibling, timeframe.period, smtExtremes(), lookahead = barmerge.lookahead_on)
-[chNewHigh, chNewLow] = smtExtremes()
+// Has price pushed beyond its own most-recent confirmed swing pivot (per side)?
+smtPush() =>
+    ph = ta.pivothigh(SMT_PIV, SMT_PIV)
+    pl = ta.pivotlow(SMT_PIV, SMT_PIV)
+    var float lastPh = na
+    var float lastPl = na
+    lastPh := na(ph) ? lastPh : ph
+    lastPl := na(pl) ? lastPl : pl
+    pushHigh = not na(lastPh) and high > lastPh
+    pushLow  = not na(lastPl) and low  < lastPl
+    [pushHigh[1], pushLow[1]]
+[sibPushHigh, sibPushLow] = request.security(smtSibling, timeframe.period, smtPush(), lookahead = barmerge.lookahead_on)
+[chPushHigh, chPushLow] = smtPush()
+smtThisRoot = syminfo.root
+smtSibRoot = str.replace(str.replace(smtSibling, "CME_MINI:", ""), "1!", "")
 var string smtState = "na"
+var string smtWho = ""
 var int smtMs = na
 if showSmt
-    if chNewHigh and not sibNewHigh
-        smtState := "diverge_high"
+    newState = "confirm"
+    newWho = ""
+    // Exactly one side beyond its own swing high (XOR) = unconfirmed HH.
+    if chPushHigh != sibPushHigh
+        newState := "diverge_high"
+        newWho := chPushHigh ? smtThisRoot : smtSibRoot
+    else if chPushLow != sibPushLow
+        newState := "diverge_low"
+        newWho := chPushLow ? smtThisRoot : smtSibRoot
+    // Stamp only on a genuine change — ms marks when THIS state was established.
+    if newState != smtState or newWho != smtWho
         smtMs := time
-    else if chNewLow and not sibNewLow
-        smtState := "diverge_low"
-        smtMs := time
-    else if (chNewHigh and sibNewHigh) or (chNewLow and sibNewLow)
-        smtState := "confirm"
-        smtMs := time
-    if smtState != "na" and not na(smtMs) and time - smtMs > SMT_HOLD_BARS * timeframe.in_seconds() * 1000
-        smtState := "na"
-        smtMs := na
+    smtState := newState
+    smtWho := newWho
 
 // ── NY-open reaction window (plan 2026-07-09 Phase 3 — visual only) ────────
 // Checklist Step 4 finally gets an anchor: a dashed marker on the 09:30 bar,
@@ -1533,7 +1549,7 @@ if barstate.islast
     // SMT read (Phase 3, additive — schema stays 4; display-only downstream).
     if showSmt
         table.cell(evidence, 0, row, "smt")
-        table.cell(evidence, 1, row, "state=" + smtState + "|sibling=" + smtSibling + (na(smtMs) ? "" : "|ms=" + str.tostring(smtMs)))
+        table.cell(evidence, 1, row, "state=" + smtState + "|who=" + smtWho + "|sibling=" + smtSibling + (na(smtMs) ? "" : "|ms=" + str.tostring(smtMs)))
         row := row + 1
     row := emitQuality(row)
     emitMeta(row - 1)
@@ -2291,13 +2307,16 @@ renderChecklist() =>
     candAge = candEntered and not na(candEnteredMs) ? " " + durTxt(candEnteredMs) : not na(candBornMs) ? " " + durTxt(candBornMs) : ""
     pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") + candAge : side == 0 ? "—" : "none near", "Best NEAR live gap in-direction (within ~8 ATR — near price is the realistic draw, daily-bias.md §2): fresh > took-liq > displacement. Age = since tap when entered, since birth otherwise.")
     pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone in the trade direction (confirmation.md). Same-candle tap-and-close is valid — the hand-graded winners are same-candle. Dead if it fights >10–15m.")
-    // SMT vs the sibling micro (Phase 3, display-only). A divergence AGAINST
-    // the working side reads as fail-red; with/undirected is attention-amber.
+    // SMT vs the sibling micro (Phase 3, display-only). Any live divergence
+    // reads fail-red (side-independent, so both charts match); who = the symbol
+    // holding the unconfirmed extreme. Age shows only past ~SMT_AGE_BARS bars.
     sibShort = str.replace(str.replace(smtSibling, "CME_MINI:", ""), "1!", "")
     smtAgeMin = na(smtMs) ? 0 : math.round((time - smtMs) / 60000.0)
-    smtDetail = not showSmt ? "off" : smtState == "confirm" ? "in sync · " + str.tostring(smtAgeMin) + "m" : smtState == "diverge_high" ? sibShort + " not confirming HH ✕ · " + str.tostring(smtAgeMin) + "m" : smtState == "diverge_low" ? sibShort + " not confirming LL ✕ · " + str.tostring(smtAgeMin) + "m" : "—"
-    smtStat = not showSmt or smtState == "na" ? 0 : smtState == "confirm" ? 2 : (side == 1 and smtState == "diverge_high") or (side == -1 and smtState == "diverge_low") ? -1 : 1
-    pRow(9, smtStat, "SMT", smtDetail, "Rolling-extremes SMT vs " + sibShort + ": a new " + str.tostring(SMT_WIN) + "-bar extreme here that the sibling didn't print = cracked correlation (Lanto picks the day's instrument via SMT). Display-only — never gates the chain.")
+    smtAgeBars = na(smtMs) ? 0 : int((time - smtMs) / (timeframe.in_seconds() * 1000.0))
+    smtAge = smtAgeBars > SMT_AGE_BARS ? " · " + str.tostring(smtAgeMin) + "m" : ""
+    smtDetail = not showSmt ? "off" : smtState == "confirm" ? "in sync" + smtAge : smtState == "diverge_high" ? smtWho + " HH alone" + smtAge : smtState == "diverge_low" ? smtWho + " LL alone" + smtAge : "—"
+    smtStat = not showSmt or smtState == "na" ? 0 : smtState == "confirm" ? 2 : -1
+    pRow(9, smtStat, "SMT", smtDetail, "Per-bar SMT vs " + sibShort + ": one micro pushes beyond its own prior swing pivot while the sibling doesn't = cracked correlation; who = the diverging symbol. Current-state and symmetric across both charts. Display-only — never gates the chain.")
 
     // ENTRY banner — always a tinted band (the card's one high-presence
     // element); fully saturated only when every row above it passes.
