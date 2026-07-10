@@ -14,7 +14,10 @@ export function tapeCodeRev(runDir, session) {
     const tape = JSON.parse(fs.readFileSync(p, "utf8"));
     const entries = tape?.entries ?? [];
     for (const e of entries) {
-      const rev = e?.engine?.meta?.code_rev;
+      // Recorded tapes carry the engine bundle under inputs.bundle (the
+      // certifier's accessor — corpus-certification.js validateTape); some
+      // synthetic/test tapes carry engine at the entry root.
+      const rev = e?.inputs?.bundle?.engine?.meta?.code_rev ?? e?.engine?.meta?.code_rev;
       if (Number.isFinite(rev)) return rev;
     }
     return null;

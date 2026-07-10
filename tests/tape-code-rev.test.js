@@ -8,7 +8,7 @@ import { tapeCodeRev } from "../cli/lib/tape-code-rev.js";
 function mkRun(rev) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tcr-"));
   fs.mkdirSync(path.join(dir, "ny-am"), { recursive: true });
-  const entry = rev == null ? { engine: { meta: {} } } : { engine: { meta: { code_rev: rev } } };
+  const entry = rev == null ? { inputs: { bundle: { engine: { meta: {} } } } } : { inputs: { bundle: { engine: { meta: { code_rev: rev } } } } };
   fs.writeFileSync(path.join(dir, "ny-am", "tape.json"), JSON.stringify({ entries: [entry] }));
   return dir;
 }
@@ -27,12 +27,19 @@ test("tapeCodeRev is null (fail-safe: not done) for pre-stamp, missing, or torn 
   assert.equal(tapeCodeRev(dir, "ny-am"), null);
 });
 
+test("tapeCodeRev also reads the entry-root engine shape (synthetic tapes)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tcr-"));
+  fs.mkdirSync(path.join(dir, "ny-am"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "ny-am", "tape.json"), JSON.stringify({ entries: [{ engine: { meta: { code_rev: 2 } } }] }));
+  assert.equal(tapeCodeRev(dir, "ny-am"), 2);
+});
+
 test("tapeCodeRev skips entries without a finite rev and finds a later one", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tcr-"));
   fs.mkdirSync(path.join(dir, "ny-pm"), { recursive: true });
   fs.writeFileSync(
     path.join(dir, "ny-pm", "tape.json"),
-    JSON.stringify({ entries: [{ engine: { meta: {} } }, { engine: { meta: { code_rev: 2 } } }] }),
+    JSON.stringify({ entries: [{ inputs: { bundle: { engine: { meta: {} } } } }, { inputs: { bundle: { engine: { meta: { code_rev: 2 } } } } }] }),
   );
   assert.equal(tapeCodeRev(dir, "ny-pm"), 2);
 });
