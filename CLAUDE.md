@@ -57,7 +57,6 @@ The dated decision changelog (50 entries, 2026-05-17 → 2026-07-03) moved to [d
 - Workflow: feature branches + PR. Never push directly to `main` after the bootstrap commit.
 - Commits: Conventional Commits (`feat: / fix: / chore: / docs: / refactor: / test:`).
 - Hooks: never bypass (`--no-verify` / `--no-gpg-sign` / `--force` / `--amend` forbidden unless explicitly asked).
-- Co-author tag on every commit: `Co-Authored-By: Claude <noreply@anthropic.com>`.
 
 ## Workflow rules for Claude
 
