@@ -50,9 +50,15 @@ export function useFocusTrap(ref, { active = true, autoFocus = true } = {}) {
     node.addEventListener("keydown", onKeyDown);
     return () => {
       node.removeEventListener("keydown", onKeyDown);
-      // Restore focus to the opener if it is still in the document.
+      // Restore focus to the opener if it is still in the document — but only if
+      // focus is still "ours" (inside this node, or nowhere). During a
+      // page-to-page switch (motion v1) the incoming page has already autofocused
+      // itself while the outgoing page is still playing its exit; the outgoing
+      // page must not steal that focus back when it finally unmounts.
+      const focused = document.activeElement;
+      const focusStillOurs = !focused || focused === document.body || node.contains(focused);
       const opener = openerRef.current;
-      if (opener && typeof opener.focus === "function" && document.contains(opener)) {
+      if (focusStillOurs && opener && typeof opener.focus === "function" && document.contains(opener)) {
         opener.focus();
       }
     };

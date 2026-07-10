@@ -81,7 +81,10 @@ async function openPage(page, name) {
   await assertVisible(page, ".shell-page, .bt-popover");
   await sleep(250);
 }
-async function esc(page) { await page.keyboard.press("Escape"); await sleep(200); }
+// Motion v1 adds a brief page/scrim exit (≤150ms) before React unmounts. These
+// assertNotVisible checks are single-shot, so wait past the exit window before
+// probing the post-close DOM (the exit itself genuinely resolves fast).
+async function esc(page) { await page.keyboard.press("Escape"); await sleep(320); }
 
 // ── vite dev server: spawn from THIS tree by default; identity-check on reuse ────
 function ping(url) {

@@ -6,6 +6,7 @@
 import React from "react";
 import { clickable } from "../a11y.js";
 import { useVersion } from "../hooks/useVersion.js";
+import { useValueTick } from "../hooks/useValueTick.js";
 import { useLastBar } from "../hooks/useLastBar.js";
 import { useHealth } from "../hooks/useHealth.js";
 import { useFills } from "../hooks/useFills.js";
@@ -46,6 +47,9 @@ export function TopBar({
   const { brief } = useSessionBrief();
   const { latest, ltf } = useOpenReaction();
   const dayChip = buildDayChip({ brief, latest, ltf });
+  // Value tick (motion v1) — pulse when the grade/bias text changes, but never
+  // while the chip is the empty "none" placeholder (that's a pending state).
+  const dayTickRef = useValueTick(dayChip.text, dayChip.state !== "none");
 
   // Instant-order arming — a valid stop price in the SL field makes the
   // BUY/SELL buttons live triggers (see CommandShell onTrade).
@@ -77,6 +81,10 @@ export function TopBar({
   const grid = pos ? liveGridFromTrade(
     { entry: pos.avgFill, stop: pos.sl, tp1: pos.tp, side: posSide }, exec?.price ?? lastBar?.close) : null;
   const pnl = grid?.pnl;
+  // Value tick (motion v1) — pulse when live P&L moves, tinted by sign. A stale
+  // broker read (last-known P&L) must NOT tick — it isn't a live change.
+  const pnlDisp = pnl ? pnlDisplay(pnl, exec?.stale) : null;
+  const pnlTickRef = useValueTick(pnlDisp?.v, !!pnlDisp && !pnlDisp.stale);
 
   return (
     <>
@@ -89,7 +97,7 @@ export function TopBar({
                   {...clickable(() => setSymbol(s))}>{s}</span>
           ))}
         </span>
-        <span className={"cmd-daychip " + dayChip.state + " " + (dayChip.tone || "dim")}
+        <span ref={dayTickRef} className={"cmd-daychip value-tick " + dayChip.state + " " + (dayChip.tone || "dim")}
               title={dayChip.title} {...clickable(onOpenBriefing, { label: "open briefing" })}>
           {dayChip.text}
         </span>
@@ -121,15 +129,16 @@ export function TopBar({
         </div>
         <div className="cmd-strip-item" title="open position">
           <span className={"cmd-pos-side " + posSide}>{posSide.toUpperCase()}</span>
-          {pnl && (() => {
+          {pnlDisp && (
             // Broker-read outage (exec.stale) → render last-known P&L greyed +
             // STALE, never live-green (Task C5). pnlDisplay maps tone "stale".
-            const disp = pnlDisplay(pnl, exec?.stale);
-            return <span className={"cmd-pos-pnl " + (disp.stale ? "stale" : disp.tone === "red" ? "down" : "up")}
-                         title={disp.stale ? "broker read stale — last-known P&L, not live" : undefined}>
-              {disp.v}{disp.stale ? " · STALE" : ""}
-            </span>;
-          })()}
+            <span ref={pnlTickRef}
+                  className={"cmd-pos-pnl value-tick " + (pnlDisp.stale ? "stale" : pnlDisp.tone === "red" ? "down" : "up")}
+                  data-tone={pnlDisp.stale ? undefined : pnlDisp.tone === "red" ? "down" : "up"}
+                  title={pnlDisp.stale ? "broker read stale — last-known P&L, not live" : undefined}>
+              {pnlDisp.v}{pnlDisp.stale ? " · STALE" : ""}
+            </span>
+          )}
         </div>
         <span className="sp" />
         {/* Manual BUY/SELL (plan 2026-07-10). SL field empty → the buttons open
