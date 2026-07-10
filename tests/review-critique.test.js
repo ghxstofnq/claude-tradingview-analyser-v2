@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "gofnq-critique-"));
 process.env.GOFNQ_STATE_DIR = STATE_DIR;
 
-const { fireReviewTurn, buildCritiqueFile } = await import("../app/main/session-wrap.js");
+const { fireReviewTurn, buildCritiqueFile, extractCritiqueSection } = await import("../app/main/session-wrap.js");
 const { getJournalFor } = await import("../app/main/review.js");
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,29 +60,99 @@ describe("buildCritiqueFile", () => {
   });
 });
 
+describe("extractCritiqueSection — only the ## CRITIQUE block, not the whole turn", () => {
+  test("returns only the text under the heading; pre-critique chatter is discarded", () => {
+    const prose = "Read summary.md and setups.jsonl.\nNothing new to save.\n\n## CRITIQUE\n\nThe chain nailed step 4. Weakest pillar was price quality.";
+    const body = extractCritiqueSection(prose);
+    assert.equal(body, "The chain nailed step 4. Weakest pillar was price quality.");
+    assert.doesNotMatch(body, /Nothing new to save/);
+    assert.doesNotMatch(body, /Read summary\.md/);
+  });
+
+  test("no heading → null (better absent than polluted)", () => {
+    assert.equal(extractCritiqueSection("Just some memory reasoning. Nothing to save."), null);
+    assert.equal(extractCritiqueSection(""), null);
+    assert.equal(extractCritiqueSection(null), null);
+    assert.equal(extractCritiqueSection(undefined), null);
+  });
+
+  test("an inline mention of the marker does NOT false-trigger (line-anchored)", () => {
+    // The words "## CRITIQUE" appear mid-sentence / inside a code span, never as
+    // their own heading line — so there is no real section to slice.
+    assert.equal(extractCritiqueSection("I will put the critique under `## CRITIQUE` at the end."), null);
+    assert.equal(extractCritiqueSection("Prefix text ## CRITIQUE trailing text on one line."), null);
+  });
+
+  test("last-occurrence wins — an earlier code-fenced heading can't shadow the real one", () => {
+    const prose = [
+      "Here is the format I follow:",
+      "```",
+      "## CRITIQUE",
+      "<the critique goes here>",
+      "```",
+      "Nothing else to save.",
+      "",
+      "## CRITIQUE",
+      "",
+      "The real critique: clean MSS long, B grade, weakest pillar was quality.",
+    ].join("\n");
+    const body = extractCritiqueSection(prose);
+    assert.equal(body, "The real critique: clean MSS long, B grade, weakest pillar was quality.");
+    assert.doesNotMatch(body, /the critique goes here/);
+  });
+
+  test("heading with no body under it → null", () => {
+    assert.equal(extractCritiqueSection("stuff\n\n## CRITIQUE\n\n   "), null);
+  });
+});
+
 describe("fireReviewTurn — critique write is fire-and-forget safe", () => {
-  test("persists the streamed prose when the turn completes cleanly", async () => {
+  test("persists ONLY the ## CRITIQUE block, not the pre-critique chatter", async () => {
     const persisted = [];
     await fireReviewTurn("ny-am", {
-      turn: fakeTurn("Chain nailed step 4; weakest pillar was price quality."),
+      turn: fakeTurn("Read summary.md.\nNothing new to save.\n\n## CRITIQUE\n\nChain nailed step 4; weakest pillar was price quality."),
       persist: async (a) => persisted.push(a),
       metric: noop,
     });
     assert.equal(persisted.length, 1);
     assert.match(persisted[0].text, /weakest pillar was price quality/);
+    assert.doesNotMatch(persisted[0].text, /Nothing new to save/, "pre-critique narration must be sliced off");
+    assert.doesNotMatch(persisted[0].text, /Read summary\.md/);
     assert.equal(persisted[0].session, "ny-am");
     assert.equal(persisted[0].provider, "claude");
     assert.ok(persisted[0].ts, "carries a timestamp");
   });
 
-  test("review turn ERROR → no file written (persist never called), wrap unaffected", async () => {
+  test("no ## CRITIQUE marker → no file written (persist never called)", async () => {
     const persisted = [];
     await fireReviewTurn("ny-am", {
-      turn: fakeTurn("partial text then error", { error: true }),
+      turn: fakeTurn("Reviewed the session. Nothing worth saving today."),
       persist: async (a) => persisted.push(a),
       metric: noop,
     });
-    assert.equal(persisted.length, 0, "an errored turn writes no critique");
+    assert.equal(persisted.length, 0, "prose without the marker is treated as no critique");
+  });
+
+  test("review turn ERROR → no file written (persist never called), wrap unaffected", async () => {
+    const persisted = [];
+    await fireReviewTurn("ny-am", {
+      turn: fakeTurn("partial text\n\n## CRITIQUE\n\nsome critique then error", { error: true }),
+      persist: async (a) => persisted.push(a),
+      metric: noop,
+    });
+    assert.equal(persisted.length, 0, "an errored turn writes no critique even if a marker streamed");
+  });
+
+  test("a hanging persist is time-boxed — wrap chain returns promptly, never hangs", async () => {
+    const started = Date.now();
+    await fireReviewTurn("ny-am", {
+      turn: fakeTurn("prep\n\n## CRITIQUE\n\nsolid session"),
+      persist: () => new Promise(() => {}), // never resolves
+      persistTimeoutMs: 40,
+      metric: noop,
+    });
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 2000, `fireReviewTurn must return promptly on a hung write (took ${elapsed}ms)`);
   });
 
   test("turn THROWS → never throws out, records failed, no persist", async () => {
@@ -115,7 +185,7 @@ describe("fireReviewTurn — critique write is fire-and-forget safe", () => {
     let threw = false;
     try {
       await fireReviewTurn("ny-am", {
-        turn: fakeTurn("solid session"),
+        turn: fakeTurn("prep\n\n## CRITIQUE\n\nsolid session"),
         persist: async () => { throw new Error("disk full"); },
         metric: noop,
       });
@@ -156,10 +226,14 @@ describe("getJournalFor — critique read (present / null)", () => {
 
 describe("write→read parity (default persist lands where getJournalFor reads)", () => {
   test("fireReviewTurn's default write is picked up by getJournalFor for today", async () => {
-    await fireReviewTurn("ny-am", { turn: fakeTurn("End-to-end critique parity."), metric: noop });
+    await fireReviewTurn("ny-am", {
+      turn: fakeTurn("pre-critique reasoning chatter\n\n## CRITIQUE\n\nEnd-to-end critique parity."),
+      metric: noop,
+    });
     const j = await getJournalFor({ date: nyDate(), session: "ny-am" });
     assert.equal(typeof j.critique, "string");
     assert.match(j.critique, /End-to-end critique parity\./);
+    assert.doesNotMatch(j.critique, /pre-critique reasoning chatter/, "only the critique block reaches disk");
     assert.match(j.critique, /provider: claude/);
   });
 });

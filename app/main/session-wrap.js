@@ -86,6 +86,25 @@ Required action:
 5. End the turn by calling mcp__tv__surface_session_summary with session="${session}" and the structured payload. The summary's frontmatter should carry a chain_audit block summarizing what each phase produced (brief: primary_draw + chain_status, open_reaction: leader + alignment + chain_status, entry_hunt: setups_count + max_grade_reached, outcome: primary_draw_reached bool). Skip surface_setup and surface_no_trade for wrap turns.`;
 }
 
+// The review turn streams its WHOLE reasoning — memory chatter, file-reading
+// commentary, "Nothing to save." — before (optionally) the trader-facing
+// critique. Slice out only the critique: the text under the LAST line-anchored
+// `## CRITIQUE` heading (discard everything before it, incl. the heading line).
+// No such heading → null (better absent than polluted). Line-anchored +
+// last-occurrence so an inline mention or an earlier code-fence can't
+// false-trigger. Pure — exported for tests.
+export function extractCritiqueSection(prose) {
+  const text = String(prose ?? "");
+  if (!text) return null;
+  // A Markdown H2 whose sole content is CRITIQUE, on its own line.
+  const re = /^[ \t]*##[ \t]+CRITIQUE[ \t]*$/gm;
+  let last = null;
+  for (let m; (m = re.exec(text)); ) last = m;
+  if (!last) return null;
+  const body = text.slice(last.index + last[0].length).trim();
+  return body || null;
+}
+
 // Assemble the critique.md contents (frontmatter + body). Pure — exported for
 // tests. Returns null when there is no prose to persist (so the caller writes
 // no file and the Review card simply doesn't render).
@@ -115,6 +134,22 @@ async function critiquePathFor(session) {
   return path.join(dir, "critique.md");
 }
 
+// Hard cap on the critique write. A cosmetic post-wrap file must never hold the
+// wrap chain open — a hung fs write just means no critique this session.
+const CRITIQUE_WRITE_TIMEOUT_MS = 5_000;
+
+// Race a promise against a timeout. Leak-proof: the timer is always cleared in
+// the .finally whichever side wins, so it never lingers. The losing promise
+// stays observed by Promise.race, so its eventual settlement never surfaces as
+// an unhandled rejection.
+function withTimeout(promise, ms) {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+
 // Default persister — best-effort disk write of the review turn's prose.
 async function persistCritique({ session, text, provider, ts }) {
   const contents = buildCritiqueFile({ text, session, provider, ts });
@@ -142,6 +177,7 @@ export async function fireReviewTurn(session, {
   turn = userTurn,
   persist = persistCritique,
   metric = recordMetric,
+  persistTimeoutMs = CRITIQUE_WRITE_TIMEOUT_MS,
 } = {}) {
   // Inject a usage hint so the model knows when consolidation matters.
   // Loads memory just to get the current usage % — cheap (one disk read).
@@ -215,12 +251,18 @@ export async function fireReviewTurn(session, {
     return; // the turn never completed — no critique to persist.
   }
 
-  // Persist the critique best-effort. Only when the turn completed cleanly and
-  // produced prose — a skipped/failed turn writes no file (the card won't
-  // render), and a write failure is swallowed so the wrap chain is untouched.
-  if (!errored && prose.trim()) {
+  // Persist the critique best-effort. Only the text under the final
+  // `## CRITIQUE` heading is kept — the pre-critique reasoning is discarded. No
+  // heading (or a failed turn) → no file (the card won't render). The write is
+  // time-boxed and its failure swallowed, so the wrap chain is untouched even
+  // if the disk write hangs.
+  const critique = errored ? null : extractCritiqueSection(prose);
+  if (critique) {
     try {
-      await persist({ session, text: prose, provider, ts: new Date().toISOString() });
+      await withTimeout(
+        Promise.resolve(persist({ session, text: critique, provider, ts: new Date().toISOString() })),
+        persistTimeoutMs,
+      );
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[session-wrap] critique write failed`, err?.message || err);

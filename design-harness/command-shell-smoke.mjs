@@ -258,6 +258,10 @@ const SCENARIOS = [
     await assertVisible(page, ".cs-cell.card.critique");
     await assertText(page, ".cs-cell.card.critique", "CLAUDE'S SESSION CRITIQUE");
     await assertText(page, ".cs-cell.card.critique", "weakest link was price quality");
+    // injection: the <script> in the critique renders as inert TEXT, never markup
+    await assertText(page, ".cs-cell.card.critique", "<script>alert(1)</script>");
+    const liveScripts = await page.$$eval(".cs-cell.card.critique script", (els) => els.length);
+    if (liveScripts !== 0) throw new Error(`critique injected a live <script> element (${liveScripts}) — must be inert text`);
     // switch to EXECUTED domain via the tab
     await page.click('[role="tab"][aria-label="EXECUTED"]');
     await assertVisible(page, ".cs-domain-banner.d-executed");
