@@ -200,8 +200,14 @@ he *longed ES* — "ride up higher" — and the 12-12 sell is a separate day. Th
 ### Implementation status
 
 This doc is **confirmed** (decisions ledger, 2026-06-22) and is the rebuild target. The
-old/current bot diverges on: the grade (graded by alignment; can't trade a no-HTF 2/3 day
-— §1), overnight as a vote (computed but inert — §3), near-price selection (§2), the
-single-event bias flip (§5), SMT/leading-asset (absent — §6), and sessions (London
-truncated, Asia not tradable — §7). These are rebuild items, not folded against the old
-(retired) baseline. Gap detail + `file:line`: [`lanto-source-of-truth.md`](lanto-source-of-truth.md).
+current bot diverges on: the grade (a nested 3-vote count now runs when the resolver
+supplies it — `execution-packet.js:637-661` — but a no-HTF-draw 2/3 day still can't reach
+B, §1), overnight as a vote (computed but inert — §3), near-price selection (distance is
+computed but doesn't rank the primary draw — §2), and the single-event bias flip (§5).
+**SMT/leading-asset now exists in production** (`cli/lib/smt-leader.js` +
+`smt-leader-evidence.js`, wired into the analyze bundle and LLM narration) but does **not**
+select the live traded symbol (that's `PAIR_PRIMARY` from config) and is **uncertified**
+— §6, plan F1. Sessions still truncate London and exclude Asia (§7). These are rebuild
+items, not folded against the old (retired) baseline. Full trace:
+[`../audits/2026-07-10-strategy-gap-matrix.md`](../audits/2026-07-10-strategy-gap-matrix.md)
+(Pillar 1) and [`lanto-source-of-truth.md`](lanto-source-of-truth.md).
