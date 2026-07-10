@@ -18,16 +18,30 @@ const PORT = 9223;
 const RECONNECT_MS = 4000;
 
 const state = { connected: false, position: null, balance: null, accountId: null, accountName: null, accountType: null, lastFillTs: null };
+// Flips true on the FIRST position_update frame — lets the boot reconciler tell
+// "the feed hasn't reported yet" (position:null but unproven) from a real flat.
+let hasReceivedPositionUpdate = false;
 let openTrade = null;     // { symbol, side, qty, entry, sl, tp, openedMs }
 let lastExecPrice = null; // most recent execution price (the exit, at close time)
 let lastRealizedUsd = null;
 const workingOrders = new Map(); // id → { id, type, side, price, symbol } (status:working)
 let sock = null, reconnectTimer = null, stopped = false;
 
+// On disconnect the last position frame is no longer trustworthy — a fill can
+// land during the gap. Reset the proven-flag so reconciler reads report
+// ok:false until the reconnected feed re-sends a position_update.
+export function markDisconnected() {
+  state.connected = false;
+  hasReceivedPositionUpdate = false;
+}
+
+export const __test = { setPositionUpdateReceived(v) { hasReceivedPositionUpdate = v; state.connected = v; } };
+
 export function getTradingState() {
   return {
     connected: state.connected, position: state.position, balance: state.balance,
     accountId: state.accountId, accountName: state.accountName, accountType: state.accountType,
+    hasReceivedPositionUpdate,
     workingOrders: [...workingOrders.values()],
     // Tradovate broker (sniffed from the webview's REST traffic) — null host/id
     // until it's been seen. activeBroker flips to "tradovate" while its API is
@@ -71,6 +85,7 @@ function handleContent(c) {
   if (p.accountType || c.accountType) state.accountType = p.accountType || c.accountType;
   switch (c.m) {
     case "position_update":
+      hasReceivedPositionUpdate = true;
       if (p.side === "empty" || p.qty === 0) {
         if (state.position || openTrade) recordRoundTrip();
         state.position = null;
@@ -138,7 +153,7 @@ async function connect() {
     sock = new WebSocket(t.webSocketDebuggerUrl);
     sock.on("open", () => { state.connected = true; sock.send(JSON.stringify({ id: 1, method: "Network.enable" })); });
     sock.on("message", onMessage);
-    sock.on("close", () => { state.connected = false; scheduleReconnect(); });
+    sock.on("close", () => { markDisconnected(); scheduleReconnect(); });
     sock.on("error", () => { try { sock.close(); } catch { /* noop */ } });
   } catch { scheduleReconnect(); }
 }

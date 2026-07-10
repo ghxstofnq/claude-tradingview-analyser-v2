@@ -13,6 +13,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { probeCdp } from "./tv-launcher.js";
+import { getReconciliationHealthy } from "./execution/auto-resume.js";
+import { getLastReconcileState } from "./execution/reconciler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -74,5 +76,8 @@ async function tick() {
     heartbeat_age_s: hbAge === Infinity ? null : Math.round(hbAge),
     turn_lag_s: Math.round(turnLagSec),
     cdp: _cdpUp === null ? "unknown" : _cdpUp ? "up" : "down",
+    // Boot broker/journal reconciliation (B2): whether paper auto is gated open
+    // (HEALTHY) + the last reconciler verdict, for the dashboard.
+    reconciliation: { healthy: getReconciliationHealthy(), state: getLastReconcileState() },
   });
 }

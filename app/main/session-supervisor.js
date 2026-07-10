@@ -190,6 +190,11 @@ export function createSessionSupervisor(deps) {
       deps.setMode("live");
       deps.resetDetectorRestarts?.();
       deps.startDetector();
+      // I-1(d)/I-2: re-run the boot reconciler on arm. A new session's arm may
+      // find a position carried from the prior session (→ ORPHAN, fail-closed
+      // block pending operator adopt) or the broker feed finally connected after
+      // the boot burst gave up — either way the auto gate is refreshed here.
+      deps.onArm?.();
       state.lastInterventionMs = now;
       deps.notify?.({
         level: "info",
@@ -318,6 +323,9 @@ export function startSessionSupervisor({ send, isStaleCode }) {
       isStaleCode,
       runReadinessCheck: runLiveCheckCli,
       isBacktestActive: backtestLock.isBacktestActive,
+      // Re-run the boot reconciler on arm (I-1(d)). Lazy import keeps the
+      // supervisor→reconciler dependency a one-way callback, not a hard edge.
+      onArm: () => { import("./execution/reconciler.js").then((r) => r.runReconcileNow({ send })).catch(() => {}); },
       notify: ({ level, title, body }) => {
         notifyMod.notifySystem({ title, body });
         send?.("app:error", { source: "supervisor", level, message: `${title}: ${body}` });

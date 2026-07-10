@@ -10,6 +10,7 @@
 // transition can reference its own stop/limit/sibling.
 
 import { runnerEligible } from "../../../cli/lib/trade-outcomes.js";
+import { classifySubmitResult } from "./order-intent.js";
 
 // Pure: given the [entry, stop, limit] placeStandalone results, decide whether
 // the bracket is safe or the entry is NAKED (filled with no working protective
@@ -25,6 +26,27 @@ export function evaluateBracketResults(results = []) {
   const stopOk = results[1]?.ok === true && Number.isFinite(stopOrderId);
   const authLost = results.some((r) => r?.status === 401 || r?.status === 403);
   return { entryOk, stopOk, stopOrderId, limitOrderId, naked: entryOk && !stopOk, authLost };
+}
+
+// Pure: classify a bracket's [entry, stop, limit] results into a disposition the
+// caller acts on. THE ambiguous-submit fix (B1): a fetch-failed / timed-out /
+// 5xx entry POST (status 0, ok:false) is `recovery`, NOT `rejected` — we don't
+// know if the order landed, so it must NEVER invalidate (that could phantom-flat
+// a real live position). Order matters: check ambiguity FIRST (an ambiguous entry
+// also has entryOk:false, which would otherwise read as `rejected`).
+//   ambiguous entry           → "recovery"  (hold; never invalidate)
+//   clean 4xx / body-error     → "rejected"  (invalidate — no position)
+//   filled, stop leg failed    → "naked"     (flatten + cancel + invalidate)
+//   filled + working stop      → "ok"
+export function bracketDisposition(results = []) {
+  const bracket = evaluateBracketResults(results);
+  const submit = classifySubmitResult({ ok: results[0]?.ok, status: results[0]?.status });
+  let disposition;
+  if (submit === "ambiguous") disposition = "recovery";
+  else if (!bracket.entryOk) disposition = "rejected";
+  else if (bracket.naked) disposition = "naked";
+  else disposition = "ok";
+  return { disposition, submit, ...bracket };
 }
 
 // app:error sink (wired from bar-close alongside the ticker sink) so broker

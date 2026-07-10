@@ -45,9 +45,9 @@ export async function brokerConnected() {
 // live position read needs the panel open or the WS tracker (M4); when the
 // panel is open this returns the structured position. Columns (TV order):
 // Symbol, Side, Qty, AvgFill, TakeProfit, StopLoss, Last, uPnL, uPnL%, ...
-export async function readState() {
-  try {
-    const snap = await evaluate(`(() => {
+// The account-manager + positions-table DOM snapshot, shared by readState and
+// readStateSafe. Returns { connected, account, position, positionCount, price }.
+const POSITION_SNAPSHOT_EXPR = `(() => {
       const am = document.querySelector('[class*="accountManager-"], .js-account-manager-header');
       const order = document.querySelector('[data-name="buy-order-button"], [data-name="sell-order-button"]');
       const connected = !!(am && order);
@@ -67,8 +67,15 @@ export async function readState() {
         symbol: c[0], side: (c[1] || "").toLowerCase(), qty: num(c[2]),
         avgFill: num(c[3]), tp: num(c[4]), sl: num(c[5]), last: num(c[6]), uPnlUsd: num(c[7]),
       } : null;
-      return { connected, account, position, positionCount: dataRows.length, price };
-    })()`);
+      // tablePresent: the positions-table CONTAINER exists (panel expanded). When
+      // it's absent (collapsed panel), a null position is UNPROVEN — readStateSafe
+      // must not read it as a confirmed flat.
+      return { connected, account, position, positionCount: dataRows.length, price, tablePresent: !!tbl };
+    })()`;
+
+export async function readState() {
+  try {
+    const snap = await evaluate(POSITION_SNAPSHOT_EXPR);
     return {
       connected: !!snap?.connected,
       account: snap?.account ?? null,
@@ -80,6 +87,38 @@ export async function readState() {
     };
   } catch {
     return { connected: false, account: null, position: null, positionCount: 0, price: null, workingOrders: [], balance: null };
+  }
+}
+
+// Discriminated position read for the boot reconciler (audit C11 pattern, mirror
+// of tradovate readTradovatePositionSafe). ok:false means the read FAILED — the
+// account isn't the confirmed one (resolveTarget blocks) or the CDP evaluate
+// threw — and the caller MUST NOT infer "flat" from it. ok:true + position:null
+// is ONLY returned on a successful empty-table read.
+// Pure: decide a discriminated read from a raw DOM snapshot. The paper positions
+// TABLE only exists when the account-manager panel is expanded (see readState); a
+// collapsed panel has no table, so a null position there is UNPROVEN. ok:true +
+// position:null ONLY on a verifiably-present, connected, empty table — otherwise
+// ok:false so the reconciler never treats a stale/absent panel as a confirmed
+// flat (which would allow a paper double-place / false-HEALTHY boot arm). Exported
+// for unit tests (the DOM read itself needs CDP).
+export function interpretPositionSnapshot(snap) {
+  if (!snap || snap.connected !== true || snap.tablePresent !== true) {
+    return { ok: false, position: null, reason: "panel_unreadable" };
+  }
+  return { ok: true, position: snap.position ?? null, connected: true };
+}
+
+export async function readStateSafe() {
+  try {
+    resolveTarget(); // throws a structured block when this account isn't routable
+  } catch (e) {
+    return { ok: false, position: null, reason: e?.blocked?.reason || e?.message || "blocked" };
+  }
+  try {
+    return interpretPositionSnapshot(await evaluate(POSITION_SNAPSHOT_EXPR));
+  } catch (e) {
+    return { ok: false, position: null, reason: String(e?.message || e) };
   }
 }
 
