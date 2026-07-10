@@ -261,7 +261,19 @@ export async function buildRealDeps({ send } = {}) {
     appendRecord: async (obj) => {
       await fs.appendFile(await intentsFile(), "\n" + JSON.stringify(obj) + "\n", "utf8");
     },
-    onCorrupt: (dropped) => send?.("app:error", { source: "order-intent", level: "error", message: `order-intents.jsonl: ${dropped} corrupt line(s) — HOLDING for recovery (fail-closed). A new order will NOT be placed on this decision until it is resolved.` }),
+    // Halt-beats-double-place stays: a corrupt read returns CORRUPT_INTENT →
+    // planIntentAction → blocked_recovery (no behavioral loosening). ALSO snapshot
+    // the corrupt file to a `.quarantine` sibling (best-effort, non-destructive —
+    // the live file is untouched) so the torn tail is preserved for post-mortem
+    // rather than lost to the next append. Never throws.
+    onCorrupt: async (dropped) => {
+      send?.("app:error", { source: "order-intent", level: "error", message: `order-intents.jsonl: ${dropped} corrupt line(s) — HOLDING for recovery (fail-closed). A new order will NOT be placed on this decision until it is resolved. Corrupt copy quarantined for inspection.` });
+      try {
+        const src = await intentsFile();
+        const txt = await fs.readFile(src, "utf8");
+        await fs.writeFile(`${src}.quarantine`, txt, "utf8");
+      } catch { /* best-effort quarantine snapshot */ }
+    },
     onIllegal: ({ decision_id, from, to }) => send?.("app:error", { source: "order-intent", level: "warn", message: `Illegal order-intent transition ${from} → ${to} for ${decision_id} (recorded + flagged).` }),
   };
 }

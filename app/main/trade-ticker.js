@@ -9,18 +9,22 @@ import path from "node:path";
 import { activeSessionDir } from "./sessions.js";
 import { tickTrades, foldOpenTrades, closeTradesAtEod } from "../../cli/lib/trade-outcomes.js";
 import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
+import { earlyCloseMinuteET } from "../../cli/lib/market-calendar.js";
 
 // 4:00 PM ET cash close — any trade still open at/after this minute is
-// force-closed at market (user ruling 2026-06-13).
+// force-closed at market (user ruling 2026-06-13). Early-close days shut earlier
+// (resolved per-date via earlyCloseMinuteET) so this journal bookkeeping agrees
+// with the broker-clock EOD flatten (reconciler.eodFlattenNow).
 const EOD_CLOSE_MIN = 16 * 60;
-function etMinutesOf(ts) {
+function etPartsOf(ts) {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
   }).formatToParts(new Date(ts));
-  const hh = Number(parts.find((p) => p.type === "hour")?.value || 0);
-  const mm = Number(parts.find((p) => p.type === "minute")?.value || 0);
-  return hh * 60 + mm;
+  const g = (t) => parts.find((p) => p.type === t)?.value || "0";
+  return { minutes: (Number(g("hour")) % 24) * 60 + Number(g("minute")), date: `${g("year")}-${g("month")}-${g("day")}` };
 }
+function etMinutesOf(ts) { return etPartsOf(ts).minutes; }
 
 let _send = null;
 let _lastWarnedKey = null;
@@ -151,7 +155,10 @@ async function applyTrancheExitSafe(tr) {
  * Called every bar by bar-close.js; the ET gate makes it inert pre-16:00.
  */
 export async function maybeForceCloseAtEod(ev) {
-  if (!ev?.ts || !ev?.ohlc || etMinutesOf(ev.ts) < EOD_CLOSE_MIN) return;
+  if (!ev?.ts || !ev?.ohlc) return;
+  const { minutes, date } = etPartsOf(ev.ts);
+  const eodMin = earlyCloseMinuteET(date) ?? EOD_CLOSE_MIN;
+  if (minutes < eodMin) return;
   const dir = await activeSessionDir();
   const file = path.join(dir, "trades.jsonl");
   let events;

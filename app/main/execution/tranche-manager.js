@@ -252,9 +252,12 @@ async function buildRealDeps() {
   return {
     readExecConfig,
     accountRoutable: () => gate.resolveAccountGate({ active: active.getActiveAccount(), confirmed: readExecConfig().confirmedAccount }),
-    // AND-in the boot reconciliation gate (B2): paper auto only fires once the
-    // reconciler has confirmed journal ≡ broker (HEALTHY). Defaults false on boot.
-    autoAllowed: () => gate.autoFireAllowed({ confirmed: readExecConfig().confirmedAccount, autoResumed: autoResume.getAutoResumed() }) && autoResume.getReconciliationHealthy(),
+    // AND-in the boot reconciliation gate (B2) AND the continuous protection
+    // gate (B3): paper auto only fires once the reconciler has confirmed journal
+    // ≡ broker (HEALTHY) AND the watchdog has not paused entries on a protective
+    // breach / unreadable read. Reconciliation defaults false on boot; protection
+    // defaults true (a no-position boot must not block).
+    autoAllowed: () => gate.autoFireAllowed({ confirmed: readExecConfig().confirmedAccount, autoResumed: autoResume.getAutoResumed() }) && autoResume.getReconciliationHealthy() && autoResume.getProtectionOk(),
     accountId: () => active.getActiveAccount()?.id ?? null,
     session: () => { try { return sessions.currentSession().session; } catch { return null; } },
     readIntent: (decisionId) => intentStore.readIntent(decisionId),

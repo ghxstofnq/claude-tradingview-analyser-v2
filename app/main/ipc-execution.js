@@ -11,7 +11,7 @@ import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
 import { getActiveAccount } from "./execution/active-account.js";
 import { resolveAccountGate, revertSimDecision } from "./execution/account-gate.js";
-import { setAutoResumed, getAutoResumed, getReconciliationHealthy } from "./execution/auto-resume.js";
+import { setAutoResumed, getAutoResumed, getReconciliationHealthy, getProtectionOk } from "./execution/auto-resume.js";
 
 function tradesDir() { return TRADES_DIR; }
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -76,6 +76,15 @@ async function positionOpenFor(broker) {
 }
 
 async function guarded(payload) {
+  // B3: the continuous protection watchdog owns the entry pause. If it has seen
+  // an unprotected / breached / unreadable / auth-lost position, NO new order
+  // (manual OR auto) is placed until protection clears — fail-closed at the
+  // handler layer, ahead of every other guard. Recovery is the operator's job
+  // via execution:reconcile (adopt / protect / flatten); the watchdog never
+  // flattens. Defaults open (a no-position boot never blocks manual trading).
+  if (getProtectionOk() === false) {
+    return { ok: false, blocked: true, code: "RECOVERY_REQUIRED", reason: "protection_watchdog", message: "Entries PAUSED — protection watchdog flagged an unprotected/breached position. Resolve via execution:reconcile before placing new orders." };
+  }
   // Fail-closed on a real trade-store read error: block rather than gate on
   // degraded counts (readFills returns [] for a legitimately-absent file, so a
   // throw here means a genuine fs problem).
@@ -127,6 +136,13 @@ export function registerExecutionIpc() {
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
   ipcMain.handle("execution:resumeAuto", async () => {
+    // B3: ack honesty — if the protection watchdog has paused entries, auto stays
+    // blocked regardless, so say so instead of returning a misleading ok:true.
+    // Recovery is via execution:reconcile (protect / flatten); once the next
+    // watchdog tick reads clear the gate reopens and resumeAuto can proceed.
+    if (getProtectionOk() === false) {
+      return { ok: false, code: "PROTECTION_UNHEALTHY", reason: "protection_watchdog" };
+    }
     // B2 + I-1: never resume auto until reconciliation is HEALTHY. But don't just
     // refuse (that was circular — resume required the very gate it should help
     // recover): TRIGGER a fresh reconcile first (the feed may have connected since

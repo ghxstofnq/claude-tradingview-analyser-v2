@@ -10,6 +10,7 @@
 // Top half is pure (no IO). The DI runtime lazy-imports adapters/sessions so unit
 // tests inject fakes and never touch electron/CDP.
 import { deriveDecisionId, INTENT_STATES } from "./order-intent.js";
+import { getReconciliationHealthy, setReconciliationHealthy } from "./auto-resume.js";
 
 // ── Reconciliation states ─────────────────────────────────────────────────
 export const RECONCILE_STATES = Object.freeze({
@@ -85,6 +86,49 @@ export function latestReconciliation(records = []) {
     if (records[i] && typeof records[i] === "object") return records[i];
   }
   return null;
+}
+
+// ── B4: broker-clock EOD ────────────────────────────────────────────────────
+// The bar-driven maybeForceCloseAtEod (trade-ticker.js) keeps its R bookkeeping;
+// this is the AUTHORITATIVE broker flatten that closes the NET position at 16:00
+// ET cash close — manual AND auto in one flatten (the manual-bracket gap the
+// bar path never covered), driven by the trade-ticker-watchdog's wall-clock
+// timer so it fires even when the bar detector is dead.
+
+const EOD_MINUTE = 16 * 60; // 16:00 ET
+
+// Pure. Is the broker-clock EOD flatten due? Idempotent per trading day: fires
+// only at/after 16:00 ET and only once per ET date (lastEodDate latches it).
+export function eodDue({ nowEtMinutes, lastEodDate, todayEt, eodMinute = EOD_MINUTE } = {}) {
+  if (!Number.isFinite(nowEtMinutes) || nowEtMinutes < eodMinute) return false;
+  if (todayEt == null) return false;
+  return lastEodDate !== todayEt;
+}
+
+// Pure. Reconstruct the last CONFIRMED EOD flatten date from reconciliation.jsonl
+// on restart (so a mid-day restart doesn't re-flatten a day already closed, and
+// an UNKNOWN/unconfirmed result leaves the latch OPEN → retried next tick).
+export function lastEodDateFrom(records = []) {
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const r = records[i];
+    if (r && r.action === "eod_flatten" && r.confirmed_flat === true) return r.trading_day ?? null;
+  }
+  return null;
+}
+
+// Pure. Build the reconciliation.jsonl EOD row (reuses the same file + append).
+function buildEodRecord({ state, confirmedFlat, tradingDay, note, now, brokerRead, flatResult, cancelResult }) {
+  return {
+    ts: new Date(now).toISOString(),
+    action: "eod_flatten",
+    state,
+    confirmed_flat: confirmedFlat === true,
+    trading_day: tradingDay ?? null,
+    note: note ?? null,
+    broker_read: { ok: brokerRead?.ok === true, position: brokerRead?.position ?? null },
+    flat_result: flatResult ?? null,
+    cancel_result: cancelResult ?? null,
+  };
 }
 
 // ── Pure operator planners (no IO) ──────────────────────────────────────────
@@ -290,6 +334,36 @@ async function buildReconcilerDeps({ send } = {}) {
     setReconciliationHealthy: (v) => { try { autoResume.setReconciliationHealthy(v); } catch { /* best-effort */ } },
     emitError: (o) => send?.("app:error", { source: "reconciler", ...o }),
     accountId: () => active.getActiveAccount()?.id ?? null,
+    // B4: the whole EOD reconciliation.jsonl for lastEodDate reconstruction.
+    readReconciliations: async () => {
+      try {
+        const txt = await fs.readFile(await reconFile(), "utf8");
+        return parseJsonlTolerant(txt).records;
+      } catch { return []; }
+    },
+    // B4: flatten the NET broker position (closes manual AND auto in one shot).
+    flatten: async (position) => {
+      const broker = active.getActiveAccount()?.broker ?? null;
+      if (broker === "tradovate") {
+        const { closeTradovatePosition } = await import("./tradovate-adapter.js");
+        return closeTradovatePosition({ instrument: position?.symbol });
+      }
+      const { tvAdapter } = await import("./tv-adapter.js");
+      return tvAdapter.flatten({ symbol: position?.symbol });
+    },
+    // B4: cancel every working order (the resting bracket / limit).
+    cancelWorkingOrders: async () => {
+      const broker = active.getActiveAccount()?.broker ?? null;
+      if (broker === "tradovate") {
+        const { cancelTradovateOrders } = await import("./tradovate-adapter.js");
+        return cancelTradovateOrders();
+      }
+      const { tvAdapter } = await import("./tv-adapter.js");
+      const wos = feed.getTradingState().workingOrders || [];
+      const results = [];
+      for (const o of wos) { try { results.push(await tvAdapter.cancelOrder({ id: o.id })); } catch { /* best-effort */ } }
+      return { ok: results.every((r) => r?.ok === true), cancelled: results.filter((r) => r?.ok === true).length, results };
+    },
   };
 }
 
@@ -297,6 +371,89 @@ async function buildReconcilerDeps({ send } = {}) {
 export async function runReconcileNow({ send } = {}) {
   const deps = await buildReconcilerDeps({ send });
   return createReconciler(deps).runReconcile();
+}
+
+// Reconcile with a short burst of retries, but do NOT let a transient UNKNOWN
+// clobber a prior HEALTHY gate — the gate is written from the SETTLED (non-
+// UNKNOWN) result. Used by the supervisor's on-arm re-reconcile so a momentary
+// unreadable read on arm doesn't flap a healthy paper-auto gate closed. DI over
+// runOnce/getGate/setGate/sleep for unit tests.
+export async function runReconcileWithBurst({
+  send, attempts = 4, delayMs = 1000,
+  runOnce, getGate = getReconciliationHealthy, setGate = setReconciliationHealthy, sleep,
+} = {}) {
+  const run = runOnce || (() => runReconcileNow({ send }));
+  const wait = sleep || ((ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); }));
+  let last = null;
+  for (let i = 0; i < attempts; i += 1) {
+    const priorGate = getGate();
+    // eslint-disable-next-line no-await-in-loop
+    last = await run();
+    if (last?.state !== UNKNOWN) return last; // settled — this run's gate write stands
+    // Transient UNKNOWN: restore the prior gate so we don't flap a HEALTHY open.
+    if (priorGate === true) { try { setGate(true); } catch { /* best-effort */ } }
+    // eslint-disable-next-line no-await-in-loop
+    if (i < attempts - 1) await wait(delayMs);
+  }
+  return last;
+}
+
+// B4: the last CONFIRMED EOD flatten date from disk (restart seed for the
+// per-day latch).
+export async function readLastEodDate({ send, deps } = {}) {
+  try {
+    const d = deps || await buildReconcilerDeps({ send });
+    const recs = d.readReconciliations ? await d.readReconciliations() : [];
+    return lastEodDateFrom(recs || []);
+  } catch { return null; }
+}
+
+// B4: the authoritative broker-clock EOD flatten. Fail-closed throughout —
+//   unreadable broker → UNKNOWN, gate stays closed, latch NOT set (retry).
+//   confirmed flat    → idempotent no-op (already_flat), latch may set.
+//   open position     → flatten NET + cancel working orders, re-reconcile, and
+//                       report flat ONLY off a confirmed ok:true position:null
+//                       read; anything else → UNKNOWN + loud error + retry.
+// Never assumes flat, never double-flattens a confirmed-flat broker.
+export async function eodFlattenNow({ send, now = Date.now(), tradingDay = null, deps } = {}) {
+  const d = deps || await buildReconcilerDeps({ send });
+  const brokerRead = await d.readBroker();
+  if (brokerRead?.ok !== true) {
+    d.emitError?.({ level: "warn", message: "EOD flatten: broker UNREADABLE — cannot confirm flat, will retry next tick (fail-closed; never assume flat)." });
+    await d.recordReconciliation?.(buildEodRecord({ state: UNKNOWN, confirmedFlat: false, tradingDay, note: "broker_unreadable", now, brokerRead }));
+    return { ok: false, confirmedFlat: false, state: UNKNOWN };
+  }
+  if (brokerRead.position == null) {
+    // Already flat — idempotent no-op. Latch the day so we don't re-check.
+    await d.recordReconciliation?.(buildEodRecord({ state: HEALTHY, confirmedFlat: true, tradingDay, note: "already_flat", now, brokerRead }));
+    return { ok: true, confirmedFlat: true, alreadyFlat: true, state: HEALTHY };
+  }
+  // Open at cash close — flatten the NET position (manual AND auto) + cancel the
+  // resting bracket, then verify.
+  let flatResult = null;
+  let cancelResult = null;
+  try {
+    flatResult = await d.flatten?.(brokerRead.position);
+    cancelResult = await d.cancelWorkingOrders?.();
+  } catch (e) {
+    d.emitError?.({ level: "error", message: `EOD flatten threw: ${String(e?.message || e)} — retrying next tick.` });
+    await d.recordReconciliation?.(buildEodRecord({ state: UNKNOWN, confirmedFlat: false, tradingDay, note: "flatten_threw", now, brokerRead, flatResult, cancelResult }));
+    return { ok: false, confirmedFlat: false, state: UNKNOWN, error: String(e?.message || e) };
+  }
+  // Re-reconcile: report flat ONLY off a confirmed ok:true + position:null read.
+  const after = await createReconciler(d).runReconcile();
+  const afterRead = after?.record?.broker_read ?? null;
+  const confirmedFlat = afterRead?.ok === true && afterRead?.position == null;
+  await d.recordReconciliation?.(buildEodRecord({
+    state: confirmedFlat ? HEALTHY : UNKNOWN, confirmedFlat, tradingDay,
+    note: confirmedFlat ? "flattened" : "flatten_unconfirmed", now,
+    brokerRead: afterRead ?? brokerRead, flatResult, cancelResult,
+  }));
+  if (!confirmedFlat) {
+    d.emitError?.({ level: "error", message: "EOD flatten sent but the broker did NOT confirm flat — gate stays CLOSED, retrying next tick (fail-closed)." });
+    return { ok: false, confirmedFlat: false, state: UNKNOWN };
+  }
+  return { ok: true, confirmedFlat: true, state: HEALTHY };
 }
 
 // Start the boot reconciler: run immediately, then a fast burst of retries while
