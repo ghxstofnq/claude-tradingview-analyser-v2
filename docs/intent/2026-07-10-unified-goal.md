@@ -66,11 +66,10 @@ trade path.
 
 ### Open — Track 1 blockers, confirmed by audit
 
-- **Test suite is red again: 1893/1899, 6 failures** — one `tv backtest
-  certify` CLI test + five live-readiness/dry-run tests. Nothing downstream
-  certifies on a red suite.
-- **A3 not done** — `computeVerdict` still requires only `sessions >= 20` and
-  `cum_r > 0`; "READY" does not yet mean the end-goal contract.
+- ~~**Test suite is red again: 1893/1899, 6 failures**~~ — *resolved same
+  day by PR #226; see the status update below.*
+- ~~**A3 not done**~~ — *shipped same day as PR #226; see the status update
+  below.*
 - **B1–B3 confirmed absent** — no durable order-intent/idempotency layer
   (only in-memory dedup maps), no boot-time broker↔journal reconciler (a
   pre-existing live position is re-discovered by polling but never reconciled
@@ -110,18 +109,53 @@ trade path.
 - **London does not exist in the trusted domain** — zero recorded London
   sessions; the certification manifest is NY-only.
 
+## Status update — later on 2026-07-10 (post PR #226)
+
+Phases 1–2 of the readiness program are done, executed in a parallel session
+and verified here by re-running the evidence commands against origin/main:
+
+- **A3 shipped** — PR #226 (`ec5e4b1`, merged 04:01Z) replaced the
+  positive-R verdict with the fail-closed composition: four states
+  (`BLOCKED / REVIEW_REQUIRED / NOT_READY / NET_POSITIVE_APPROVED`), eight
+  ordered gates (tests, baseline identity, sessions, corpus, parity,
+  net-positive, strategy review, user approval), approval records under
+  `state/backtest/approvals/` invalidated on any code/corpus/scope/lever
+  drift, test evidence bound to an exact clean SHA, and a renderer that
+  fails closed on malformed payloads. The morning audit's 6 test failures
+  were fixed in the same PR; suite reported 1905 pass / 0 fail + CI +
+  post-merge evidence verification.
+- **Certification runs and correctly refuses** — verified directly:
+  `certified: false`. MNQ1! 233/239 selected, 6 missing
+  (`2026-01-13 am`, `01-14 pm`, `02-02 pm`, `02-04 am`, `02-05 pm`,
+  `07-01 am`); MES1! 235/239, 4 missing (`02-03 pm`, `02-27 pm`,
+  `05-06 am`, `07-01 am`); parity blocker: "no parity certificate artifact
+  (prose-only parity proof does not certify)". Net-positive gate passes
+  (+15.72R MNQ / +10.03R MES after certified selection) but cannot override
+  the failed gates — final verdict **BLOCKED** for both symbols, which is
+  the intended behavior.
+- **Identity binding demonstrably works** — running the verdict from a
+  scratch worktree flips the tests/baseline gates to fail because the
+  evidence is bound to the exact merge SHA and a clean tree.
+
+**Immediate next steps, two lanes in parallel:**
+
+1. **Code lane → step 3 below (B1–B2):** durable order intents + boot-time
+   broker/journal reconciliation.
+2. **Evidence lane:** re-record the 10 missing sessions (first checking each
+   against holiday/early-close reality — a legitimately unrecordable day
+   belongs in the manifest exceptions, not in a re-record chase; recording
+   requires the app stopped) and generate the machine-readable parity
+   certificate via `scripts/gate-corpus/parity-diff.py`. Corpus certification
+   green + user window sign-off then unblock ladder steps 2–3.
+
 ## Track 1 — money path (P0, plan order preserved)
 
 The phases, tasks, file lists, acceptance criteria, verification matrix, and
 go-live ladder live in the absorbed plan. Remaining sequence, updated:
 
-1. **Green the suite** — fix the 6 failures (certify CLI test +
-   live-readiness/dry-run set) before anything else. A red suite invalidates
-   every later claim.
-2. **A3** — verdict composition (`BLOCKED / REVIEW_REQUIRED / NOT_READY /
-   NET_POSITIVE_APPROVED`), auditable user-approval records under
-   `state/backtest/approvals/`, drift invalidation on SHA/manifest/lever
-   change. CLI and app render the same gates.
+1. ~~**Green the suite**~~ — **done in PR #226** (the 6 failures fixed;
+   suite green, evidence-bound).
+2. ~~**A3**~~ — **done in PR #226** (see status update above).
 3. **B1–B2** — durable order-intent lifecycle + boot-time broker/journal
    reconciliation (the reconciliation matrix in the plan, incl.
    adopt/protect/flatten operator actions).
@@ -154,6 +188,20 @@ go-live ladder live in the absorbed plan. Remaining sequence, updated:
 
 **Real-money arming** follows the plan's go-live ladder (§5) exactly — a
 sequence of evidence, not a date. A positive fold alone never skips steps.
+
+### Go-live ladder position (as of 2026-07-10, post PR #226)
+
+| Step | Status |
+|---|---|
+| 1. Development clean | Done — suite green, evidence bound to SHA |
+| 2. Corpus/data trusted | Blocked — 6 MNQ + 4 MES sessions missing |
+| 3. Deterministic parity trusted | Blocked — parity certificate artifact absent |
+| 4. Strategy/user approval | Pending (window pre-approved as defined; final sign-off gated on green certification) |
+| 5. Execution lifecycle trusted | Not built — B1–B4 |
+| 6. Paper/manual bring-up | Not started |
+| 7. Paper/AUTO bring-up | Not started |
+| 8. Live manual/suggest | Not started |
+| 9. Live/AUTO | Not started |
 
 ## Track 2 — experience (parallel, never touches the trade path)
 
