@@ -19,8 +19,8 @@ describe("per-purpose tool allow-list (C26)", () => {
       else assert.ok(!hasSetup, `${purpose} must NOT expose setup tools`);
     }
   });
-  it("chat, review and analysis cannot author any surface_* state", () => {
-    for (const p of ["chat", "review", "analysis"]) {
+  it("chat, review, analysis and explain cannot author any surface_* state", () => {
+    for (const p of ["chat", "review", "analysis", "explain"]) {
       assert.ok(!TOOLS_BY_PURPOSE[p].some((t) => t.startsWith("surface_")), `${p} must expose no surface_* tool`);
     }
   });
@@ -50,6 +50,16 @@ describe("per-purpose tool allow-list (C26)", () => {
     const allowed = buildAllowedToolNames("analysis");
     assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "analysis must reach no mcp__tv__ tool");
     assert.ok(!allowed.some((t) => t.includes("surface_")), "analysis must reach no surface_* tool");
+  });
+  it("explain authors no surface / trade / alert / memory tools (Read/Glob built-ins aside)", () => {
+    // The on-demand anomaly explainer (Track 2 §2b item 5) maps to an empty tool
+    // list: the anomaly + readiness + health context arrives in the prompt, so it
+    // needs no tools. No surface_*, no alerts, no captures, no memory write.
+    assert.deepEqual(TOOLS_BY_PURPOSE.explain, [], "explain must map to an empty tool list");
+    const allowed = buildAllowedToolNames("explain");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "explain must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "explain must reach no surface_* tool");
+    assert.ok(!allowed.some((t) => /memory/i.test(t)), "explain must reach no memory-write tool");
   });
   it("brief owns only surface_session_brief; wrap owns only surface_session_summary", () => {
     assert.ok(TOOLS_BY_PURPOSE.brief.includes("surface_session_brief"));

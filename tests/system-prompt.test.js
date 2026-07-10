@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { _loadSystemPromptForTests as loadSystemPrompt } from "../app/main/sdk.js";
 import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 
-const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close", "journal", "coach", "analysis"];
+const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close", "journal", "coach", "analysis", "explain"];
 
 test("kernel content present in every purpose", async () => {
   for (const purpose of PURPOSES) {
@@ -35,6 +35,8 @@ test("per-purpose content present", async () => {
     ["coach", /Retrospective only|retrospective coaching read/i],
     ["analysis", /DEEP-READ ANALYSIS/i],
     ["analysis", /not a (?:trade )?signal/i],
+    ["explain", /ANOMALY EXPLAINER PROTOCOL/i],
+    ["explain", /not a (?:trade )?signal/i],
   ];
   for (const [purpose, pattern] of cases) {
     const prompt = joinSystemPrompt(await loadSystemPrompt(purpose));

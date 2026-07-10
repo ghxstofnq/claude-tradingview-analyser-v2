@@ -164,6 +164,32 @@ export function registerIpc(win) {
     });
   });
 
+  // On-demand anomaly explainer (Track 2 §2b item 5). When readiness goes red or
+  // an app:error fires, the operator clicks EXPLAIN on the System page. Runs under
+  // the isolated "explain" purpose on its own `explain:*` channel — never the
+  // chat channel. The renderer passes the anomaly `event` + a fresh `readiness`
+  // snapshot (from the readiness:get IPC); we add the last health snapshot
+  // (getLastHealth) here so the whole context is main-authoritative. A failure is
+  // relayed on `explain:error` (rendered inline on the System page), NOT on
+  // app:error — so explaining an app:error can't spawn a fresh app:error into the
+  // very list the explanation renders in. The main-side in-flight gate (inside
+  // runExplainTurn) rejects a second concurrent EXPLAIN.
+  ipcMain.handle("explain:run", async (_evt, { event, readiness, provider } = {}) => {
+    const { runExplainTurn } = await import("./explain-turn.js");
+    const { getLastHealth } = await import("./health.js");
+    return runExplainTurn({
+      event,
+      readiness: readiness ?? null,
+      health: getLastHealth(),
+      provider,
+      onEvent: (ev) => {
+        if (ev.type === "chunk") send("explain:chunk", ev);
+        else if (ev.type === "turn_complete") send("explain:turn_complete", ev);
+        else if (ev.type === "error") send("explain:error", { source: "ipc:explain", message: ev.message, provider: ev.provider });
+      },
+    });
+  });
+
   // Daily usage insight — sums today's spend across all turns. Backs the
   // dashboard's "today's spend" panel.
   ipcMain.handle("usage:today", async () => {
