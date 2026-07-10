@@ -48,6 +48,34 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("chat:queue_ready", listener);
     },
   },
+  // Dedicated on-demand deep-read channel (Track 2 §2b item 3). Separate from
+  // chat so PREP/LIVE analysis turns never route through the CLAUDE/BRAIN feed
+  // or the chat session. useAiAnalysis subscribes to these `analysis:*` events.
+  analysis: {
+    run(text, options = {}) {
+      return ipcRenderer.invoke("analysis:run", { text, provider: options.provider });
+    },
+    onChunk(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:chunk", listener);
+      return () => ipcRenderer.removeListener("analysis:chunk", listener);
+    },
+    onTurnComplete(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:turn_complete", listener);
+      return () => ipcRenderer.removeListener("analysis:turn_complete", listener);
+    },
+    onQueued(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:queued", listener);
+      return () => ipcRenderer.removeListener("analysis:queued", listener);
+    },
+    onQueueReady(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:queue_ready", listener);
+      return () => ipcRenderer.removeListener("analysis:queue_ready", listener);
+    },
+  },
   trade: {
     accept(setup) {
       return ipcRenderer.invoke("trade:accept", { setup });

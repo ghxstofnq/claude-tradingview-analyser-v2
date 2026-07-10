@@ -53,6 +53,11 @@ const EXPECTED_SECTIONS = {
   coach: [
     "## COACH READ PROTOCOL",
   ],
+  analysis: [
+    "## DEEP-READ ANALYSIS PROTOCOL",
+    "<bundle_fields>",
+    "<ict_vocabulary>",
+  ],
 };
 
 for (const [purpose, sections] of Object.entries(EXPECTED_SECTIONS)) {

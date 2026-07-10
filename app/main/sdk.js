@@ -52,6 +52,10 @@ const PHASE_PATHS = {
   // coach — on-demand weekly performance narration (Track 2 §2b item 2). Pure
   // prose over a deterministic digest; no tools, no surface_*.
   "coach":     path.join(PROMPTS_DIR, "phase-coach.md"),
+  // analysis — on-demand PREP/LIVE deep read (Track 2 §2b item 3). Read-only,
+  // one-shot (resetSession before each run), off the shared chat channel. Cites
+  // JSON paths; NOT a trade signal (the walker chain is the only setup producer).
+  "analysis":  path.join(PROMPTS_DIR, "phase-analysis.md"),
 };
 
 // (Was `let _systemPrompt = null` for caching — removed when hot-reload
@@ -232,6 +236,11 @@ export const TOOLS_BY_PURPOSE = {
   // and authors only its own coach.md narrative. No surface_*, no alerts, no
   // analyze captures. (Read/Glob built-ins aside, same as journal/review.)
   coach: [],
+  // analysis is the on-demand PREP/LIVE deep read (Track 2 §2b item 3). Read-only:
+  // it drops chat's ALERT_TOOLS and authors no state — it reads the deterministic
+  // bundle already on disk and explains it. No surface_*, no alerts, no captures.
+  // (Read/Glob built-ins are still added by buildAllowedToolNames.)
+  analysis: [],
 };
 
 export function buildAllowedToolNames(purpose) {
@@ -871,7 +880,7 @@ const EFFORT = "high";
 
 /**
  * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close
- * / chat / review / journal / coach). Three deepening guarantees:
+ * / chat / review / journal / coach / analysis). Three deepening guarantees:
  *
  *  1. **Mutex** — only one turn runs at a time. Eliminates the concurrent-
  *     resume class of bug where a brief and a bar-close fired in parallel.
@@ -893,7 +902,7 @@ const EFFORT = "high";
  */
 export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null, images = null }) {
   if (!purpose) {
-    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review | journal | coach)";
+    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review | journal | coach | analysis)";
     onEvent?.({ type: "error", message: msg });
     onEvent?.({ type: "turn_complete" });
     throw new Error(msg);

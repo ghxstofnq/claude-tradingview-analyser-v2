@@ -16,6 +16,15 @@ export function isNarrationPurpose(purpose) {
   return purpose === "bar-close";
 }
 
+// Purposes that own a dedicated render surface and must NOT push activity rows
+// into the shared CLAUDE/BRAIN feed: `chat` renders its own prose stream, and
+// `analysis` (Track 2 §2b item 3) renders on the PREP/LIVE panel that asked for
+// it. Their global-activity events still flip the CLAUDE "working" dot, but they
+// never spawn "▸ PURPOSE · started" rows in the conversation feed.
+export function isDedicatedChannelPurpose(purpose) {
+  return purpose === "chat" || purpose === "analysis";
+}
+
 // #20 Gate verbose console logging behind a localStorage flag so
 // production runs aren't noisy. Set `localStorage.debug_chat = "1"` in
 // devtools to re-enable.
@@ -185,10 +194,10 @@ export function useChat({ provider = "claude" } = {}) {
           const next = new Set(prev); next.delete(purpose); return next;
         });
       }
-      // Skip chat-purpose activity messages — the dedicated chat:* flow
-      // above already renders the actual prose. We only want to *show*
-      // the autonomous purposes (bar-close, brief, etc.) here.
-      if (purpose === "chat") return;
+      // Skip dedicated-channel purposes (chat + analysis) — each renders its own
+      // prose on its own surface, so they must never spawn activity rows in this
+      // feed. We only *show* the autonomous purposes (bar-close, brief, etc.).
+      if (isDedicatedChannelPurpose(purpose)) return;
       const purposeLbl = purpose.toUpperCase();
       if (ev.type === "activity_start") {
         setMessages((prev) => {
