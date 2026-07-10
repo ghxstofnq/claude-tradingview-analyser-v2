@@ -105,6 +105,15 @@ contextBridge.exposeInMainWorld("api", {
     // Quit + reopen TV Desktop with --remote-debugging-port=9225 (constraint #1).
     relaunch() { return ipcRenderer.invoke("tv:relaunch"); },
   },
+  journal: {
+    note(p) { return ipcRenderer.invoke("journal:note", p); },
+    day(p) { return ipcRenderer.invoke("journal:day", p); },
+    onClose(cb) {
+      const listener = (_e, row) => cb(row);
+      ipcRenderer.on("journal:close", listener);
+      return () => ipcRenderer.removeListener("journal:close", listener);
+    },
+  },
   supervisor: {
     nudge() { return ipcRenderer.invoke("supervisor:nudge"); },
   },

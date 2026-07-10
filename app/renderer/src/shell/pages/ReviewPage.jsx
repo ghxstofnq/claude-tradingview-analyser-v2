@@ -117,8 +117,26 @@ function SessionTab({ journal }) {
 // ── JOURNAL tab (the ledger as a table) ────────────────────────────────
 function JournalTab({ journal }) {
   const ledger = journal ? buildLedger(journal.setups || [], journal.trades || []) : [];
+  const closes = journal?.closes ?? [];
   return (
     <div className="cs-dash">
+      {closes.length > 0 && (
+        <div className="cs-band">
+          <Card title="CLOSED TRADES · AUTO-JOURNAL" meta={`${closes.length} rows`}>
+            {closes.map((c) => (
+              <div key={c.id} className="jr-row">
+                <span className="jr-row-ts">{String(c.ts ?? "").slice(11, 16)}</span>
+                <span className={"cs-dir " + (c.side === "buy" ? "long" : "short")}>{c.side === "buy" ? "long" : "short"}</span>
+                <span className="jr-row-sym">{c.qty ?? ""} {String(c.symbol ?? "").replace(/1!$/, "")}</span>
+                <span className="jr-row-px">{c.entry ?? "—"} → {c.exit ?? "—"}</span>
+                <span className={"jr-row-r " + (c.r > 0 ? "up" : c.r < 0 ? "down" : "")}>{c.r != null ? `${c.r > 0 ? "+" : ""}${c.r}R` : "—"}</span>
+                <span className="jr-row-note" title={c.note || ""}>{c.note || ""}</span>
+                {c.screenshot ? <span className="jr-row-shot" title={c.screenshot}>▣</span> : <span className="jr-row-shot dim" />}
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
       <div className="cs-band">
         <Card title={`CANDIDATE LEDGER · ${sessionShort(journal?.session)} · ${journal?.date ?? ""}`} meta={`${ledger.length} rows`}>
           <Ledger ledger={ledger} brief={journal?.brief} />

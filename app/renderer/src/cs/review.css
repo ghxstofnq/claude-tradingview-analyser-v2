@@ -100,3 +100,20 @@
 .cs-eqfoot b { color: var(--value); font: 500 10px var(--mono); }
 .cs-eqfoot b.up { color: var(--green); }
 .cs-eqfoot b.down { color: var(--red); }
+
+/* CLOSED TRADES · auto-journal rows (plan 2026-07-09 Task 5) */
+.jr-row {
+  display: grid; grid-template-columns: 44px 52px 70px 1fr 64px 2fr 20px;
+  gap: 10px; align-items: center; min-height: 28px; padding: 3px 0;
+  border-top: 1px solid var(--border); font-size: 11px;
+}
+.jr-row:first-of-type { border-top: 0; }
+.jr-row-ts { font-family: var(--mono); font-size: 10px; color: var(--label-dim); font-variant-numeric: tabular-nums; }
+.jr-row-sym { font-family: var(--mono); color: var(--value-strong); font-variant-numeric: tabular-nums; }
+.jr-row-px { font-family: var(--mono); color: var(--value); font-variant-numeric: tabular-nums; }
+.jr-row-r { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.jr-row-r.up { color: var(--green); }
+.jr-row-r.down { color: var(--red); }
+.jr-row-note { color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-row-shot { color: var(--label-dim); text-align: center; }
+.jr-row-shot.dim { opacity: 0; }

@@ -4636,6 +4636,38 @@ button { border-radius: var(--r-sm); }
 .cmd-health { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
 .cmd-health.warn { background: var(--amber); }
 .cmd-health.off  { background: var(--label-dim); }
+/* Auto-journal note prompt (plan 2026-07-09 Task 5) — dismissible card above
+   the bottom strip; popover recipe (surface-1, hairline, drop shadow). */
+.jr-prompt {
+  position: fixed; right: 14px; bottom: 42px; width: 380px; z-index: 60;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6); padding: 12px 14px;
+  animation: page-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.jr-head { display: flex; align-items: center; gap: 8px; }
+.jr-head .sp { flex: 1; }
+.jr-title { font-size: 9.5px; letter-spacing: 0.08em; color: var(--label-dim); }
+.jr-sym { font-family: var(--mono); font-size: 11px; color: var(--value-strong); }
+.jr-r { font-family: var(--mono); font-size: 11px; }
+.jr-r.up { color: var(--green); }
+.jr-r.down { color: var(--red); }
+.jr-x { color: var(--label-dim); font-size: 13px; cursor: pointer; padding: 0 2px; }
+.jr-x:hover { color: var(--value); }
+.jr-body { display: flex; gap: 8px; margin-top: 10px; }
+.jr-in {
+  flex: 1; height: 26px; padding: 0 10px; font: 400 11px var(--sans);
+  color: var(--value); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); outline: none;
+}
+.jr-in:focus { border-color: var(--cs-onborder); }
+.jr-in::placeholder { color: var(--label-dim); }
+.jr-save {
+  font-size: 9.5px; letter-spacing: 0.08em; color: var(--value); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 0 10px; display: inline-flex; align-items: center;
+}
+.jr-save:hover { background: var(--cs-onfill); }
+
 /* Manual BUY/SELL (plan 2026-07-10) — bottom-strip right side. Filled tints;
    direction is status (long green / short red), same family as .cs-dir.
    The SL field arms instant orders: valid price → buttons brighten + ⚡. */

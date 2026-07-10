@@ -8,10 +8,18 @@ import { join } from "node:path";
 
 export function fillPath(tradesDir, date) { return join(tradesDir, `${date}.jsonl`); }
 
+// Single post-append hook — both close recorders (paper WS feed + Tradovate
+// poller) flow through appendFill, so the auto-journal (app/main/journal.js)
+// registers here once instead of patching every call site. Best-effort: a
+// listener failure never breaks the fill record.
+let _onFillRecorded = null;
+export function setOnFillRecorded(fn) { _onFillRecorded = typeof fn === "function" ? fn : null; }
+
 export function appendFill(tradesDir, date, record) {
   if (!existsSync(tradesDir)) mkdirSync(tradesDir, { recursive: true });
   const rec = { ts: new Date().toISOString(), ...record };
   appendFileSync(fillPath(tradesDir, date), JSON.stringify(rec) + "\n");
+  try { _onFillRecorded?.(rec); } catch { /* journal is best-effort */ }
   return rec;
 }
 

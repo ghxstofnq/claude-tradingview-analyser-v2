@@ -16,7 +16,7 @@ import { NewsView } from "./palette/NewsView.jsx";
 import { OrdersView } from "./palette/OrdersView.jsx";
 
 export function Palette({
-  query, onQuery, sel, onHover, forcedView, askQuery,
+  query, onQuery, sel, onHover, forcedView, askQuery, packetSeed,
   commands, symbol, chat, alerts, events, workingOrders,
   onRunCommand, onDisarm, onCancelAll, onToast, onClose,
 }) {
@@ -47,7 +47,7 @@ export function Palette({
 
       {intent === "ask" && <AskView chat={chat} query={askQuery || query.trim()} onClose={onClose} onToast={onToast} />}
       {intent === "ticket" && (
-        <TicketView seed={parseTicket(query, { defaultSymbol: symbol })} onToast={onToast} onClose={onClose} />
+        <TicketView seed={parseTicket(query, { defaultSymbol: symbol })} packetSeed={packetSeed} onToast={onToast} onClose={onClose} />
       )}
       {intent === "browse" && (
         <BrowseAlertsView armed={alerts.armed} fired={alerts.fired} onDisarm={onDisarm} />

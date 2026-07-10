@@ -118,3 +118,20 @@ export function parseInstantStop(draft) {
   if (!Number.isFinite(n) || n <= 0) return { mode: "invalid", raw };
   return { mode: "instant", stop: n };
 }
+
+// ── Packet → ticket seed (plan 2026-07-09 Task 4) ───────────────────────────
+// A fired walker packet opens the ticket prefilled with the packet's EXACT
+// numbers — typed stop/TP (never re-derived) so the chooser shows them as the
+// selected custom values; side maps long/short → buy/sell. Null-safe: missing
+// prices stay empty and the ticket's own defaults take over.
+export function packetTicketSeed(packet) {
+  if (!packet) return null;
+  const side = packet.side === "long" ? "buy" : packet.side === "short" ? "sell" : null;
+  if (!side) return null;
+  return {
+    side,
+    stop: packet.stop != null ? String(packet.stop) : "",
+    tp: packet.tp1 != null ? String(packet.tp1) : "",
+    label: [packet.market, packet.model, packet.side, packet.grade].filter(Boolean).join(" "),
+  };
+}
