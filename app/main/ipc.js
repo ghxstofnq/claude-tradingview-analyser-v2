@@ -143,6 +143,27 @@ export function registerIpc(win) {
     }
   });
 
+  // On-demand PREP/LIVE deep read (Track 2 §2b item 3). Runs under the isolated
+  // "analysis" purpose on its own `analysis:*` channel — NOT the shared chat
+  // channel — so a deep read never pollutes the chat session/context and its
+  // prose never leaks into the CLAUDE/BRAIN feed. resetSession fires per run
+  // (inside runAnalysisTurn), so each read is a fresh, independent question.
+  ipcMain.handle("analysis:run", async (_evt, { text, provider } = {}) => {
+    const { runAnalysisTurn } = await import("./analysis-turn.js");
+    return runAnalysisTurn({
+      text,
+      provider,
+      onEvent: (ev) => {
+        if (ev.type === "chunk") send("analysis:chunk", ev);
+        else if (ev.type === "tool_call") send("analysis:tool_call", ev);
+        else if (ev.type === "turn_complete") send("analysis:turn_complete", ev);
+        else if (ev.type === "queued") send("analysis:queued", ev);
+        else if (ev.type === "queue_ready") send("analysis:queue_ready", ev);
+        else if (ev.type === "error") send("app:error", { source: "ipc:analysis", message: ev.message, provider: ev.provider });
+      },
+    });
+  });
+
   // Daily usage insight — sums today's spend across all turns. Backs the
   // dashboard's "today's spend" panel.
   ipcMain.handle("usage:today", async () => {

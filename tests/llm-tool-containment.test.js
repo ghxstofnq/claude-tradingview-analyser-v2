@@ -19,8 +19,8 @@ describe("per-purpose tool allow-list (C26)", () => {
       else assert.ok(!hasSetup, `${purpose} must NOT expose setup tools`);
     }
   });
-  it("chat and review cannot author any surface_* state", () => {
-    for (const p of ["chat", "review"]) {
+  it("chat, review and analysis cannot author any surface_* state", () => {
+    for (const p of ["chat", "review", "analysis"]) {
       assert.ok(!TOOLS_BY_PURPOSE[p].some((t) => t.startsWith("surface_")), `${p} must expose no surface_* tool`);
     }
   });
@@ -41,6 +41,15 @@ describe("per-purpose tool allow-list (C26)", () => {
     const allowed = buildAllowedToolNames("coach");
     assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "coach must reach no mcp__tv__ tool");
     assert.ok(!allowed.some((t) => t.includes("surface_")), "coach must reach no surface_* tool");
+  });
+  it("analysis authors no surface / trade / alert tools (Read/Glob built-ins aside)", () => {
+    // The on-demand deep-read (Track 2 §2b item 3) maps to an empty tool list:
+    // no surface_*, no alerts (it drops chat's ALERT_TOOLS), no analyze captures.
+    // The deterministic bundle arrives via the prompt/state; the turn only reads.
+    assert.deepEqual(TOOLS_BY_PURPOSE.analysis, [], "analysis must map to an empty tool list");
+    const allowed = buildAllowedToolNames("analysis");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "analysis must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "analysis must reach no surface_* tool");
   });
   it("brief owns only surface_session_brief; wrap owns only surface_session_summary", () => {
     assert.ok(TOOLS_BY_PURPOSE.brief.includes("surface_session_brief"));

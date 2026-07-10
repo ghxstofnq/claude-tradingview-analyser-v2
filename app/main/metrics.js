@@ -12,7 +12,8 @@
 // succeeding 100% or 60% — now it's countable.
 //
 // Event shape:
-//   { ts: <ISO>, kind: "brief" | "wrap" | "bar-close" | "chat" | "review",
+//   { ts: <ISO>, kind: "brief" | "wrap" | "bar-close" | "chat" | "review" |
+//                      "journal" | "coach" | "analysis",
 //     event: "started" | "succeeded" | "failed" | "skipped" |
 //            "post_validate_failed" | "timeout",
 //     session?, reason?, durationMs? }
@@ -39,7 +40,7 @@ const ROTATED_PATTERN = /^metrics-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 let _tally = freshTally();
 let _summaryTimer = null;
 
-function freshTally() {
+export function freshTally() {
   return {
     brief: { started: 0, succeeded: 0, failed: 0, skipped: 0, post_validate_failed: 0, timeout: 0 },
     wrap:  { started: 0, succeeded: 0, failed: 0, skipped: 0, post_validate_failed: 0, timeout: 0 },
@@ -48,6 +49,9 @@ function freshTally() {
     review: { started: 0, succeeded: 0, failed: 0, skipped: 0, timeout: 0 },
     journal: { started: 0, succeeded: 0, failed: 0, skipped: 0, timeout: 0 },
     coach: { started: 0, succeeded: 0, failed: 0, skipped: 0, timeout: 0 },
+    // analysis — on-demand PREP/LIVE deep read (Track 2 §2b item 3). On-demand +
+    // user-initiated like chat, but a deep read can hit the turn timeout.
+    analysis: { started: 0, succeeded: 0, failed: 0, timeout: 0 },
   };
 }
 
