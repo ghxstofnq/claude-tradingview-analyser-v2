@@ -1,6 +1,18 @@
 // Pure helpers for Live.jsx — extracted so they can be unit-tested with
 // `node --test`. Importing this file has no side effects.
 
+// Live footer copy, mode-aware (Task C2-c). The old footer hardcoded "fires only
+// after your accept", which is FALSE in AUTO. This returns copy that matches the
+// real execution path for the current automation mode:
+//   manual / suggest → every entry requires your accept
+//   auto             → fires automatically when all deterministic + risk gates pass
+export function liveFooterCopy(mode) {
+  const m = String(mode || "manual").toLowerCase();
+  if (m === "auto") return "⚡ AUTO — fires automatically when all gates pass";
+  if (m === "suggest") return "✓ SUGGEST — alerts on a proposal; requires your accept";
+  return "✓ MANUAL — fires only after your accept";
+}
+
 // Normalize a position/order "side" to "long" | "short" | null, accepting every
 // vocabulary the execution feeds emit: order side ("buy"/"sell"), TradingView's
 // positions-table Side column read from the DOM ("long"/"short", lowercased at

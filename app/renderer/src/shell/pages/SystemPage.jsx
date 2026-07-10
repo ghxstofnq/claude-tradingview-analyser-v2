@@ -5,7 +5,7 @@
 // RESET actions have NO backend IPC, so they are omitted rather than faked;
 // Supervisor STOP/RESTART proxy to the real detector start/stop.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Page } from "./Page.jsx";
 import { PAGE_ICONS } from "../shell.constants.js";
 import { clickable } from "../../a11y.js";
@@ -15,6 +15,8 @@ import { useFiles } from "../../hooks/useFiles.js";
 import { useFixtures } from "../../hooks/useFixtures.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useCalendar } from "../../hooks/useCalendar.js";
+import { useReadiness } from "../../hooks/useReadiness.js";
+import { ReadinessCard } from "../../Readiness.jsx";
 import { FileViewer } from "../../FileViewer.jsx";
 
 function HRow({ tone, name, value, valWarn, action }) {
@@ -34,7 +36,12 @@ function SystemBody({ pushToast }) {
   const version = useVersion();
   const exec = useExecutionState();
   const events = useCalendar();
+  const { readiness, loading: rdyLoading } = useReadiness();
   const { date, files } = useFiles();
+  // 1s tick so the IPC-bridge probe age below advances (and can go stale) even
+  // when no new health event lands.
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => { const h = setInterval(() => setNowTick(Date.now()), 1000); return () => clearInterval(h); }, []);
   // listSessionFiles returns every candidate path incl. exists:false phantoms
   // (fresh day). Only surface files that actually exist — OPEN/REVEAL on a
   // missing path is a no-op / "file not found".
@@ -45,6 +52,14 @@ function SystemBody({ pushToast }) {
   const loopTone = loop === "healthy" ? "ok" : loop === "stale" ? "warn" : "bad";
   const loopVal = loop === "healthy" ? "running" : loop === "stale" ? "stale" : "stopped";
   const cdp = health?.cdp; // up | down | unknown
+
+  // IPC bridge probe (C2-a): the main→renderer round-trip that delivers
+  // health:update IS the probe. `_recv_at` is stamped on every event; a fresh
+  // stamp proves the bridge is live. No hardcoded "ok".
+  const bridgeAgeS = health?._recv_at ? Math.max(0, Math.round((nowTick - health._recv_at) / 1000)) : null;
+  const bridge = bridgeAgeS == null ? { tone: "warn", val: "waiting…" }
+    : bridgeAgeS <= 6 ? { tone: "ok", val: `ok · ${bridgeAgeS}s` }
+      : { tone: "bad", val: `no events ${bridgeAgeS}s` };
   const [tvBusy, setTvBusy] = useState(false);
   const relaunchTv = async () => {
     if (tvBusy) return;
@@ -95,6 +110,10 @@ function SystemBody({ pushToast }) {
 
   return (
     <div className="cs-sys">
+      <div className="cs-sys-rdy">
+        <span className="cs-card-label-lg">READINESS</span>
+        <ReadinessCard readiness={readiness} loading={rdyLoading} pushToast={pushToast} variant="full" />
+      </div>
       <div className="cs-sys-grid">
         <div className="cs-card">
           <span className="cs-card-label-lg">HEALTH</span>
@@ -106,7 +125,7 @@ function SystemBody({ pushToast }) {
                   action={cdp === "down"
                     ? <span className="cs-health-retry" {...clickable(relaunchTv, { label: "relaunch TradingView with CDP" })}>{tvBusy ? "RELAUNCHING…" : "RELAUNCH"}</span>
                     : null} />
-            <HRow tone="ok" name="IPC bridge" value="ok" />
+            <HRow tone={bridge.tone} name="IPC bridge" value={bridge.val} valWarn={bridge.tone !== "ok"} />
             <HRow tone={calTone} name="Calendar feed" value={calN > 0 ? `${calN} events` : "no feed"} valWarn={calN === 0}
                   action={calN === 0 ? <span className="cs-health-retry" {...clickable(retryCal, { label: "retry calendar" })}>RETRY</span> : null} />
             <HRow tone={loopTone} name="Bar-close engine" value={loopVal} />

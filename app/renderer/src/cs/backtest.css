@@ -611,3 +611,11 @@
   padding: 16px 0; border-bottom: 1px solid var(--border);
 }
 .bt-popover.embedded .bt-lib-flat { width: 100%; margin-top: 2px; }
+
+/* SYSTEM READINESS hero band (Task C1) — the shared readiness card beneath the
+   net-R go-live verdict. Hairline divider above, mono label. */
+.bt-rdy-hero { padding: 12px 0 4px; border-top: 1px solid var(--border); margin-top: 4px; }
+.bt-rdy-hero-label {
+  display: block; margin-bottom: 8px;
+  font: 400 9px var(--mono); letter-spacing: .08em; color: var(--label-dim);
+}
