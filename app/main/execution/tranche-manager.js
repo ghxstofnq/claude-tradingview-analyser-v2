@@ -158,7 +158,9 @@ export async function runTrancheManager(ctx = {}, deps) {
       contracts: sizing.contracts, source: "auto",
     };
     await d.recordIntent?.({ ...intentBase, state: INTENT_STATES.INTENT_CREATED });
-    const accepted = await d.accept({ ...bestPacket, tranche_role: "anchor" });
+    // C4: thread the exact decisionId onto the accept so the journal trade and
+    // the order-intent chain share one join key (read-only additive).
+    const accepted = await d.accept({ ...bestPacket, tranche_role: "anchor", decision_id: decisionId });
     if (!accepted?.id) {
       await d.recordIntent?.({ ...intentBase, state: INTENT_STATES.REJECTED, reason: "accept_failed" });
       await d.recordSkip("accept_failed");

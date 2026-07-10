@@ -14,6 +14,12 @@ import {
   buildTrackRecordByAccount,
   resolveAccountName,
   todayBadge,
+  REVIEW_DOMAINS,
+  tagDomain,
+  computeSlippage,
+  buildEvidenceChain,
+  computeDiscrepancies,
+  SLIPPAGE_MATERIAL_PTS,
 } from "../app/renderer/src/Review.helpers.js";
 
 describe("todayBadge", () => {
@@ -415,5 +421,126 @@ describe("degradedChainStages", () => {
   it("null/missing audit returns empty array", () => {
     assert.deepEqual(degradedChainStages(null), []);
     assert.deepEqual(degradedChainStages({}), []);
+  });
+});
+
+// ── Task C4: review truth domains ──────────────────────────────────────────
+describe("REVIEW_DOMAINS — copy contract (JOURNAL is never labeled executed)", () => {
+  it("has the three provenance domains with distinct sources", () => {
+    assert.deepEqual(Object.keys(REVIEW_DOMAINS).sort(), ["BACKTEST", "EXECUTED", "JOURNAL"]);
+  });
+  it("JOURNAL always says SIMULATED and never 'executed' / broker fills", () => {
+    const j = REVIEW_DOMAINS.JOURNAL;
+    assert.match(j.source + " " + j.note, /SIMULATED/);
+    assert.doesNotMatch(j.source, /broker fills/i);
+    assert.doesNotMatch(j.note.replace(/not executed/i, ""), /executed/i);
+  });
+  it("EXECUTED is the only domain whose source is broker fills", () => {
+    assert.equal(REVIEW_DOMAINS.EXECUTED.source, "broker fills");
+    assert.notEqual(REVIEW_DOMAINS.JOURNAL.source, REVIEW_DOMAINS.EXECUTED.source);
+  });
+  it("domains are frozen", () => {
+    assert.throws(() => { REVIEW_DOMAINS.JOURNAL.source = "broker fills"; });
+  });
+});
+
+describe("tagDomain", () => {
+  it("a real broker fill (actual $ + account) → EXECUTED", () => {
+    assert.equal(tagDomain({ actual: { usd: 120, exit: 21000 }, accountId: "acct-1" }), "EXECUTED");
+  });
+  it("a folded journal trade (no fill) → JOURNAL (never EXECUTED)", () => {
+    assert.equal(tagDomain({ id: 3, outcome: "TP1_HIT", r_realized: 1.2 }), "JOURNAL");
+  });
+  it("a corpus / backtest row → BACKTEST", () => {
+    assert.equal(tagDomain({ run_id: "r1", actual: { usd: 5 } }), "BACKTEST");
+    assert.equal(tagDomain({ corpus: true }), "BACKTEST");
+  });
+  it("an explicit domain wins; garbage → JOURNAL (fail-safe)", () => {
+    assert.equal(tagDomain({ domain: "EXECUTED" }), "EXECUTED");
+    assert.equal(tagDomain(null), "JOURNAL");
+    assert.equal(tagDomain({}), "JOURNAL");
+  });
+  it("a $-less 'actual' with no account is NOT promoted to executed", () => {
+    assert.equal(tagDomain({ actual: { r: 1 } }), "JOURNAL");
+  });
+});
+
+describe("computeSlippage", () => {
+  it("shown only when planned+actual entries both finite", () => {
+    assert.equal(computeSlippage({ side: "long", planned: { entry: 21000 }, actual: { entry: 21003 } }).shown, true);
+    assert.equal(computeSlippage({ side: "long", planned: { entry: null }, actual: { entry: 21003 } }).shown, false);
+    assert.equal(computeSlippage({ side: "long", planned: { entry: 21000 }, actual: {} }).shown, false);
+  });
+  it("Tradovate null-bracket fill (no planned entry) → shown:false, no fabricated 0", () => {
+    const s = computeSlippage({ side: "short", actual: { entry: 20990, exit: 20950 } });
+    assert.equal(s.shown, false);
+    assert.equal(s.points, null);
+  });
+  it("signs slippage by direction — positive = adverse", () => {
+    assert.equal(computeSlippage({ side: "long", planned: { entry: 21000 }, actual: { entry: 21003 } }).adverse, true);
+    assert.equal(computeSlippage({ side: "long", planned: { entry: 21000 }, actual: { entry: 20998 } }).adverse, false);
+    assert.equal(computeSlippage({ side: "short", planned: { entry: 21000 }, actual: { entry: 20997 } }).adverse, true);
+  });
+});
+
+describe("buildEvidenceChain", () => {
+  it("marks missing hops available:false, never invents them", () => {
+    const chain = buildEvidenceChain({ intent: { decision_id: "OI-1", state: "SUBMITTING" } });
+    const byKey = Object.fromEntries(chain.map((h) => [h.key, h.available]));
+    assert.equal(byKey.INTENT, true);
+    assert.equal(byKey.ORDER, false); // SUBMITTING not yet acknowledged, no fill
+    assert.equal(byKey.FILL, false);
+    assert.equal(byKey.JOURNAL, false);
+    assert.equal(byKey.RECONCILE, false);
+  });
+  it("a full round-trip lights every hop", () => {
+    const chain = buildEvidenceChain({
+      intent: { decision_id: "OI-2", state: "STOP_CONFIRMED" },
+      fill: { actual: { entry: 21000, exit: 21050, r: 1 } },
+      journalTrade: { id: 7, outcome: "TP1_HIT" },
+      reconcile: "MANAGEMENT_ONLY",
+    });
+    assert.ok(chain.every((h) => h.available));
+  });
+  it("a fill without an intent still lights ORDER + FILL (broker truth)", () => {
+    const chain = buildEvidenceChain({ fill: { actual: { entry: 1, exit: 2 } } });
+    const byKey = Object.fromEntries(chain.map((h) => [h.key, h.available]));
+    assert.equal(byKey.INTENT, false);
+    assert.equal(byKey.ORDER, true);
+    assert.equal(byKey.FILL, true);
+  });
+});
+
+describe("computeDiscrepancies matrix", () => {
+  it("clean, consistent trade → []", () => {
+    assert.deepEqual(computeDiscrepancies({
+      fill: { qty: 1, actual: { r: 1, entry: 21000 }, planned: { entry: 21000 } },
+      journalTrade: { size: { contracts: 1 }, outcome: "TP1_HIT" },
+      reconcile: "HEALTHY",
+    }), []);
+  });
+  it("qty_mismatch when journal size ≠ broker fill qty", () => {
+    const d = computeDiscrepancies({ fill: { qty: 3 }, journalTrade: { size: { contracts: 1 } } });
+    assert.ok(d.some((x) => x.kind === "qty_mismatch"));
+  });
+  it("outcome_mismatch when journal says win but execution lost", () => {
+    const d = computeDiscrepancies({ fill: { actual: { r: -1 } }, journalTrade: { outcome: "TP1_HIT" } });
+    assert.ok(d.some((x) => x.kind === "outcome_mismatch"));
+  });
+  it("naked_stop from reconcile CRITICAL_NO_STOP", () => {
+    const d = computeDiscrepancies({ reconcile: "CRITICAL_NO_STOP" });
+    assert.ok(d.some((x) => x.kind === "naked_stop"));
+  });
+  it("intent_unresolved when the chain is held in recovery", () => {
+    assert.ok(computeDiscrepancies({ intent: { state: "RECOVERY_REQUIRED" } }).some((x) => x.kind === "intent_unresolved"));
+    assert.ok(computeDiscrepancies({ intent: { state: "UNKNOWN" } }).some((x) => x.kind === "intent_unresolved"));
+  });
+  it("slippage flagged only when material + adverse", () => {
+    const material = computeDiscrepancies({ fill: { side: "long", planned: { entry: 21000 }, actual: { entry: 21000 + SLIPPAGE_MATERIAL_PTS + 1 } } });
+    assert.ok(material.some((x) => x.kind === "slippage"));
+    const tiny = computeDiscrepancies({ fill: { side: "long", planned: { entry: 21000 }, actual: { entry: 21000.1 } } });
+    assert.ok(!tiny.some((x) => x.kind === "slippage"));
+    const favorable = computeDiscrepancies({ fill: { side: "long", planned: { entry: 21000 }, actual: { entry: 20990 } } });
+    assert.ok(!favorable.some((x) => x.kind === "slippage"));
   });
 });
