@@ -18,6 +18,9 @@ const PORT = 9223;
 const RECONNECT_MS = 4000;
 
 const state = { connected: false, position: null, balance: null, accountId: null, accountName: null, accountType: null, lastFillTs: null };
+// Flips true on the FIRST position_update frame — lets the boot reconciler tell
+// "the feed hasn't reported yet" (position:null but unproven) from a real flat.
+let hasReceivedPositionUpdate = false;
 let openTrade = null;     // { symbol, side, qty, entry, sl, tp, openedMs }
 let lastExecPrice = null; // most recent execution price (the exit, at close time)
 let lastRealizedUsd = null;
@@ -28,6 +31,7 @@ export function getTradingState() {
   return {
     connected: state.connected, position: state.position, balance: state.balance,
     accountId: state.accountId, accountName: state.accountName, accountType: state.accountType,
+    hasReceivedPositionUpdate,
     workingOrders: [...workingOrders.values()],
     // Tradovate broker (sniffed from the webview's REST traffic) — null host/id
     // until it's been seen. activeBroker flips to "tradovate" while its API is
@@ -71,6 +75,7 @@ function handleContent(c) {
   if (p.accountType || c.accountType) state.accountType = p.accountType || c.accountType;
   switch (c.m) {
     case "position_update":
+      hasReceivedPositionUpdate = true;
       if (p.side === "empty" || p.qty === 0) {
         if (state.position || openTrade) recordRoundTrip();
         state.position = null;

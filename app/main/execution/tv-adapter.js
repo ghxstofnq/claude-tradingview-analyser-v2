@@ -45,9 +45,9 @@ export async function brokerConnected() {
 // live position read needs the panel open or the WS tracker (M4); when the
 // panel is open this returns the structured position. Columns (TV order):
 // Symbol, Side, Qty, AvgFill, TakeProfit, StopLoss, Last, uPnL, uPnL%, ...
-export async function readState() {
-  try {
-    const snap = await evaluate(`(() => {
+// The account-manager + positions-table DOM snapshot, shared by readState and
+// readStateSafe. Returns { connected, account, position, positionCount, price }.
+const POSITION_SNAPSHOT_EXPR = `(() => {
       const am = document.querySelector('[class*="accountManager-"], .js-account-manager-header');
       const order = document.querySelector('[data-name="buy-order-button"], [data-name="sell-order-button"]');
       const connected = !!(am && order);
@@ -68,7 +68,11 @@ export async function readState() {
         avgFill: num(c[3]), tp: num(c[4]), sl: num(c[5]), last: num(c[6]), uPnlUsd: num(c[7]),
       } : null;
       return { connected, account, position, positionCount: dataRows.length, price };
-    })()`);
+    })()`;
+
+export async function readState() {
+  try {
+    const snap = await evaluate(POSITION_SNAPSHOT_EXPR);
     return {
       connected: !!snap?.connected,
       account: snap?.account ?? null,
@@ -80,6 +84,25 @@ export async function readState() {
     };
   } catch {
     return { connected: false, account: null, position: null, positionCount: 0, price: null, workingOrders: [], balance: null };
+  }
+}
+
+// Discriminated position read for the boot reconciler (audit C11 pattern, mirror
+// of tradovate readTradovatePositionSafe). ok:false means the read FAILED — the
+// account isn't the confirmed one (resolveTarget blocks) or the CDP evaluate
+// threw — and the caller MUST NOT infer "flat" from it. ok:true + position:null
+// is ONLY returned on a successful empty-table read.
+export async function readStateSafe() {
+  try {
+    resolveTarget(); // throws a structured block when this account isn't routable
+  } catch (e) {
+    return { ok: false, position: null, reason: e?.blocked?.reason || e?.message || "blocked" };
+  }
+  try {
+    const snap = await evaluate(POSITION_SNAPSHOT_EXPR);
+    return { ok: true, position: snap?.position ?? null, connected: !!snap?.connected };
+  } catch (e) {
+    return { ok: false, position: null, reason: String(e?.message || e) };
   }
 }
 

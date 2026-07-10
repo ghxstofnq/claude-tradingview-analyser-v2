@@ -98,7 +98,10 @@ export async function tickOpenTrades(ev, opts = {}) {
       _cachedEvents = events;
     }
   } catch { return; }
-  const open = foldOpenTrades(events);
+  // Skip recovery-held trades (B1): an ambiguous submit whose fate the boot
+  // reconciler must settle against the broker — grading it now against price bars
+  // could phantom-fill or phantom-flat an uncertain position.
+  const open = foldOpenTrades(events).filter((t) => t.state !== "recovery_held");
   if (!open.length) return;
 
   const bar = {
