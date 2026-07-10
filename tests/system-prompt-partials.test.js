@@ -58,6 +58,9 @@ const EXPECTED_SECTIONS = {
     "<bundle_fields>",
     "<ict_vocabulary>",
   ],
+  explain: [
+    "## ANOMALY EXPLAINER PROTOCOL",
+  ],
 };
 
 for (const [purpose, sections] of Object.entries(EXPECTED_SECTIONS)) {
@@ -105,4 +108,11 @@ test("composed prompt for coach does NOT contain analysis-only sections", async 
   assert.ok(!prompt.includes("<bundle_fields>"), "coach must not carry bundle_fields");
   assert.ok(!prompt.includes("<examples>"), "coach must not carry examples");
   assert.ok(!prompt.includes("<anti_patterns>\n"), "coach must not carry anti_patterns");
+});
+
+test("composed prompt for explain does NOT contain analysis-only sections", async () => {
+  const prompt = joinSystemPrompt(await loadSystemPrompt("explain"));
+  assert.ok(!prompt.includes("<bundle_fields>"), "explain must not carry bundle_fields");
+  assert.ok(!prompt.includes("<examples>"), "explain must not carry examples");
+  assert.ok(!prompt.includes("<anti_patterns>\n"), "explain must not carry anti_patterns");
 });

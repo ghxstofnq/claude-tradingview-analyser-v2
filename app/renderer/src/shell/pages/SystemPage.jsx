@@ -16,6 +16,9 @@ import { useFixtures } from "../../hooks/useFixtures.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useCalendar } from "../../hooks/useCalendar.js";
 import { useReadiness } from "../../hooks/useReadiness.js";
+import { useExplain } from "../../hooks/useExplain.js";
+import { useAppErrors } from "../../hooks/useAppErrors.js";
+import { buildAnomalies } from "../anomalies.helpers.js";
 import { ReadinessCard } from "../../Readiness.jsx";
 import { FileViewer } from "../../FileViewer.jsx";
 
@@ -27,6 +30,68 @@ function HRow({ tone, name, value, valWarn, action }) {
       <span className="cs-health-name">{name}</span>
       <span className={"cs-health-val" + (valWarn ? " is-warn" : "")}>{value}</span>
       {action}
+    </div>
+  );
+}
+
+// ANOMALIES — the ONE durable surface for the anomaly explainer (Track 2 §2b
+// item 5). It merges the two anomaly sources the operator would otherwise have to
+// decode by hand: the RED readiness blockers (already on this page) and captured
+// app:error events (otherwise ephemeral — they flash into the chat feed and
+// scroll away). EXPLAIN fires one isolated `explain` turn that renders its plain-
+// language reply INLINE, below the row — never in the chat/BRAIN feed. The reply
+// is rendered as React text nodes (no dangerouslySetInnerHTML), so an error
+// message carrying markup is shown literally, never interpreted.
+function AnomaliesCard({ readiness, symbol }) {
+  const { errors } = useAppErrors();
+  const { text, running, error, activeKey, explain, dismiss } = useExplain({ symbol });
+  const anomalies = buildAnomalies({ readiness, errors });
+
+  return (
+    <div className="cs-sys-anom">
+      <span className="cs-card-label-lg">ANOMALIES</span>
+      {anomalies.length === 0 ? (
+        <div className="cs-anom-empty">No anomalies — readiness is clear and no runtime errors have fired.</div>
+      ) : (
+        <div className="cs-anom-list">
+          {anomalies.map((a) => {
+            const isActive = activeKey === a.key;
+            const busy = running && isActive;
+            return (
+              <div key={a.key} className={"cs-anom-row is-" + a.tone}>
+                <div className="cs-anom-head">
+                  <span className={"cs-anom-dot is-" + a.tone} />
+                  <span className="cs-anom-kind">{a.kind === "readiness" ? "GATE" : "ERROR"}</span>
+                  <span className="cs-anom-label">{a.label}</span>
+                  <span className="cs-anom-detail" title={a.detail}>{a.detail}</span>
+                  <span
+                    className={"cs-anom-explain" + (running ? " is-disabled" : "")}
+                    {...(running ? { "aria-disabled": "true" } : clickable(() => explain(a), { label: "explain " + a.label }))}
+                  >{busy ? "EXPLAINING…" : "EXPLAIN"}</span>
+                </div>
+                {isActive && (running || text || error) && (
+                  <div className="cs-anom-out">
+                    {error ? (
+                      <span className="cs-anom-out-err">{error}</span>
+                    ) : text ? (
+                      <>
+                        {text.split(/\n{2,}/).filter(Boolean).map((para, i) => (
+                          <p key={i} className="cs-anom-out-p">{para}</p>
+                        ))}
+                        {!running && (
+                          <span className="cs-anom-dismiss" {...clickable(dismiss, { label: "dismiss explanation" })}>DISMISS</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="cs-anom-out-wait">reading…</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -115,6 +180,7 @@ function SystemBody({ pushToast, symbol }) {
         <span className="cs-card-label-lg">READINESS</span>
         <ReadinessCard readiness={readiness} loading={rdyLoading} pushToast={pushToast} variant="full" />
       </div>
+      <AnomaliesCard readiness={readiness} symbol={symbol} />
       <div className="cs-sys-grid">
         <div className="cs-card">
           <span className="cs-card-label-lg">HEALTH</span>

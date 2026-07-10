@@ -17,12 +17,13 @@ export function isNarrationPurpose(purpose) {
 }
 
 // Purposes that own a dedicated render surface and must NOT push activity rows
-// into the shared CLAUDE/BRAIN feed: `chat` renders its own prose stream, and
+// into the shared CLAUDE/BRAIN feed: `chat` renders its own prose stream,
 // `analysis` (Track 2 §2b item 3) renders on the PREP/LIVE panel that asked for
-// it. Their global-activity events still flip the CLAUDE "working" dot, but they
-// never spawn "▸ PURPOSE · started" rows in the conversation feed.
+// it, and `explain` (Track 2 §2b item 5) renders inline on the System page's
+// ANOMALIES card. Their global-activity events still flip the CLAUDE "working"
+// dot, but they never spawn "▸ PURPOSE · started" rows in the conversation feed.
 export function isDedicatedChannelPurpose(purpose) {
-  return purpose === "chat" || purpose === "analysis";
+  return purpose === "chat" || purpose === "analysis" || purpose === "explain";
 }
 
 // #20 Gate verbose console logging behind a localStorage flag so

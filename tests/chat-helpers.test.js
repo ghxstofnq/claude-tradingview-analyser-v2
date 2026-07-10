@@ -28,6 +28,7 @@ describe("isNarrationPurpose", () => {
     assert.equal(isNarrationPurpose("journal"), false);
     assert.equal(isNarrationPurpose("coach"), false);
     assert.equal(isNarrationPurpose("analysis"), false);
+    assert.equal(isNarrationPurpose("explain"), false);
     assert.equal(isNarrationPurpose(undefined), false);
     assert.equal(isNarrationPurpose(null), false);
   });

@@ -56,6 +56,11 @@ const PHASE_PATHS = {
   // one-shot (resetSession before each run), off the shared chat channel. Cites
   // JSON paths; NOT a trade signal (the walker chain is the only setup producer).
   "analysis":  path.join(PROMPTS_DIR, "phase-analysis.md"),
+  // explain — on-demand anomaly explainer (Track 2 §2b item 5). Read-only,
+  // one-shot, off the shared chat channel. Translates a red readiness blocker or
+  // an app:error into plain language over a deterministic context; names only
+  // real recovery actions; NOT a trade signal.
+  "explain":   path.join(PROMPTS_DIR, "phase-explain.md"),
 };
 
 // (Was `let _systemPrompt = null` for caching — removed when hot-reload
@@ -241,6 +246,11 @@ export const TOOLS_BY_PURPOSE = {
   // bundle already on disk and explains it. No surface_*, no alerts, no captures.
   // (Read/Glob built-ins are still added by buildAllowedToolNames.)
   analysis: [],
+  // explain is the on-demand anomaly explainer (Track 2 §2b item 5). Read-only:
+  // the anomaly + readiness + health context arrives in the prompt text, so it
+  // needs no tools at all. No surface_*, no alerts, no captures, no memory write —
+  // it explains an operational anomaly, authors no state, is NOT a trade signal.
+  explain: [],
 };
 
 export function buildAllowedToolNames(purpose) {
@@ -880,7 +890,8 @@ const EFFORT = "high";
 
 /**
  * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close
- * / chat / review / journal / coach / analysis). Three deepening guarantees:
+ * / chat / review / journal / coach / analysis / explain). Three deepening
+ * guarantees:
  *
  *  1. **Mutex** — only one turn runs at a time. Eliminates the concurrent-
  *     resume class of bug where a brief and a bar-close fired in parallel.
@@ -902,7 +913,7 @@ const EFFORT = "high";
  */
 export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null, images = null }) {
   if (!purpose) {
-    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review | journal | coach | analysis)";
+    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review | journal | coach | analysis | explain)";
     onEvent?.({ type: "error", message: msg });
     onEvent?.({ type: "turn_complete" });
     throw new Error(msg);

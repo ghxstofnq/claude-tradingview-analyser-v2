@@ -13,7 +13,7 @@
 //
 // Event shape:
 //   { ts: <ISO>, kind: "brief" | "wrap" | "bar-close" | "chat" | "review" |
-//                      "journal" | "coach" | "analysis",
+//                      "journal" | "coach" | "analysis" | "explain",
 //     event: "started" | "succeeded" | "failed" | "skipped" |
 //            "post_validate_failed" | "timeout",
 //     session?, reason?, durationMs? }
@@ -52,6 +52,9 @@ export function freshTally() {
     // analysis — on-demand PREP/LIVE deep read (Track 2 §2b item 3). On-demand +
     // user-initiated like chat, but a deep read can hit the turn timeout.
     analysis: { started: 0, succeeded: 0, failed: 0, timeout: 0 },
+    // explain — on-demand anomaly explainer (Track 2 §2b item 5). On-demand +
+    // user-initiated; a hung explanation can hit the (tighter) turn timeout.
+    explain: { started: 0, succeeded: 0, failed: 0, timeout: 0 },
   };
 }
 

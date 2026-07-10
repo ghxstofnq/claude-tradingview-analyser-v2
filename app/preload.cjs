@@ -76,6 +76,32 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("analysis:queue_ready", listener);
     },
   },
+  // Dedicated on-demand anomaly-explainer channel (Track 2 §2b item 5). Separate
+  // from chat so an EXPLAIN turn never routes through the CLAUDE/BRAIN feed. The
+  // renderer passes the anomaly event + a fresh readiness snapshot; useExplain
+  // subscribes to these `explain:*` events and renders the reply inline on the
+  // System page. `onError` is inline (never app:error) so explaining an error
+  // can't spawn a new error into the same list.
+  explain: {
+    run({ event, readiness, provider } = {}) {
+      return ipcRenderer.invoke("explain:run", { event, readiness, provider });
+    },
+    onChunk(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("explain:chunk", listener);
+      return () => ipcRenderer.removeListener("explain:chunk", listener);
+    },
+    onTurnComplete(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("explain:turn_complete", listener);
+      return () => ipcRenderer.removeListener("explain:turn_complete", listener);
+    },
+    onError(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("explain:error", listener);
+      return () => ipcRenderer.removeListener("explain:error", listener);
+    },
+  },
   trade: {
     accept(setup) {
       return ipcRenderer.invoke("trade:accept", { setup });
