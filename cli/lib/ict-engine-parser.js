@@ -23,7 +23,7 @@ export const CURRENT_SCHEMA = 4;
 // Deploy-drift guard: the Pine's CODE_REV const must equal this. Bumped in
 // lockstep with every pine/ict-engine.pine change; live-check blocks with
 // pine_code_rev_mismatch when the deployed indicator drifts from the repo.
-export const EXPECTED_CODE_REV = 1;
+export const EXPECTED_CODE_REV = 2;
 
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
@@ -37,6 +37,8 @@ export const EXPECTED_CODE_REV = 1;
 // because the parser didn't know to coerce them — Pine ships these so the
 // backend can re-use Wilder ATR instead of running its own proxy.
 const ROW_FIELD_TYPES = {
+  // SMT read vs the sibling micro (Phase 3, 2026-07-10) — display-only.
+  smt: { state: 'str', sibling: 'str', ms: 'num' },
   // V3 adds bar_ms (open time of the bar the emit reflects) + bar_closed.
   meta: { schema: 'num', count: 'num', emit_ms: 'num', bar_ms: 'num', bar_closed: 'bool', code_rev: 'num' },
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },
@@ -142,7 +144,7 @@ export function parseIctEngineTable(rows) {
   const out = {
     schema: null, schema_supported: false, schema_current: false, meta: null,
     levels: [], sweeps: [], fvgs: [], bprs: [], swings: [], structures: [],
-    pools: [], quality: null,
+    pools: [], quality: null, smt: null,
   };
   for (const raw of rows) {
     const parsed = parseRow(raw);
@@ -162,6 +164,7 @@ export function parseIctEngineTable(rows) {
     else if (type === 'structure') out.structures.push(fields);
     else if (type === 'liquidity') out.pools.push(fields);
     else if (type === 'quality') out.quality = fields;
+    else if (type === 'smt') out.smt = fields;
   }
   return out.meta == null ? null : out;
 }
