@@ -237,7 +237,8 @@
             ],
             "closes": [
               { "id": "t8", "ts": "2026-07-10T13:52:00.000Z", "side": "buy", "qty": 2, "symbol": "MNQ1!", "entry": 21500, "exit": 21560, "r": 1.2, "note": "TP1" }
-            ]
+            ],
+            "critique": "---\nts: 2026-07-10T16:06:00.000Z\nsession: ny-am\nprovider: claude\n---\n\nThe chain followed the 7-step checklist cleanly today. Bias was a 2/3 B lean into the 1H FVG draw, and the open reaction confirmed it.\n\nThe weakest link was price quality — the range was only marginal, so the single MSS long was correctly capped at B rather than elevated. Lesson: on marginal-range days, wait for a second alignment before pushing size.\n\nSanity check: the literal string <script>alert(1)</script> must render as inert text, never execute."
           }
         }
       }

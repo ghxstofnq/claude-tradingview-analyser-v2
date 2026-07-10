@@ -22,6 +22,8 @@ import {
   SLIPPAGE_MATERIAL_PTS,
   assignFillsToTrades,
   FILL_MATCH_WINDOW_MS,
+  critiqueViewModel,
+  critiqueMetaLabel,
 } from "../app/renderer/src/Review.helpers.js";
 
 describe("todayBadge", () => {
@@ -608,5 +610,86 @@ describe("buildTrackRecordFromFills — NET P&L over ALL fills (Task C4)", () =>
     const headline = buildTrackRecordFromFills(fills).cum_usd;
     const perAccount = buildTrackRecordByAccount(fills, null).reduce((s, g) => s + g.net_usd, 0);
     assert.equal(headline, perAccount);
+  });
+});
+
+// ── Task Track 2 §2b item 1: session critique view model ────────────────────
+describe("critiqueViewModel", () => {
+  const withFm = [
+    "---",
+    "ts: 2026-07-10T20:05:00.000Z",
+    "session: ny-am",
+    "provider: claude",
+    "---",
+    "",
+    "The chain read step 4 correctly and held the bias.",
+    "",
+    "Weakest pillar was price quality — the range was marginal.",
+    "",
+  ].join("\n");
+
+  it("parses frontmatter + splits the body into paragraphs", () => {
+    const vm = critiqueViewModel(withFm);
+    assert.equal(vm.ts, "2026-07-10T20:05:00.000Z");
+    assert.equal(vm.session, "ny-am");
+    assert.equal(vm.provider, "claude");
+    assert.equal(vm.paragraphs.length, 2);
+    assert.match(vm.paragraphs[0], /read step 4 correctly/);
+    assert.match(vm.paragraphs[1], /Weakest pillar was price quality/);
+  });
+
+  it("returns null for non-string / empty / frontmatter-only input", () => {
+    assert.equal(critiqueViewModel(null), null);
+    assert.equal(critiqueViewModel(undefined), null);
+    assert.equal(critiqueViewModel(42), null);
+    assert.equal(critiqueViewModel("   \n\n  "), null);
+    assert.equal(critiqueViewModel("---\nts: t\nsession: ny-am\n---\n\n   "), null);
+  });
+
+  it("handles prose with no frontmatter (ts/session/provider null, body kept)", () => {
+    const vm = critiqueViewModel("Just a plain critique with no fence.");
+    assert.equal(vm.ts, null);
+    assert.equal(vm.session, null);
+    assert.equal(vm.provider, null);
+    assert.deepEqual(vm.paragraphs, ["Just a plain critique with no fence."]);
+  });
+
+  it("renders a script-tag injection attempt as inert TEXT — never markup", () => {
+    const payload = [
+      "---",
+      "ts: t",
+      "session: ny-am",
+      "provider: claude",
+      "---",
+      "",
+      "Careful now: <script>alert('xss')</script> and <img src=x onerror=alert(1)>.",
+    ].join("\n");
+    const vm = critiqueViewModel(payload);
+    // The helper never interprets or strips markup — the dangerous text is
+    // carried through verbatim as a plain string, so the card's React text node
+    // renders it escaped/inert (never executed). It returns no HTML sink.
+    assert.equal(vm.paragraphs.length, 1);
+    assert.match(vm.paragraphs[0], /<script>alert\('xss'\)<\/script>/);
+    assert.match(vm.paragraphs[0], /<img src=x onerror=alert\(1\)>/);
+    assert.equal(typeof vm.paragraphs[0], "string");
+    assert.ok(!("__html" in vm), "view model exposes no dangerouslySetInnerHTML sink");
+  });
+
+  it("collapses internal whitespace but keeps paragraph breaks", () => {
+    const vm = critiqueViewModel("line one\nstill para one\n\npara two");
+    assert.deepEqual(vm.paragraphs, ["line one still para one", "para two"]);
+  });
+});
+
+describe("critiqueMetaLabel", () => {
+  it("joins provider + formatted time; omits missing parts", () => {
+    const label = critiqueMetaLabel({ provider: "claude", ts: "2026-07-10T20:05:00.000Z" });
+    assert.match(label, /CLAUDE/);
+    assert.match(label, /·/);
+  });
+  it("provider only when ts absent, empty when both absent", () => {
+    assert.equal(critiqueMetaLabel({ provider: "codex" }), "CODEX");
+    assert.equal(critiqueMetaLabel({}), "");
+    assert.equal(critiqueMetaLabel({ provider: "claude", ts: "not-a-date" }), "CLAUDE");
   });
 });
