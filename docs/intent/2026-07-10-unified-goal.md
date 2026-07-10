@@ -284,6 +284,16 @@ All seven were put to the user one by one on 2026-07-10:
 7. **catch-up purpose — delete.** Remove the dormant prompt, tool map,
    metrics bucket, and routing; git history keeps it.
 
+## SUPERSEDED — goal shift, 2026-07-10 (late)
+
+> The user replaced the evidence-first path below with **user-directed
+> build-and-live-test**: the user specifies bot behavior, Claude builds it
+> (same PR/test/review rigor), and the user tests it live. The backtest /
+> certification / parity / paper-bar chain below is no longer the gate — it
+> remains available on demand. Claude still never places trades or arms real
+> money; the LIVE arm stays the user's manual action, and all execution
+> guardrails stay always-on. See docs/decisions-log.md (2026-07-10 late).
+
 ## Full pre-approval — ruled later on 2026-07-10
 
 The user converted the remaining evidence-gated checkpoints into standing
