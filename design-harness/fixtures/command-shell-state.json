@@ -1,0 +1,292 @@
+{
+  "_note": "Deterministic fixture state for the Command Shell workflow harness (Task D1). Consumed ONLY by design-harness/command-shell-smoke.mjs via the test-only fixture adapter (app/renderer/src/fixture-adapter.js). Each scenario supplies whole api slices; the adapter fills the rest with all-green defaults. No network, no time-of-day dependence except scenario 'stale-feed' which relies on the >6s exec-stale timer.",
+  "scenarios": {
+    "briefing": {
+      "title": "1 · briefing loaded, deterministic grade/draw/quality visible",
+      "state": {
+        "session": "ny-am",
+        "brief": {
+          "ts": "2026-07-10T13:35:00.000Z",
+          "date": "2026-07-10",
+          "session": "ny-am",
+          "symbol": "MNQ1!",
+          "pillar_grade": "B",
+          "pillar1_votes": { "htf": "bullish", "overnight": "bullish" },
+          "primary_draw": { "tf": "1H", "dir": "bullish", "kind": "FVG", "ce": 21500 },
+          "htf_bias_dir": "bullish",
+          "pillar2_verdict": "marginal",
+          "anchored_target": "21620 (draw)",
+          "anchored_stop": "21450 (swing)",
+          "sizing_note": "half size (Friday)",
+          "prose_summary": "Bullish lean into the 1H FVG draw at 21500; price quality marginal so cap at B.",
+          "pillars": [
+            { "name": "Price Action Quality", "grade": "B", "elements": [ { "label": "displacement", "status": "weak", "detail": "acceptable" }, { "label": "range", "status": "pass", "detail": "ok" } ] }
+          ],
+          "key_levels": [
+            { "name": "PDH", "price": 21560, "state": "untaken" },
+            { "name": "AS.L", "price": 21440, "state": "untaken" }
+          ],
+          "scenarios": [
+            { "id": "s1", "grade": "B", "condition": "reclaim 21500 with a 1m close", "action": "long toward PDH", "target": "21620" }
+          ]
+        },
+        "briefsBySymbol": {
+          "MNQ1!": {
+            "ts": "2026-07-10T13:35:00.000Z",
+            "date": "2026-07-10",
+            "session": "ny-am",
+            "symbol": "MNQ1!",
+            "pillar_grade": "B",
+            "pillar1_votes": { "htf": "bullish", "overnight": "bullish" },
+            "primary_draw": { "tf": "1H", "dir": "bullish", "kind": "FVG", "ce": 21500 },
+            "htf_bias_dir": "bullish",
+            "pillar2_verdict": "marginal",
+            "anchored_target": "21620 (draw)",
+            "anchored_stop": "21450 (swing)",
+            "sizing_note": "half size (Friday)",
+            "prose_summary": "Bullish lean into the 1H FVG draw at 21500; price quality marginal so cap at B.",
+            "pillars": [
+              { "name": "Price Action Quality", "grade": "B", "elements": [ { "label": "displacement", "status": "weak", "detail": "acceptable" }, { "label": "range", "status": "pass", "detail": "ok" } ] }
+            ],
+            "key_levels": [
+              { "name": "PDH", "price": 21560, "state": "untaken" },
+              { "name": "AS.L", "price": 21440, "state": "untaken" }
+            ],
+            "scenarios": [
+              { "id": "s1", "grade": "B", "condition": "reclaim 21500 with a 1m close", "action": "long toward PDH", "target": "21620" }
+            ]
+          }
+        }
+      }
+    },
+
+    "manual-setup": {
+      "title": "2 · setup surfaced in MANUAL; accept/reject operate",
+      "state": {
+        "automationMode": "manual",
+        "session": "ny-am",
+        "executionState": { "connected": true, "position": null, "workingOrders": [], "balance": { "cash": 50000 } },
+        "setupCurrent": {
+          "setup": {
+            "id": "setup-1",
+            "grade": "B",
+            "side": "long",
+            "model": "MSS",
+            "entry": 21500,
+            "stop": 21450,
+            "tp1": 21620,
+            "rr": "1:2.4",
+            "size": { "contracts": 2 },
+            "pillar_breakdown": [
+              { "name": "Pillar 3", "verdict": "pass", "elements": [ { "label": "PD tap", "status": "pass", "detail": "wick tapped FVG" }, { "label": "1m close", "status": "pass", "detail": "confirmed" } ] }
+            ]
+          }
+        }
+      }
+    },
+
+    "auto-blocked": {
+      "title": "3 · AUTO mode copy + readiness blockers render",
+      "state": {
+        "automationMode": "auto",
+        "session": "ny-am",
+        "executionState": { "connected": true, "position": null, "workingOrders": [], "balance": null },
+        "readiness": {
+          "rows": [
+            { "id": "tests", "status": "pass", "reason": "suite green", "source": "ci", "age_s": 30 },
+            { "id": "running_code", "status": "pass", "reason": "disk sha matches boot sha", "source": "git", "age_s": 12 },
+            { "id": "pine", "status": "pass", "reason": "ICT Engine V5 emitting", "source": "cdp", "age_s": 4 },
+            { "id": "detector", "status": "fail", "reason": "bar-close heartbeat stale (140s)", "source": "detector", "age_s": 140, "action": "restart_detector" },
+            { "id": "corpus", "status": "pass", "reason": "corpus certified", "source": "certify", "age_s": 900 },
+            { "id": "parity", "status": "pass", "reason": "parity certificate valid", "source": "certify", "age_s": 900 },
+            { "id": "strategy_approval", "status": "pass", "reason": "strategy approved", "source": "manual", "age_s": 3600 },
+            { "id": "broker_account", "status": "pass", "reason": "paper account confirmed", "source": "broker", "age_s": 5 },
+            { "id": "broker_reconciliation", "status": "pending", "reason": "awaiting a clean broker read", "source": "broker", "age_s": 5, "action": "retry_reconcile" },
+            { "id": "protective_stop", "status": "fail", "reason": "no confirmed protective stop — arming is blocked", "source": "broker", "age_s": 5 },
+            { "id": "automation", "status": "warn", "reason": "AUTO — fires without accept", "source": "config", "age_s": 5 }
+          ]
+        }
+      }
+    },
+
+    "pending-order": {
+      "title": "4 · pending order shows PENDING, no fabricated P&L",
+      "state": {
+        "session": "ny-am",
+        "executionState": { "connected": true, "position": null, "workingOrders": [], "balance": null },
+        "tradeList": {
+          "open": [
+            { "id": "t4", "state": "pending_entry", "side": "long", "entry": 21500, "stop": 21450, "tp1": 21620, "size": { "contracts": 2 }, "grade": "B", "model": "MSS", "ts": "2026-07-10T13:40:00.000Z", "decision_id": "d4" }
+          ],
+          "events": []
+        },
+        "orderIntents": {
+          "dropped": 0,
+          "reconcile": null,
+          "records": [
+            { "decision_id": "d4", "state": "INTENT_CREATED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:40:00.000Z" },
+            { "decision_id": "d4", "state": "SUBMITTING", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:40:01.000Z" },
+            { "decision_id": "d4", "state": "BROKER_ACKNOWLEDGED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:40:02.000Z" }
+          ]
+        }
+      }
+    },
+
+    "filled-protected": {
+      "title": "5 · filled position with a working stop shows COVERED (protected)",
+      "state": {
+        "session": "ny-am",
+        "executionState": {
+          "connected": true,
+          "position": { "symbol": "MNQ1!", "side": "long", "qty": 2, "avgFill": 21500 },
+          "workingOrders": [ { "kind": "stop", "price": 21450 }, { "kind": "limit", "price": 21620 } ],
+          "balance": { "cash": 50000 }
+        },
+        "tradeList": {
+          "open": [ { "id": "t5", "state": "filled", "side": "long", "entry": 21500, "stop": 21450, "tp1": 21620, "size": { "contracts": 2 }, "grade": "A+", "model": "MSS", "ts": "2026-07-10T13:41:00.000Z", "decision_id": "d5" } ],
+          "events": []
+        },
+        "orderIntents": {
+          "dropped": 0,
+          "reconcile": null,
+          "records": [
+            { "decision_id": "d5", "state": "POSITION_CONFIRMED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:41:00.000Z" },
+            { "decision_id": "d5", "state": "STOP_CONFIRMED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:41:02.000Z" }
+          ]
+        }
+      }
+    },
+
+    "filled-critical": {
+      "title": "6 · filled position with NO stop shows CRITICAL recovery",
+      "state": {
+        "session": "ny-am",
+        "executionState": {
+          "connected": true,
+          "position": { "symbol": "MNQ1!", "side": "long", "qty": 2, "avgFill": 21500 },
+          "workingOrders": [],
+          "balance": { "cash": 50000 }
+        },
+        "tradeList": {
+          "open": [ { "id": "t6", "state": "filled", "side": "long", "entry": 21500, "size": { "contracts": 2 }, "grade": "B", "model": "Trend", "ts": "2026-07-10T13:42:00.000Z", "decision_id": "d6" } ],
+          "events": []
+        },
+        "orderIntents": {
+          "dropped": 0,
+          "reconcile": { "state": "CRITICAL_NO_STOP", "stop_present": false, "broker_read": { "ok": true, "position": { "qty": 2 } } },
+          "records": [
+            { "decision_id": "d6", "state": "POSITION_CONFIRMED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:42:00.000Z" }
+          ]
+        }
+      }
+    },
+
+    "stale-feed": {
+      "title": "7 · feed goes stale while a position exists (STALE P&L)",
+      "state": {
+        "session": "ny-am",
+        "execStaleAfter": 1,
+        "executionState": {
+          "connected": true,
+          "position": { "symbol": "MNQ1!", "side": "long", "qty": 2, "avgFill": 21500, "sl": 21450, "uPnlUsd": 84 },
+          "workingOrders": [ { "kind": "stop", "price": 21450 } ],
+          "balance": { "cash": 50000 }
+        },
+        "tradeList": {
+          "open": [ { "id": "t7", "state": "filled", "side": "long", "entry": 21500, "stop": 21450, "tp1": 21620, "size": { "contracts": 2 }, "grade": "A+", "model": "MSS", "ts": "2026-07-10T13:43:00.000Z", "decision_id": "d7" } ],
+          "events": []
+        },
+        "orderIntents": {
+          "dropped": 0,
+          "reconcile": { "state": "MANAGEMENT_ONLY", "stop_present": true, "broker_read": { "ok": true, "position": { "qty": 2 } } },
+          "records": [
+            { "decision_id": "d7", "state": "POSITION_CONFIRMED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:43:00.000Z" },
+            { "decision_id": "d7", "state": "STOP_CONFIRMED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:43:02.000Z" }
+          ]
+        }
+      }
+    },
+
+    "review-domains": {
+      "title": "8 · Review distinguishes JOURNAL (simulated) vs EXECUTED (broker fills)",
+      "state": {
+        "session": "ny-am",
+        "fills": [
+          { "id": "f1", "ts": "2026-07-10T13:41:10.000Z", "symbol": "MNQ1!", "side": "buy", "qty": 2, "price": 21500, "r_realized": 0.5, "account": "PAPER" },
+          { "id": "f2", "ts": "2026-07-10T13:52:00.000Z", "symbol": "MNQ1!", "side": "sell", "qty": 2, "price": 21560, "r_realized": 1.2, "account": "PAPER" }
+        ],
+        "review": {
+          "sessions": [ { "date": "2026-07-10", "session": "ny-am" } ],
+          "library": [ { "date": "2026-07-10", "session": "ny-am", "grade": "B", "result": "+1.2R" } ],
+          "journal": {
+            "date": "2026-07-10",
+            "session": "ny-am",
+            "brief": { "pillar_grade": "B", "brief": "bullish lean into the 1H FVG draw" },
+            "summary": { "bias_picture": "Bullish day; one clean MSS long to the draw.", "chain_audit": {} },
+            "setups": [
+              { "id": "setup-1", "ts": "2026-07-10T13:41:00.000Z", "grade": "B", "side": "long", "model": "MSS", "entry": 21500, "stop": 21450, "tp1": 21620, "_disposition": "accepted" }
+            ],
+            "trades": [
+              { "id": "t8", "decision_id": "d8", "side": "long", "entry": 21500, "stop": 21450, "tp1": 21620, "size": { "contracts": 2 }, "state": "closed", "outcome": "TP1_HIT", "r_realized": 1.2, "ts": "2026-07-10T13:41:00.000Z" }
+            ],
+            "intents": [
+              { "decision_id": "d8", "state": "STOP_CONFIRMED", "symbol": "MNQ1!", "side": "long", "ts": "2026-07-10T13:41:02.000Z" }
+            ],
+            "fills": [
+              { "id": "f1", "ts": "2026-07-10T13:41:10.000Z", "symbol": "MNQ1!", "side": "buy", "qty": 2, "price": 21500, "trade_id": "t8" }
+            ],
+            "closes": [
+              { "id": "t8", "ts": "2026-07-10T13:52:00.000Z", "side": "buy", "qty": 2, "symbol": "MNQ1!", "entry": 21500, "exit": 21560, "r": 1.2, "note": "TP1" }
+            ],
+            "critique": "---\nts: 2026-07-10T16:06:00.000Z\nsession: ny-am\nprovider: claude\n---\n\nThe chain followed the 7-step checklist cleanly today. Bias was a 2/3 B lean into the 1H FVG draw, and the open reaction confirmed it.\n\nThe weakest link was price quality — the range was only marginal, so the single MSS long was correctly capped at B rather than elevated. Lesson: on marginal-range days, wait for a second alignment before pushing size.\n\nSanity check: the literal string <script>alert(1)</script> must render as inert text, never execute."
+          },
+          "coach": "---\nts: 2026-07-10T16:10:00.000Z\nprovider: claude\ndigest_hash: 9a1b2c3d\n---\n\nEquity is grinding higher over the last several NY-AM sessions, mostly on clean B-grade MSS longs into the daily draw. Faithfulness is holding and the chain has run clean, so the process is doing what it should.\n\nWhat to keep: the discipline of capping marginal-range days at B instead of forcing A+. What to watch: a thin loss streak whenever price quality slips — protect the streak, do not chase size. Coach injection check: <script>alert(2)</script> must render as inert text."
+        }
+      }
+    },
+
+    "backtest-blocked": {
+      "title": "9 · Backtest certification fails one gate → BLOCKED",
+      "state": {
+        "session": "ny-am",
+        "backtestReadiness": {
+          "verdict": "BLOCKED",
+          "ready": false,
+          "reason": "corpus certification failed — cannot certify readiness",
+          "gates": [
+            { "id": "tests", "status": "pass", "reason": "suite green", "evidence": { "failures": 0 } },
+            { "id": "baseline", "status": "pass", "reason": "baseline folded", "evidence": { "built": "2026-07-08" } },
+            { "id": "sessions", "status": "pass", "reason": "237 sessions recorded", "evidence": { "n_sessions": 237 } },
+            { "id": "corpus", "status": "fail", "reason": "corpus not certified — 3 sessions unrecorded", "evidence": { "missing": 3 } },
+            { "id": "parity", "status": "pass", "reason": "parity certificate valid", "evidence": { "hard_mismatches": 0 } },
+            { "id": "net_positive", "status": "pass", "reason": "net +42.6R", "evidence": { "cum_r": 42.6 } },
+            { "id": "strategy_review", "status": "pass", "reason": "strategy reviewed", "evidence": { "reviewer": "gxofnq" } },
+            { "id": "user_approval", "status": "pass", "reason": "approved", "evidence": { "approved_at": "2026-07-08" } }
+          ]
+        }
+      }
+    },
+
+    "page-crash": {
+      "title": "10 · one page throws; Live + emergency controls remain usable",
+      "crashPage": "agent",
+      "state": {
+        "session": "ny-am",
+        "executionState": {
+          "connected": true,
+          "position": { "symbol": "MNQ1!", "side": "long", "qty": 2, "avgFill": 21500, "sl": 21450 },
+          "workingOrders": [ { "kind": "stop", "price": 21450 } ],
+          "balance": { "cash": 50000 }
+        }
+      }
+    },
+
+    "keyboard": {
+      "title": "11 · keyboard-only navigation + focus trap/restoration",
+      "state": {
+        "session": "ny-am",
+        "executionState": { "connected": true, "position": null, "workingOrders": [], "balance": null }
+      }
+    }
+  }
+}

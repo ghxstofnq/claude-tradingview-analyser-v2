@@ -61,6 +61,9 @@ export async function placeTradovateOrder(order = {}) {
   })()`;
   const res = await evaluate(expr);
   let parsed = null; try { parsed = JSON.parse(res.body); } catch { /* non-JSON */ }
+  // status:0 is an AMBIGUOUS submit (fetch failed / timed out): the order may or
+  // may not have landed at the broker. classifySubmitResult (order-intent.js) maps
+  // it to "ambiguous" so the caller HOLDS it for reconciliation, never invalidating.
   return { ...res, ok: parsed?.s === "ok", orderId: parsed?.d?.orderId ?? null, sent: { url, body }, accountId: t.accountId, instrument };
 }
 

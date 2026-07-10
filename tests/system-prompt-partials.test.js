@@ -32,17 +32,6 @@ const EXPECTED_SECTIONS = {
     '<phase name="brief">\n',
     "<ict_vocabulary>",
   ],
-  "catch-up": [
-    "## OUTPUT PROTOCOL — TOOL SURFACES",
-    "<bundle_fields>",
-    '<phase name="open_reaction">\n',
-    '<phase name="catch_up">\n',
-    '<phase name="entry_hunt">\n',
-    "<anti_patterns>\n",
-    "<ict_vocabulary>",
-    "<examples>",
-    "<output_json>",
-  ],
   chat: [
     "## OUTPUT PROTOCOL — TOOL SURFACES",
     "## ALERT GUIDANCE",
@@ -57,6 +46,20 @@ const EXPECTED_SECTIONS = {
     "## OUTPUT PROTOCOL — TOOL SURFACES",
     "## REVIEW TURN PROTOCOL",
     "## PERSISTENT MEMORY GUIDANCE",
+  ],
+  journal: [
+    "## JOURNAL NOTE PROTOCOL",
+  ],
+  coach: [
+    "## COACH READ PROTOCOL",
+  ],
+  analysis: [
+    "## DEEP-READ ANALYSIS PROTOCOL",
+    "<bundle_fields>",
+    "<ict_vocabulary>",
+  ],
+  explain: [
+    "## ANOMALY EXPLAINER PROTOCOL",
   ],
 };
 
@@ -91,4 +94,25 @@ test("composed prompt for wrap does NOT contain analysis-only sections", async (
   const prompt = joinSystemPrompt(await loadSystemPrompt("wrap"));
   assert.ok(!prompt.includes("<bundle_fields>"), "wrap must not carry bundle_fields");
   assert.ok(!prompt.includes("<examples>"), "wrap must not carry examples");
+});
+
+test("composed prompt for journal does NOT contain analysis-only sections", async () => {
+  const prompt = joinSystemPrompt(await loadSystemPrompt("journal"));
+  assert.ok(!prompt.includes("<bundle_fields>"), "journal must not carry bundle_fields");
+  assert.ok(!prompt.includes("<examples>"), "journal must not carry examples");
+  assert.ok(!prompt.includes("<anti_patterns>\n"), "journal must not carry anti_patterns");
+});
+
+test("composed prompt for coach does NOT contain analysis-only sections", async () => {
+  const prompt = joinSystemPrompt(await loadSystemPrompt("coach"));
+  assert.ok(!prompt.includes("<bundle_fields>"), "coach must not carry bundle_fields");
+  assert.ok(!prompt.includes("<examples>"), "coach must not carry examples");
+  assert.ok(!prompt.includes("<anti_patterns>\n"), "coach must not carry anti_patterns");
+});
+
+test("composed prompt for explain does NOT contain analysis-only sections", async () => {
+  const prompt = joinSystemPrompt(await loadSystemPrompt("explain"));
+  assert.ok(!prompt.includes("<bundle_fields>"), "explain must not carry bundle_fields");
+  assert.ok(!prompt.includes("<examples>"), "explain must not carry examples");
+  assert.ok(!prompt.includes("<anti_patterns>\n"), "explain must not carry anti_patterns");
 });

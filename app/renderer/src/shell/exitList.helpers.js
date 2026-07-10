@@ -1,0 +1,70 @@
+// exitList — React-safe exit transitions (motion v1). Keeps an element mounted
+// for one brief close animation after it leaves the desired set, then drops it.
+// Used by the ⌘1–7 page router (fade/translate out + page-to-page cross-fade)
+// and the toast stack (slide/fade out). The reconcile step is a pure function so
+// it can be unit-tested without a DOM (exitList.helpers.test via node --test).
+
+import { useState, useEffect, useRef } from "react";
+
+// Pure. Given the currently-rendered entries and the desired items (each an
+// object carrying a stable `key`), return the next entries:
+//   • a desired key → live (closing:false), payload refreshed from `desired`
+//   • a rendered key no longer desired → closing:true (kept for its exit)
+//   • a brand-new desired key → appended, live
+// A re-appearing key flips back to live so a fast re-open cancels its removal.
+// Order is preserved (append-only) so exiting + entering siblings overlap cleanly.
+export function reconcileExitList(prev, desired) {
+  const byKey = new Map(desired.map((d) => [d.key, d]));
+  const next = prev.map((e) =>
+    byKey.has(e.key)
+      ? { key: e.key, closing: false, item: byKey.get(e.key) }
+      : { key: e.key, closing: true, item: e.item },
+  );
+  for (const d of desired) {
+    if (!prev.some((e) => e.key === d.key)) next.push({ key: d.key, closing: false, item: d });
+  }
+  return next;
+}
+
+// Hook. `desired` is the array of items that should currently be live (each with
+// a `key`). Returns [{ key, closing, item }] including keys still playing their
+// exit. A closing key is removed `exitMs` after it drops out unless it
+// re-appears first (which cancels the pending removal).
+export function useExitList(desired, exitMs = 130) {
+  const [items, setItems] = useState(() =>
+    desired.map((d) => ({ key: d.key, closing: false, item: d })),
+  );
+  const timers = useRef(new Map());
+  const sig = desired.map((d) => d.key).join("\u0000"); // NUL-join — collision-proof vs any key content
+
+  useEffect(() => {
+    setItems((prev) => reconcileExitList(prev, desired));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+
+  useEffect(() => {
+    const t = timers.current;
+    for (const it of items) {
+      if (it.closing && !t.has(it.key)) {
+        const h = setTimeout(() => {
+          t.delete(it.key);
+          setItems((prev) => prev.filter((x) => !(x.key === it.key && x.closing)));
+        }, exitMs);
+        t.set(it.key, h);
+      } else if (!it.closing && t.has(it.key)) {
+        clearTimeout(t.get(it.key));
+        t.delete(it.key);
+      }
+    }
+  }, [items, exitMs]);
+
+  useEffect(() => {
+    const t = timers.current;
+    return () => {
+      for (const h of t.values()) clearTimeout(h);
+      t.clear();
+    };
+  }, []);
+
+  return items;
+}

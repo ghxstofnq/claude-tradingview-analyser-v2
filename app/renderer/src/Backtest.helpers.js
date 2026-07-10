@@ -119,6 +119,111 @@ export function nextState(state, event) {
   }
 }
 
+const READINESS_WORDS = {
+  BLOCKED: "BLOCKED",
+  REVIEW_REQUIRED: "REVIEW REQUIRED",
+  NOT_READY: "NOT READY",
+  NET_POSITIVE_APPROVED: "NET POSITIVE APPROVED",
+};
+
+const READINESS_TONES = {
+  BLOCKED: "red",
+  NOT_READY: "red",
+  REVIEW_REQUIRED: "amber",
+  NET_POSITIVE_APPROVED: "green",
+};
+
+const GATE_LABELS = {
+  tests: "Tests",
+  baseline: "Baseline",
+  sessions: "Sessions",
+  corpus: "Corpus",
+  parity: "Parity",
+  net_positive: "Net R",
+  strategy_review: "Review",
+  user_approval: "Approval",
+};
+const EXPECTED_GATE_IDS = Object.freeze(Object.keys(GATE_LABELS));
+const READINESS_VERDICTS = new Set(["BLOCKED", "REVIEW_REQUIRED", "NOT_READY", "NET_POSITIVE_APPROVED"]);
+const GATE_STATUSES_BY_ID = {
+  tests: new Set(["pass", "fail"]),
+  baseline: new Set(["pass", "fail"]),
+  sessions: new Set(["pass", "fail"]),
+  corpus: new Set(["pass", "fail"]),
+  parity: new Set(["pass", "fail"]),
+  net_positive: new Set(["pass", "fail"]),
+  strategy_review: new Set(["pass", "fail", "pending"]),
+  user_approval: new Set(["pass", "pending"]),
+};
+
+function expectedReadinessVerdict(gates) {
+  const byId = new Map(gates.map((gate) => [gate.id, gate]));
+  if (["tests", "baseline", "sessions", "corpus", "parity"].some((id) => byId.get(id).status !== "pass")) {
+    return "BLOCKED";
+  }
+  if (byId.get("strategy_review").status === "fail") return "BLOCKED";
+  if (byId.get("net_positive").status === "fail") return "NOT_READY";
+  if (byId.get("strategy_review").status === "pending" || byId.get("user_approval").status === "pending") {
+    return "REVIEW_REQUIRED";
+  }
+  return "NET_POSITIVE_APPROVED";
+}
+
+export function readinessViewModel(readiness) {
+  const supplied = Array.isArray(readiness?.gates) ? readiness.gates : [];
+  const gatesValid = supplied.length === EXPECTED_GATE_IDS.length
+    && supplied.every((gate, index) => (
+      gate?.id === EXPECTED_GATE_IDS[index]
+      && GATE_STATUSES_BY_ID[gate.id]?.has(gate?.status)
+      && typeof gate?.reason === "string"
+      && gate.reason.trim().length > 0
+      && gate?.evidence !== null
+      && typeof gate?.evidence === "object"
+      && !Array.isArray(gate.evidence)
+    ));
+  const expectedVerdict = gatesValid ? expectedReadinessVerdict(supplied) : null;
+  const contractValid = READINESS_VERDICTS.has(readiness?.verdict)
+    && typeof readiness?.ready === "boolean"
+    && typeof readiness?.reason === "string"
+    && readiness.reason.trim().length > 0
+    && gatesValid
+    && readiness.verdict === expectedVerdict
+    && readiness.ready === (expectedVerdict === "NET_POSITIVE_APPROVED");
+  const verdict = contractValid ? readiness.verdict : "BLOCKED";
+  const byId = new Map(supplied.map((gate) => [gate?.id, gate]));
+  const rows = EXPECTED_GATE_IDS.map((id) => {
+    const gate = byId.get(id);
+    const valid = contractValid && gate;
+    return {
+      id,
+      label: GATE_LABELS[id],
+      status: valid ? gate.status : "fail",
+      reason: valid ? gate.reason : "readiness evidence unavailable",
+      evidence: valid ? gate.evidence : null,
+    };
+  });
+  return {
+    verdict,
+    trusted: contractValid,
+    word: READINESS_WORDS[verdict] ?? verdict.replaceAll("_", " "),
+    tone: READINESS_TONES[verdict] ?? "dim",
+    reason: contractValid ? readiness.reason ?? "readiness evidence unavailable" : "readiness payload invalid or incomplete",
+    rows,
+  };
+}
+
+export function readinessSummaryStats(viewModel) {
+  if (!viewModel?.trusted) return { cum_r: null, sessions: null };
+  const sessionEvidence = viewModel.rows?.find((row) => row.id === "sessions")?.evidence;
+  const netEvidence = viewModel.rows?.find((row) => row.id === "net_positive")?.evidence;
+  return {
+    cum_r: Number.isFinite(netEvidence?.cum_r) ? netEvidence.cum_r : null,
+    sessions: Number.isInteger(sessionEvidence?.sessions) && sessionEvidence.sessions >= 0
+      ? sessionEvidence.sessions
+      : null,
+  };
+}
+
 export function aggregateRuns(runs) {
   const total_runs = runs.length;
   const cum_r = runs.reduce((s, r) => s + (r.total_r ?? 0), 0);

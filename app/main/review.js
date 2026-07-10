@@ -9,12 +9,27 @@ import { computeFaithfulness } from "../renderer/src/Review.helpers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
-const SESSION_ROOT = path.join(REPO_ROOT, "state", "session");
+
+// Resolve the session-state root at call time so GOFNQ_STATE_DIR redirects the
+// whole tree off live state/ (the same override sessions.js honors — the test
+// suite sets it to a temp dir so a review read never touches the real tree).
+function sessionRoot() {
+  return path.join(process.env.GOFNQ_STATE_DIR || path.join(REPO_ROOT, "state"), "session");
+}
 
 const SESSION_PRIORITY = { "ny-pm": 3, "ny-am": 2, "london": 1 };
 
 async function readJsonOrNull(p) {
   try { return JSON.parse(await fs.readFile(p, "utf8")); } catch { return null; }
+}
+
+// Tolerant text read — missing / unreadable file → null (never throws). Used
+// for the optional session critique.md the review turn writes best-effort.
+async function readTextOrNull(p) {
+  try {
+    const txt = await fs.readFile(p, "utf8");
+    return txt.trim() ? txt : null;
+  } catch { return null; }
 }
 
 async function readJsonlOrEmpty(p) {
@@ -28,14 +43,15 @@ async function readJsonlOrEmpty(p) {
 
 // List every session folder on disk, descending (most-recent first).
 export async function listSessionFolders() {
+  const root = sessionRoot();
   let dates;
-  try { dates = await fs.readdir(SESSION_ROOT); } catch { return []; }
+  try { dates = await fs.readdir(root); } catch { return []; }
   dates = dates.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
 
   const out = [];
   for (const date of dates) {
     let entries;
-    try { entries = await fs.readdir(path.join(SESSION_ROOT, date)); } catch { continue; }
+    try { entries = await fs.readdir(path.join(root, date)); } catch { continue; }
     for (const s of ["ny-am", "ny-pm", "london"]) {
       if (entries.includes(s)) out.push({ date, session: s });
     }
@@ -117,7 +133,7 @@ export async function getPriorBrief({ session, excludeDate }) {
   for (const f of folders) {
     if (f.session !== session) continue;
     if (excludeDate && f.date === excludeDate) continue;
-    const brief = await readJsonOrNull(path.join(SESSION_ROOT, f.date, f.session, "brief.json"));
+    const brief = await readJsonOrNull(path.join(sessionRoot(), f.date, f.session, "brief.json"));
     if (brief) return { date: f.date, brief };
   }
   return null;
@@ -125,12 +141,16 @@ export async function getPriorBrief({ session, excludeDate }) {
 
 // Full journal for one session.
 export async function getJournalFor({ date, session }) {
-  const dir = path.join(SESSION_ROOT, date, session);
-  const [brief, summary, setups, tradeEvents] = await Promise.all([
+  const dir = path.join(sessionRoot(), date, session);
+  const [brief, summary, setups, tradeEvents, critique] = await Promise.all([
     readJsonOrNull(path.join(dir, "brief.json")),
     readJsonOrNull(path.join(dir, "summary.json")),
     readJsonlOrEmpty(path.join(dir, "setups.jsonl")),
     readJsonlOrEmpty(path.join(dir, "trades.jsonl")),
+    // The review turn's session critique (Track 2 §2b item 1) — best-effort
+    // prose the turn writes after each wrap. Missing → null; the card simply
+    // doesn't render. Raw text; the renderer parses frontmatter + sanitizes.
+    readTextOrNull(path.join(dir, "critique.md")),
   ]);
   const trades = foldAllTrades(tradeEvents);
   // Setups that produced a trade — match by setup_id on accept events.
@@ -168,7 +188,23 @@ export async function getJournalFor({ date, session }) {
     const { readJournal } = await import("./journal.js");
     closes = readJournal({ date, session });
   } catch { /* journal optional */ }
-  return { date, session, brief, summary, setups: setupsAnnotated, trades, stats, closes };
+  // C4: the durable order-intent chain for this session (EXECUTED-domain
+  // evidence) + the real executed fills for the date. Both best-effort empty —
+  // a session with no orders / no fills is a legitimate empty read, never an
+  // error. Tolerant JSONL so a torn tail line can't take down the whole review.
+  let intents = [];
+  try {
+    const { parseJsonlTolerant } = await import("../../cli/lib/jsonl.js");
+    const txt = await fs.readFile(path.join(dir, "order-intents.jsonl"), "utf8");
+    intents = parseJsonlTolerant(txt).records;
+  } catch { intents = []; }
+  let fills = [];
+  try {
+    const { readFills } = await import("./execution/fills.js");
+    const { TRADES_DIR } = await import("./execution/config.js");
+    fills = readFills(TRADES_DIR, date) || [];
+  } catch { fills = []; }
+  return { date, session, brief, summary, setups: setupsAnnotated, trades, stats, closes, intents, fills, critique };
 }
 
 // Library: thin per-session stats, descending. Default 20 rows.
@@ -184,6 +220,19 @@ export async function getLibrary({ limit = 20 } = {}) {
       stats: j.stats,
     };
   }));
+}
+
+// The most-recent N full journals (most-recent first). Backs the on-demand
+// coach narration (Track 2 §2b item 2) — recorded outcomes only. Best-effort:
+// a journal that fails to read is skipped, never throws.
+export async function getRecentJournals({ limit = 10 } = {}) {
+  const folders = await listSessionFolders();
+  const top = folders.slice(0, limit);
+  const out = [];
+  for (const f of top) {
+    try { out.push(await getJournalFor(f)); } catch { /* skip torn session */ }
+  }
+  return out;
 }
 
 // Default REVIEW landing page = the most-recent session that has anything

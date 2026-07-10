@@ -296,6 +296,27 @@ test("foldOpenTrades replays STOP_TRAILED (stop moves, trade stays open) and CLO
   assert.equal(closed.length, 0);
 });
 
+// B1: an ambiguous submit writes a tranche_orders marker with recovery:true. The
+// trade must stay OPEN but flagged recovery_held so the grader skips it (never
+// phantom-fill / phantom-flat) until the boot reconciler settles it.
+test("foldOpenTrades: a recovery:true tranche_orders marker holds the trade open flagged (never invalidated)", () => {
+  const open = foldOpenTrades([
+    { type: "accept", id: "R", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "tranche_orders", broker: "paper", setup_id: "R", stopOrderId: null, limitOrderId: null, recovery: true },
+  ]);
+  assert.equal(open.length, 1);
+  assert.equal(open[0].state, "recovery_held");
+  assert.notEqual(open[0].outcome, "INVALIDATED"); // ambiguous is NOT a rejection
+});
+
+test("foldOpenTrades: a plain failed paper order (no recovery flag) still invalidates", () => {
+  const open = foldOpenTrades([
+    { type: "accept", id: "F", side: "long", grade: "A+", entry: 100, stop: 95, tp1: 110, tp2: 120 },
+    { type: "tranche_orders", broker: "paper", setup_id: "F", stopOrderId: null, limitOrderId: null, error: "entry_place_failed" },
+  ]);
+  assert.equal(open.length, 0); // closed / INVALIDATED
+});
+
 test("consecutiveLossStreak: a trailed-out runner (STOPPED, r≥0) does not count; a CLOSED_STRUCTURE underwater does", () => {
   assert.equal(consecutiveLossStreak([
     { type: "outcome", id: "a", status: "STOPPED", r_realized: -1, ts: "1" },

@@ -3,6 +3,10 @@
 
 .cs-sys { display: flex; flex-direction: column; }
 
+/* ── READINESS band — full-width, sits above HEALTH | VERSIONS ── */
+.cs-sys-rdy { padding: 16px 18px 0; }
+.cs-sys-rdy .cs-card-label-lg { margin-bottom: 8px; }
+
 /* ── top grid: HEALTH | VERSIONS, then FIXTURES full-width (§3.2) ── */
 .cs-sys-grid {
   padding: 16px 18px 12px;
@@ -161,3 +165,150 @@
 }
 
 .cs-sys-empty { font-size: 11px; color: var(--label-dim); }
+
+/* ── READINESS card (Task C1) — the one readiness truth, shared by System /
+   Backtest hero / Settings. Status hues are the ONLY saturated color; chrome
+   stays on the near-black surface ladder with hairline borders. ── */
+.cs-rdy {
+  background: var(--surface-2);          /* #101111 */
+  border: 1px solid var(--border);       /* #242728 */
+  border-radius: var(--r-lg);            /* 10px */
+  padding: 12px 14px;
+}
+.cs-rdy.is-compact { padding: 10px 12px; }
+
+.cs-rdy-head {
+  display: flex; align-items: center; gap: 10px;
+  padding-bottom: 10px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.cs-rdy-badge {
+  font-size: 9px; letter-spacing: .08em; font-weight: 600;
+  padding: 2px 8px; border-radius: 6px; white-space: nowrap;
+  color: var(--label); border: 1px solid var(--border);
+}
+.cs-rdy-badge.is-ok  { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.cs-rdy-badge.is-warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.cs-rdy-badge.is-bad { color: var(--red);   border-color: color-mix(in srgb, var(--red) 35%, transparent); }
+.cs-rdy-badge.is-dim { color: var(--label-dim); }
+.cs-rdy-mode {
+  font: 400 9px var(--mono); letter-spacing: .06em; color: var(--label-dim);
+  white-space: nowrap;
+}
+.cs-rdy-mode.is-fail { color: var(--red); }
+.cs-rdy-mode.is-warn { color: var(--amber); }
+.cs-rdy-mode.is-pass { color: var(--green); }
+.cs-rdy-reason-head {
+  font-size: 10.5px; color: var(--label); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.cs-rdy-rows { display: flex; flex-direction: column; gap: 8px; }
+.cs-rdy-row { display: flex; align-items: center; gap: 9px; font-size: 11px; }
+.cs-rdy-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--label-dim); }
+.cs-rdy-dot.is-ok  { background: var(--green); }
+.cs-rdy-dot.is-warn { background: var(--amber); }
+.cs-rdy-dot.is-bad { background: var(--red); }
+.cs-rdy-name { color: var(--value); flex: none; width: 130px; }   /* #cdcdcd */
+.cs-rdy-status {
+  font: 400 9px var(--mono); letter-spacing: .04em; text-transform: uppercase;
+  flex: none; width: 62px; color: var(--label-dim);
+}
+.cs-rdy-status.is-ok  { color: var(--green); }
+.cs-rdy-status.is-warn { color: var(--amber); }
+.cs-rdy-status.is-bad { color: var(--red); }
+.cs-rdy-reason {
+  color: var(--label); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cs-rdy-age { font: 400 9.5px var(--mono); color: var(--label-dim); flex: none; }
+.cs-rdy-act {
+  font-size: 8.5px; letter-spacing: .06em; color: var(--blue);   /* #57c1ff */
+  cursor: pointer; flex: none; padding: 1px 5px;
+}
+.cs-rdy-allgreen { font-size: 11px; color: var(--green); }
+.cs-rdy-foot {
+  margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border);
+  font-size: 10px; color: var(--label-dim);
+}
+
+/* narrow (Backtest hero / Settings compact): drop the fixed status column so the
+   reason gets room; the dot still carries the status hue. */
+.cs-rdy.is-compact .cs-rdy-name { width: 118px; }
+.cs-rdy.is-compact .cs-rdy-status { display: none; }
+
+/* ── ANOMALIES card (Track 2 §2b item 5) — the ONE durable surface for the
+   anomaly explainer. Red readiness blockers + captured app:error events, each
+   with an EXPLAIN button whose plain-language reply renders inline below the
+   row. Chrome stays on the surface ladder; status hues (red/amber) only. ── */
+.cs-sys-anom { padding: 14px 18px 0; }
+.cs-sys-anom .cs-card-label-lg { margin-bottom: 8px; }
+
+.cs-anom-empty {
+  background: var(--surface-2);          /* #101111 */
+  border: 1px solid var(--border);       /* #242728 */
+  border-radius: var(--r-lg);            /* 10px */
+  padding: 12px 14px;
+  font-size: 11px; color: var(--label-dim);
+}
+.cs-anom-list {
+  display: flex; flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.cs-anom-row { border-bottom: 1px solid var(--border); }
+.cs-anom-row:last-child { border-bottom: 0; }
+
+.cs-anom-head { display: flex; align-items: center; gap: 9px; padding: 10px 14px; }
+.cs-anom-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--red);
+}
+.cs-anom-dot.is-warn { background: var(--amber); }
+.cs-anom-kind {
+  font: 400 8.5px var(--mono); letter-spacing: .08em; color: var(--label);
+  flex: none; width: 38px;
+}
+.cs-anom-label {
+  font-size: 11px; color: var(--value); flex: none; max-width: 140px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cs-anom-detail {
+  font-size: 10.5px; color: var(--label); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cs-anom-explain {
+  font-size: 8.5px; letter-spacing: .06em; color: var(--blue);   /* #57c1ff */
+  border: 1px solid var(--border); padding: 2px 8px; border-radius: 6px;
+  cursor: pointer; white-space: nowrap; flex: none;
+}
+.cs-anom-explain.is-disabled { color: var(--label-dim); cursor: default; }
+
+/* the AI reply — indented under the label, hairline-bordered surface card (the
+   app's .trade-narration convention), fades in with the shared motion tokens
+   (reduced-motion global catch-all zeroes it). Reply text is rendered as text
+   nodes — injection-inert. */
+.cs-anom-out {
+  margin: 0 14px 12px 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  border-radius: var(--r-sm);
+  animation: cs-anom-in var(--dur-med) var(--ease-out);
+}
+.cs-anom-out-p {
+  font-size: 11px; line-height: 1.55; color: var(--value); margin: 0 0 6px;
+}
+.cs-anom-out-p:last-child { margin-bottom: 0; }
+.cs-anom-out-wait { font-size: 10.5px; color: var(--label-dim); }
+.cs-anom-out-err { font-size: 10.5px; color: var(--red); }
+.cs-anom-dismiss {
+  display: inline-block; margin-top: 8px;
+  font-size: 8.5px; letter-spacing: .06em; color: var(--label-dim); cursor: pointer;
+}
+
+@keyframes cs-anom-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

@@ -6,6 +6,7 @@
 import React from "react";
 import { clickable } from "../a11y.js";
 import { useVersion } from "../hooks/useVersion.js";
+import { useValueTick } from "../hooks/useValueTick.js";
 import { useLastBar } from "../hooks/useLastBar.js";
 import { useHealth } from "../hooks/useHealth.js";
 import { useFills } from "../hooks/useFills.js";
@@ -13,7 +14,7 @@ import { useSessionBrief } from "../hooks/useSessionBrief.js";
 import { useOpenReaction } from "../hooks/useOpenReaction.js";
 import { buildDayChip } from "./dayChip.helpers.js";
 import { parseInstantStop } from "../Orders.helpers.js";
-import { liveGridFromTrade } from "../Live.helpers.js";
+import { liveGridFromTrade, pnlDisplay, parsePnlR, pnlTickBucket } from "../Live.helpers.js";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
@@ -46,6 +47,9 @@ export function TopBar({
   const { brief } = useSessionBrief();
   const { latest, ltf } = useOpenReaction();
   const dayChip = buildDayChip({ brief, latest, ltf });
+  // Value tick (motion v1) — pulse when the grade/bias text changes, but never
+  // while the chip is the empty "none" placeholder (that's a pending state).
+  const dayTickRef = useValueTick(dayChip.text, dayChip.state !== "none");
 
   // Instant-order arming — a valid stop price in the SL field makes the
   // BUY/SELL buttons live triggers (see CommandShell onTrade).
@@ -77,6 +81,14 @@ export function TopBar({
   const grid = pos ? liveGridFromTrade(
     { entry: pos.avgFill, stop: pos.sl, tp1: pos.tp, side: posSide }, exec?.price ?? lastBar?.close) : null;
   const pnl = grid?.pnl;
+  const pnlDisp = pnl ? pnlDisplay(pnl, exec?.stale) : null;
+  // Value tick (motion v1) — the P&L value updates on every 2s poll, so key the
+  // tick on a MILESTONE bucket (sign flip / 0.5R step) and throttle to ≥10s, so
+  // the money number pulses on a meaningful move, never blinks. PENDING
+  // ("PENDING"/"—" → no numeric R), STALE, and no-fill never tick; first
+  // appearance is silent (useValueTick).
+  const pnlR = parsePnlR(pnl?.v);
+  const pnlTickRef = useValueTick(pnlTickBucket(pnlR), pnlR != null && !pnlDisp?.stale, { minIntervalMs: 10000 });
 
   return (
     <>
@@ -89,7 +101,7 @@ export function TopBar({
                   {...clickable(() => setSymbol(s))}>{s}</span>
           ))}
         </span>
-        <span className={"cmd-daychip " + dayChip.state + " " + (dayChip.tone || "dim")}
+        <span ref={dayTickRef} className={"cmd-daychip value-tick " + dayChip.state + " " + (dayChip.tone || "dim")}
               title={dayChip.title} {...clickable(onOpenBriefing, { label: "open briefing" })}>
           {dayChip.text}
         </span>
@@ -121,7 +133,16 @@ export function TopBar({
         </div>
         <div className="cmd-strip-item" title="open position">
           <span className={"cmd-pos-side " + posSide}>{posSide.toUpperCase()}</span>
-          {pnl && <span className={"cmd-pos-pnl " + (pnl.tone === "red" ? "down" : "up")}>{pnl.v}</span>}
+          {pnlDisp && (
+            // Broker-read outage (exec.stale) → render last-known P&L greyed +
+            // STALE, never live-green (Task C5). pnlDisplay maps tone "stale".
+            <span ref={pnlTickRef}
+                  className={"cmd-pos-pnl value-tick " + (pnlDisp.stale ? "stale" : pnlDisp.tone === "red" ? "down" : "up")}
+                  data-tone={pnlDisp.stale ? undefined : pnlDisp.tone === "red" ? "down" : "up"}
+                  title={pnlDisp.stale ? "broker read stale — last-known P&L, not live" : undefined}>
+              {pnlDisp.v}{pnlDisp.stale ? " · STALE" : ""}
+            </span>
+          )}
         </div>
         <span className="sp" />
         {/* Manual BUY/SELL (plan 2026-07-10). SL field empty → the buttons open

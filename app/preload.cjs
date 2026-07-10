@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("api", {
   claude: {
     // Cross-purpose activity stream — fires for every event from any
-    // userTurn (brief, wrap, bar-close, chat, review, catch-up, shutdown).
+    // userTurn (brief, wrap, bar-close, chat, review, shutdown).
     // Used by the CLAUDE popover to show what Claude is doing globally,
     // not just in the interactive chat conversation.
     onActivity(cb) {
@@ -46,6 +46,60 @@ contextBridge.exposeInMainWorld("api", {
       const listener = (_e, ev) => cb(ev);
       ipcRenderer.on("chat:queue_ready", listener);
       return () => ipcRenderer.removeListener("chat:queue_ready", listener);
+    },
+  },
+  // Dedicated on-demand deep-read channel (Track 2 §2b item 3). Separate from
+  // chat so PREP/LIVE analysis turns never route through the CLAUDE/BRAIN feed
+  // or the chat session. useAiAnalysis subscribes to these `analysis:*` events.
+  analysis: {
+    run(text, options = {}) {
+      return ipcRenderer.invoke("analysis:run", { text, provider: options.provider });
+    },
+    onChunk(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:chunk", listener);
+      return () => ipcRenderer.removeListener("analysis:chunk", listener);
+    },
+    onTurnComplete(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:turn_complete", listener);
+      return () => ipcRenderer.removeListener("analysis:turn_complete", listener);
+    },
+    onQueued(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:queued", listener);
+      return () => ipcRenderer.removeListener("analysis:queued", listener);
+    },
+    onQueueReady(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("analysis:queue_ready", listener);
+      return () => ipcRenderer.removeListener("analysis:queue_ready", listener);
+    },
+  },
+  // Dedicated on-demand anomaly-explainer channel (Track 2 §2b item 5). Separate
+  // from chat so an EXPLAIN turn never routes through the CLAUDE/BRAIN feed. The
+  // renderer passes the anomaly event + a fresh readiness snapshot; useExplain
+  // subscribes to these `explain:*` events and renders the reply inline on the
+  // System page. `onError` is inline (never app:error) so explaining an error
+  // can't spawn a new error into the same list.
+  explain: {
+    run({ event, readiness, provider } = {}) {
+      return ipcRenderer.invoke("explain:run", { event, readiness, provider });
+    },
+    onChunk(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("explain:chunk", listener);
+      return () => ipcRenderer.removeListener("explain:chunk", listener);
+    },
+    onTurnComplete(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("explain:turn_complete", listener);
+      return () => ipcRenderer.removeListener("explain:turn_complete", listener);
+    },
+    onError(cb) {
+      const listener = (_e, ev) => cb(ev);
+      ipcRenderer.on("explain:error", listener);
+      return () => ipcRenderer.removeListener("explain:error", listener);
     },
   },
   trade: {
@@ -140,6 +194,11 @@ contextBridge.exposeInMainWorld("api", {
       set(patch) { return ipcRenderer.invoke("execution:config", { action: "set", patch }); },
     },
     guardState() { return ipcRenderer.invoke("execution:guardState"); },
+    // Broker/journal reconcile — status / retry / recovery. The readiness card's
+    // "retry broker read" action calls reconcile({ action: "retry" }).
+    reconcile(opts) { return ipcRenderer.invoke("execution:reconcile", opts || {}); },
+    // C3.1: RAW durable order-intent journal for the LIVE lifecycle timeline.
+    orderIntents() { return ipcRenderer.invoke("execution:orderIntents"); },
     account: {
       get() { return ipcRenderer.invoke("execution:account"); },
       confirm(typed) { return ipcRenderer.invoke("execution:confirmAccount", { typed }); },
@@ -236,6 +295,15 @@ contextBridge.exposeInMainWorld("api", {
     exportSession(date, session) {
       return ipcRenderer.invoke("review:export_session", { date, session });
     },
+    // Weekly coach narration (Track 2 §2b item 2). coach() reads the persisted
+    // coach.md (null → no card); generateCoach() runs one on-demand turn over a
+    // deterministic digest of the last `limit` sessions.
+    coach() {
+      return ipcRenderer.invoke("review:coach_get");
+    },
+    generateCoach(limit) {
+      return ipcRenderer.invoke("review:coach_generate", { limit });
+    },
   },
   memory: {
     // Read-only view of state/memory/{USER,MEMORY}.md for the REVIEW
@@ -303,6 +371,13 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("version:status", listener);
     },
   },
+
+  // Unified readiness truth (Task C1) — one object rendered by System / Backtest
+  // / Settings. On-demand only (the reducer is cheap); the useReadiness hook
+  // re-fetches on health:update / version:status.
+  readiness: {
+    get(symbol) { return ipcRenderer.invoke("readiness:get", { symbol }); },
+  },
   backtest: {
     start(cfg) {
       return ipcRenderer.invoke("backtest:start", cfg);
@@ -339,6 +414,9 @@ contextBridge.exposeInMainWorld("api", {
       },
       history(symbol) {
         return ipcRenderer.invoke("backtest:baseline:history", { symbol });
+      },
+      readiness(symbol) {
+        return ipcRenderer.invoke("backtest:readiness:get", { symbol });
       },
     },
     tests: {

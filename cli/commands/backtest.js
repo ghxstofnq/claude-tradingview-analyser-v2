@@ -1,49 +1,40 @@
-// `tv backtest` — the agent-drivable command surface over the deterministic
-// backtest engine. The GUI (BacktestPopover), scripts, and LLM agents all read
-// the SAME fold, so there is one source of truth for "is the bot good enough?".
-//
-//   tv backtest verdict --symbol MNQ1!    the go-live gate (keystone output)
-//   tv backtest fold    --symbol MNQ1!    the faithful baseline fold
-//   tv backtest list    --symbol MNQ1!    the recorded corpus (audit)
-//
-// Every subcommand returns a plain object; the router prints it as JSON (the
-// house convention), so output is always machine-readable. Deterministic + $0
-// (no LLM, no chart) — safe for an agent to call in a loop. `compare` (fold-test
-// a code change vs baseline) and `record` (replay a session into the corpus) are
-// the next subcommands; today they live in the GUI + scripts/fold-*.mjs.
-
-import path from "node:path";
 import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { register } from "../router.js";
-import { foldSymbol } from "../../app/main/backtest-baseline.js";
-import { computeVerdict, DEFAULT_MIN_SESSIONS } from "../lib/backtest-verdict.js";
+import { collectBacktestReadiness, DEFAULT_SYMBOL, defaultStateDir, validateBacktestSymbol } from "../lib/backtest-readiness.js";
+import { approveReadiness, verifyReadinessTests } from "../lib/backtest-readiness-actions.js";
+import { DEFAULT_MIN_SESSIONS } from "../lib/backtest-verdict.js";
 import { certifyCorpus } from "../lib/corpus-certification.js";
-
-const DEFAULT_SYMBOL = "MNQ1!";
-
-function stateDir() {
-  return process.env.GOFNQ_STATE_DIR || path.resolve("state");
-}
+import { foldSymbol } from "../../app/main/backtest-baseline.js";
 
 async function foldOne(symbol) {
-  const b = await foldSymbol({ symbol, stateDir: stateDir() });
+  const normalized = validateBacktestSymbol(symbol || DEFAULT_SYMBOL);
+  const baseline = await foldSymbol({ symbol: normalized, stateDir: defaultStateDir() });
   return {
-    symbol,
-    cum_r: b.total_r,
-    sessions: b.corpus?.n_sessions ?? 0,
-    dates: b.corpus?.dates ?? [],
-    per_day: b.per_day ?? [],
-    code_sha: b.code_sha,
-    built_at: b.built_at,
+    symbol: normalized,
+    cum_r: baseline.total_r,
+    sessions: baseline.corpus?.n_sessions ?? 0,
+    dates: baseline.corpus?.dates ?? [],
+    per_day: baseline.per_day ?? [],
+    code_sha: baseline.code_sha,
   };
 }
 
 async function verdictCmd(opts) {
-  const symbol = opts.symbol || DEFAULT_SYMBOL;
-  const minSessions = opts.min ? Number(opts.min) : DEFAULT_MIN_SESSIONS;
-  const f = await foldOne(symbol);
-  const v = computeVerdict({ cum_r: f.cum_r, sessions: f.sessions, minSessions });
-  return { symbol, cum_r: f.cum_r, sessions: f.sessions, min_sessions: minSessions, code_sha: f.code_sha, built_at: f.built_at, ...v };
+  const minSessions = opts.min == null ? DEFAULT_MIN_SESSIONS : Number(opts.min);
+  if (!Number.isInteger(minSessions) || minSessions <= 0) {
+    throw new Error("--min must be a positive integer");
+  }
+  const readiness = await collectBacktestReadiness({
+    symbol: opts.symbol || DEFAULT_SYMBOL,
+    stateDir: defaultStateDir(),
+    cwd: process.cwd(),
+    env: process.env,
+    minSessions,
+  });
+  if (!readiness.ready) process.exitCode = 1;
+  return readiness;
 }
 
 async function foldCmd(opts) {
@@ -51,50 +42,108 @@ async function foldCmd(opts) {
 }
 
 function listCmd(opts) {
-  const idxPath = path.join(stateDir(), "backtest", "index.json");
+  const idxPath = path.join(defaultStateDir(), "backtest", "index.json");
   let index;
-  try { index = JSON.parse(readFileSync(idxPath, "utf8")); }
-  catch { index = { runs: [] }; }
-  const symbol = opts.symbol || null;
+  try {
+    index = JSON.parse(readFileSync(idxPath, "utf8"));
+  } catch {
+    index = { runs: [] };
+  }
+  const symbol = opts.symbol ? validateBacktestSymbol(opts.symbol) : null;
   const runs = (index.runs || [])
     .filter((r) => !symbol || r.symbol === symbol)
-    .map((r) => ({ date: r.date, session: r.session, symbol: r.symbol, total_r: r.total_r ?? null, run_id: r.run_id }));
+    .map((r) => ({
+      date: r.date,
+      session: r.session,
+      symbol: r.symbol,
+      total_r: r.total_r ?? null,
+      run_id: r.run_id,
+    }));
   return { symbol, count: runs.length, runs };
 }
 
+function certifyCmd() {
+  const report = certifyCorpus({ stateDir: defaultStateDir() });
+  if (report.certified === false) process.exitCode = 1;
+  return report;
+}
+
+async function verifyTestsCmd() {
+  const result = await verifyReadinessTests({
+    stateDir: defaultStateDir(),
+    cwd: process.cwd(),
+    env: process.env,
+  });
+  if (!result.ok) process.exitCode = result.exitCode || 1;
+  return result;
+}
+
+async function approveCmd(opts) {
+  const result = await approveReadiness({
+    stateDir: defaultStateDir(),
+    cwd: process.cwd(),
+    env: process.env,
+    symbol: opts.symbol || DEFAULT_SYMBOL,
+    strategyReview: opts["strategy-review"],
+    userWindowApproved: opts["user-window-approved"] === true,
+    note: opts.note || "",
+  });
+  return result;
+}
+
 register("backtest", {
-  description: "Deterministic backtest surface — go-live verdict, faithful fold, corpus (agent + GUI share it)",
+  description: "Deterministic backtest surface go-live readiness, faithful fold, corpus (agent + GUI share it)",
   subcommands: new Map([
     ["verdict", {
-      description: "Go-live gate: is the bot net-positive over a trusted window?",
+      description: "Fail-closed go-live readiness object for current symbol",
       options: {
         symbol: { type: "string", description: "MNQ1! (default) or MES1!" },
         min: { type: "string", description: `Trusted-window session floor (default ${DEFAULT_MIN_SESSIONS})` },
       },
       handler: verdictCmd,
     }],
+    ["verify-tests", {
+      description: "Run broad repository tests and write current-code test evidence on success",
+      options: {},
+      handler: verifyTestsCmd,
+    }],
+    ["approve", {
+      description: "Write explicit readiness approval for current manifest/selection/code/levers",
+      options: {
+        symbol: { type: "string", description: "MNQ1! (default) or MES1!" },
+        "strategy-review": { type: "string", description: "Must be approved or rejected" },
+        "user-window-approved": { type: "boolean", description: "Required explicit user trading-window approval" },
+        note: { type: "string", description: "Audit note" },
+      },
+      handler: approveCmd,
+    }],
     ["fold", {
-      description: "Fold the faithful baseline for a symbol — cum R + per-session",
+      description: "Fold faithful baseline symbol cum R + per-session",
       options: {
         symbol: { type: "string", description: "MNQ1! (default) or MES1!" },
       },
       handler: foldCmd,
     }],
     ["list", {
-      description: "List the recorded corpus runs",
+      description: "List recorded corpus runs",
       options: {
-        symbol: { type: "string", description: "Filter to a symbol" },
+        symbol: { type: "string", description: "Filter symbol" },
       },
       handler: listCmd,
     }],
     ["certify", {
-      description: "Certify the gate corpus vs the 2026-H1 manifest (deterministic coverage + parity, fails closed)",
+      description: "Certify gate corpus 2026-H1 manifest (deterministic coverage parity, fails closed)",
       options: {},
-      handler: () => {
-        const report = certifyCorpus({ stateDir: stateDir() });
-        if (report.certified === false) process.exitCode = 1;
-        return report;
-      },
+      handler: certifyCmd,
     }],
   ]),
 });
+
+export const __test = {
+  approveCmd,
+  certifyCmd,
+  foldCmd,
+  listCmd,
+  verdictCmd,
+  verifyTestsCmd,
+};

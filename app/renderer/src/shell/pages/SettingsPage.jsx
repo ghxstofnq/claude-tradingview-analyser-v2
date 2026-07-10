@@ -9,12 +9,14 @@
 import React, { useState, useEffect } from "react";
 import { Page } from "./Page.jsx";
 import { PAGE_ICONS } from "../shell.constants.js";
-import { clickable } from "../../a11y.js";
+import { clickable, tab } from "../../a11y.js";
 import { armReady as isArmReady, realAccountView } from "../../Account.helpers.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useHealth } from "../../hooks/useHealth.js";
 import { useFills } from "../../hooks/useFills.js";
 import { usePrefs } from "../../hooks/usePrefs.js";
+import { useReadiness } from "../../hooks/useReadiness.js";
+import { ReadinessCard } from "../../Readiness.jsx";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const usd = (n) => "$" + Math.round(n).toLocaleString("en-US");
@@ -52,7 +54,20 @@ function Toggle({ name, desc, on, onToggle }) {
 export function SettingsPage({ guards, setGuards, symbol = "MNQ1!", onClose, onToast }) {
   const exec = useExecutionState();
   const health = useHealth();
+  const { readiness } = useReadiness(symbol);
   const { fills } = useFills(new Date().toISOString().slice(0, 10));
+
+  // Latest REAL order preview for the RISK SIZING example (C2-b). Pure over the
+  // cached order context; when no live context exists the card labels itself an
+  // EXAMPLE instead of showing an illustrative stop as current risk.
+  const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => window.api?.execution?.orderPreview?.({ side: "long" })
+      .then((r) => { if (alive) setPreview(r?.ok ? r.preview : null); })
+      .catch(() => { if (alive) setPreview(null); });
+    load(); const h = setInterval(load, 5000); return () => { alive = false; clearInterval(h); };
+  }, []);
   const todayLossUsd = Math.abs((fills || []).reduce((s, f) => s + Math.min(0, Number(f?.actual?.usd) || 0), 0));
   const { prefs, setPref } = usePrefs();
 
@@ -102,10 +117,17 @@ export function SettingsPage({ guards, setGuards, symbol = "MNQ1!", onClose, onT
   // Risk sizing — real: seed $ risk ÷ (stop × $/pt) → contracts. No fabricated
   // account-balance model; defaultRisk is the enforced per-ticket seed.
   const ptVal = pointValueFor(symbol);
-  const stopPts = 24.25;
   const risk = Number(guards?.defaultRisk) || 0;
-  const contracts = risk > 0 ? Math.floor(risk / (stopPts * ptVal)) : 0;
   const symShort = String(symbol).replace(/1!$/, "");
+  // Prefer the live order preview's real stop (C2-b). Only a fully-sized preview
+  // (no block) is "current"; otherwise fall back to a clearly-labelled example
+  // and keep it out of every risk/readiness total.
+  const livePreview = preview && !preview.block && Number.isFinite(preview.stopPts) && preview.stopPts > 0 ? preview : null;
+  const EXAMPLE_STOP_PTS = 24.25;
+  const exampleContracts = risk > 0 ? Math.floor(risk / (EXAMPLE_STOP_PTS * ptVal)) : 0;
+  const sizingCalc = livePreview
+    ? `= ${usd(livePreview.actualRiskUsd)} risk · ${livePreview.contracts} ${symShort} at a ${livePreview.stopPts}-pt stop (live preview · ${livePreview.stopSource || "auto"})`
+    : `EXAMPLE (not current risk): ${usd(risk)} ≈ ${exampleContracts} ${symShort} at a 24¼-pt stop (${ptVal}/pt)`;
 
   const resume = () => {
     if (tripped) { onToast?.("Daily-loss guard tripped — locked until tomorrow", "red"); return; }
@@ -124,10 +146,16 @@ export function SettingsPage({ guards, setGuards, symbol = "MNQ1!", onClose, onT
           </div>
         )}
 
+        <div className="cmd-set-rdy">
+          <div className="cmd-set-hd"><span>READINESS</span></div>
+          <ReadinessCard readiness={readiness} pushToast={onToast} variant="compact" />
+        </div>
+
         <Card label="AUTOMATION">
-          <div className="cmd-set-seg">
+          <div className="cmd-set-seg" role="tablist" aria-label="automation mode">
             {[["manual", "MANUAL"], ["suggest", "SUGGEST"], ["auto", "AUTO"]].map(([v, l]) => (
-              <span key={v} className={"cmd-set-seg-opt" + (mode === v ? " on" : "")} {...clickable(() => setMode(v), { label: l })}>{l}</span>
+              <span key={v} className={"cmd-set-seg-opt" + (mode === v ? " on" : "")}
+                    {...tab(() => setMode(v), { selected: mode === v, label: l })}>{l}</span>
             ))}
           </div>
           <p className="cmd-set-desc">{MODE_DESC[mode] || MODE_DESC.manual}</p>
@@ -185,7 +213,7 @@ export function SettingsPage({ guards, setGuards, symbol = "MNQ1!", onClose, onT
                    onStep={(d) => setGuard("perTradeMax", clamp((guards?.perTradeMax ?? 0) + d * 25, 25, 2000))} />
           <Stepper name="Max contracts" desc="per-order size cap" value={guards?.maxContracts ?? 0}
                    onStep={(d) => setGuard("maxContracts", clamp((guards?.maxContracts ?? 0) + d, 1, 20))} />
-          <div className="cmd-set-calc">= {usd(risk)} risk · {contracts} {symShort} contract{contracts === 1 ? "" : "s"} at a 24¼-pt stop (${ptVal}/pt)</div>
+          <div className={"cmd-set-calc" + (livePreview ? "" : " is-example")}>{sizingCalc}</div>
         </Card>
 
         <div className="cmd-set-prefs">

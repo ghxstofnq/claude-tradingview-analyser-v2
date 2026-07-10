@@ -6,6 +6,8 @@ import { registerIpc } from "./main/ipc.js";
 import { registerExecutionIpc } from "./main/ipc-execution.js";
 import { startTradingFeed } from "./main/execution/trading-feed.js";
 import { startTradovateFillPoller } from "./main/execution/tradovate-fills.js";
+import { startReconciler } from "./main/execution/reconciler.js";
+import { startProtectionWatchdog } from "./main/execution/protection-watchdog.js";
 import { setSurfaceSink } from "./main/tools/surface.js";
 import { startHealthMonitor } from "./main/health.js";
 import { startAlertPolling } from "./main/alerts.js";
@@ -21,6 +23,7 @@ import { startDetector } from "./main/bar-close.js";
 import { startTradeTickerWatchdog } from "./main/trade-ticker-watchdog.js";
 import { startSessionSupervisor } from "./main/session-supervisor.js";
 import { createVersionPoll } from "./main/version-status.js";
+import { registerReadinessIpc } from "./main/ipc-readiness.js";
 import { stateRoot } from "./main/sessions.js";
 import { writeEnvSnapshotFile } from "./main/env-snapshot.js";
 import { shellChordFromInput } from "./main/shell-keys.js";
@@ -113,6 +116,17 @@ app.whenReady().then(async () => {
   setOnFillRecorded((rec) => { recordJournalClose(rec); });
   startTradingFeed();
   startTradovateFillPoller({ send: ipc.send });
+  // Boot broker/journal reconciliation (B2): runs immediately (bounded 4s retries
+  // while the broker feed is still connecting), gates paper auto on a HEALTHY
+  // result, and surfaces a loud app:error on any CRITICAL_*/ORPHAN state. Never
+  // blocks boot (fire-and-forget).
+  startReconciler({ send: ipc.send });
+  // Continuous protection watchdog (B3): always-on, on its own unref'd timer
+  // (NOT bar-driven). A held position must be watched the whole time it is held
+  // — including outside session windows — for a cancelled stop, a drifted size,
+  // a hijacked symbol, or an expired token. It pauses NEW entries on any breach
+  // and NEVER flattens (operator recovery only). Fire-and-forget; never blocks boot.
+  startProtectionWatchdog({ send: ipc.send });
   setSurfaceSink(ipc.send);
   startHealthMonitor(ipc.send);
   startAlertPolling({ send: ipc.send });
@@ -144,6 +158,10 @@ app.whenReady().then(async () => {
   // BEFORE the supervisor so arming can refuse to run live on stale code.
   const versionPoll = createVersionPoll({ send: ipc.send }).start();
   ipcMain.handle("version:get", () => versionPoll.get());
+  // Unified readiness truth (Task C1): the pure reducer over the git version
+  // poll + health snapshot + account gate, exposed as one object rendered by
+  // System / Backtest / Settings. Registered here so it can read versionPoll.get.
+  registerReadinessIpc({ getVersion: () => versionPoll.get() });
   // Session supervisor: auto-arms the live loop during session windows,
   // watchdogs the detector heartbeat, and runs the pre-open readiness
   // check. June 2026: with the mode tabs gone, nothing flipped mode to

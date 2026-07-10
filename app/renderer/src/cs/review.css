@@ -37,6 +37,29 @@
 .cs-cell-right { margin-left: auto; }
 .cs-wrap-text { margin: 0; font-size: 11.5px; line-height: 1.65; color: var(--value); }
 
+/* ── session critique card (Track 2 §2b): muted Claude-prose narrative ───── */
+/* Neutral hairline accent only — no saturated chrome (DESIGN.md: hues are
+   status-only). Multiple paragraphs stack with a small gap. */
+.cs-cell.card.critique { border-left: 2px solid var(--border); }
+.cs-cell.card.critique .cs-wrap-text + .cs-wrap-text { margin-top: 8px; }
+
+/* ── coach read (Track 2 §2b item 2): on-demand recent-performance narration ─ */
+/* Header holds the trigger; the card mirrors the critique's neutral hairline. */
+.cs-coach-hd { display: flex; align-items: center; gap: 10px; padding: 10px 18px 0; }
+.cs-coach-hd__lbl { font: 400 10px var(--mono); letter-spacing: .06em; color: var(--label-dim); }
+.cs-coach-btn { margin-left: auto; letter-spacing: .06em; }
+.cs-coach-btn:hover:not(:disabled) { color: var(--value-strong); border-color: var(--cs-onborder); }
+.cs-coach-btn:disabled { opacity: .5; cursor: default; }
+.cs-cell.card.coach { border-left: 2px solid var(--border); }
+.cs-cell.card.coach .cs-wrap-text + .cs-wrap-text { margin-top: 8px; }
+/* Stale cue — muted amber status tint (DESIGN.md: hues are status-only, never
+   saturated chrome), matching the shell's .cs-status.proposed / .cs-tag.amber. */
+.cs-coach-stale {
+  font: 400 9px var(--sans); letter-spacing: .06em;
+  padding: 2px 8px; border-radius: var(--r-pill);
+  color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+
 /* empty states */
 .cs-empty { color: var(--label-dim); font-size: 11px; padding: 10px 0; }
 
@@ -117,3 +140,38 @@
 .jr-row-note { color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jr-row-shot { color: var(--label-dim); text-align: center; }
 .jr-row-shot.dim { opacity: 0; }
+
+/* ── Review truth-domain chrome (Task C4) ───────────────────────────────────
+   Provenance banner + broker/journal discrepancy strip + evidence-chain drill.
+   Neutral chrome; saturated hues are status-only per DESIGN.md. */
+.cs-domain-banner { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: 10px; flex-wrap: wrap; }
+.cs-domain-banner__lbl { font-size: 10px; letter-spacing: .12em; font-weight: 600; color: var(--value-strong); }
+.cs-domain-banner__src { font: 400 10px var(--mono); color: var(--label); }
+.cs-domain-banner__note { font-size: 10px; color: var(--label-dim); margin-left: auto; }
+.cs-domain-banner.d-executed .cs-domain-banner__lbl { color: var(--green); }
+.cs-domain-banner.d-journal .cs-domain-banner__lbl { color: var(--amber); }
+.cs-domain-banner.d-backtest .cs-domain-banner__lbl { color: var(--label); }
+
+.cs-disc-strip { font-size: 10.5px; letter-spacing: .02em; padding: 6px 12px; border-radius: var(--r-sm); margin-bottom: 10px; border: 1px solid var(--border); }
+.cs-disc-strip.clean { color: var(--label-dim); }
+.cs-disc-strip.has { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); }
+.cs-disc-dot { color: var(--red); font-size: 11px; }
+
+.cs-lexp-nums { display: flex; gap: 14px; flex-wrap: wrap; }
+.cs-evchain { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.cs-evchain-hops { display: flex; gap: 6px; flex-wrap: wrap; }
+.cs-evhop { font: 400 9.5px var(--mono); letter-spacing: .02em; padding: 2px 8px; border-radius: var(--r-sm); border: 1px solid var(--border); color: var(--value); white-space: nowrap; }
+.cs-evhop.miss { color: var(--label-dim); border-style: dashed; }
+.cs-evdisc { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+.cs-evdisc-chip { font: 400 9px var(--mono); letter-spacing: .04em; color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-radius: var(--r-sm); padding: 1px 7px; }
+
+.cs-fill-pva { padding: 7px 0; border-bottom: 1px dashed var(--border); }
+.cs-fill-pva:last-child { border-bottom: 0; }
+.cs-fill-pva__hd { display: flex; align-items: center; gap: 8px; font-size: 10.5px; margin-bottom: 4px; }
+.cs-fill-pva__hd .side { letter-spacing: .12em; }
+.cs-fill-pva__hd .side.up { color: var(--green); }
+.cs-fill-pva__hd .side.down { color: var(--red); }
+.cs-fill-pva__hd .sym { color: var(--value); }
+.cs-fill-pva__hd .pl { margin-left: auto; font-family: var(--mono); }
+.cs-fill-pva__hd .pl.up { color: var(--green); }
+.cs-fill-pva__hd .pl.down { color: var(--red); }

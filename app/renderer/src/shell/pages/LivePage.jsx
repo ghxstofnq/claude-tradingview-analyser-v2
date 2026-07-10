@@ -5,13 +5,15 @@
 // Still `hosted` because LiveBody renders inside a `.bt-popover.embedded` (every
 // existing LIVE body style applies).
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Page } from "./Page.jsx";
 import { PAGE_ICONS } from "../shell.constants.js";
 import { LiveBody } from "../../LivePopover.jsx";
-import { clickable } from "../../a11y.js";
+import { clickable, tab } from "../../a11y.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useTrades } from "../../hooks/useTrades.js";
+import { useOrderIntent } from "../../hooks/useOrderIntent.js";
+import { liveFooterCopy } from "../../Live.helpers.js";
 
 const SEGS = [["feed", "FEED"], ["positions", "POSITIONS"]];
 
@@ -20,21 +22,35 @@ export function LivePage({ symbol, guards, onFlatten, onClose }) {
   const [userPicked, setUserPicked] = useState(false);
   const exec = useExecutionState();
   const { activeTrade } = useTrades();
+  // Raw durable order-intent journal for the IN-TRADE order-lifecycle timeline
+  // (Task C3) — threaded into LiveBody so the rail re-derives from broker truth.
+  const orderIntent = useOrderIntent();
   const hasPosition = !!exec.position || !!activeTrade;
   const effectiveSeg = userPicked ? seg : (hasPosition ? "positions" : "feed");
 
+  // Real automation mode (C2-c) — the same config the Settings page reads. The
+  // footer copy must match the actual execution path (AUTO fires without accept).
+  const [mode, setMode] = useState("manual");
+  useEffect(() => {
+    let alive = true;
+    const load = () => window.api?.execution?.config?.get?.()
+      .then((r) => { if (alive && r?.ok) setMode(r.config?.automationMode ?? "manual"); })
+      .catch(() => {});
+    load(); const h = setInterval(load, 5000); return () => { alive = false; clearInterval(h); };
+  }, []);
+
   const tabs = (
-    <div className="cs-live-tabs">
+    <div className="cs-live-tabs" role="tablist" aria-label="live view">
       {SEGS.map(([v, l]) => (
         <span key={v} className={"cs-provpill" + (effectiveSeg === v ? " is-on" : "")}
-              {...clickable(() => { setUserPicked(true); setSeg(v); }, { label: l })}>{l}</span>
+              {...tab(() => { setUserPicked(true); setSeg(v); }, { selected: effectiveSeg === v, label: l })}>{l}</span>
       ))}
     </div>
   );
 
   const foot = (
     <>
-      <span>✓ fires only after your accept</span>
+      <span className={mode === "auto" ? "cs-live-foot-auto" : undefined}>{liveFooterCopy(mode)}</span>
       <span className="sp" />
       <span>⇧⌘F flattens anywhere · esc</span>
     </>
@@ -43,8 +59,9 @@ export function LivePage({ symbol, guards, onFlatten, onClose }) {
   return (
     <Page icon={PAGE_ICONS.live} tint="green" title="Live" page="live" hosted narrow className="narrow" onClose={onClose}
           tabs={tabs} foot={foot}
-          right={<span className="cs-btn-flatten" onClick={onFlatten} title="⇧⌘F flattens anywhere">FLATTEN</span>}>
-      <LiveBody guards={guards} symbol={symbol} seg={effectiveSeg} setSeg={setSeg} setUserPicked={setUserPicked} />
+          right={<span className="cs-btn-flatten" title="⇧⌘F flattens anywhere"
+                       {...clickable(onFlatten, { label: "flatten all positions" })}>FLATTEN</span>}>
+      <LiveBody guards={guards} symbol={symbol} seg={effectiveSeg} setSeg={setSeg} setUserPicked={setUserPicked} orderIntent={orderIntent} />
     </Page>
   );
 }

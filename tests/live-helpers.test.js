@@ -15,6 +15,7 @@ import {
   fillChips,
   walkerZoneBounds,
   walkerHuntRows,
+  pnlDisplay,
 } from "../app/renderer/src/Live.helpers.js";
 
 describe("liveGuardBudgets", () => {
@@ -409,5 +410,26 @@ describe("walkerHuntRows", () => {
       29943.25,
     );
     assert.deepEqual(rows.map((r) => r.id), ["near", "far"]);
+  });
+});
+
+describe("pnlDisplay — stale P&L (Task C5)", () => {
+  it("fresh read passes the cell's tone through", () => {
+    const d = pnlDisplay({ v: "+1.2 R", tone: "green" }, false);
+    assert.equal(d.v, "+1.2 R");
+    assert.equal(d.tone, "green");
+    assert.equal(d.stale, false);
+  });
+  it("stale read flips to a neutral STALE state — no live-green/red", () => {
+    const d = pnlDisplay({ v: "+1.2 R", tone: "green" }, true);
+    assert.equal(d.v, "+1.2 R");
+    assert.equal(d.tone, "stale");
+    assert.equal(d.stale, true);
+  });
+  it("stale read also neutralises a losing (red) cell", () => {
+    assert.equal(pnlDisplay({ v: "-0.4 R", tone: "red" }, true).tone, "stale");
+  });
+  it("null cell → placeholder, never stale", () => {
+    assert.deepEqual(pnlDisplay(null, true), { v: "—", tone: "", stale: false });
   });
 });

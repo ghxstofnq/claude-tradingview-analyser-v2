@@ -11,10 +11,30 @@ import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
 import { getActiveAccount } from "./execution/active-account.js";
 import { resolveAccountGate, revertSimDecision } from "./execution/account-gate.js";
-import { setAutoResumed, getAutoResumed } from "./execution/auto-resume.js";
+import { setAutoResumed, getAutoResumed, getReconciliationHealthy, getProtectionOk } from "./execution/auto-resume.js";
 
 function tradesDir() { return TRADES_DIR; }
 function today() { return new Date().toISOString().slice(0, 10); }
+
+// B1: wrap a broker POST in a durable order-intent record. `base` carries the
+// decision_id + order fields; we log INTENT_CREATED → SUBMITTING before the POST
+// and classify the result after (acknowledged / rejected / ambiguous→recovery).
+// Best-effort: an intent-write failure never blocks the order or throws across IPC.
+async function withOrderIntent(base, place) {
+  const oi = await import("./execution/order-intent.js");
+  const store = oi.createIntentStore(await oi.buildRealDeps());
+  const rec = async (state, extra) => { try { await store.recordTransition({ ...base, state, ...(extra || {}) }); } catch { /* best-effort */ } };
+  await rec(oi.INTENT_STATES.INTENT_CREATED);
+  await rec(oi.INTENT_STATES.SUBMITTING);
+  const result = await place();
+  const status = result?.result?.status ?? result?.status;
+  const submit = oi.classifySubmitResult({ ok: result?.ok, status });
+  const terminal = submit === "acknowledged" ? oi.INTENT_STATES.BROKER_ACKNOWLEDGED
+    : submit === "rejected" ? oi.INTENT_STATES.REJECTED
+    : oi.INTENT_STATES.RECOVERY_REQUIRED;
+  await rec(terminal, { status });
+  return result;
+}
 
 // Snapshot of the account-arming state for the renderer.
 function accountState() {
@@ -56,6 +76,15 @@ async function positionOpenFor(broker) {
 }
 
 async function guarded(payload) {
+  // B3: the continuous protection watchdog owns the entry pause. If it has seen
+  // an unprotected / breached / unreadable / auth-lost position, NO new order
+  // (manual OR auto) is placed until protection clears — fail-closed at the
+  // handler layer, ahead of every other guard. Recovery is the operator's job
+  // via execution:reconcile (adopt / protect / flatten); the watchdog never
+  // flattens. Defaults open (a no-position boot never blocks manual trading).
+  if (getProtectionOk() === false) {
+    return { ok: false, blocked: true, code: "RECOVERY_REQUIRED", reason: "protection_watchdog", message: "Entries PAUSED — protection watchdog flagged an unprotected/breached position. Resolve via execution:reconcile before placing new orders." };
+  }
   // Fail-closed on a real trade-store read error: block rather than gate on
   // degraded counts (readFills returns [] for a legitimately-absent file, so a
   // throw here means a genuine fs problem).
@@ -107,8 +136,77 @@ export function registerExecutionIpc() {
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
   ipcMain.handle("execution:resumeAuto", async () => {
+    // B3: ack honesty — if the protection watchdog has paused entries, auto stays
+    // blocked regardless, so say so instead of returning a misleading ok:true.
+    // Recovery is via execution:reconcile (protect / flatten); once the next
+    // watchdog tick reads clear the gate reopens and resumeAuto can proceed.
+    if (getProtectionOk() === false) {
+      return { ok: false, code: "PROTECTION_UNHEALTHY", reason: "protection_watchdog" };
+    }
+    // B2 + I-1: never resume auto until reconciliation is HEALTHY. But don't just
+    // refuse (that was circular — resume required the very gate it should help
+    // recover): TRIGGER a fresh reconcile first (the feed may have connected since
+    // boot), then arm only if it now reports HEALTHY. Fail-closed otherwise.
+    if (!getReconciliationHealthy()) {
+      const reconciler = await import("./execution/reconciler.js");
+      let fresh = null;
+      try { fresh = await reconciler.runReconcileNow({ send: null }); } catch { /* structured below */ }
+      if (!getReconciliationHealthy()) {
+        return { ok: false, code: "reconciliation_pending", state: fresh?.state ?? reconciler.getLastReconcileState() };
+      }
+    }
     setAutoResumed(true);
     return { ok: true, autoResumed: true };
+  });
+
+  // B2: boot-reconciler surface. Thin pass-throughs to the reconciler runtime —
+  // status/retry are read/re-run; adopt/protect/flatten are operator recovery
+  // actions. Every branch returns a structured result and never throws across IPC.
+  ipcMain.handle("execution:reconcile", async (_e, arg = {}) => {
+    try {
+      const reconciler = await import("./execution/reconciler.js");
+      switch (arg?.action) {
+        case "status":
+          return { ok: true, state: reconciler.getLastReconcileState(), healthy: getReconciliationHealthy() };
+        // retry + resolve-flat both re-run the reconciler; runReconcile EXECUTES
+        // close_journal on a CONFIRMED-flat JOURNAL_STALE, so this is the operator
+        // escape hatch for a recovery-held row that bricked auto (B-1).
+        case "retry":
+        case "resolve-flat": {
+          const r = await reconciler.runReconcileNow({ send: null });
+          return { ok: true, state: r.state, action: r.action, blockers: r.blockers, healthy: getReconciliationHealthy() };
+        }
+        case "adopt": return await reconciler.adoptOpenPosition({ send: null });
+        case "protect": return await reconciler.protectOpenPosition({ send: null, stopPrice: arg?.stopPrice });
+        case "flatten": return await reconciler.flattenOpenPosition({ send: null });
+        default: return { ok: false, code: "unknown_action" };
+      }
+    } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+  });
+
+  // C3.1: RAW durable order-intent journal for the LIVE order-lifecycle
+  // timeline. Returns the tolerant-parsed records + dropped count + the last
+  // reconcile verdict, straight off order-intents.jsonl in the active session
+  // dir. It NEVER folds, NEVER invents ages, NEVER derives a stage — the
+  // renderer re-derives everything from this raw truth (#233 discipline). A
+  // read error degrades to empty records (fail-closed: the timeline shows no
+  // progress rather than a fabricated one), and dropped>0 propagates so the
+  // renderer can block the happy path on a corrupt journal.
+  ipcMain.handle("execution:orderIntents", async () => {
+    try {
+      const reconciler = await import("./execution/reconciler.js");
+      const sessions = await import("./sessions.js");
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+      const { parseJsonlTolerant } = await import("../../cli/lib/jsonl.js");
+      const file = path.join(await sessions.activeSessionDir(), "order-intents.jsonl");
+      let records = [], dropped = 0;
+      try {
+        const txt = await fs.readFile(file, "utf8");
+        ({ records, dropped } = parseJsonlTolerant(txt));
+      } catch { /* absent journal → empty (no intents yet) */ }
+      return { ok: true, records, dropped, reconcile: reconciler.getLastReconcileState() };
+    } catch (e) { return { ok: false, error: String(e?.message || e), records: [], dropped: 0, reconcile: null }; }
   });
 
   // Revert routing to SIM: clear the live confirmation (arm a PAPER confirmed
@@ -208,20 +306,29 @@ export function registerExecutionIpc() {
       // Route by the active broker. Tradovate orders go to its own REST API
       // (Bearer-token + bracket-in-the-POST); paper uses the TV paper adapter.
       const active = getActiveAccount();
+      // B1: durable order-intent around the manual ticket. decision_id folds the
+      // ticket key (id if present, else symbol|side|entry|stop) with the account.
+      const { deriveDecisionId } = await import("./execution/order-intent.js");
+      const decisionId = deriveDecisionId({
+        packetId: arg.id ?? `${ctx.symbol}|${arg.side}|${preview.entry ?? ctx.price}|${preview.stop}`,
+        accountId: active?.id ?? null, session: null,
+        side: arg.side, entry: preview.entry ?? ctx.price, stop: preview.stop,
+      });
+      const intentBase = { decision_id: decisionId, account_id: active?.id ?? null, broker: active?.broker ?? "paper", side: arg.side, symbol: ctx.symbol, entry: preview.entry ?? ctx.price, stop: preview.stop, contracts: preview.contracts, source: "manual" };
       if (active?.broker === "tradovate") {
         const acctGate = resolveAccountGate({ active, confirmed: readExecConfig().confirmedAccount });
         if (!acctGate.route) return { ok: false, blocked: true, code: "confirm_tradovate", preview, gate: acctGate };
         const { placeTradovateOrder } = await import("./execution/tradovate-adapter.js");
-        const result = await placeTradovateOrder({
+        const result = await withOrderIntent(intentBase, () => placeTradovateOrder({
           symbol: ctx.symbol,
           side: arg.side, type: "market", contracts: preview.contracts,
           stopLoss: preview.stop, takeProfit: preview.tp ?? undefined,
           currentAsk: ctx.price, currentBid: ctx.price,
-        });
+        }));
         return { ok: !!result.ok, broker: "tradovate", result, preview };
       }
 
-      const result = await tvAdapter.placeOrder({ symbol: ctx.symbol, side: arg.side, type: "market", entry: ctx.price, stop: preview.stop, tp: preview.tp ?? undefined, contracts: preview.contracts });
+      const result = await withOrderIntent(intentBase, () => tvAdapter.placeOrder({ symbol: ctx.symbol, side: arg.side, type: "market", entry: ctx.price, stop: preview.stop, tp: preview.tp ?? undefined, contracts: preview.contracts }));
       // Reflect the broker's actual HTTP result (mirrors the Tradovate path) —
       // a non-200 POST must not report ok:true / "ORDER SENT".
       return { ok: !!result?.ok, broker: "paper", result, preview };
@@ -270,6 +377,11 @@ export function registerExecutionIpc() {
         // Tradovate broker (sniffed from the webview's REST traffic).
         activeBroker: feed.activeBroker ?? "paper",
         tradovate: feed.tradovate ?? null,
+        // C5 ruling 2: main-sourced read timestamp so the renderer's freshness
+        // chips age the position/orders/price against when MAIN actually read
+        // the broker — not against a renderer round-trip. The renderer's own
+        // received-at stays as the separate bridge-liveness signal.
+        read_at: Date.now(),
       };
       return { ok: true, state };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
@@ -284,17 +396,28 @@ export function registerExecutionIpc() {
       // job). Without this branch the setup-accept fire path only ever hit TV
       // paper, so firing a setup while on Tradovate placed nothing.
       const active = getActiveAccount();
+      // B1: durable order-intent around the surfaced-setup fire path.
+      // C4: the renderer threads the journal accept's own decision_id here so
+      // the intent chain and the journal trade share ONE join key exactly. Fall
+      // back to a fresh derivation only when none was threaded.
+      const { deriveDecisionId } = await import("./execution/order-intent.js");
+      const decisionId = payload?.decision_id ?? deriveDecisionId({
+        packetId: payload?.id ?? `${payload?.symbol}|${payload?.side}|${payload?.entry}|${payload?.stop}`,
+        accountId: active?.id ?? null, session: null,
+        side: payload?.side, entry: payload?.entry, stop: payload?.stop,
+      });
+      const intentBase = { decision_id: decisionId, account_id: active?.id ?? null, broker: active?.broker ?? "paper", side: payload?.side, symbol: payload?.symbol, entry: payload?.entry, stop: payload?.stop, contracts: payload?.contracts ?? null, source: "setup" };
       if (active?.broker === "tradovate") {
         const acctGate = resolveAccountGate({ active, confirmed: readExecConfig().confirmedAccount });
         if (!acctGate.route) return { ok: false, blocked: true, code: "confirm_tradovate", gate: acctGate };
         const { placeTradovateOrder } = await import("./execution/tradovate-adapter.js");
         const { tradovateOrderArgsFromPayload } = await import("./execution/tradovate.js");
-        const result = await placeTradovateOrder(tradovateOrderArgsFromPayload(payload));
+        const result = await withOrderIntent(intentBase, () => placeTradovateOrder(tradovateOrderArgsFromPayload(payload)));
         return { ok: !!result?.ok, broker: "tradovate", result };
       }
       // Paper: reflect the broker's real HTTP result — a non-200 POST must not
       // report ok:true (mirrors placeManual).
-      const result = await tvAdapter.placeOrder(payload);
+      const result = await withOrderIntent(intentBase, () => tvAdapter.placeOrder(payload));
       return { ok: !!result?.ok, broker: "paper", result };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });

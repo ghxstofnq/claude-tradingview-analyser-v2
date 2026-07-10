@@ -16,6 +16,8 @@ import { Palette } from "./Palette.jsx";
 import { FlattenConfirm } from "./FlattenConfirm.jsx";
 import { PrepWizard } from "./PrepWizard.jsx";
 import { Toasts, CoachChip } from "./Toasts.jsx";
+import { useExitList } from "./exitList.helpers.js";
+import { PageMotionContext } from "./pageMotion.js";
 import { Page } from "./pages/Page.jsx";
 import { BriefingPage } from "./pages/BriefingPage.jsx";
 import { LivePage } from "./pages/LivePage.jsx";
@@ -43,6 +45,7 @@ import { classifyWalkerTransitions, describeSignal, signalEffects } from "./walk
 import { playChime } from "./chimes.js";
 import { parseInstantStop, orderResultToast, packetTicketSeed } from "../Orders.helpers.js";
 import { JournalPrompt } from "./JournalPrompt.jsx";
+import { reduceJournalClose } from "./JournalPrompt.helpers.js";
 
 let TOAST_SEQ = 0;
 
@@ -83,6 +86,21 @@ const PAGE_COMPONENTS = {
   backtest: BacktestPage, agent: AgentPage, settings: SettingsPage, system: SystemShellPage,
   risk: RiskShellPage, prefs: PrefsShellPage,
 };
+
+// Test-only render-crash injection for the page-containment harness (Task D1
+// scenario 10). Gated on import.meta.env.DEV, which Vite replaces with the
+// literal `false` in a production build — so this check AND the
+// window.__GOFNQ_FIXTURE_CRASH__ reference are dead-code-eliminated from the
+// shipped bundle (matching the fixture adapter's cleanliness). In dev/test the
+// global is only ever set by the Playwright fixture adapter. Rendered as a
+// sibling inside the per-page ErrorBoundary so the throw is contained exactly
+// like a real page crash.
+function FixtureCrashGuard({ page }) {
+  if (import.meta.env.DEV && typeof window !== "undefined" && window.__GOFNQ_FIXTURE_CRASH__ === page) {
+    throw new Error(`fixture-injected crash on the ${page} page`);
+  }
+  return null;
+}
 
 export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, currentPrice, onToggleTheme }) {
   const [page, setPage] = useState(null);
@@ -202,11 +220,17 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
 
   // Auto-journal note prompt (plan 2026-07-09 Task 5): main raises
   // journal:close after every recorded round-trip; the dismissible card asks
-  // for the optional "weakest pillar?" line. A newer close replaces an unread
-  // prompt — the rows themselves are already on disk.
+  // for the optional "weakest pillar?" line. The Claude-drafted suggestion
+  // (Track 2, ruled 2026-07-10) lands on a LATER journal:close for the same id
+  // (30-90s post-close), so reduceJournalClose merges it into a still-open card
+  // and ignores any emit for an already-saved/dismissed id — a late draft must
+  // never re-open a card the trader closed (which would steal focus and let a
+  // stale snapshot overwrite their saved note).
   const [jrRow, setJrRow] = useState(null);
+  const jrHandled = useRef(new Set());
   useEffect(() => {
-    const off = window.api?.journal?.onClose?.((row) => setJrRow(row));
+    const off = window.api?.journal?.onClose?.((row) =>
+      setJrRow((prev) => reduceJournalClose(prev, row, jrHandled.current)));
     return () => off?.();
   }, []);
 
@@ -429,27 +453,39 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   }, [events]);
 
   // Every ⌘1–7 page (Agent included) renders as a centered floating page inside
-  // the shared scrim + <Page> frame.
-  const PageComp = page ? PAGE_COMPONENTS[page] : null;
-  const pageProps = { onClose: () => setPage(null) };
-  if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice, onStartPrep: startPrep });
-  if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
-  if (page === "agent") Object.assign(pageProps, { chats });
-  if (page === "settings") Object.assign(pageProps, { guards, setGuards, symbol, onToast: addToast });
-  if (page === "system") Object.assign(pageProps, { pushToast: addToast });
-  const scrimShown = pal.open || flat.open || prep.open || !!page;
+  // the shared scrim + <Page> frame. A page stays mounted for one brief exit
+  // (motion v1) after it closes; a page→page switch cross-fades — the outgoing
+  // page fades via .is-closing while the incoming plays cmd-page-in.
+  const pageStack = useExitList(page ? [{ key: page }] : [], 150);
+  const pagePropsFor = (key) => {
+    const props = { onClose: () => setPage(null) };
+    if (key === "briefing") Object.assign(props, { symbol, currentPrice, onStartPrep: startPrep });
+    if (key === "live") Object.assign(props, { symbol, guards, onFlatten: openFlatten });
+    if (key === "review") Object.assign(props, { symbol });
+    if (key === "agent") Object.assign(props, { chats });
+    if (key === "settings") Object.assign(props, { guards, setGuards, symbol, onToast: addToast });
+    if (key === "system") Object.assign(props, { pushToast: addToast, symbol });
+    return props;
+  };
+  const anyLivePage = pageStack.some((p) => !p.closing);
+  const scrimShown = pal.open || flat.open || prep.open || pageStack.length > 0;
+  // Fade the scrim out alongside a closing page — but only when nothing else
+  // (palette / prep / flatten) still holds it open.
+  const scrimClosing = pageStack.length > 0 && !anyLivePage && !pal.open && !flat.open && !prep.open;
 
   return (
     <div className="app shell" onMouseDownCapture={refocus}>
-      <TopBar
-        symbol={symbol} setSymbol={setSymbol} guards={guards} exec={exec}
-        alertCount={alerts.armed.length + alerts.fired.length}
-        newsCount={newsCount} newsImminent={newsImminent}
-        onOpenPalette={() => openPalette()}
-        onOpenNews={() => openPalette("news")}
-        onOpenAlerts={() => openPalette("alerts")}
-        onVerClick={cycleVer} onRelaunchTv={relaunchTv} onOpenBriefing={() => openPage("briefing")}
-        onTrade={onTrade} slDraft={slDraft} setSlDraft={setSlDraft} />
+      <ErrorBoundary label="TOPBAR">
+        <TopBar
+          symbol={symbol} setSymbol={setSymbol} guards={guards} exec={exec}
+          alertCount={alerts.armed.length + alerts.fired.length}
+          newsCount={newsCount} newsImminent={newsImminent}
+          onOpenPalette={() => openPalette()}
+          onOpenNews={() => openPalette("news")}
+          onOpenAlerts={() => openPalette("alerts")}
+          onVerClick={cycleVer} onRelaunchTv={relaunchTv} onOpenBriefing={() => openPage("briefing")}
+          onTrade={onTrade} slDraft={slDraft} setSlDraft={setSlDraft} />
+      </ErrorBoundary>
 
       <div className="chart-host">
         <div className="chart-body">
@@ -461,17 +497,47 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       </div>
 
       {scrimShown && (
-        <div className="shell-scrim" onClick={dismiss}>
-          {PageComp && <PageComp {...pageProps} />}
+        <div className={"shell-scrim" + (scrimClosing ? " is-closing" : "")} onClick={dismiss}>
+          {/* Per-page containment (Task C5): a crash in one page renders its own
+              fallback and never blanks the shell — TopBar + FLATTEN stay alive.
+              LIVE is a money-path region → emergency variant (broker-confirmed
+              flatten in the fallback). resetKey={key} auto-recovers on switch.
+              A closing page (motion v1) is aria-hidden while it fades out. */}
+          {pageStack.map(({ key, closing }) => {
+            const Comp = PAGE_COMPONENTS[key];
+            if (!Comp) return null;
+            return (
+              /* display:contents wrapper carries aria-hidden while the ⌘K palette
+                 is open OVER a page (or while this page is closing), so a
+                 background/leaving page dialog leaves the a11y tree — one live
+                 role=dialog aria-modal at a time. */
+              <div key={key} style={{ display: "contents" }}
+                   aria-hidden={closing || pal.open ? "true" : undefined}>
+                <ErrorBoundary label={key} variant={key === "live" || key === "orders" ? "emergency" : "page"}
+                               resetKey={key}
+                               onOpenSystem={() => openPage("system")}
+                               onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
+                  {import.meta.env.DEV && <FixtureCrashGuard page={key} />}
+                  <PageMotionContext.Provider value={{ closing }}>
+                    <Comp {...pagePropsFor(key)} />
+                  </PageMotionContext.Provider>
+                </ErrorBoundary>
+              </div>
+            );
+          })}
           {pal.open && (
-            <Palette
-              query={pal.query} onQuery={(q) => setPal((p) => ({ ...p, query: q, sel: 0 }))}
-              sel={pal.sel} onHover={(i) => setPal((p) => ({ ...p, sel: i }))}
-              forcedView={pal.forced} askQuery={pal.askQuery} packetSeed={pal.seed}
-              commands={commands} symbol={symbol} chat={chats?.claude}
-              alerts={alerts} events={events} workingOrders={exec?.workingOrders || []}
-              onRunCommand={runCommand} onDisarm={disarmAlert}
-              onCancelAll={cancelAllOrders} onToast={addToast} onClose={closePalette} />
+            <ErrorBoundary label="COMMAND PALETTE" variant="emergency"
+                           onOpenSystem={() => openPage("system")}
+                           onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
+              <Palette
+                query={pal.query} onQuery={(q) => setPal((p) => ({ ...p, query: q, sel: 0 }))}
+                sel={pal.sel} onHover={(i) => setPal((p) => ({ ...p, sel: i }))}
+                forcedView={pal.forced} askQuery={pal.askQuery} packetSeed={pal.seed}
+                commands={commands} symbol={symbol} chat={chats?.claude}
+                alerts={alerts} events={events} workingOrders={exec?.workingOrders || []}
+                onRunCommand={runCommand} onDisarm={disarmAlert}
+                onCancelAll={cancelAllOrders} onToast={addToast} onClose={closePalette} />
+            </ErrorBoundary>
           )}
           {prep.open && (
             <PrepWizard step={prep.step} onNext={prepNext} onBack={prepBack} onClose={closePrep}
@@ -487,8 +553,8 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       )}
 
       <Toasts toasts={toasts} onDismiss={dismissToast} />
-      <JournalPrompt row={jrRow} onDone={(saved) => { setJrRow(null); if (saved) addToast("journal note saved", "green"); }} />
-      {coach && !page && !pal.open && !flat.open && !prep.open && <CoachChip onClose={() => setCoach(false)} />}
+      <JournalPrompt key={jrRow?.id} row={jrRow} onDone={(saved) => { if (jrRow?.id) jrHandled.current.add(jrRow.id); setJrRow(null); if (saved) addToast("journal note saved", "green"); }} />
+      {coach && pageStack.length === 0 && !pal.open && !flat.open && !prep.open && <CoachChip onClose={() => setCoach(false)} />}
     </div>
   );
 }

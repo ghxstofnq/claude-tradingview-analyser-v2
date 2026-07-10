@@ -13,6 +13,7 @@ import { userTurn } from "./sdk.js";
 import { runDirectSessionWrap } from "./direct-session-wrap.js";
 import { record as recordMetric } from "./metrics.js";
 import { getPersistentMemory } from "./persistent-memory.js";
+import { extractMarkedSection } from "./prose-section.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -86,16 +87,93 @@ Required action:
 5. End the turn by calling mcp__tv__surface_session_summary with session="${session}" and the structured payload. The summary's frontmatter should carry a chain_audit block summarizing what each phase produced (brief: primary_draw + chain_status, open_reaction: leader + alignment + chain_status, entry_hunt: setups_count + max_grade_reached, outcome: primary_draw_reached bool). Skip surface_setup and surface_no_trade for wrap turns.`;
 }
 
+// The review turn streams its WHOLE reasoning — memory chatter, file-reading
+// commentary, "Nothing to save." — before (optionally) the trader-facing
+// critique. Slice out only the critique: the text under the LAST line-anchored
+// `## CRITIQUE` heading (discard everything before it, incl. the heading line).
+// No such heading → null (better absent than polluted). Line-anchored +
+// last-occurrence so an inline mention or an earlier code-fence can't
+// false-trigger. Pure — exported for tests. Delegates to the shared
+// extractMarkedSection so the coach narration (Track 2 §2b item 2) reuses the
+// exact same slicing for its `## COACH` marker.
+export function extractCritiqueSection(prose) {
+  return extractMarkedSection(prose, "CRITIQUE");
+}
+
+// Assemble the critique.md contents (frontmatter + body). Pure — exported for
+// tests. Returns null when there is no prose to persist (so the caller writes
+// no file and the Review card simply doesn't render).
+export function buildCritiqueFile({ text, session, provider, ts }) {
+  const body = String(text ?? "").trim();
+  if (!body) return null;
+  const fm = [
+    "---",
+    `ts: ${ts || new Date().toISOString()}`,
+    `session: ${session || ""}`,
+    `provider: ${provider || "claude"}`,
+    "---",
+    "",
+    body,
+    "",
+  ].join("\n");
+  return fm;
+}
+
+// Resolve critique.md for `session` under the current state root (GOFNQ_STATE_DIR
+// aware, so this write lands exactly where review.js getJournalFor reads).
+async function critiquePathFor(session) {
+  const root = process.env.GOFNQ_STATE_DIR || path.join(REPO_ROOT, "state");
+  const { date } = nyParts();
+  const dir = path.join(root, "session", date, session);
+  await fs.mkdir(dir, { recursive: true });
+  return path.join(dir, "critique.md");
+}
+
+// Hard cap on the critique write. A cosmetic post-wrap file must never hold the
+// wrap chain open — a hung fs write just means no critique this session.
+const CRITIQUE_WRITE_TIMEOUT_MS = 5_000;
+
+// Race a promise against a timeout. Leak-proof: the timer is always cleared in
+// the .finally whichever side wins, so it never lingers. The losing promise
+// stays observed by Promise.race, so its eventual settlement never surfaces as
+// an unhandled rejection.
+function withTimeout(promise, ms) {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+
+// Default persister — best-effort disk write of the review turn's prose.
+async function persistCritique({ session, text, provider, ts }) {
+  const contents = buildCritiqueFile({ text, session, provider, ts });
+  if (!contents) return null;
+  const p = await critiquePathFor(session);
+  await fs.writeFile(p, contents, "utf8");
+  return p;
+}
+
 // Post-wrap memory-review turn — fires after each successful wrap. The
 // review reads <sdir>/summary.md + setups.jsonl and decides whether to
 // update persistent memory with trader preferences or cross-day patterns.
 // Modeled on Hermes Agent's background_review fork
 // (docs/research/hermes-memory-architecture.md, Layer 4).
 //
+// Track 2 §2b item 1: the turn's prose (its session critique) is captured and
+// written to <sdir>/critique.md so the Review page can surface the reasoning
+// the user otherwise never sees. Memory-ops behavior is unchanged — the
+// critique is just the final prose block, persisted best-effort.
+//
 // Fire-and-forget: errors are caught + logged, never bubble back to fail
 // the wrap. Timeout is tight (60s) — review is bounded, and failure
-// shouldn't block the next bar-close.
-async function fireReviewTurn(session) {
+// shouldn't block the next bar-close. Deps are injectable for tests.
+export async function fireReviewTurn(session, {
+  turn = userTurn,
+  persist = persistCritique,
+  metric = recordMetric,
+  persistTimeoutMs = CRITIQUE_WRITE_TIMEOUT_MS,
+} = {}) {
   // Inject a usage hint so the model knows when consolidation matters.
   // Loads memory just to get the current usage % — cheap (one disk read).
   let usageHint = "";
@@ -124,18 +202,23 @@ async function fireReviewTurn(session) {
     `state/session/<date>/${session}/setups.jsonl, then update persistent ` +
     `memory per your system prompt guidance.${usageHint}`;
 
-  recordMetric({ kind: "review", event: "started", session });
+  metric({ kind: "review", event: "started", session });
   const startedAt = Date.now();
   let errored = false;
   let usage = null;
+  let prose = "";
+  let provider = "claude";
   try {
-    await userTurn({
+    await turn({
       text,
       purpose: "review",
       // Tight timeout — review is bounded; failure shouldn't block next session.
       timeoutMs: 60_000,
       onEvent: (e) => {
+        if (!e) return;
+        if (e.provider) provider = e.provider;
         if (e.type === "usage") { usage = e.usage; }
+        else if (e.type === "chunk" && typeof e.text === "string") { prose += e.text; }
         else if (e.type === "error") {
           errored = true;
           // eslint-disable-next-line no-console
@@ -143,7 +226,7 @@ async function fireReviewTurn(session) {
         }
       },
     });
-    recordMetric({
+    metric({
       kind: "review",
       event: errored ? "failed" : "succeeded",
       session,
@@ -153,13 +236,32 @@ async function fireReviewTurn(session) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(`[session-wrap] review turn threw`, err?.message || err);
-    recordMetric({
+    metric({
       kind: "review",
       event: "failed",
       session,
       reason: String(err?.message || err),
       durationMs: Date.now() - startedAt,
     });
+    return; // the turn never completed — no critique to persist.
+  }
+
+  // Persist the critique best-effort. Only the text under the final
+  // `## CRITIQUE` heading is kept — the pre-critique reasoning is discarded. No
+  // heading (or a failed turn) → no file (the card won't render). The write is
+  // time-boxed and its failure swallowed, so the wrap chain is untouched even
+  // if the disk write hangs.
+  const critique = errored ? null : extractCritiqueSection(prose);
+  if (critique) {
+    try {
+      await withTimeout(
+        Promise.resolve(persist({ session, text: critique, provider, ts: new Date().toISOString() })),
+        persistTimeoutMs,
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[session-wrap] critique write failed`, err?.message || err);
+    }
   }
 }
 

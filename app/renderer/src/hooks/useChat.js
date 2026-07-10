@@ -13,7 +13,17 @@ import { shouldProviderHandleEvent } from "../provider-popover-contract.js";
 // prose must not leak into BRAIN. chat:chunk events are purpose-tagged by the
 // sender (bar-close.js) so the renderer can route them.
 export function isNarrationPurpose(purpose) {
-  return purpose === "bar-close" || purpose === "catch-up" || purpose === "catch_up";
+  return purpose === "bar-close";
+}
+
+// Purposes that own a dedicated render surface and must NOT push activity rows
+// into the shared CLAUDE/BRAIN feed: `chat` renders its own prose stream,
+// `analysis` (Track 2 §2b item 3) renders on the PREP/LIVE panel that asked for
+// it, and `explain` (Track 2 §2b item 5) renders inline on the System page's
+// ANOMALIES card. Their global-activity events still flip the CLAUDE "working"
+// dot, but they never spawn "▸ PURPOSE · started" rows in the conversation feed.
+export function isDedicatedChannelPurpose(purpose) {
+  return purpose === "chat" || purpose === "analysis" || purpose === "explain";
 }
 
 // #20 Gate verbose console logging behind a localStorage flag so
@@ -113,7 +123,7 @@ export function useChat({ provider = "claude" } = {}) {
       dlog("[useChat] turn_complete", ev);
       // #63 Append a one-line duration footer to the streaming reply so
       // the trader sees "took 47s" without a separate panel. Skip if
-      // duration is missing (catch-up turns currently don't emit it).
+      // duration is missing.
       if (ev?.durationMs && streamingIdxRef.current != null) {
         setMessages((prev) => {
           const idx = streamingIdxRef.current;
@@ -167,7 +177,7 @@ export function useChat({ provider = "claude" } = {}) {
     // Global activity stream — every userTurn across all purposes. The
     // chat purpose has its own dedicated handlers above, so we skip
     // chat-purpose events here to avoid duplicating the prose. Other
-    // purposes (bar-close, brief, wrap, review, catch-up) get a compact
+    // purposes (bar-close, brief, wrap, review) get a compact
     // activity row showing start → tool calls → end with duration.
     const offActivity = window.api?.claude?.onActivity?.((ev) => {
       if (!shouldProviderHandleEvent(provider, ev)) return;
@@ -185,10 +195,10 @@ export function useChat({ provider = "claude" } = {}) {
           const next = new Set(prev); next.delete(purpose); return next;
         });
       }
-      // Skip chat-purpose activity messages — the dedicated chat:* flow
-      // above already renders the actual prose. We only want to *show*
-      // the autonomous purposes (bar-close, brief, etc.) here.
-      if (purpose === "chat") return;
+      // Skip dedicated-channel purposes (chat + analysis) — each renders its own
+      // prose on its own surface, so they must never spawn activity rows in this
+      // feed. We only *show* the autonomous purposes (bar-close, brief, etc.).
+      if (isDedicatedChannelPurpose(purpose)) return;
       const purposeLbl = purpose.toUpperCase();
       if (ev.type === "activity_start") {
         setMessages((prev) => {

@@ -143,6 +143,53 @@ export function registerIpc(win) {
     }
   });
 
+  // On-demand PREP/LIVE deep read (Track 2 §2b item 3). Runs under the isolated
+  // "analysis" purpose on its own `analysis:*` channel — NOT the shared chat
+  // channel — so a deep read never pollutes the chat session/context and its
+  // prose never leaks into the CLAUDE/BRAIN feed. resetSession fires per run
+  // (inside runAnalysisTurn), so each read is a fresh, independent question.
+  ipcMain.handle("analysis:run", async (_evt, { text, provider } = {}) => {
+    const { runAnalysisTurn } = await import("./analysis-turn.js");
+    return runAnalysisTurn({
+      text,
+      provider,
+      onEvent: (ev) => {
+        if (ev.type === "chunk") send("analysis:chunk", ev);
+        else if (ev.type === "tool_call") send("analysis:tool_call", ev);
+        else if (ev.type === "turn_complete") send("analysis:turn_complete", ev);
+        else if (ev.type === "queued") send("analysis:queued", ev);
+        else if (ev.type === "queue_ready") send("analysis:queue_ready", ev);
+        else if (ev.type === "error") send("app:error", { source: "ipc:analysis", message: ev.message, provider: ev.provider });
+      },
+    });
+  });
+
+  // On-demand anomaly explainer (Track 2 §2b item 5). When readiness goes red or
+  // an app:error fires, the operator clicks EXPLAIN on the System page. Runs under
+  // the isolated "explain" purpose on its own `explain:*` channel — never the
+  // chat channel. The renderer passes the anomaly `event` + a fresh `readiness`
+  // snapshot (from the readiness:get IPC); we add the last health snapshot
+  // (getLastHealth) here so the whole context is main-authoritative. A failure is
+  // relayed on `explain:error` (rendered inline on the System page), NOT on
+  // app:error — so explaining an app:error can't spawn a fresh app:error into the
+  // very list the explanation renders in. The main-side in-flight gate (inside
+  // runExplainTurn) rejects a second concurrent EXPLAIN.
+  ipcMain.handle("explain:run", async (_evt, { event, readiness, provider } = {}) => {
+    const { runExplainTurn } = await import("./explain-turn.js");
+    const { getLastHealth } = await import("./health.js");
+    return runExplainTurn({
+      event,
+      readiness: readiness ?? null,
+      health: getLastHealth(),
+      provider,
+      onEvent: (ev) => {
+        if (ev.type === "chunk") send("explain:chunk", ev);
+        else if (ev.type === "turn_complete") send("explain:turn_complete", ev);
+        else if (ev.type === "error") send("explain:error", { source: "ipc:explain", message: ev.message, provider: ev.provider });
+      },
+    });
+  });
+
   // Daily usage insight — sums today's spend across all turns. Backs the
   // dashboard's "today's spend" panel.
   ipcMain.handle("usage:today", async () => {
@@ -425,6 +472,46 @@ export function registerIpc(win) {
     try {
       return { ok: true, rows: await getLibrary({ limit: args.limit }) };
     } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  // Weekly coach narration (Track 2 §2b item 2). Read the persisted coach.md
+  // (absent → no card); the renderer parses/sanitizes the raw text. Also compute
+  // the CURRENT digest hash so the card can flag a stale read (stored != current)
+  // — the stored hash rode in on the coach.md frontmatter.
+  ipcMain.handle("review:coach_get", async () => {
+    try {
+      const { readCoachRaw, parseStoredDigestHash, computeCurrentDigestHash } = await import("./coach-assist.js");
+      const { getRecentJournals } = await import("./review.js");
+      const coach = await readCoachRaw();
+      if (!coach) return { ok: true, coach: null };
+      const stored_hash = parseStoredDigestHash(coach);
+      let current_hash = null;
+      try { current_hash = await computeCurrentDigestHash({ loadJournals: getRecentJournals }); } catch { /* best-effort */ }
+      return { ok: true, coach, stored_hash, current_hash };
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  // On-demand: build the deterministic digest over recent sessions and run one
+  // coach turn. The session fold runs INSIDE the in-flight gate (passed as a lazy
+  // loader), so a rapid double-click is rejected before it double-folds disk. On
+  // any failure NO file is written and the error is surfaced via app:error so
+  // the renderer shows a toast and re-enables the button.
+  ipcMain.handle("review:coach_generate", async (_evt, args = {}) => {
+    try {
+      const { getRecentJournals } = await import("./review.js");
+      const { generateCoach, COACH_DEFAULT_SESSIONS } = await import("./coach-assist.js");
+      const limit = Number(args?.limit) > 0 ? Number(args.limit) : COACH_DEFAULT_SESSIONS;
+      const res = await generateCoach({ loadJournals: getRecentJournals, limit });
+      if (!res.ok && !res.inFlight) {
+        send("app:error", { source: "review:coach", level: "warn", message: res.error || "coach read failed" });
+      }
+      return res;
+    } catch (err) {
+      send("app:error", { source: "review:coach", level: "warn", message: String(err?.message || err) });
       return { ok: false, error: String(err?.message || err) };
     }
   });

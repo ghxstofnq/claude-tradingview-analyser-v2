@@ -25,6 +25,8 @@ import {
   readBaseline, readHistory, refoldBaseline,
   listTests, readTest, writeTestVerdict, deleteTest,
 } from "./backtest-baseline.js";
+import { collectBacktestReadiness, foldCertifiedBaseline } from "../../cli/lib/backtest-readiness.js";
+import { certifyCorpus } from "../../cli/lib/corpus-certification.js";
 import { acquireChartForBacktest, releaseChartAfterBacktest } from "./backtest-lock.js";
 import { stopDetector } from "./bar-close.js";
 import { setMode } from "./mode.js";
@@ -138,8 +140,22 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
   // ── Faithful baseline (fold-week regen + AM->PM carry) ────────────────
   // get is cheap (reads the cached file); refold re-folds the corpus (pure
   // compute, no TV) and can take ~1-2 min for a full symbol corpus.
-  ipcMain.handle("backtest:baseline:get", async (_evt, { symbol }) => ({
-    baseline: readBaseline({ stateDir: STATE_DIR, symbol }),
+  ipcMain.handle("backtest:baseline:get", async (_evt, { symbol }) => {
+    const baseline = readBaseline({ stateDir: STATE_DIR, symbol });
+    return {
+      baseline,
+      readiness: await collectBacktestReadiness({ stateDir: STATE_DIR, symbol, cwd: process.cwd(), env: process.env, baseline }),
+    };
+  });
+
+  ipcMain.handle("backtest:readiness:get", async (_evt, { symbol }) => ({
+    readiness: await collectBacktestReadiness({
+      stateDir: STATE_DIR,
+      symbol,
+      cwd: process.cwd(),
+      env: process.env,
+      baseline: readBaseline({ stateDir: STATE_DIR, symbol }),
+    }),
   }));
 
   ipcMain.handle("backtest:baseline:history", async (_evt, { symbol }) => ({
@@ -147,8 +163,15 @@ export function registerBacktestIpc(win, { deps = PROD_DEPS } = {}) {
   }));
 
   ipcMain.handle("backtest:baseline:refold", async (_evt, { symbol, reason }) => {
-    const baseline = await refoldBaseline({ stateDir: STATE_DIR, symbol, reason });
-    return { baseline };
+    const certification = certifyCorpus({ stateDir: STATE_DIR });
+    const baseline = await refoldBaseline({
+      stateDir: STATE_DIR,
+      symbol,
+      reason,
+      fold: (opts) => foldCertifiedBaseline({ ...opts, certification }),
+    });
+    const readiness = await collectBacktestReadiness({ stateDir: STATE_DIR, symbol, cwd: process.cwd(), env: process.env, baseline });
+    return { baseline, readiness };
   });
 
   // ── Fold-tests (accept/reject records; created out-of-band by the script) ──

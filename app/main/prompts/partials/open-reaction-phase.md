@@ -102,7 +102,7 @@ If `htf_ltf_alignment: divergent`:
 - Leader decision uses verbatim `pair.leader_evidence.reason`.
 - `entry_model_priority` matches the decision tree.
 - `grade_cap` is `B` if and only if `htf_ltf_alignment == divergent`.
-- Backfill case (caught up after window) → `chain_status: backfilled:open_reaction` + `grade_cap: B` (see `<phase name="catch_up">`).
+- Backfill case (caught up after window) → `chain_status: backfilled:open_reaction` + `grade_cap: B`.
 
 If any check fails, fix the payload, then call `surface_leader_decision` + `surface_ltf_bias`.
 

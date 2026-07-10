@@ -270,6 +270,11 @@ export function foldOpenTrades(events) {
       // never affects backtest≡live parity.
       const t = byId.get(ev.setup_id);
       if (!t || t.state !== "pending_entry") continue;
+      // Ambiguous submit (B1): a fetch-failed / timed-out entry POST. We DON'T
+      // know if the order landed, so NEVER invalidate (that could abandon a real
+      // live position). Hold the trade open but flagged so the grader skips it
+      // until the boot reconciler settles it against the broker.
+      if (ev.recovery === true) { t.state = "recovery_held"; continue; }
       const paperFailed = ev.broker === "paper" && ev.stopOrderId == null && ev.limitOrderId == null;
       const tradovateFailed = ev.broker === "tradovate" && ev.ok === false;
       if (ev.error || paperFailed || tradovateFailed) {

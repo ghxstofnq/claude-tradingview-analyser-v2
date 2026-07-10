@@ -15,14 +15,51 @@ describe("per-purpose tool allow-list (C26)", () => {
   it("only the live-chain purposes expose surface_setup / surface_no_trade", () => {
     for (const [purpose, tools] of Object.entries(TOOLS_BY_PURPOSE)) {
       const hasSetup = tools.includes("surface_setup") || tools.includes("surface_no_trade");
-      if (purpose === "bar-close" || purpose === "catch-up") assert.ok(hasSetup, `${purpose} should have setup tools`);
+      if (purpose === "bar-close") assert.ok(hasSetup, `${purpose} should have setup tools`);
       else assert.ok(!hasSetup, `${purpose} must NOT expose setup tools`);
     }
   });
-  it("chat and review cannot author any surface_* state", () => {
-    for (const p of ["chat", "review"]) {
+  it("chat, review, analysis and explain cannot author any surface_* state", () => {
+    for (const p of ["chat", "review", "analysis", "explain"]) {
       assert.ok(!TOOLS_BY_PURPOSE[p].some((t) => t.startsWith("surface_")), `${p} must expose no surface_* tool`);
     }
+  });
+  it("journal authors no surface / trade tools (Read/Glob built-ins aside)", () => {
+    // The post-close journal assist (Track 2, ruled 2026-07-10) maps to an empty
+    // tool list: no surface_*, no alerts, no analyze captures. Read/Glob remain
+    // reachable via buildAllowedToolNames (same as review) but the turn needs none.
+    assert.deepEqual(TOOLS_BY_PURPOSE.journal, [], "journal must map to an empty tool list");
+    const allowed = buildAllowedToolNames("journal");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "journal must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "journal must reach no surface_* tool");
+  });
+  it("coach authors no surface / trade tools (Read/Glob built-ins aside)", () => {
+    // The on-demand coach narrator (Track 2 §2b item 2) maps to an empty tool
+    // list: no surface_*, no alerts, no analyze captures — pure prose over a
+    // deterministic digest. Read/Glob remain reachable but the turn needs none.
+    assert.deepEqual(TOOLS_BY_PURPOSE.coach, [], "coach must map to an empty tool list");
+    const allowed = buildAllowedToolNames("coach");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "coach must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "coach must reach no surface_* tool");
+  });
+  it("analysis authors no surface / trade / alert tools (Read/Glob built-ins aside)", () => {
+    // The on-demand deep-read (Track 2 §2b item 3) maps to an empty tool list:
+    // no surface_*, no alerts (it drops chat's ALERT_TOOLS), no analyze captures.
+    // The deterministic bundle arrives via the prompt/state; the turn only reads.
+    assert.deepEqual(TOOLS_BY_PURPOSE.analysis, [], "analysis must map to an empty tool list");
+    const allowed = buildAllowedToolNames("analysis");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "analysis must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "analysis must reach no surface_* tool");
+  });
+  it("explain authors no surface / trade / alert / memory tools (Read/Glob built-ins aside)", () => {
+    // The on-demand anomaly explainer (Track 2 §2b item 5) maps to an empty tool
+    // list: the anomaly + readiness + health context arrives in the prompt, so it
+    // needs no tools. No surface_*, no alerts, no captures, no memory write.
+    assert.deepEqual(TOOLS_BY_PURPOSE.explain, [], "explain must map to an empty tool list");
+    const allowed = buildAllowedToolNames("explain");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "explain must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "explain must reach no surface_* tool");
+    assert.ok(!allowed.some((t) => /memory/i.test(t)), "explain must reach no memory-write tool");
   });
   it("brief owns only surface_session_brief; wrap owns only surface_session_summary", () => {
     assert.ok(TOOLS_BY_PURPOSE.brief.includes("surface_session_brief"));

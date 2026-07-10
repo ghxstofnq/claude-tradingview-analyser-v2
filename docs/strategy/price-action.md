@@ -93,5 +93,7 @@ displacement, or two-sided doji delivery; the old verdict regex-matched
 `displacement:"weak"`. Aggregation: a tight range vetoes on one LTF alone; otherwise
 both 5m+15m must be bad to stand aside (oracle 06-17), a mix is marginal/tradeable
 (oracle 06-18). Still a gap: **gap size does not gate target validity** (a tiny gap can
-still be a TP — Stage C/D). The 15-minute fight-timeout is implemented. Details + `file:line`:
-[`lanto-source-of-truth.md`](lanto-source-of-truth.md) §2.
+still be a TP — Stage C/D). The 15-minute fight-timeout is implemented. Full trace
+(re-verified 2026-07-10):
+[`../audits/2026-07-10-strategy-gap-matrix.md`](../audits/2026-07-10-strategy-gap-matrix.md)
+(Pillar 2) and [`lanto-source-of-truth.md`](lanto-source-of-truth.md) §2.

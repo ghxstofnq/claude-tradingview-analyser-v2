@@ -1,6 +1,50 @@
 // Pure helpers for Live.jsx — extracted so they can be unit-tested with
 // `node --test`. Importing this file has no side effects.
 
+// pnlDisplay — decide how a P&L cell renders given the freshness of the broker
+// read (Task C3/C5). When the execution state is stale (a broker-read outage),
+// the money number renders in a neutral STALE state — no live-green/red — so
+// last-known P&L is never mistaken for live. Pure; the renderer maps tone
+// "stale" to a greyed style + a STALE marker.
+export function pnlDisplay(cell, stale) {
+  if (!cell) return { v: "—", tone: "", stale: false };
+  if (stale) return { v: cell.v, tone: "stale", stale: true };
+  return { v: cell.v, tone: cell.tone || "", stale: false };
+}
+
+// parsePnlR — pull the signed R magnitude out of a liveGridFromTrade pnl cell
+// value ("+1.5 R", "-0.75 R", "+0 R"). Returns a finite number, or null for the
+// non-numeric states ("PENDING", "—"). Used to gate the P&L value tick so only a
+// real, filled position with a live R can pulse.
+export function parsePnlR(v) {
+  if (typeof v !== "string" || !/r/i.test(v)) return null;
+  const m = v.match(/-?\d+(?:\.\d+)?/);
+  const n = m ? Number(m[0]) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+// pnlTickBucket — the motion-v1 milestone bucket for live P&L. It changes ONLY on
+// a sign flip (profit↔loss, i.e. the break-even crossing) or a 0.5R step, so
+// feeding it to useValueTick pulses the money number on a meaningful move rather
+// than on every 2s poll. floor(r / 0.5) is the band index: it steps at each 0.5R
+// and flips across 0, capturing both the BE crossing and every ±0.5R milestone.
+export function pnlTickBucket(r) {
+  if (r == null || !Number.isFinite(r)) return "na";
+  return `r${Math.floor(r / 0.5)}`;
+}
+
+// Live footer copy, mode-aware (Task C2-c). The old footer hardcoded "fires only
+// after your accept", which is FALSE in AUTO. This returns copy that matches the
+// real execution path for the current automation mode:
+//   manual / suggest → every entry requires your accept
+//   auto             → fires automatically when all deterministic + risk gates pass
+export function liveFooterCopy(mode) {
+  const m = String(mode || "manual").toLowerCase();
+  if (m === "auto") return "⚡ AUTO — fires automatically when all gates pass";
+  if (m === "suggest") return "✓ SUGGEST — alerts on a proposal; requires your accept";
+  return "✓ MANUAL — fires only after your accept";
+}
+
 // Normalize a position/order "side" to "long" | "short" | null, accepting every
 // vocabulary the execution feeds emit: order side ("buy"/"sell"), TradingView's
 // positions-table Side column read from the DOM ("long"/"short", lowercased at

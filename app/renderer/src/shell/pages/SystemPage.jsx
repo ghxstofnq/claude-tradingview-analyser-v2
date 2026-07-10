@@ -5,7 +5,7 @@
 // RESET actions have NO backend IPC, so they are omitted rather than faked;
 // Supervisor STOP/RESTART proxy to the real detector start/stop.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Page } from "./Page.jsx";
 import { PAGE_ICONS } from "../shell.constants.js";
 import { clickable } from "../../a11y.js";
@@ -15,6 +15,11 @@ import { useFiles } from "../../hooks/useFiles.js";
 import { useFixtures } from "../../hooks/useFixtures.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useCalendar } from "../../hooks/useCalendar.js";
+import { useReadiness } from "../../hooks/useReadiness.js";
+import { useExplain } from "../../hooks/useExplain.js";
+import { useAppErrors } from "../../hooks/useAppErrors.js";
+import { buildAnomalies } from "../anomalies.helpers.js";
+import { ReadinessCard } from "../../Readiness.jsx";
 import { FileViewer } from "../../FileViewer.jsx";
 
 function HRow({ tone, name, value, valWarn, action }) {
@@ -29,12 +34,80 @@ function HRow({ tone, name, value, valWarn, action }) {
   );
 }
 
-function SystemBody({ pushToast }) {
+// ANOMALIES — the ONE durable surface for the anomaly explainer (Track 2 §2b
+// item 5). It merges the two anomaly sources the operator would otherwise have to
+// decode by hand: the RED readiness blockers (already on this page) and captured
+// app:error events (otherwise ephemeral — they flash into the chat feed and
+// scroll away). EXPLAIN fires one isolated `explain` turn that renders its plain-
+// language reply INLINE, below the row — never in the chat/BRAIN feed. The reply
+// is rendered as React text nodes (no dangerouslySetInnerHTML), so an error
+// message carrying markup is shown literally, never interpreted.
+function AnomaliesCard({ readiness, symbol }) {
+  const { errors } = useAppErrors();
+  const { text, running, error, activeKey, explain, dismiss } = useExplain({ symbol });
+  const anomalies = buildAnomalies({ readiness, errors });
+
+  return (
+    <div className="cs-sys-anom">
+      <span className="cs-card-label-lg">ANOMALIES</span>
+      {anomalies.length === 0 ? (
+        <div className="cs-anom-empty">No anomalies — readiness is clear and no runtime errors have fired.</div>
+      ) : (
+        <div className="cs-anom-list">
+          {anomalies.map((a) => {
+            const isActive = activeKey === a.key;
+            const busy = running && isActive;
+            return (
+              <div key={a.key} className={"cs-anom-row is-" + a.tone}>
+                <div className="cs-anom-head">
+                  <span className={"cs-anom-dot is-" + a.tone} />
+                  <span className="cs-anom-kind">{a.kind === "readiness" ? "GATE" : "ERROR"}</span>
+                  <span className="cs-anom-label">{a.label}</span>
+                  <span className="cs-anom-detail" title={a.detail}>{a.detail}</span>
+                  <span
+                    className={"cs-anom-explain" + (running ? " is-disabled" : "")}
+                    {...(running ? { "aria-disabled": "true" } : clickable(() => explain(a), { label: "explain " + a.label }))}
+                  >{busy ? "EXPLAINING…" : "EXPLAIN"}</span>
+                </div>
+                {isActive && (running || text || error) && (
+                  <div className="cs-anom-out">
+                    {error ? (
+                      <span className="cs-anom-out-err">{error}</span>
+                    ) : text ? (
+                      <>
+                        {text.split(/\n{2,}/).filter(Boolean).map((para, i) => (
+                          <p key={i} className="cs-anom-out-p">{para}</p>
+                        ))}
+                        {!running && (
+                          <span className="cs-anom-dismiss" {...clickable(dismiss, { label: "dismiss explanation" })}>DISMISS</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="cs-anom-out-wait">reading…</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SystemBody({ pushToast, symbol }) {
   const health = useHealth();
   const version = useVersion();
   const exec = useExecutionState();
   const events = useCalendar();
+  // Same active symbol Settings uses — so the two surfaces never disagree on "ready".
+  const { readiness, loading: rdyLoading } = useReadiness(symbol);
   const { date, files } = useFiles();
+  // 1s tick so the IPC-bridge probe age below advances (and can go stale) even
+  // when no new health event lands.
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => { const h = setInterval(() => setNowTick(Date.now()), 1000); return () => clearInterval(h); }, []);
   // listSessionFiles returns every candidate path incl. exists:false phantoms
   // (fresh day). Only surface files that actually exist — OPEN/REVEAL on a
   // missing path is a no-op / "file not found".
@@ -45,6 +118,14 @@ function SystemBody({ pushToast }) {
   const loopTone = loop === "healthy" ? "ok" : loop === "stale" ? "warn" : "bad";
   const loopVal = loop === "healthy" ? "running" : loop === "stale" ? "stale" : "stopped";
   const cdp = health?.cdp; // up | down | unknown
+
+  // IPC bridge probe (C2-a): the main→renderer round-trip that delivers
+  // health:update IS the probe. `_recv_at` is stamped on every event; a fresh
+  // stamp proves the bridge is live. No hardcoded "ok".
+  const bridgeAgeS = health?._recv_at ? Math.max(0, Math.round((nowTick - health._recv_at) / 1000)) : null;
+  const bridge = bridgeAgeS == null ? { tone: "warn", val: "waiting…" }
+    : bridgeAgeS <= 6 ? { tone: "ok", val: `ok · ${bridgeAgeS}s` }
+      : { tone: "bad", val: `no events ${bridgeAgeS}s` };
   const [tvBusy, setTvBusy] = useState(false);
   const relaunchTv = async () => {
     if (tvBusy) return;
@@ -95,6 +176,11 @@ function SystemBody({ pushToast }) {
 
   return (
     <div className="cs-sys">
+      <div className="cs-sys-rdy">
+        <span className="cs-card-label-lg">READINESS</span>
+        <ReadinessCard readiness={readiness} loading={rdyLoading} pushToast={pushToast} variant="full" />
+      </div>
+      <AnomaliesCard readiness={readiness} symbol={symbol} />
       <div className="cs-sys-grid">
         <div className="cs-card">
           <span className="cs-card-label-lg">HEALTH</span>
@@ -106,7 +192,7 @@ function SystemBody({ pushToast }) {
                   action={cdp === "down"
                     ? <span className="cs-health-retry" {...clickable(relaunchTv, { label: "relaunch TradingView with CDP" })}>{tvBusy ? "RELAUNCHING…" : "RELAUNCH"}</span>
                     : null} />
-            <HRow tone="ok" name="IPC bridge" value="ok" />
+            <HRow tone={bridge.tone} name="IPC bridge" value={bridge.val} valWarn={bridge.tone !== "ok"} />
             <HRow tone={calTone} name="Calendar feed" value={calN > 0 ? `${calN} events` : "no feed"} valWarn={calN === 0}
                   action={calN === 0 ? <span className="cs-health-retry" {...clickable(retryCal, { label: "retry calendar" })}>RETRY</span> : null} />
             <HRow tone={loopTone} name="Bar-close engine" value={loopVal} />
@@ -179,11 +265,11 @@ function SystemBody({ pushToast }) {
   );
 }
 
-export function SystemShellPage({ onClose, pushToast }) {
+export function SystemShellPage({ onClose, pushToast, symbol }) {
   return (
     <Page icon={PAGE_ICONS.system} tint="mute" title="System" page="system"
           sub="health · versions · files" hint="ops & diagnostics" onClose={onClose}>
-      <SystemBody pushToast={pushToast} />
+      <SystemBody pushToast={pushToast} symbol={symbol} />
     </Page>
   );
 }

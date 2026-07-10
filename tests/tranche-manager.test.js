@@ -2,6 +2,39 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { checkOrder } from "../app/main/execution/guardrails.js";
 import { planTrancheAction, runTrancheManager, tradovateOrderFromPacket } from "../app/main/execution/tranche-manager.js";
+import { bracketDisposition } from "../app/main/execution/tranche-exec.js";
+
+// B1: the ambiguous-submit fix. A fetch-failed / timed-out entry POST is NO
+// LONGER classified as a clean reject (which invalidated the trade) — it is
+// `recovery`, so the caller holds it for the boot reconciler instead of possibly
+// abandoning a real live position.
+describe("bracketDisposition (ambiguous-submit fix)", () => {
+  const ok = (id) => ({ ok: true, status: 200, body: JSON.stringify({ id }) });
+
+  it("ambiguous entry (status 0, fetch failed) → recovery, NOT rejected", () => {
+    const d = bracketDisposition([{ ok: false, status: 0, body: "fetch failed" }]);
+    assert.equal(d.disposition, "recovery");
+    assert.equal(d.submit, "ambiguous");
+  });
+  it("5xx entry → recovery (fail-closed: the order may have landed)", () => {
+    assert.equal(bracketDisposition([{ ok: false, status: 503 }]).disposition, "recovery");
+  });
+  it("clean 4xx entry → rejected", () => {
+    const d = bracketDisposition([{ ok: false, status: 400, body: "bad" }]);
+    assert.equal(d.disposition, "rejected");
+    assert.equal(d.submit, "rejected");
+  });
+  it("filled entry with a failed stop leg → naked", () => {
+    const d = bracketDisposition([ok(10), { ok: false, status: 200 }, ok(12)]);
+    assert.equal(d.disposition, "naked");
+  });
+  it("filled entry + working stop → ok with the stop order id", () => {
+    const d = bracketDisposition([ok(10), ok(11), ok(12)]);
+    assert.equal(d.disposition, "ok");
+    assert.equal(d.stopOrderId, 11);
+    assert.equal(d.limitOrderId, 12);
+  });
+});
 
 describe("tradovateOrderFromPacket (auto → Tradovate bracket routing)", () => {
   it("maps a long packet → buy market order with stop/target bracket + chart symbol", () => {
