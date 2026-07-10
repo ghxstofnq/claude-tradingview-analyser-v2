@@ -24,6 +24,8 @@ import { createVersionPoll } from "./main/version-status.js";
 import { stateRoot } from "./main/sessions.js";
 import { writeEnvSnapshotFile } from "./main/env-snapshot.js";
 import { shellChordFromInput } from "./main/shell-keys.js";
+import { setJournalSend, recordClose as recordJournalClose } from "./main/journal.js";
+import { setOnFillRecorded } from "./main/execution/fills.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -104,6 +106,11 @@ app.whenReady().then(async () => {
   // eslint-disable-next-line no-console
   console.log(`[config] effective GOFNQ_* snapshot → ${cfgSnap.file} (${cfgSnap.ok ? "ok" : cfgSnap.error?.message})`);
   registerExecutionIpc();
+  // Auto-journal (plan 2026-07-09 Task 5): every recorded close → journal row
+  // + screenshot + renderer note prompt. Registered before the feeds start so
+  // the first close of the day is never missed.
+  setJournalSend(ipc.send);
+  setOnFillRecorded((rec) => { recordJournalClose(rec); });
   startTradingFeed();
   startTradovateFillPoller({ send: ipc.send });
   setSurfaceSink(ipc.send);

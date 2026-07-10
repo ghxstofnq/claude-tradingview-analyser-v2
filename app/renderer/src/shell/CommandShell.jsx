@@ -42,6 +42,7 @@ import { readPrefs } from "../hooks/usePrefs.js";
 import { classifyWalkerTransitions, describeSignal, signalEffects } from "./walkerSignals.helpers.js";
 import { playChime } from "./chimes.js";
 import { parseInstantStop, orderResultToast } from "../Orders.helpers.js";
+import { JournalPrompt } from "./JournalPrompt.jsx";
 
 let TOAST_SEQ = 0;
 
@@ -179,6 +180,16 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     });
     return () => off?.();
   }, [addToast]);
+
+  // Auto-journal note prompt (plan 2026-07-09 Task 5): main raises
+  // journal:close after every recorded round-trip; the dismissible card asks
+  // for the optional "weakest pillar?" line. A newer close replaces an unread
+  // prompt — the rows themselves are already on disk.
+  const [jrRow, setJrRow] = useState(null);
+  useEffect(() => {
+    const off = window.api?.journal?.onClose?.((row) => setJrRow(row));
+    return () => off?.();
+  }, []);
 
   // Instant-SL quick order (2026-07-10): a stop price typed in the bottom-bar
   // field routes BUY/SELL straight to placeManual — market entry, typed stop,
@@ -456,6 +467,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       )}
 
       <Toasts toasts={toasts} onDismiss={dismissToast} />
+      <JournalPrompt row={jrRow} onDone={(saved) => { setJrRow(null); if (saved) addToast("journal note saved", "green"); }} />
       {coach && !page && !pal.open && !flat.open && !prep.open && <CoachChip onClose={() => setCoach(false)} />}
     </div>
   );

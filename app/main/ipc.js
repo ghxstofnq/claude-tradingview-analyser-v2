@@ -56,6 +56,17 @@ export function registerIpc(win) {
     catch (err) { return { ok: false, error: String(err?.message || err) }; }
   });
 
+  // Auto-journal (plan 2026-07-09 Task 5): the dismissible note prompt writes
+  // back to the day's journal row; the day read backs REVIEW's closes list.
+  ipcMain.handle("journal:note", async (_evt, arg = {}) => {
+    try { const { addNote } = await import("./journal.js"); return addNote(arg); }
+    catch (err) { return { ok: false, error: String(err?.message || err) }; }
+  });
+  ipcMain.handle("journal:day", async (_evt, arg = {}) => {
+    try { const { readJournal } = await import("./journal.js"); return { ok: true, rows: readJournal(arg) }; }
+    catch (err) { return { ok: false, error: String(err?.message || err) }; }
+  });
+
   // Relaunch TV Desktop with the CDP debug flag (hard constraint #1 recipe).
   // No detector restart needed: the poll loop retries connection errors every
   // bar boundary, so it self-heals the moment 9225 answers again.

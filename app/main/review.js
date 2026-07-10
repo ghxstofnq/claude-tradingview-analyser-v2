@@ -161,7 +161,14 @@ export async function getJournalFor({ date, session }) {
     };
   });
   const stats = computeStats(setups, tradeEvents);
-  return { date, session, brief, summary, setups: setupsAnnotated, trades, stats };
+  // Auto-journal closes (plan 2026-07-09 Task 5) — the day's recorded
+  // round-trips attributed to this session, with note + screenshot refs.
+  let closes = [];
+  try {
+    const { readJournal } = await import("./journal.js");
+    closes = readJournal({ date, session });
+  } catch { /* journal optional */ }
+  return { date, session, brief, summary, setups: setupsAnnotated, trades, stats, closes };
 }
 
 // Library: thin per-session stats, descending. Default 20 rows.
