@@ -5,6 +5,7 @@
 
 import React from "react";
 import { clickable } from "./a11y.js";
+import { useValueTick } from "./hooks/useValueTick.js";
 import { readinessView, readinessBadge, formatAge, READINESS_ACTIONS } from "./Readiness.helpers.js";
 
 const MODE_LABEL = {
@@ -56,6 +57,9 @@ export function ReadinessCard({ readiness, pushToast, variant = "full", loading 
   const view = readinessView(readiness);
   const badge = readinessBadge(view);
   const { summary, rows } = view;
+  // Value tick (motion v1) — pulse when the readiness verdict flips (READY ↔
+  // BLOCKED …). Never while loading or on the dim placeholder (pending states).
+  const badgeTickRef = useValueTick(badge.text, !(loading && !readiness) && badge.tone !== "dim");
 
   if (loading && !readiness) {
     return (
@@ -72,7 +76,7 @@ export function ReadinessCard({ readiness, pushToast, variant = "full", loading 
   return (
     <div className={"cs-rdy" + (variant === "compact" ? " is-compact" : "")}>
       <div className="cs-rdy-head">
-        <span className={"cs-rdy-badge is-" + badge.tone}>{badge.text}</span>
+        <span ref={badgeTickRef} className={"cs-rdy-badge value-tick is-" + badge.tone}>{badge.text}</span>
         <span className={"cs-rdy-mode is-" + summary.worst}>{MODE_LABEL[summary.mode] || summary.mode}</span>
         <span className="cs-rdy-reason-head" title={summary.reason}>{summary.reason}</span>
       </div>

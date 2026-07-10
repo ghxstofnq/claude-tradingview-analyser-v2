@@ -73,6 +73,17 @@ async function assertNotVisible(page, selector) {
   const el = await page.$(selector);
   if (el && (await el.isVisible())) throw new Error(`expected ${selector} NOT to be visible`);
 }
+// Event-based post-close assertions (motion v1): a page/scrim exit unmounts on a
+// ≤150ms JS timer, so poll for the terminal DOM state instead of a fixed sleep —
+// no race with the exit timer + focus restore under cold-start jank.
+async function assertGone(page, selector, { timeout = 2000 } = {}) {
+  try { await page.waitForSelector(selector, { state: "detached", timeout }); }
+  catch { throw new Error(`expected ${selector} to be removed from the DOM`); }
+}
+async function assertFocus(page, cls, { timeout = 2000 } = {}) {
+  try { await page.waitForFunction((c) => document.activeElement?.classList.contains(c), cls, { timeout }); }
+  catch { throw new Error(`focus did not return to .${cls}`); }
+}
 
 // ── keyboard nav ──────────────────────────────────────────────────────────────
 const PAGE_KEY = { briefing: "1", live: "2", review: "3", backtest: "4", agent: "5", settings: "6", system: "7" };
@@ -81,7 +92,9 @@ async function openPage(page, name) {
   await assertVisible(page, ".shell-page, .bt-popover");
   await sleep(250);
 }
-async function esc(page) { await page.keyboard.press("Escape"); await sleep(200); }
+// esc closes the active overlay; its exit unmounts on a ≤150ms timer, so callers
+// use assertGone / assertFocus (event-based) rather than a fixed post-esc sleep.
+async function esc(page) { await page.keyboard.press("Escape"); }
 
 // ── vite dev server: spawn from THIS tree by default; identity-check on reuse ────
 function ping(url) {
@@ -315,9 +328,8 @@ const SCENARIOS = [
     const inPalette = await page.evaluate(() => !!document.activeElement?.closest(".cmd-palette"));
     if (!inPalette) throw new Error("palette did not receive focus on open");
     await esc(page);
-    await assertNotVisible(page, ".cmd-palette");
-    const backToOpener = await page.evaluate(() => document.activeElement?.classList.contains("cmd-k-btn"));
-    if (!backToOpener) throw new Error("focus did not return to the opener after closing the palette");
+    await assertGone(page, ".cmd-palette");
+    await assertFocus(page, "cmd-k-btn"); // focus returns to the opener after closing the palette
     // ⌘2 opens Live via keyboard; focus lands inside the page; Esc restores it.
     await page.keyboard.press("Meta+2");
     await assertVisible(page, ".shell-page");
@@ -330,9 +342,8 @@ const SCENARIOS = [
     const selected = await page.evaluate(() => document.querySelector('[role="tablist"][aria-label="live view"] [role="tab"][aria-selected="true"]')?.textContent?.trim());
     if (selected !== "POSITIONS") throw new Error(`arrow-key tab nav failed; selected="${selected}"`);
     await esc(page);
-    await assertNotVisible(page, ".shell-page");
-    const restored = await page.evaluate(() => document.activeElement?.classList.contains("cmd-k-btn"));
-    if (!restored) throw new Error("focus did not return to the opener after closing the page");
+    await assertGone(page, ".shell-page");
+    await assertFocus(page, "cmd-k-btn"); // focus returns to the opener after closing the page
   }],
 ];
 

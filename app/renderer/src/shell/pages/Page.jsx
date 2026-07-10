@@ -6,9 +6,10 @@
 // `sidecar` switches to the Agent variant (right-pinned, no scrim dim). `hosted`
 // neutralizes an embedded popover body (legacy bridge; native pages don't use it).
 
-import React, { useRef } from "react";
+import React, { useRef, useContext } from "react";
 import { clickable } from "../../a11y.js";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { PageMotionContext } from "../pageMotion.js";
 import { PAGE_ORDER, PAGE_TITLES } from "../shell.constants.js";
 
 // The ⌘-map footer — one span per page, the active one lit.
@@ -29,11 +30,13 @@ export function Page({
   icon, tint = "blue", title, sub, page, hint, sidecar, wide, narrow, hosted,
   className, tabs, right, foot, onClose, children,
 }) {
+  const { closing } = useContext(PageMotionContext);
   const cls = "shell-page"
     + (sidecar ? " sidecar" : "")
     + (wide ? " wide" : "")
     + (narrow ? " narrow" : "")
     + (hosted ? " hosted" : "")
+    + (closing ? " is-closing" : "")
     + (className ? " " + className : "");
   const frameRef = useRef(null);
   // Trap Tab focus inside the floating page + restore it to the opener on close
