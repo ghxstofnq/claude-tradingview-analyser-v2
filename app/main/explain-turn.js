@@ -71,6 +71,11 @@ export async function runExplainTurn({
   const startedAt = Date.now();
   const prov = provider || "claude";
 
+  // The whole body is guarded so runExplainTurn NEVER throws (documented
+  // contract): a throw from serialize(), the started metric, reset, OR the turn
+  // itself all land in the one catch — which records a failed metric, emits
+  // error→turn_complete (so the renderer always clears RUNNING), and returns
+  // { ok:false }. The gate is released in the finally regardless of path.
   try {
     const text = serialize({ event, readiness, health });
 
@@ -85,39 +90,38 @@ export async function runExplainTurn({
     let errMessage = null;
     let usage = null;
 
-    try {
-      await turn({
-        text,
-        purpose: "explain",
-        providerOverride: provider,
-        timeoutMs,
-        onEvent: (ev) => {
-          if (!ev) return;
-          if (ev.type === "usage") { usage = ev.usage; }
-          else if (ev.type === "error") {
-            errored = true;
-            errMessage = ev.message || errMessage;
-            if (ev.kind === "timeout") timedOut = true;
-          }
-          onEvent?.(ev);
-        },
-      });
-      const evt = timedOut ? "timeout" : (errored ? "failed" : "succeeded");
-      metric?.({ kind: "explain", event: evt, durationMs: Date.now() - startedAt, usage });
-      return errored
-        ? { ok: false, error: errMessage || "the explanation failed — try again" }
-        : { ok: true };
-    } catch (err) {
-      const message = String(err?.message || err);
-      metric?.({ kind: "explain", event: "failed", durationMs: Date.now() - startedAt, reason: message });
-      // userTurn itself rejected (never reached its own turn_complete). Mirror its
-      // error→turn_complete convention: surface the error, THEN emit turn_complete
-      // so the renderer always clears its running flag (otherwise EXPLAIN would
-      // hang on RUNNING).
-      onEvent?.({ type: "error", message });
-      onEvent?.({ type: "turn_complete" });
-      return { ok: false, error: message };
-    }
+    await turn({
+      text,
+      purpose: "explain",
+      providerOverride: provider,
+      timeoutMs,
+      onEvent: (ev) => {
+        if (!ev) return;
+        if (ev.type === "usage") { usage = ev.usage; }
+        else if (ev.type === "error") {
+          errored = true;
+          errMessage = ev.message || errMessage;
+          if (ev.kind === "timeout") timedOut = true;
+        }
+        onEvent?.(ev);
+      },
+    });
+    const evt = timedOut ? "timeout" : (errored ? "failed" : "succeeded");
+    metric?.({ kind: "explain", event: evt, durationMs: Date.now() - startedAt, usage });
+    return errored
+      ? { ok: false, error: errMessage || "the explanation failed — try again" }
+      : { ok: true };
+  } catch (err) {
+    // A throw from serialize / the started metric / reset / userTurn itself
+    // (userTurn rejecting never reaches its own turn_complete). Mirror userTurn's
+    // error→turn_complete convention: surface the error, THEN emit turn_complete
+    // so the renderer always clears its running flag (otherwise EXPLAIN would
+    // hang on RUNNING). Record a failed metric so the contract holds.
+    const message = String(err?.message || err);
+    metric?.({ kind: "explain", event: "failed", durationMs: Date.now() - startedAt, reason: message });
+    onEvent?.({ type: "error", message, provider: prov });
+    onEvent?.({ type: "turn_complete" });
+    return { ok: false, error: message };
   } finally {
     gate.release();
   }

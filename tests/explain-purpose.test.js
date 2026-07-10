@@ -7,6 +7,9 @@
 // in-flight gate (one explanation at a time).
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import {
   TOOLS_BY_PURPOSE,
@@ -144,16 +147,49 @@ describe("explain purpose — one-shot session (reset per turn)", () => {
     assert.ok(metrics.some((m) => m.kind === "explain" && m.event === "failed"));
   });
 
-  it("when the turn itself rejects, emits error THEN turn_complete so RUNNING clears", async () => {
+  it("when the turn itself rejects, emits error (provider-stamped) THEN turn_complete so RUNNING clears", async () => {
     const seen = [];
     const rejectingTurn = async () => { throw new Error("kaboom"); };
     const res = await runExplainTurn({
       event: {}, provider: "claude",
-      onEvent: (ev) => seen.push(ev.type),
+      onEvent: (ev) => seen.push(ev),
       turn: rejectingTurn, reset: () => {}, metric: () => {}, gate: createInFlightGate(),
     });
     assert.equal(res.ok, false);
-    assert.deepEqual(seen, ["error", "turn_complete"], "reject path must emit error then turn_complete");
+    assert.deepEqual(seen.map((e) => e.type), ["error", "turn_complete"], "reject path must emit error then turn_complete");
+    assert.equal(seen[0].provider, "claude", "reject-path error event must be provider-stamped");
+  });
+
+  it("NEVER throws: a serialize() throw returns ok:false + failed metric + error→turn_complete", async () => {
+    // The documented contract is 'never throws' — a throw from serialize (or the
+    // started metric / reset) must be caught the same way a rejecting turn is.
+    const seen = [];
+    const metrics = [];
+    let turnFired = false;
+    const res = await runExplainTurn({
+      event: {}, provider: "claude",
+      onEvent: (ev) => seen.push(ev),
+      turn: async () => { turnFired = true; },        // must NOT be reached
+      reset: () => {},
+      metric: (m) => metrics.push(m),
+      serialize: () => { throw new Error("serialize boom"); },
+      gate: createInFlightGate(),
+    });
+    assert.equal(res.ok, false, "a serialize throw must return ok:false, not throw");
+    assert.match(res.error, /serialize boom/);
+    assert.equal(turnFired, false, "the turn must not fire when serialization throws");
+    assert.deepEqual(seen.map((e) => e.type), ["error", "turn_complete"], "must emit error then turn_complete");
+    assert.equal(seen[0].provider, "claude", "the error event must be provider-stamped");
+    assert.ok(metrics.some((m) => m.kind === "explain" && m.event === "failed"), "a failed metric must be recorded");
+  });
+
+  it("NEVER throws: releases the in-flight gate even when serialize throws", async () => {
+    const gate = createInFlightGate();
+    await runExplainTurn({
+      event: {}, onEvent: () => {}, turn: async () => {}, reset: () => {}, metric: () => {},
+      serialize: () => { throw new Error("boom"); }, gate,
+    });
+    assert.equal(gate.busy(), false, "the gate must be released after a throwing run");
   });
 
   it("serializes the {event, readiness, health} into the turn text via the injected serializer", async () => {
@@ -209,5 +245,34 @@ describe("explain purpose — in-flight gate (one explanation at a time)", () =>
 
   it("exposes the production in-flight probe (false when idle)", () => {
     assert.equal(isExplainInFlight(), false, "no explanation should be running at import time");
+  });
+});
+
+describe("explain purpose — IPC routing (feedback-loop invariant)", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const ipcSrc = readFileSync(path.resolve(here, "../app/main/ipc.js"), "utf8");
+
+  // Slice one ipcMain.handle(...) block by name, from its handle() to the next
+  // handle() (or EOF) — so assertions target THAT handler, not the whole file.
+  function handlerBlock(name) {
+    const start = ipcSrc.indexOf(`ipcMain.handle("${name}"`);
+    assert.ok(start >= 0, `ipc.js must register the ${name} handler`);
+    const next = ipcSrc.indexOf("ipcMain.handle(", start + 1);
+    return ipcSrc.slice(start, next === -1 ? undefined : next);
+  }
+
+  it("the explain:run handler maps turn error events to explain:error and NEVER to app:error", () => {
+    const block = handlerBlock("explain:run");
+    assert.match(block, /ev\.type === "error"[\s\S]*?send\("explain:error"/, "an error event must route to explain:error");
+    assert.ok(!block.includes("app:error"), "the explain handler must NEVER route to app:error (would feed the anomaly list it renders in)");
+    // it streams over the dedicated explain:* channel, nothing else.
+    assert.ok(block.includes('send("explain:chunk"'), "chunks route to explain:chunk");
+    assert.ok(block.includes('send("explain:turn_complete"'), "completion routes to explain:turn_complete");
+  });
+
+  it("discriminator: the adjacent analysis:run handler DOES route errors to app:error", () => {
+    // Proves the test can detect app:error routing — explain deliberately differs.
+    const block = handlerBlock("analysis:run");
+    assert.ok(block.includes("app:error"), "analysis:run routes errors to app:error (the pattern explain intentionally breaks from)");
   });
 });
