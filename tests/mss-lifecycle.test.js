@@ -54,3 +54,27 @@ test('MSS still spawns on a field-less (legacy) context — gates only fire when
   assert.equal(reqs.length, 1);
   assert.equal(reqs[0].model, 'MSS');
 });
+
+// I27 speed gate (GOFNQ_MSS_SPEED_MATCH, default-on): the reversal leg must
+// displace at >= MSS_MIN_REVERSAL_ATR (1.0 ATR) — a genuine fast turn, not a
+// weak retrace. disp_atr is snapshotted at the event bar (rev-3 Pine C8 fix).
+test('MSS speed gate BLOCKS a weak reversal (disp_atr 0.5 < 1.0 ATR, §3)', () => {
+  const reqs = buildMssWalkerSpawnRequests(shortMssContext({ shift: { disp_atr: 0.5 } }));
+  assert.equal(reqs.length, 0);
+});
+
+test('MSS speed gate fails OPEN on a null disp_atr (honest-na emit → parser null; rev-3 fail-safe)', () => {
+  // A na disp_atr (warmup structure, no event-bar ATR) parses to null, NOT
+  // absent. Number(null) is 0 (< 1.0) — the gate must treat null like absent
+  // and skip, never block a legitimate MSS. Locks the mss-lifecycle guard so a
+  // refactor back to Number(fs?.disp_atr) reverts to fail-CLOSED and fails here.
+  const reqs = buildMssWalkerSpawnRequests(shortMssContext({ shift: { disp_atr: null } }));
+  assert.equal(reqs.length, 1);
+  assert.equal(reqs[0].model, 'MSS');
+});
+
+test('MSS speed gate PASSES a fast reversal (disp_atr 1.5 >= 1.0 ATR, §3)', () => {
+  const reqs = buildMssWalkerSpawnRequests(shortMssContext({ shift: { disp_atr: 1.5 } }));
+  assert.equal(reqs.length, 1);
+  assert.equal(reqs[0].model, 'MSS');
+});
