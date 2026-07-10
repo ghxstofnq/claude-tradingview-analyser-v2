@@ -48,6 +48,29 @@ test("plan: current code arms normally (staleCode false)", () => {
   assert.equal(plan.action, "arm");
 });
 
+test("plan: B3 — refuses to cold-arm when protection is unhealthy", () => {
+  const plan = planSupervisorAction({ session: "ny-am", mode: "prep", heartbeatAgeS: null, protectionBlocked: true });
+  assert.equal(plan.action, "block_arm_protection");
+  assert.equal(plan.reason, "protection_unhealthy");
+});
+
+test("plan: B3 — stale code outranks a protection block (parity keystone first)", () => {
+  const plan = planSupervisorAction({ session: "ny-am", mode: "prep", heartbeatAgeS: null, staleCode: true, protectionBlocked: true });
+  assert.equal(plan.action, "block_arm_stale");
+});
+
+test("plan: B3 — protection block does not disturb an already-live session", () => {
+  const plan = planSupervisorAction({ session: "ny-am", mode: "live", heartbeatAgeS: 5, protectionBlocked: true });
+  assert.equal(plan.action, "none");
+  assert.equal(plan.reason, "healthy");
+});
+
+test("plan: B4 — never cold-arms a new live session after the EOD flatten", () => {
+  const plan = planSupervisorAction({ session: "ny-pm", mode: "prep", heartbeatAgeS: null, eodDone: true });
+  assert.equal(plan.action, "none");
+  assert.equal(plan.reason, "eod_done");
+});
+
 test("plan: stale code does not disturb an already-live healthy session", () => {
   const plan = planSupervisorAction({ session: "ny-am", mode: "live", heartbeatAgeS: 5, staleCode: true });
   assert.equal(plan.action, "none");

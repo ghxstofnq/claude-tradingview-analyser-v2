@@ -69,6 +69,8 @@ export function planSupervisorAction({
   secondsSinceIntervention = Infinity,
   backtestActive = false,
   staleCode = false,
+  protectionBlocked = false,
+  eodDone = false,
 }) {
   // A backtest holds the chart (TV 9225 is shared). Stand down completely —
   // never arm, restart, or disarm — until it releases. The detector was already
@@ -85,6 +87,13 @@ export function planSupervisorAction({
     // the live chain would fold a DIFFERENT brain than the backtest does — the
     // exact divergence behind backtest≠live. Refuse to arm until the app restarts.
     if (staleCode) return { action: "block_arm_stale", reason: "stale_code" };
+    // B3 safety: never cold-arm into a broken protection state. A confirmed
+    // RECOVERY_REQUIRED / AUTH_EXPIRED breach (or a dead watchdog holding a
+    // position) must be resolved by the operator before a session arms.
+    if (protectionBlocked) return { action: "block_arm_protection", reason: "protection_unhealthy" };
+    // B4: once the broker-clock EOD has flattened for the day, do not cold-arm
+    // a new live session (the trading day is done).
+    if (eodDone) return { action: "none", reason: "eod_done" };
     return { action: "arm", reason: `session_${session}_open` };
   }
   if (heartbeatAgeS != null && heartbeatAgeS <= HEARTBEAT_STALE_S) return { action: "none", reason: "healthy" };
@@ -118,6 +127,7 @@ export function createSessionSupervisor(deps) {
     readinessCheckedKey: null,
     readinessInFlight: false,
     staleNotifiedKey: null,
+    protectionNotifiedKey: null,
   };
 
   function keyFor(date, session) {
@@ -184,6 +194,8 @@ export function createSessionSupervisor(deps) {
       secondsSinceIntervention: state.lastInterventionMs == null ? Infinity : (now - state.lastInterventionMs) / 1000,
       backtestActive: deps.isBacktestActive?.() ?? false,
       staleCode: deps.isStaleCode?.() ?? false,
+      protectionBlocked: deps.protectionBlocked?.() ?? false,
+      eodDone: deps.eodDone?.() ?? false,
     });
 
     if (plan.action === "arm") {
@@ -214,6 +226,18 @@ export function createSessionSupervisor(deps) {
         });
         deps.send?.("supervisor:state", { action: "block_arm_stale", session });
         deps.recordMetric?.({ kind: "supervisor", event: "block_arm_stale", session });
+      }
+    } else if (plan.action === "block_arm_protection") {
+      // Loud, once per session: the window is open but protection is unhealthy.
+      if (state.protectionNotifiedKey !== state.sessionKey) {
+        state.protectionNotifiedKey = state.sessionKey;
+        deps.notify?.({
+          level: "error",
+          title: "Live arming BLOCKED — protection unhealthy",
+          body: `${session}: the protection watchdog is holding an unprotected/breached position (or the watchdog itself is down). Resolve via execution:reconcile before the session can arm. NOT arming.`,
+        });
+        deps.send?.("supervisor:state", { action: "block_arm_protection", session });
+        deps.recordMetric?.({ kind: "supervisor", event: "block_arm_protection", session });
       }
     } else if (plan.action === "restart_detector") {
       deps.stopDetector();
@@ -307,7 +331,9 @@ export function startSessionSupervisor({ send, isStaleCode }) {
     import("./metrics.js"),
     import("./notify.js"),
     import("./backtest-lock.js"),
-  ]).then(([sessions, mode, barClose, metrics, notifyMod, backtestLock]) => {
+    import("./execution/protection-watchdog.js"),
+    import("./trade-ticker-watchdog.js"),
+  ]).then(([sessions, mode, barClose, metrics, notifyMod, backtestLock, protectionWd, tickerWd]) => {
     _supervisor = createSessionSupervisor({
       getSession: () => {
         const s = sessions.currentSession();
@@ -323,9 +349,14 @@ export function startSessionSupervisor({ send, isStaleCode }) {
       isStaleCode,
       runReadinessCheck: runLiveCheckCli,
       isBacktestActive: backtestLock.isBacktestActive,
-      // Re-run the boot reconciler on arm (I-1(d)). Lazy import keeps the
-      // supervisor→reconciler dependency a one-way callback, not a hard edge.
-      onArm: () => { import("./execution/reconciler.js").then((r) => r.runReconcileNow({ send })).catch(() => {}); },
+      // B3: block a cold arm on a confirmed protection breach / dead watchdog.
+      protectionBlocked: () => { try { return protectionWd.isProtectionBlockedForArming(); } catch { return false; } },
+      // B4: never cold-arm a new live session after the broker-clock EOD flatten
+      // has closed the day (compare the latched EOD date to today's ET date).
+      eodDone: () => { try { return tickerWd.getLastEodDate?.() === sessions.currentSession().date; } catch { return false; } },
+      // Re-run the boot reconciler on arm (I-1(d)) with a burst-retry, so a
+      // momentary UNKNOWN read on arm doesn't flap an already-HEALTHY gate closed.
+      onArm: () => { import("./execution/reconciler.js").then((r) => r.runReconcileWithBurst({ send })).catch(() => {}); },
       notify: ({ level, title, body }) => {
         notifyMod.notifySystem({ title, body });
         send?.("app:error", { source: "supervisor", level, message: `${title}: ${body}` });

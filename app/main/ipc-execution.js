@@ -11,7 +11,7 @@ import { getTradingState } from "./execution/trading-feed.js";
 import { TRADES_DIR, readExecConfig, writeExecConfig } from "./execution/config.js";
 import { getActiveAccount } from "./execution/active-account.js";
 import { resolveAccountGate, revertSimDecision } from "./execution/account-gate.js";
-import { setAutoResumed, getAutoResumed, getReconciliationHealthy } from "./execution/auto-resume.js";
+import { setAutoResumed, getAutoResumed, getReconciliationHealthy, getProtectionOk } from "./execution/auto-resume.js";
 
 function tradesDir() { return TRADES_DIR; }
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -76,6 +76,15 @@ async function positionOpenFor(broker) {
 }
 
 async function guarded(payload) {
+  // B3: the continuous protection watchdog owns the entry pause. If it has seen
+  // an unprotected / breached / unreadable / auth-lost position, NO new order
+  // (manual OR auto) is placed until protection clears — fail-closed at the
+  // handler layer, ahead of every other guard. Recovery is the operator's job
+  // via execution:reconcile (adopt / protect / flatten); the watchdog never
+  // flattens. Defaults open (a no-position boot never blocks manual trading).
+  if (getProtectionOk() === false) {
+    return { ok: false, blocked: true, code: "RECOVERY_REQUIRED", reason: "protection_watchdog", message: "Entries PAUSED — protection watchdog flagged an unprotected/breached position. Resolve via execution:reconcile before placing new orders." };
+  }
   // Fail-closed on a real trade-store read error: block rather than gate on
   // degraded counts (readFills returns [] for a legitimately-absent file, so a
   // throw here means a genuine fs problem).

@@ -14,3 +14,16 @@ export function setAutoResumed(v) { autoResumed = v === true; }
 let reconciliationHealthy = false;
 export function getReconciliationHealthy() { return reconciliationHealthy; }
 export function setReconciliationHealthy(v) { reconciliationHealthy = v === true; }
+
+// Continuous protection-watchdog gate (Task B3). Unlike the two flags above this
+// defaults TRUE: a no-position boot (the common case) must not block manual
+// trading, and the reconciliation flag above already gates AUTO at boot. The
+// always-on watchdog flips this false the moment it sees an unprotected /
+// breached / unreadable / auth-lost position, and back true on a clear read. It
+// is ANDed into autoAllowed and checked at the manual/auto entry handler layer.
+// A never-STARTED watchdog leaves this true; the health staleness blocker covers
+// that case. Coerces to a strict boolean so an odd value can only ever OPEN the
+// gate via an explicit true (fail-closed on anything non-boolean-false).
+let protectionOk = true;
+export function getProtectionOk() { return protectionOk; }
+export function setProtectionOk(v) { protectionOk = v !== false; }

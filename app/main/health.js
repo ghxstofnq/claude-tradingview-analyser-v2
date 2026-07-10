@@ -13,8 +13,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { probeCdp } from "./tv-launcher.js";
-import { getReconciliationHealthy } from "./execution/auto-resume.js";
+import { getReconciliationHealthy, getProtectionOk } from "./execution/auto-resume.js";
 import { getLastReconcileState } from "./execution/reconciler.js";
+import { getLastProtectionState, getLastWatchdogTickMs, protectionReadiness, PROTECTION_INTERVAL_MS } from "./execution/protection-watchdog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -79,5 +80,19 @@ async function tick() {
     // Boot broker/journal reconciliation (B2): whether paper auto is gated open
     // (HEALTHY) + the last reconciler verdict, for the dashboard.
     reconciliation: { healthy: getReconciliationHealthy(), state: getLastReconcileState() },
+    // Continuous protection watchdog (B3): the entry gate + last verdict, plus a
+    // readiness blocker. protectionOk===false is a block; so is a watchdog that
+    // has gone quiet (> 2× interval) while a position is open — a watchdog
+    // failure is itself a readiness blocker (a live position left unwatched).
+    protection: (() => {
+      const tickMs = getLastWatchdogTickMs();
+      const r = protectionReadiness({
+        protectionOk: getProtectionOk(),
+        state: getLastProtectionState(),
+        tickAgeMs: tickMs ? Date.now() - tickMs : null,
+        intervalMs: PROTECTION_INTERVAL_MS,
+      });
+      return { healthy: getProtectionOk(), state: getLastProtectionState(), blocked: r.blocked, blocker: r.blocker };
+    })(),
   });
 }

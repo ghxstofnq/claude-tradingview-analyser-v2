@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   RECONCILE_STATES, reconcile, reconciliationGatesAuto, latestReconciliation,
   planAdopt, planProtect, planFlatten, createReconciler, startReconciler,
+  eodDue, lastEodDateFrom, eodFlattenNow, runReconcileWithBurst,
 } from "../app/main/execution/reconciler.js";
 import { parseJsonlTolerant } from "../cli/lib/jsonl.js";
 import { getReconciliationHealthy, setReconciliationHealthy } from "../app/main/execution/auto-resume.js";
@@ -328,6 +329,81 @@ describe("a fresh reconcile flips the auto gate", () => {
     }).runReconcile();
     assert.equal(getReconciliationHealthy(), true);
     setReconciliationHealthy(false); // reset for other tests
+  });
+});
+
+// ── B4: broker-clock EOD ────────────────────────────────────────────────────
+describe("eodDue / lastEodDateFrom", () => {
+  it("fires at/after 16:00 ET, once per trading day", () => {
+    assert.equal(eodDue({ nowEtMinutes: 959, lastEodDate: null, todayEt: "2026-07-10" }), false);
+    assert.equal(eodDue({ nowEtMinutes: 960, lastEodDate: null, todayEt: "2026-07-10" }), true);
+    assert.equal(eodDue({ nowEtMinutes: 970, lastEodDate: "2026-07-10", todayEt: "2026-07-10" }), false);
+    assert.equal(eodDue({ nowEtMinutes: 970, lastEodDate: "2026-07-09", todayEt: "2026-07-10" }), true);
+    assert.equal(eodDue({ nowEtMinutes: NaN, lastEodDate: null, todayEt: "2026-07-10" }), false);
+  });
+  it("lastEodDateFrom returns the last CONFIRMED eod date only", () => {
+    assert.equal(lastEodDateFrom([]), null);
+    assert.equal(lastEodDateFrom([{ action: "eod_flatten", confirmed_flat: false, trading_day: "2026-07-10" }]), null);
+    assert.equal(lastEodDateFrom([
+      { action: "eod_flatten", confirmed_flat: true, trading_day: "2026-07-09" },
+      { action: "eod_flatten", confirmed_flat: false, trading_day: "2026-07-10" },
+    ]), "2026-07-09");
+  });
+});
+
+describe("eodFlattenNow is confirmed-flat gated", () => {
+  function deps(over) {
+    const records = [];
+    return {
+      _records: records,
+      readStop: async () => true,
+      getJournalOpen: async () => null,
+      flatten: async () => ({ ok: true }),
+      cancelWorkingOrders: async () => ({ ok: true }),
+      recordReconciliation: async (r) => { records.push(r); },
+      setReconciliationHealthy: () => {},
+      emitError: () => {},
+      accountId: () => "acct-1",
+      ...over,
+    };
+  }
+  it("confirmed flat on the re-read → confirmed_flat true", async () => {
+    let broker = okOpen(POS);
+    const d = deps({ readBroker: async () => broker, flatten: async () => { broker = okFlat; return { ok: true }; } });
+    const res = await eodFlattenNow({ deps: d, now: 0, tradingDay: "2026-07-10" });
+    assert.equal(res.confirmedFlat, true);
+    assert.equal(d._records.at(-1).confirmed_flat, true);
+  });
+  it("re-read still open → confirmed_flat FALSE (never reports flat)", async () => {
+    const d = deps({ readBroker: async () => okOpen(POS) }); // stays open
+    const res = await eodFlattenNow({ deps: d, now: 0, tradingDay: "2026-07-10" });
+    assert.equal(res.confirmedFlat, false);
+    assert.equal(res.state, R.UNKNOWN);
+  });
+});
+
+describe("runReconcileWithBurst does not flap a HEALTHY gate on transient UNKNOWN", () => {
+  it("a transient UNKNOWN mid-burst restores the prior HEALTHY gate, then settles", async () => {
+    let gate = true; // prior settled HEALTHY
+    let call = 0;
+    const runOnce = async () => {
+      call += 1;
+      if (call === 1) { gate = false; return { state: R.UNKNOWN }; } // internal write flips false
+      gate = true; return { state: R.HEALTHY };
+    };
+    const res = await runReconcileWithBurst({
+      runOnce, attempts: 4, delayMs: 0,
+      getGate: () => gate, setGate: (v) => { gate = v; }, sleep: async () => {},
+    });
+    assert.equal(res.state, R.HEALTHY);
+    assert.equal(gate, true, "gate never left flapped-false after the transient");
+    assert.ok(call >= 2, "retried past the transient UNKNOWN");
+  });
+  it("returns the settled result without extra retries", async () => {
+    let call = 0;
+    const res = await runReconcileWithBurst({ runOnce: async () => { call += 1; return { state: R.MANAGEMENT_ONLY }; }, getGate: () => false, setGate: () => {}, sleep: async () => {} });
+    assert.equal(res.state, R.MANAGEMENT_ONLY);
+    assert.equal(call, 1, "no retries once settled");
   });
 });
 
