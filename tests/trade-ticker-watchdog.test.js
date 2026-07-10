@@ -59,6 +59,41 @@ describe("runEodCheck independence", () => {
   });
 });
 
+// ── Early-close calendar (2026-07-03 closes 13:00 ET) ───────────────────────
+describe("runEodCheck respects the early-close calendar", () => {
+  const spy = () => { let n = 0; const fn = async () => { n += 1; return { confirmedFlat: true }; }; fn.count = () => n; return fn; };
+
+  it("early-close day (2026-07-03) flattens at 13:00 ET, not 16:00", async () => {
+    const f = spy();
+    const out = await runEodCheck({ lastEodDate: null, etNowFn: () => ({ minutes: 13 * 60, date: "2026-07-03" }), flatten: f });
+    assert.equal(f.count(), 1);
+    assert.equal(out.ran, true);
+    assert.equal(out.confirmedFlat, true);
+  });
+
+  it("early-close day: before 13:00 ET → no-op", async () => {
+    const f = spy();
+    const out = await runEodCheck({ lastEodDate: null, etNowFn: () => ({ minutes: 12 * 60 + 59, date: "2026-07-03" }), flatten: f });
+    assert.equal(f.count(), 0);
+    assert.equal(out.ran, false);
+  });
+
+  it("normal day does NOT fire at 13:00, still fires at 16:00", async () => {
+    const f = spy();
+    let out = await runEodCheck({ lastEodDate: null, etNowFn: () => ({ minutes: 13 * 60, date: "2026-07-10" }), flatten: f });
+    assert.equal(out.ran, false, "13:00 on a normal day is not the close");
+    out = await runEodCheck({ lastEodDate: null, etNowFn: () => ({ minutes: 16 * 60, date: "2026-07-10" }), flatten: f });
+    assert.equal(out.ran, true);
+  });
+
+  it("early-close is idempotent — already flattened today → no-op", async () => {
+    const f = spy();
+    const out = await runEodCheck({ lastEodDate: "2026-07-03", etNowFn: () => ({ minutes: 13 * 60 + 30, date: "2026-07-03" }), flatten: f });
+    assert.equal(f.count(), 0);
+    assert.equal(out.ran, false);
+  });
+});
+
 // ── (25)-(27) eodFlattenNow behaviour with injected deps ────────────────────
 describe("eodFlattenNow", () => {
   function fakeDeps(over = {}) {

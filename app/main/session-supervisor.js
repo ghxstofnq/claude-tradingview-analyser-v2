@@ -184,17 +184,20 @@ export function createSessionSupervisor(deps) {
 
     await maybeRunReadiness(snap);
 
+    const hasOpenTrades = await deps.hasOpenTrades();
     const plan = planSupervisorAction({
       session,
       mode: deps.getMode(),
       heartbeatAgeS: await deps.heartbeatAgeS(),
-      hasOpenTrades: await deps.hasOpenTrades(),
+      hasOpenTrades,
       manualStopSession: state.manualStopKey === state.sessionKey && session !== "idle" ? session : null,
       restartsThisSession: state.restartsThisSession,
       secondsSinceIntervention: state.lastInterventionMs == null ? Infinity : (now - state.lastInterventionMs) / 1000,
       backtestActive: deps.isBacktestActive?.() ?? false,
       staleCode: deps.isStaleCode?.() ?? false,
-      protectionBlocked: deps.protectionBlocked?.() ?? false,
+      // Pass the open-position signal so the watchdog's boot pre-first-tick
+      // (null-state) window is treated as a block when a position is open.
+      protectionBlocked: deps.protectionBlocked?.({ hasOpenTrades }) ?? false,
       eodDone: deps.eodDone?.() ?? false,
     });
 
@@ -349,8 +352,9 @@ export function startSessionSupervisor({ send, isStaleCode }) {
       isStaleCode,
       runReadinessCheck: runLiveCheckCli,
       isBacktestActive: backtestLock.isBacktestActive,
-      // B3: block a cold arm on a confirmed protection breach / dead watchdog.
-      protectionBlocked: () => { try { return protectionWd.isProtectionBlockedForArming(); } catch { return false; } },
+      // B3: block a cold arm on a confirmed protection breach / dead watchdog /
+      // never-yet-ticked watchdog holding an open position.
+      protectionBlocked: ({ hasOpenTrades } = {}) => { try { return protectionWd.isProtectionBlockedForArming({ journalOpen: hasOpenTrades }); } catch { return false; } },
       // B4: never cold-arm a new live session after the broker-clock EOD flatten
       // has closed the day (compare the latched EOD date to today's ET date).
       eodDone: () => { try { return tickerWd.getLastEodDate?.() === sessions.currentSession().date; } catch { return false; } },

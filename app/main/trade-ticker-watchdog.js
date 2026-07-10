@@ -14,6 +14,11 @@
 import * as data from "@tvmcp/core/data";
 import { tickOpenTrades } from "./trade-ticker.js";
 import { eodDue, eodFlattenNow, readLastEodDate } from "./execution/reconciler.js";
+import { earlyCloseMinuteET } from "../../cli/lib/market-calendar.js";
+
+// Regular NY cash close (ET minutes). Early-close days shut earlier — resolved
+// per-date via earlyCloseMinuteET so the EOD flatten fires at the real close.
+const CASH_CLOSE_MIN = 16 * 60;
 
 // Cadence: run every 30s. Polling more often would spam CDP; less
 // often and we'd miss outcomes longer than necessary.
@@ -56,7 +61,11 @@ export function etNow(nowMs = Date.now()) {
 // retries. Independent of bar events (fires even when the detector is dead).
 export async function runEodCheck({ now = Date.now(), lastEodDate, etNowFn = etNow, flatten = eodFlattenNow, send } = {}) {
   const { minutes, date } = etNowFn(now);
-  if (!eodDue({ nowEtMinutes: minutes, lastEodDate, todayEt: date })) {
+  // Respect the early-close calendar: on a half-day (e.g. 2026-07-03, 13:00 ET)
+  // flatten at the real close, not 16:00 — otherwise the book is already shut and
+  // the flatten can't confirm, carrying the position overnight.
+  const eodMinute = earlyCloseMinuteET(date) ?? CASH_CLOSE_MIN;
+  if (!eodDue({ nowEtMinutes: minutes, lastEodDate, todayEt: date, eodMinute })) {
     return { ran: false, lastEodDate };
   }
   const res = await flatten({ send, now, tradingDay: date });

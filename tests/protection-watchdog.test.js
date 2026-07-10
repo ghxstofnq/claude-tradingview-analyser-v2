@@ -45,8 +45,21 @@ describe("pure checks", () => {
     assert.equal(under.blocker, "stop_undercovers");
     const none = checkStopCoverage({ position: LONG, orders: [{ kind: "limit", side: "sell", qty: 2, price: 21100 }] });
     assert.equal(none.blocker, "no_protective_stop");
-    // A stop with unknown qty still counts as protection (fail-open on unknown size).
-    assert.equal(checkStopCoverage({ position: LONG, orders: [{ kind: "stop", side: "sell", qty: null, price: 20970 }] }).ok, true);
+    // PAPER: a stop with unknown qty still counts as protection (the feed omits
+    // order qty), and an unknown-side stop counts as closing — fail-open is scoped
+    // to paper.
+    assert.equal(checkStopCoverage({ position: LONG, orders: [{ kind: "stop", side: "sell", qty: null, price: 20970 }], broker: "paper" }).ok, true);
+    assert.equal(checkStopCoverage({ position: LONG, orders: [{ kind: "stop", side: null, qty: 2, price: 20970 }], broker: "paper" }).ok, true);
+  });
+
+  it("checkStopCoverage TRADOVATE-STRICT: unreadable fields never count as protection", () => {
+    // An unreadable qty must NOT silently read as full cover (tradovate-adapter
+    // returns qty:null on a shape it can't parse) → breach.
+    assert.equal(checkStopCoverage({ position: LONG, orders: [{ kind: "stop", side: "sell", qty: null, price: 20970 }], broker: "tradovate" }).blocker, "stop_undercovers");
+    // A null-side stop does not count as a closing stop on tradovate → no cover.
+    assert.equal(checkStopCoverage({ position: LONG, orders: [{ kind: "stop", side: null, qty: 2, price: 20970 }], broker: "tradovate" }).blocker, "no_protective_stop");
+    // A fully-readable covering stop still passes.
+    assert.equal(checkStopCoverage({ position: LONG, orders: goodStops(), broker: "tradovate" }).ok, true);
   });
 
   it("checkStopSide: long sell-stop must sit below price; above → wrong side", () => {
@@ -154,6 +167,25 @@ describe("evaluateProtection", () => {
     assert.equal(r.state, "CRITICAL_QTY_MISMATCH");
     assert.deepEqual(r.blockers, ["qty_mismatch"]);
   });
+
+  it("Tradovate-strict: a malformed order (null qty) breaches, never counts as protection", () => {
+    const r = evaluateProtection({
+      brokerRead: { ok: true, position: LONG, account_id: "A1", broker: "tradovate" },
+      orders: [{ kind: "stop", side: "sell", qty: null, price: 20970 }],
+      journalQty: 2, armedRoute: { account_id: "A1", root: "MNQ" }, price: 21000,
+    });
+    assert.equal(r.state, P.RECOVERY_REQUIRED);
+    assert.ok(r.blockers.includes("stop_undercovers"));
+  });
+
+  it("paper with the SAME malformed-qty order reads PROTECTED (fail-open scoped to paper)", () => {
+    const r = evaluateProtection({
+      brokerRead: { ok: true, position: LONG, account_id: "A1", broker: "paper" },
+      orders: [{ kind: "stop", side: "sell", qty: null, price: 20970 }],
+      journalQty: 2, armedRoute: { account_id: "A1", root: "MNQ" }, price: 21000,
+    });
+    assert.equal(r.state, P.PROTECTED);
+  });
 });
 
 // ── planWatchdogAction (confirm-then-act debounce) ──────────────────────────
@@ -191,6 +223,16 @@ describe("planWatchdogAction", () => {
   it("clear on PROTECTED / NO_POSITION resets the counter", () => {
     assert.equal(planWatchdogAction({ prev: { state: "CRITICAL_NO_STOP", consecutive: 1 }, current: { state: P.PROTECTED } }).action, "clear");
     assert.equal(planWatchdogAction({ prev: { state: "CRITICAL_NO_STOP", consecutive: 1 }, current: { state: P.NO_POSITION } }).action, "clear");
+  });
+
+  it("oscillating breach ENUMS still confirm (breach-class, not exact equality)", () => {
+    let p = planWatchdogAction({ prev: { state: null, consecutive: 0 }, current: { state: "CRITICAL_QTY_MISMATCH" } });
+    assert.equal(p.consecutive, 1);
+    // Different breach enum on the next read — must still confirm (was a reset bug).
+    p = planWatchdogAction({ prev: { state: "CRITICAL_QTY_MISMATCH", consecutive: 1 }, current: { state: P.RECOVERY_REQUIRED } });
+    assert.equal(p.action, "recovery_required");
+    assert.equal(p.confirmed, true);
+    assert.equal(p.consecutive, 2);
   });
 });
 
@@ -308,6 +350,24 @@ describe("createProtectionWatchdog runtime", () => {
     assert.equal(calls.interventions.length, 0, "auth loss never triggers a recovery intervention");
     assert.ok(calls.errors.some((e) => /re-sniff|Tradovate panel/i.test(e.message)));
   });
+
+  it("(5) AUTH_EXPIRED dedupes — one loud error per episode, re-emitted after recovery", async () => {
+    let authLost = true;
+    const { wd, calls } = harness(
+      () => (authLost ? unreadable : flatRead),
+      { auth: () => (authLost ? { token: "t", lastReadStatus: "http_401" } : null) },
+    );
+    await wd.tick();
+    await wd.tick();
+    await wd.tick();
+    const authErrors = () => calls.errors.filter((e) => /re-sniff|Tradovate panel/i.test(e.message)).length;
+    assert.equal(authErrors(), 1, "one auth error across a sustained auth-loss episode");
+    authLost = false; // token re-sniffed → NO_POSITION clear resets the latch
+    await wd.tick();
+    authLost = true;  // lost again → a fresh episode re-emits
+    await wd.tick();
+    assert.equal(authErrors(), 2, "re-emitted only after a clear read + re-loss");
+  });
 });
 
 // ── interventionRecord + protectionReadiness ────────────────────────────────
@@ -330,5 +390,13 @@ describe("interventionRecord + protectionReadiness", () => {
     assert.equal(protectionReadiness({ protectionOk: true, state: "PROTECTED", tickAgeMs: 40000, intervalMs: 15000 }).blocker, "watchdog_stale");
     assert.equal(protectionReadiness({ protectionOk: true, state: "NO_POSITION", tickAgeMs: 40000, intervalMs: 15000 }).blocked, false);
     assert.equal(protectionReadiness({ protectionOk: true, state: "PROTECTED", tickAgeMs: 5000, intervalMs: 15000 }).blocked, false);
+  });
+
+  it("protectionReadiness: the boot pre-first-tick (state null) window blocks when a position is open", () => {
+    // No tick yet (state null) AND a position open → blocked (staleness can't fire
+    // with a null tick time).
+    assert.equal(protectionReadiness({ protectionOk: true, state: null, tickAgeMs: null, journalOpen: true }).blocker, "watchdog_not_ready");
+    // No position → not blocked even before the first tick.
+    assert.equal(protectionReadiness({ protectionOk: true, state: null, tickAgeMs: null, journalOpen: false }).blocked, false);
   });
 });

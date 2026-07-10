@@ -136,6 +136,13 @@ export function registerExecutionIpc() {
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
   ipcMain.handle("execution:resumeAuto", async () => {
+    // B3: ack honesty — if the protection watchdog has paused entries, auto stays
+    // blocked regardless, so say so instead of returning a misleading ok:true.
+    // Recovery is via execution:reconcile (protect / flatten); once the next
+    // watchdog tick reads clear the gate reopens and resumeAuto can proceed.
+    if (getProtectionOk() === false) {
+      return { ok: false, code: "PROTECTION_UNHEALTHY", reason: "protection_watchdog" };
+    }
     // B2 + I-1: never resume auto until reconciliation is HEALTHY. But don't just
     // refuse (that was circular — resume required the very gate it should help
     // recover): TRIGGER a fresh reconcile first (the feed may have connected since

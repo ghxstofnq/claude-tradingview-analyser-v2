@@ -81,16 +81,36 @@ export function checkRouteMatch({ position, armedRoute } = {}) {
 }
 
 // Stop coverage: the closing-side working stop(s) must at least cover the
-// position qty. Zero closing stops → no_protective_stop. Known qty that falls
-// short → stop_undercovers. Unknown qty (paper feed) counts as protection
-// (fail-open on size only, so a bracketed paper position is not false-alarmed).
-export function checkStopCoverage({ orders, position } = {}) {
+// position qty. Zero closing stops → no_protective_stop; short cover →
+// stop_undercovers.
+//
+// The fail-open on unknown order fields is SCOPED to paper (broker !== "tradovate")
+// and enforced here, not emergent: paper's in-memory feed omits order qty and
+// sometimes side, so a stop with an unknown side counts as closing and an unknown
+// qty counts as covering (a bracketed paper position must not be false-alarmed).
+// On Tradovate (the real-money path) an unreadable field is NEVER trusted as
+// protection: only a KNOWN closing-side stop counts, and an unreadable stop qty
+// fails closed (breach) rather than silently counting as full cover.
+export function checkStopCoverage({ orders, position, broker } = {}) {
   if (!position) return { ok: true, blocker: null };
+  const strict = broker === "tradovate";
   const closeSide = exitSideOf(position.side);
   const stops = (orders || []).filter((o) => o && o.kind === "stop");
-  const closingStops = stops.filter((o) => { const s = sideKey(o.side); return s == null || s === closeSide; });
+  const closingStops = stops.filter((o) => {
+    const s = sideKey(o.side);
+    if (s === closeSide) return true;
+    return s == null && !strict; // paper counts an unknown-side stop; tradovate does not
+  });
   if (closingStops.length === 0) return { ok: false, blocker: "no_protective_stop" };
   const posQty = Number(position.qty) || 0;
+  if (strict) {
+    // Tradovate: an unreadable stop qty cannot be trusted to cover — fail closed.
+    if (closingStops.some((o) => !Number.isFinite(Number(o.qty)))) return { ok: false, blocker: "stop_undercovers" };
+    const coveredQty = closingStops.reduce((sum, o) => sum + Number(o.qty), 0);
+    if (posQty > 0 && coveredQty < posQty) return { ok: false, blocker: "stop_undercovers" };
+    return { ok: true, blocker: null };
+  }
+  // Paper: unknown qty counts as protection (the feed's working orders carry none).
   const coveredQty = closingStops.reduce((sum, o) => sum + (Number(o.qty) || 0), 0);
   if (posQty > 0 && coveredQty > 0 && coveredQty < posQty) return { ok: false, blocker: "stop_undercovers" };
   return { ok: true, blocker: null };
@@ -163,7 +183,10 @@ export function evaluateProtection(inputs = {}) {
     brokerRead, orders, journalQty, armedRoute, price, auth, now,
     maxAuthStaleMs = 120000, maxEvidenceAgeMs = 120000,
   } = inputs;
+  // The broker discriminator scopes the paper fail-open (see checkStopCoverage).
+  const broker = inputs.broker ?? brokerRead?.broker ?? null;
   const evidence = {
+    broker,
     broker_ok: brokerRead?.ok === true,
     broker_open: brokerRead?.ok === true && brokerRead?.position != null,
     evidence_age_ms: brokerRead?.evidence_age_ms ?? null,
@@ -186,7 +209,7 @@ export function evaluateProtection(inputs = {}) {
   if (position == null) return { ok: true, state: NO_POSITION, blockers: [], evidence };
 
   // 3. Position present. no_protective_stop is the most urgent — it outranks all.
-  const coverage = checkStopCoverage({ orders, position });
+  const coverage = checkStopCoverage({ orders, position, broker });
   if (coverage.blocker === "no_protective_stop") {
     return { ok: false, state: CRITICAL_NO_STOP, blockers: ["no_protective_stop"], evidence };
   }
@@ -225,9 +248,13 @@ export function planWatchdogAction({ prev, current, confirmThreshold = 2 } = {})
   const cls = classifyState(curState);
   if (cls === "clear") return { action: "clear", confirmed: false, consecutive: 0 };
   if (cls === "ambiguous") return { action: "pause_entries", confirmed: false, consecutive: 0 };
-  // breach — count consecutive identical-state breach reads.
+  // breach — count consecutive breach reads by CLASS, not exact enum. Keying on
+  // exact equality let a position oscillating between two breach enums (e.g.
+  // CRITICAL_QTY_MISMATCH ↔ RECOVERY_REQUIRED) reset the counter forever, so a
+  // real breach never confirmed and the intent was never held for restart. Only
+  // a clear or ambiguous read resets the counter.
   const prevState = prev?.state ?? null;
-  const carried = classifyState(prevState) === "breach" && prevState === curState ? (prev?.consecutive || 0) : 0;
+  const carried = classifyState(prevState) === "breach" ? (prev?.consecutive || 0) : 0;
   const consecutive = carried + 1;
   if (consecutive >= confirmThreshold) return { action: "recovery_required", confirmed: true, consecutive };
   return { action: "pause_entries", confirmed: false, consecutive };
@@ -254,8 +281,12 @@ export function interventionRecord({ result, position, action, now = Date.now() 
 // protectionOk false is itself a block; a watchdog that has gone quiet (no tick
 // in > 2× interval) WHILE a position is open is a block too ("watchdog failure
 // is a readiness blocker" — a dead watchdog leaves a live position unwatched).
-export function protectionReadiness({ protectionOk, state, tickAgeMs, intervalMs = 15000 } = {}) {
+// The boot pre-first-tick window (state===null, no tick yet) is ALSO a block when
+// a position is open — the staleness check can't fire with a null tick time, so
+// a never-yet-evaluated watchdog must not read as ready over an open position.
+export function protectionReadiness({ protectionOk, state, tickAgeMs, intervalMs = 15000, journalOpen = false } = {}) {
   const positionExists = [PROTECTED, CRITICAL_NO_STOP, CRITICAL_QTY_MISMATCH, RECOVERY_REQUIRED].includes(state);
+  if (state == null && journalOpen) return { blocked: true, blocker: "watchdog_not_ready" };
   if (protectionOk === false) return { blocked: true, blocker: "protection_unhealthy" };
   if (positionExists && tickAgeMs != null && tickAgeMs > 2 * intervalMs) {
     return { blocked: true, blocker: "watchdog_stale" };
@@ -273,7 +304,8 @@ export function createProtectionWatchdog(deps = {}) {
   const now = deps.now || Date.now;
   let prev = { state: null, consecutive: 0 };
   let last = null;             // last full evaluate result
-  let lastBreachKey = null;    // dedupe repeated identical confirmed breaches
+  let breachIntervened = false; // one intervention per breach episode (reset on clear)
+  let authErrorEmitted = false; // one loud auth error per auth-loss episode (reset on clear)
 
   async function tick() {
     try {
@@ -302,21 +334,27 @@ export function createProtectionWatchdog(deps = {}) {
       // The gate is open ONLY on a clear read (PROTECTED / NO_POSITION).
       deps.setProtectionOk?.(plan.action === "clear");
 
-      if (plan.action === "clear") { lastBreachKey = null; return { result, plan }; }
+      if (plan.action === "clear") { breachIntervened = false; authErrorEmitted = false; return { result, plan }; }
 
       if (result.state === AUTH_EXPIRED) {
-        // Detect-and-surface only. Position is never touched (fail-closed).
-        deps.emitError?.({
-          level: "error",
-          message: `Broker AUTH lost (${(result.blockers || []).join(", ")}) — NEW entries PAUSED. Open the Tradovate panel in the webview to re-sniff a token. The open position is NOT touched (the watchdog never flattens).`,
-        });
+        // Detect-and-surface only. Position is never touched (fail-closed). Dedupe
+        // to one loud error per auth-loss episode — re-emitted only after a clear
+        // read resets the latch and auth is lost again.
+        if (!authErrorEmitted) {
+          authErrorEmitted = true;
+          deps.emitError?.({
+            level: "error",
+            message: `Broker AUTH lost (${(result.blockers || []).join(", ")}) — NEW entries PAUSED. Open the Tradovate panel in the webview to re-sniff a token. The open position is NOT touched (the watchdog never flattens).`,
+          });
+        }
         return { result, plan };
       }
 
       if (plan.action === "recovery_required") {
-        const key = `${result.state}:${(result.blockers || []).join(",")}`;
-        if (lastBreachKey !== key) {
-          lastBreachKey = key;
+        // One intervention per breach episode (reset on a clear read), so an
+        // oscillating breach doesn't spam the ledger while still holding the intent.
+        if (!breachIntervened) {
+          breachIntervened = true;
           await deps.recordIntervention?.(interventionRecord({ result, position, action: "recovery_required", now: nowMs }));
           deps.emitError?.({
             level: "error",
@@ -359,7 +397,7 @@ export const PROTECTION_INTERVAL_MS = 15_000;
 // Whether the current protection state should BLOCK a cold live arm. A confirmed
 // RECOVERY_REQUIRED / AUTH_EXPIRED breach blocks; so does a dead watchdog while a
 // position is open (the watchdog itself failing is a block).
-export function isProtectionBlockedForArming({ now = Date.now() } = {}) {
+export function isProtectionBlockedForArming({ now = Date.now(), journalOpen = false } = {}) {
   const state = _lastProtectionState;
   if (state === RECOVERY_REQUIRED || state === AUTH_EXPIRED) return true;
   const r = protectionReadiness({
@@ -367,8 +405,12 @@ export function isProtectionBlockedForArming({ now = Date.now() } = {}) {
     state,
     tickAgeMs: _lastWatchdogTickMs ? now - _lastWatchdogTickMs : null,
     intervalMs: PROTECTION_INTERVAL_MS,
+    journalOpen,
   });
-  return r.blocked && r.blocker === "watchdog_stale";
+  // A dead watchdog OR a never-yet-ticked watchdog holding a position blocks the
+  // arm. A transient protectionOk-false (e.g. a momentary UNKNOWN) does not — that
+  // resolves on its own and shouldn't hold a session closed all window.
+  return r.blocked && (r.blocker === "watchdog_stale" || r.blocker === "watchdog_not_ready");
 }
 
 // Production deps — mirrors buildReconcilerDeps: real broker/order/journal reads,
@@ -516,8 +558,11 @@ export function startProtectionWatchdog({ send, schedule } = {}) {
     };
     const arm = schedule || ((fn, ms) => { const t = setInterval(fn, ms); t.unref?.(); return t; });
     if (_wdTimer) { try { clearInterval(_wdTimer); } catch { /* ignore */ } }
+    // Kick the FIRST tick immediately, before arming the interval, to shrink the
+    // boot pre-first-tick window where state is still null. protectionReadiness's
+    // watchdog_not_ready block covers whatever window remains.
+    runTick();
     _wdTimer = arm(runTick, PROTECTION_INTERVAL_MS);
-    runTick(); // initial kick
     return wd;
   }).catch(() => null);
 }

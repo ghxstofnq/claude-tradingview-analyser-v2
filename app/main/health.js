@@ -16,6 +16,7 @@ import { probeCdp } from "./tv-launcher.js";
 import { getReconciliationHealthy, getProtectionOk } from "./execution/auto-resume.js";
 import { getLastReconcileState } from "./execution/reconciler.js";
 import { getLastProtectionState, getLastWatchdogTickMs, protectionReadiness, PROTECTION_INTERVAL_MS } from "./execution/protection-watchdog.js";
+import { getTradingState } from "./execution/trading-feed.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -86,11 +87,14 @@ async function tick() {
     // failure is itself a readiness blocker (a live position left unwatched).
     protection: (() => {
       const tickMs = getLastWatchdogTickMs();
+      let journalOpen = false;
+      try { journalOpen = !!getTradingState().position; } catch { /* feed optional */ }
       const r = protectionReadiness({
         protectionOk: getProtectionOk(),
         state: getLastProtectionState(),
         tickAgeMs: tickMs ? Date.now() - tickMs : null,
         intervalMs: PROTECTION_INTERVAL_MS,
+        journalOpen,
       });
       return { healthy: getProtectionOk(), state: getLastProtectionState(), blocked: r.blocked, blocker: r.blocker };
     })(),

@@ -341,6 +341,12 @@ describe("eodDue / lastEodDateFrom", () => {
     assert.equal(eodDue({ nowEtMinutes: 970, lastEodDate: "2026-07-09", todayEt: "2026-07-10" }), true);
     assert.equal(eodDue({ nowEtMinutes: NaN, lastEodDate: null, todayEt: "2026-07-10" }), false);
   });
+  it("honours an injected early-close eodMinute (13:00 ET half-day)", () => {
+    assert.equal(eodDue({ nowEtMinutes: 13 * 60 - 1, lastEodDate: null, todayEt: "2026-07-03", eodMinute: 13 * 60 }), false);
+    assert.equal(eodDue({ nowEtMinutes: 13 * 60, lastEodDate: null, todayEt: "2026-07-03", eodMinute: 13 * 60 }), true);
+    // Same clock time on a NORMAL day (default 16:00) is not yet due.
+    assert.equal(eodDue({ nowEtMinutes: 13 * 60, lastEodDate: null, todayEt: "2026-07-10" }), false);
+  });
   it("lastEodDateFrom returns the last CONFIRMED eod date only", () => {
     assert.equal(lastEodDateFrom([]), null);
     assert.equal(lastEodDateFrom([{ action: "eod_flatten", confirmed_flat: false, trading_day: "2026-07-10" }]), null);
