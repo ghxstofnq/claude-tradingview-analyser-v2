@@ -3,23 +3,28 @@
 // closed: any malformed row/summary renders `unavailable` + blocks arming,
 // mirroring the A3 backtest-readiness sanitizer. No React here — node --test'd.
 
-// The expected rows, in render order, with their human labels. Kept in lock-step
-// with app/main/readiness.js READINESS_ROWS via a copy-contract test.
+// The expected rows, in render order, with their human labels + PINNED severity.
+// Kept in lock-step with app/main/readiness.js READINESS_ROWS via a copy-contract
+// test. Severity is pinned HERE (id → severity) and the payload's severity is
+// IGNORED during sanitization — otherwise a forged {status:"fail",
+// severity:"warning"} on a critical row would drop out of the arm gate and read
+// as READY while rendering red (proven arm-gate defeat).
 export const READINESS_ROW_META = Object.freeze([
-  { id: "tests", label: "Tests / build" },
-  { id: "running_code", label: "Running code" },
-  { id: "pine", label: "TradingView / Pine" },
-  { id: "detector", label: "Detector bar-data" },
-  { id: "corpus", label: "Corpus certification" },
-  { id: "parity", label: "Parity certificate" },
-  { id: "strategy_approval", label: "Strategy approval" },
-  { id: "broker_account", label: "Broker / account" },
-  { id: "broker_reconciliation", label: "Broker reconciliation" },
-  { id: "protective_stop", label: "Protective stop" },
-  { id: "automation", label: "Automation mode" },
+  { id: "tests", label: "Tests / build", severity: "critical" },
+  { id: "running_code", label: "Running code", severity: "critical" },
+  { id: "pine", label: "TradingView / Pine", severity: "critical" },
+  { id: "detector", label: "Detector bar-data", severity: "critical" },
+  { id: "corpus", label: "Corpus certification", severity: "critical" },
+  { id: "parity", label: "Parity certificate", severity: "critical" },
+  { id: "strategy_approval", label: "Strategy approval", severity: "critical" },
+  { id: "broker_account", label: "Broker / account", severity: "critical" },
+  { id: "broker_reconciliation", label: "Broker reconciliation", severity: "critical" },
+  { id: "protective_stop", label: "Protective stop", severity: "critical" },
+  { id: "automation", label: "Automation mode", severity: "warning" },
 ]);
 const EXPECTED_IDS = READINESS_ROW_META.map((m) => m.id);
 const LABELS = Object.fromEntries(READINESS_ROW_META.map((m) => [m.id, m.label]));
+const SEVERITY = Object.fromEntries(READINESS_ROW_META.map((m) => [m.id, m.severity]));
 
 const VALID_STATUSES = new Set(["pass", "warn", "fail", "pending", "unavailable"]);
 
@@ -49,6 +54,8 @@ export function formatAge(age_s) {
 
 function sanitizeRow(row, id) {
   const label = LABELS[id];
+  // Severity is PINNED from the renderer-side map, never read from the payload.
+  const severity = SEVERITY[id] || "critical";
   const valid = row
     && typeof row === "object"
     && row.id === id
@@ -56,7 +63,7 @@ function sanitizeRow(row, id) {
     && typeof row.reason === "string"
     && row.reason.trim().length > 0;
   if (!valid) {
-    return { id, label, source: null, status: "unavailable", severity: "critical", reason: "readiness evidence unavailable", evidence: null, age_s: null, action: null, tone: "bad" };
+    return { id, label, source: null, status: "unavailable", severity, reason: "readiness evidence unavailable", evidence: null, age_s: null, action: null, tone: "bad" };
   }
   const action = typeof row.action === "string" && READINESS_ACTIONS[row.action] ? row.action : null;
   return {
@@ -64,7 +71,7 @@ function sanitizeRow(row, id) {
     label,
     source: typeof row.source === "string" ? row.source : null,
     status: row.status,
-    severity: row.severity === "warning" ? "warning" : "critical",
+    severity,
     reason: row.reason,
     evidence: row.evidence && typeof row.evidence === "object" && !Array.isArray(row.evidence) ? row.evidence : null,
     age_s: Number.isFinite(row.age_s) ? row.age_s : null,

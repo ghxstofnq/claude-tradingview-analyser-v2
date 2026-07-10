@@ -52,6 +52,10 @@ export const READINESS_ROW_IDS = Object.freeze(READINESS_ROWS.map((r) => r.id));
 // position that is provably unprotected must never look tradable.
 const SAFETY_ROW_IDS = Object.freeze(["protective_stop"]);
 
+// Engine emit older than this (seconds) can't verify the deployed Pine against
+// live — matches CLAUDE.md's baseline_meta.age_seconds > 900 staleness rule.
+export const PINE_STALE_S = 900;
+
 const ALL_STATUSES = new Set(Object.values(READINESS_STATUS));
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -130,7 +134,13 @@ function pineRow(p, now) {
   if (Number.isFinite(p.expected_code_rev) && p.code_rev !== p.expected_code_rev) {
     return row(META.pine, { status: FAIL, evidence, age_s, reason: `deployed Pine code_rev ${p.code_rev} ≠ expected ${p.expected_code_rev} (deploy drift)` });
   }
-  return row(META.pine, { status: PASS, evidence, age_s, reason: `engine schema ${p.schema ?? "?"} · code_rev ${p.code_rev} verified` });
+  // Code/schema check the deployed indicator, but a matching rev off a stale
+  // emit proves nothing about NOW — degrade to WARN past the baseline-staleness
+  // bound (CLAUDE.md's 900s baseline_meta rule).
+  if (Number.isFinite(age_s) && age_s > PINE_STALE_S) {
+    return row(META.pine, { status: WARN, evidence, age_s, reason: `engine emit is ${age_s}s old (> ${PINE_STALE_S}s) — code_rev ${p.code_rev} unverified against live` });
+  }
+  return row(META.pine, { status: PASS, evidence, age_s, reason: `engine schema ${p.schema ?? "?"} · code_rev ${p.code_rev} verified · emit ${Number.isFinite(age_s) ? age_s : "?"}s ago` });
 }
 
 function detectorRow(d, now) {
@@ -200,9 +210,9 @@ function automationRow(m, now) {
   const age_s = ageFrom(m.as_of, now);
   if (mode === "auto") {
     if (m.autoPaused === true) {
-      return row(META.automation, { status: WARN, evidence, age_s, reason: `AUTO armed but paused${m.autoPauseReason ? `: ${m.autoPauseReason}` : ""}` });
+      return row(META.automation, { status: WARN, evidence, age_s, reason: `AUTO (paused: ${m.autoPauseReason || "gate closed"})` });
     }
-    return row(META.automation, { status: PASS, evidence, age_s, reason: "AUTO — fires when all deterministic + risk gates pass" });
+    return row(META.automation, { status: PASS, evidence, age_s, reason: "AUTO — all runtime gates open; fires automatically when a setup + risk gates pass" });
   }
   if (mode === "suggest") {
     return row(META.automation, { status: PASS, evidence, age_s, reason: "SUGGEST — alerts on a proposal; you accept every entry" });
@@ -273,39 +283,130 @@ export function composeReadiness(facts = {}) {
 
 // ── IO collector (the only impure part) ──────────────────────────────────────
 // Gathers facts from the existing getters + disk, then runs composeReadiness.
-// The go-live cert/tests/approval facts are cached briefly so a renderer poll
-// doesn't re-spawn git / re-read parity artifacts every second.
-let _goLiveCache = { at: 0, value: null, sym: null };
+// Three independent caches keep a renderer poll off the main thread:
+//   _certCache  — the corpus/parity certification is symbol-SET-wide, so it is
+//                 memoized ONCE (not per symbol) with its own TTL. This is the
+//                 heavy read (readFileSync + SHA over dozens of artifacts).
+//   _codeIdCache — the git HEAD + clean-worktree read, resolved via ASYNC
+//                 execFile (no execFileSync on the poll), cached briefly.
+//   _goLiveCache — a small Map keyed by symbol (approval is per-symbol), so
+//                 System (MNQ1!) and Backtest (active symbol) don't thrash a
+//                 single slot.
 const GOLIVE_TTL_MS = 20_000;
+const CERT_TTL_MS = 20_000;
+const CODEID_TTL_MS = 10_000;
+let _certCache = { at: 0, stateDir: null, value: null };
+let _codeIdCache = { at: 0, cwd: null, value: null };
+const _goLiveCache = new Map(); // symbol -> { at, value }
 
-// Map one backtest-verdict gate → the { status, reason, evidence, as_of } fact
-// shape the reducer's go-live rows consume. Reuses the gate's own status/reason.
-function gateFact(gate, as_of) {
-  if (!plainObject(gate)) return null;
-  const status = gate.status === "pass" ? "pass" : gate.status === "pending" ? "pending" : "fail";
-  return { status, reason: gate.reason ?? null, evidence: plainObject(gate.evidence) ? gate.evidence : null, as_of };
+// Async git identity — HEAD SHA + clean-tracked-worktree, via promisified
+// execFile so the poll never blocks on execFileSync.
+async function codeIdentityAsync({ cwd, now }) {
+  if (_codeIdCache.value && _codeIdCache.cwd === cwd && (now - _codeIdCache.at) < CODEID_TTL_MS) return _codeIdCache.value;
+  let value = { code_sha: null, clean: false, reason: "could not resolve git HEAD" };
+  try {
+    const [util, child] = await Promise.all([import("node:util"), import("node:child_process")]);
+    const execFileP = util.promisify(child.execFile);
+    const code_sha = (await execFileP("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim() || null;
+    if (code_sha) {
+      const st = (await execFileP("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd })).stdout.trim();
+      const clean = st === "";
+      value = { code_sha, clean, reason: clean ? "tracked worktree clean" : "worktree is dirty; commit or clear source changes before verifying" };
+    }
+  } catch { /* leave nulls */ }
+  _codeIdCache = { at: now, cwd, value };
+  return value;
 }
 
+// Memoized corpus/parity certification (symbol-independent).
+async function certifyCached({ stateDir, now }) {
+  if (_certCache.value && _certCache.stateDir === stateDir && (now - _certCache.at) < CERT_TTL_MS) return _certCache.value;
+  let value = null;
+  try {
+    const { certifyCorpus } = await import("../../cli/lib/corpus-certification.js");
+    value = certifyCorpus({ stateDir });
+  } catch { value = null; }
+  _certCache = { at: now, stateDir, value };
+  return value;
+}
+
+// Compose the four go-live facts DIRECTLY from the same validators the go-live
+// verdict uses (certifyCorpus / testsGreenForSha / validateApproval) — same
+// vocabulary, but with async git + split caching so nothing blocks the poll.
 async function collectGoLiveFacts({ stateDir, symbol, cwd, env, now }) {
-  if (_goLiveCache.value && _goLiveCache.sym === symbol && (now - _goLiveCache.at) < GOLIVE_TTL_MS) {
-    return _goLiveCache.value;
-  }
+  const cached = _goLiveCache.get(symbol);
+  if (cached && (now - cached.at) < GOLIVE_TTL_MS) return cached.value;
+
   let facts = { tests: null, corpus: null, parity: null, strategy_approval: null };
   try {
-    const { collectBacktestReadiness } = await import("../../cli/lib/backtest-readiness.js");
-    // baseline:null skips the (expensive) corpus fold — the go-live net-R
-    // verdict stays the Backtest page's job; the System card only needs the
-    // mechanical cert/tests/approval gates, which are computed either way.
-    const r = await collectBacktestReadiness({ stateDir, symbol, cwd, env, baseline: null });
-    const g = Array.isArray(r?.gates) ? new Map(r.gates.map((x) => [x.id, x])) : new Map();
-    facts = {
-      tests: gateFact(g.get("tests"), now),
-      corpus: gateFact(g.get("corpus"), now),
-      parity: gateFact(g.get("parity"), now),
-      strategy_approval: gateFact(g.get("strategy_review"), now),
+    const state = await import("../../cli/lib/backtest-readiness-state.js");
+    const [code, cert] = await Promise.all([
+      codeIdentityAsync({ cwd, now }),
+      certifyCached({ stateDir, now }),
+    ]);
+
+    const manifest_id = cert?.manifest_id ?? null;
+    const selection_digest = cert?.selection_digest ?? null;
+    const requirements = plainObject(cert?.requirements) ? cert.requirements : null;
+    const inScope = Array.isArray(requirements?.symbols) && requirements.symbols.includes(symbol);
+
+    // tests — evidence keyed on the async sha; testsGreenForSha reads a file, no git.
+    const testsGreen = !!(code.code_sha && code.clean && state.testsGreenForSha({ stateDir, code_sha: code.code_sha }));
+    facts.tests = {
+      status: testsGreen ? "pass" : "fail",
+      reason: !code.code_sha ? "could not resolve git HEAD"
+        : !code.clean ? code.reason
+          : testsGreen ? "test evidence green for current clean code"
+            : "no green test evidence — re-run `tv backtest verify-tests` on HEAD",
+      evidence: { code_sha: code.code_sha, clean_worktree: code.clean },
+      as_of: now,
     };
+
+    // corpus + parity — from the memoized certification.
+    const corpusCertified = cert?.certified === true && inScope;
+    const primaryBlocker = Array.isArray(cert?.blockers) && cert.blockers[0]?.message ? cert.blockers[0].message : null;
+    facts.corpus = {
+      status: corpusCertified ? "pass" : "fail",
+      reason: corpusCertified ? "gate corpus certified"
+        : !inScope ? `${symbol} not in certification scope`
+          : primaryBlocker ?? "gate corpus not certified",
+      evidence: { manifest_id, selection_digest, blockers: cert?.blockers ?? [] },
+      as_of: now,
+    };
+    const parityCertified = cert?.parity?.certified === true;
+    facts.parity = {
+      status: parityCertified ? "pass" : "fail",
+      reason: parityCertified ? "backtest-live parity certified" : (cert?.parity?.evidence ?? "backtest-live parity not certified"),
+      evidence: plainObject(cert?.parity) ? cert.parity : null,
+      as_of: now,
+    };
+
+    // strategy approval — the same validator as the go-live gate.
+    let approvalStatus = "pending";
+    let approvalReason = "strategy review pending — run `tv backtest approve`";
+    try {
+      if (manifest_id && requirements && code.code_sha) {
+        const scope_digest = state.readinessScopeDigest(requirements);
+        const record = state.readApproval({ stateDir, manifest_id, symbol });
+        const v = state.validateApproval({
+          record, manifest_id, selection_digest, scope_digest,
+          code_sha: code.code_sha, symbol, levers: state.normalizeLevers(env),
+        });
+        if (v?.ok) { approvalStatus = "pass"; approvalReason = "strategy review approved"; }
+        else if (v?.strategy_review_state === "rejected") { approvalStatus = "fail"; approvalReason = v.reason; }
+        else { approvalStatus = "pending"; approvalReason = v?.reason ?? approvalReason; }
+      }
+    } catch { /* pending */ }
+    facts.strategy_approval = { status: approvalStatus, reason: approvalReason, evidence: { manifest_id, symbol }, as_of: now };
   } catch { /* leave nulls → rows render unavailable, fail-closed */ }
-  _goLiveCache = { at: now, value: facts, sym: symbol };
+
+  _goLiveCache.set(symbol, { at: now, value: facts });
+  if (_goLiveCache.size > 8) {
+    // Bound the map — evict the oldest entry.
+    let oldestKey = null; let oldestAt = Infinity;
+    for (const [k, v] of _goLiveCache) { if (v.at < oldestAt) { oldestAt = v.at; oldestKey = k; } }
+    if (oldestKey != null) _goLiveCache.delete(oldestKey);
+  }
   return facts;
 }
 
@@ -380,12 +481,26 @@ export async function collectSystemReadiness({
   let automation = null;
   try {
     const { readExecConfig } = await import("./execution/config.js");
+    const autoResume = await import("./execution/auto-resume.js");
     const cfg = readExecConfig() || {};
     const mode = cfg.automationMode ?? "manual";
+    // AUTO only truly fires when EVERY runtime gate is open. Feed the real
+    // gates so the row can't claim live-firing while a gate holds it paused:
+    //   detector loop · protection watchdog · live boot-pause · reconciliation.
     const loopRunning = health?.loop === "healthy";
-    const guards = plainObject(cfg.guards) ? cfg.guards : {};
-    const autoPaused = mode === "auto" && !loopRunning;
-    automation = { mode, autoPaused, autoPauseReason: autoPaused ? "detector not running" : null, as_of: now, _guards: guards };
+    const protectionOk = autoResume.getProtectionOk?.() !== false; // defaults open
+    const reconHealthy = autoResume.getReconciliationHealthy?.() === true;
+    const autoResumed = autoResume.getAutoResumed?.() === true;
+    const liveConfirmed = account?.live === true && account?.route === true;
+    let autoPauseReason = null;
+    if (mode === "auto") {
+      if (!loopRunning) autoPauseReason = "detector not running";
+      else if (!protectionOk) autoPauseReason = "protection watchdog";
+      else if (liveConfirmed && !autoResumed) autoPauseReason = "live auto paused after restart";
+      else if (!reconHealthy) autoPauseReason = "reconciliation pending";
+    }
+    const autoPaused = mode === "auto" && autoPauseReason != null;
+    automation = { mode, autoPaused, autoPauseReason, as_of: now };
   } catch { /* null */ }
 
   const goLive = await collectGoLiveFacts({ stateDir, symbol, cwd, env, now });

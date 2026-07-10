@@ -82,6 +82,32 @@ test("a confirmed protective breach yields safety_red + paper false", () => {
   assert.equal(view.summary.mode, "locked");
 });
 
+test("severity is pinned — a forged warning severity on a critical row can't defeat the arm gate", () => {
+  // The proven exploit: {status:"fail", severity:"warning"} on running_code would
+  // drop out of the critical set and read as READY while rendering red.
+  const r = greenReadiness();
+  const rc = r.rows.find((x) => x.id === "running_code");
+  rc.status = "fail";
+  rc.severity = "warning"; // the forge
+  const view = readinessView(r);
+  const row = view.rows.find((x) => x.id === "running_code");
+  assert.equal(row.severity, "critical", "severity must be pinned from the renderer map, not the payload");
+  assert.equal(row.status, "fail");
+  assert.equal(view.summary.arm, false, "forged severity must not let a red critical row arm");
+  assert.notEqual(readinessBadge(view).text, "READY");
+});
+
+test("automation stays warning severity even if the payload forges it critical", () => {
+  const r = greenReadiness();
+  const auto = r.rows.find((x) => x.id === "automation");
+  auto.status = "warn";
+  auto.severity = "critical"; // forge the warning row up to critical
+  const view = readinessView(r);
+  assert.equal(view.rows.find((x) => x.id === "automation").severity, "warning");
+  // A warn on the warning-severity automation row does NOT block arm.
+  assert.equal(view.summary.arm, true);
+});
+
 test("only whitelisted action tokens survive sanitization", () => {
   const r = greenReadiness();
   const det = r.rows.find((x) => x.id === "detector");

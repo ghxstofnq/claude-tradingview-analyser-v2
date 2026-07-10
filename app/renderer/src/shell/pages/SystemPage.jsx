@@ -31,12 +31,13 @@ function HRow({ tone, name, value, valWarn, action }) {
   );
 }
 
-function SystemBody({ pushToast }) {
+function SystemBody({ pushToast, symbol }) {
   const health = useHealth();
   const version = useVersion();
   const exec = useExecutionState();
   const events = useCalendar();
-  const { readiness, loading: rdyLoading } = useReadiness();
+  // Same active symbol Settings uses — so the two surfaces never disagree on "ready".
+  const { readiness, loading: rdyLoading } = useReadiness(symbol);
   const { date, files } = useFiles();
   // 1s tick so the IPC-bridge probe age below advances (and can go stale) even
   // when no new health event lands.
@@ -198,11 +199,11 @@ function SystemBody({ pushToast }) {
   );
 }
 
-export function SystemShellPage({ onClose, pushToast }) {
+export function SystemShellPage({ onClose, pushToast, symbol }) {
   return (
     <Page icon={PAGE_ICONS.system} tint="mute" title="System" page="system"
           sub="health · versions · files" hint="ops & diagnostics" onClose={onClose}>
-      <SystemBody pushToast={pushToast} />
+      <SystemBody pushToast={pushToast} symbol={symbol} />
     </Page>
   );
 }

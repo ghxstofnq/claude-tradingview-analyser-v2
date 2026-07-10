@@ -117,6 +117,19 @@ test("pine code_rev drift is a hard fail", () => {
   assert.equal(r.rows.find((x) => x.id === "pine").status, "fail");
 });
 
+test("pine freshness — fresh emit passes, stale emit (>900s) degrades to warn", () => {
+  const fresh = allGreenFacts();
+  fresh.pine.emit_ms = NOW - 5000; // 5s
+  assert.equal(composeReadiness(fresh).rows.find((x) => x.id === "pine").status, "pass");
+
+  const stale = allGreenFacts();
+  stale.pine.emit_ms = NOW - 3_600_000; // 1h — well past the 900s bound
+  const sr = composeReadiness(stale).rows.find((x) => x.id === "pine");
+  assert.equal(sr.status, "warn", "a matching code_rev off a stale emit can't prove live");
+  assert.match(sr.reason, /old/);
+  assert.equal(composeReadiness(stale).summary.arm, false, "stale pine blocks arm");
+});
+
 test("unconfirmed LIVE account is a critical fail; paper-unconfirmed is pending", () => {
   const live = allGreenFacts();
   live.account = { connected: true, route: false, needsConfirm: true, level: "live", name: "Tradovate", live: true, as_of: NOW };
@@ -176,6 +189,23 @@ test("AUTO paused surfaces a warning row but never blocks arm by itself", () => 
   assert.equal(row.status, "warn");
   assert.equal(row.severity, "warning");
   assert.ok(r.summary.warnings.some((w) => w.id === "automation"));
+});
+
+test("AUTO boot-paused after restart names the gate and does not assert live-firing", () => {
+  const f = allGreenFacts();
+  f.automation = { mode: "auto", autoPaused: true, autoPauseReason: "live auto paused after restart", as_of: NOW };
+  const row = composeReadiness(f).rows.find((x) => x.id === "automation");
+  assert.equal(row.status, "warn");
+  assert.match(row.reason, /paused: live auto paused after restart/);
+  assert.doesNotMatch(row.reason, /fires automatically/);
+});
+
+test("AUTO all-open renders the fires-automatically copy", () => {
+  const f = allGreenFacts();
+  f.automation = { mode: "auto", autoPaused: false, autoPauseReason: null, as_of: NOW };
+  const row = composeReadiness(f).rows.find((x) => x.id === "automation");
+  assert.equal(row.status, "pass");
+  assert.match(row.reason, /fires automatically/);
 });
 
 test("missing fact groups render UNAVAILABLE, never a fabricated pass", () => {

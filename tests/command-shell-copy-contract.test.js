@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { liveFooterCopy } from "../app/renderer/src/Live.helpers.js";
 import { READINESS_ROW_META } from "../app/renderer/src/Readiness.helpers.js";
-import { READINESS_ROW_IDS } from "../app/main/readiness.js";
+import { READINESS_ROW_IDS, READINESS_ROWS } from "../app/main/readiness.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(REPO, p), "utf8");
@@ -56,6 +56,15 @@ test("SettingsPage risk sizing does not present the example stop as current risk
 test("readiness row ids stay in lock-step across main + renderer", () => {
   const rendererIds = READINESS_ROW_META.map((m) => m.id);
   assert.deepEqual(rendererIds, [...READINESS_ROW_IDS], "renderer row meta must match the reducer's rows exactly");
+});
+
+test("readiness row SEVERITY stays in lock-step across main + renderer", () => {
+  // The renderer pins severity from its own map; if it drifts from the main-side
+  // definition a critical row could silently become non-blocking. Lock them.
+  const mainSev = Object.fromEntries(READINESS_ROWS.map((r) => [r.id, r.severity]));
+  for (const m of READINESS_ROW_META) {
+    assert.equal(m.severity, mainSev[m.id], `severity for ${m.id} must match main READINESS_ROWS`);
+  }
 });
 
 test("no shell page reintroduces a hardcoded green status literal without a source", () => {
