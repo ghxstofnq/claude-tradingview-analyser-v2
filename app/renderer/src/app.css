@@ -4637,8 +4637,22 @@ button { border-radius: var(--r-sm); }
 .cmd-health.warn { background: var(--amber); }
 .cmd-health.off  { background: var(--label-dim); }
 /* Manual BUY/SELL (plan 2026-07-10) — bottom-strip right side. Filled tints;
-   direction is status (long green / short red), same family as .cs-dir. */
-.cmd-strip .cmd-trade { display: flex; gap: 6px; margin-right: 10px; -webkit-app-region: no-drag; }
+   direction is status (long green / short red), same family as .cs-dir.
+   The SL field arms instant orders: valid price → buttons brighten + ⚡. */
+.cmd-strip .cmd-trade { display: flex; gap: 6px; align-items: center; margin-right: 10px; -webkit-app-region: no-drag; }
+.cmd-sl-in {
+  width: 72px; height: 20px; padding: 0 8px;
+  font: 500 10px var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--value); background: var(--surface-elevated, var(--surface-2));
+  border: 1px solid var(--border); border-radius: var(--r-xs); outline: none;
+}
+.cmd-sl-in::placeholder { color: var(--label-dim); letter-spacing: 0.08em; }
+.cmd-sl-in:focus { border-color: var(--cs-onborder); }
+.cmd-trade.armed .cmd-sl-in { border-color: color-mix(in srgb, var(--amber) 45%, transparent); color: var(--value-strong); }
+.cmd-sl-x { color: var(--label-dim); font-size: 11px; cursor: pointer; padding: 0 2px; }
+.cmd-sl-x:hover { color: var(--value); }
+.cmd-trade.armed .cmd-trade-btn.buy  { background: color-mix(in srgb, var(--green) 22%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 35%, transparent); }
+.cmd-trade.armed .cmd-trade-btn.sell { background: color-mix(in srgb, var(--red) 22%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 35%, transparent); }
 .cmd-trade-btn {
   font: 600 10px var(--sans); letter-spacing: .08em; padding: 3px 12px;
   border-radius: 4px; cursor: pointer; white-space: nowrap;

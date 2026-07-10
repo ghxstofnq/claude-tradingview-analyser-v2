@@ -41,6 +41,7 @@ import { useCalendar } from "../hooks/useCalendar.js";
 import { readPrefs } from "../hooks/usePrefs.js";
 import { classifyWalkerTransitions, describeSignal, signalEffects } from "./walkerSignals.helpers.js";
 import { playChime } from "./chimes.js";
+import { parseInstantStop, orderResultToast } from "../Orders.helpers.js";
 
 let TOAST_SEQ = 0;
 
@@ -178,6 +179,29 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
     });
     return () => off?.();
   }, [addToast]);
+
+  // Instant-SL quick order (2026-07-10): a stop price typed in the bottom-bar
+  // field routes BUY/SELL straight to placeManual — market entry, typed stop,
+  // 1:2 default TP, Settings default risk, all guards enforced main-side.
+  // Empty field keeps the buttons opening the chooser ticket. The field clears
+  // after a successful placement so a stale stop can't re-fire.
+  const [slDraft, setSlDraft] = useState("");
+  const onTrade = useCallback(async (side) => {
+    const intent = parseInstantStop(slDraft);
+    if (intent.mode === "invalid") {
+      addToast(`SL "${intent.raw}" isn't a price — fix it or clear the field`, "red");
+      return;
+    }
+    if (intent.mode === "popup") {
+      setPal({ open: true, query: side === "buy" ? "long" : "short", sel: 0, forced: null, askQuery: null });
+      return;
+    }
+    addToast(`Placing ${side.toUpperCase()} market · SL ${intent.stop} · TP 1:2…`, "amber");
+    const r = await window.api?.execution?.placeManual?.({ side, typedStop: intent.stop })
+      .catch((e) => ({ ok: false, error: String(e?.message || e) }));
+    addToast(orderResultToast(r, { side, contracts: r?.preview?.contracts, symbol }), r?.ok ? "green" : "red");
+    if (r?.ok) setSlDraft("");
+  }, [slDraft, addToast, symbol]);
 
   // One-click TV Desktop relaunch with the CDP flag (constraint #1 recipe).
   // Takes ~10-20s: quit → reopen → wait for 9225 to answer.
@@ -394,7 +418,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         onOpenNews={() => openPalette("news")}
         onOpenAlerts={() => openPalette("alerts")}
         onVerClick={cycleVer} onRelaunchTv={relaunchTv} onOpenBriefing={() => openPage("briefing")}
-        onOpenTicket={(side) => setPal({ open: true, query: side, sel: 0, forced: null, askQuery: null })} />
+        onTrade={onTrade} slDraft={slDraft} setSlDraft={setSlDraft} />
 
       <div className="chart-host">
         <div className="chart-body">

@@ -57,7 +57,7 @@ describe("orders helpers", () => {
 });
 
 // ── chooser rows (refined BUY/SELL ticket, 2026-07-10) ──────────────────────
-import { stopChooserRows, tpChooserRows, stopTag } from "../app/renderer/src/Orders.helpers.js";
+import { stopChooserRows, tpChooserRows, stopTag, parseInstantStop } from "../app/renderer/src/Orders.helpers.js";
 
 const PREVIEW = {
   entry: 21000,
@@ -129,5 +129,19 @@ describe("iFVG chooser labels (2026-07-10)", () => {
     const { rows } = stopChooserRows(preview, "");
     assert.deepEqual(rows.map((r) => [r.tag, r.label, r.sel]),
       [["1/3 iFVG", "20990–20995", true], ["2/3 iFVG", "20990–20995", false], ["SL", "swing low", false]]);
+  });
+});
+
+describe("parseInstantStop (instant-SL quick order, 2026-07-10)", () => {
+  it("empty → popup mode; valid price → instant with parsed stop", () => {
+    assert.deepEqual(parseInstantStop(""), { mode: "popup" });
+    assert.deepEqual(parseInstantStop("  "), { mode: "popup" });
+    assert.deepEqual(parseInstantStop(" 29910.25 "), { mode: "instant", stop: 29910.25 });
+  });
+  it("junk and non-positive values are invalid — never guessed into a stop", () => {
+    assert.equal(parseInstantStop("abc").mode, "invalid");
+    assert.equal(parseInstantStop("29,910").mode, "invalid"); // thousands separator isn't a number
+    assert.equal(parseInstantStop("-5").mode, "invalid");
+    assert.equal(parseInstantStop("0").mode, "invalid");
   });
 });
