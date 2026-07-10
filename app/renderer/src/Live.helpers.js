@@ -1,6 +1,17 @@
 // Pure helpers for Live.jsx — extracted so they can be unit-tested with
 // `node --test`. Importing this file has no side effects.
 
+// pnlDisplay — decide how a P&L cell renders given the freshness of the broker
+// read (Task C3/C5). When the execution state is stale (a broker-read outage),
+// the money number renders in a neutral STALE state — no live-green/red — so
+// last-known P&L is never mistaken for live. Pure; the renderer maps tone
+// "stale" to a greyed style + a STALE marker.
+export function pnlDisplay(cell, stale) {
+  if (!cell) return { v: "—", tone: "", stale: false };
+  if (stale) return { v: cell.v, tone: "stale", stale: true };
+  return { v: cell.v, tone: cell.tone || "", stale: false };
+}
+
 // Live footer copy, mode-aware (Task C2-c). The old footer hardcoded "fires only
 // after your accept", which is FALSE in AUTO. This returns copy that matches the
 // real execution path for the current automation mode:

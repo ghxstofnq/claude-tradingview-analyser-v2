@@ -168,7 +168,23 @@ export async function getJournalFor({ date, session }) {
     const { readJournal } = await import("./journal.js");
     closes = readJournal({ date, session });
   } catch { /* journal optional */ }
-  return { date, session, brief, summary, setups: setupsAnnotated, trades, stats, closes };
+  // C4: the durable order-intent chain for this session (EXECUTED-domain
+  // evidence) + the real executed fills for the date. Both best-effort empty —
+  // a session with no orders / no fills is a legitimate empty read, never an
+  // error. Tolerant JSONL so a torn tail line can't take down the whole review.
+  let intents = [];
+  try {
+    const { parseJsonlTolerant } = await import("../../cli/lib/jsonl.js");
+    const txt = await fs.readFile(path.join(dir, "order-intents.jsonl"), "utf8");
+    intents = parseJsonlTolerant(txt).records;
+  } catch { intents = []; }
+  let fills = [];
+  try {
+    const { readFills } = await import("./execution/fills.js");
+    const { TRADES_DIR } = await import("./execution/config.js");
+    fills = readFills(TRADES_DIR, date) || [];
+  } catch { fills = []; }
+  return { date, session, brief, summary, setups: setupsAnnotated, trades, stats, closes, intents, fills };
 }
 
 // Library: thin per-session stats, descending. Default 20 rows.

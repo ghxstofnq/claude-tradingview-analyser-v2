@@ -163,12 +163,16 @@ export function buildTrackRecord(rows = []) {
 // at close (computed in code from realized $ ÷ risk — not fabricated).
 export function buildTrackRecordFromFills(fills = []) {
   const r2 = (n) => Math.round(n * 100) / 100;
-  const list = (fills || []).filter((f) => f && f.actual && typeof f.actual.r === "number");
+  // R stats are computed over fills that recorded an R (bracketed round-trips);
+  // NET $ is summed over ALL fills — including un-bracketed (r:null) ones — so
+  // the EXECUTED headline agrees with buildTrackRecordByAccount.net_usd on the
+  // same fills (a Tradovate null-bracket fill still moved real money).
+  const all = (fills || []).filter(Boolean);
+  const list = all.filter((f) => f && f.actual && typeof f.actual.r === "number");
   const n = list.length;
   const rs = list.map((f) => f.actual.r);
-  const usds = list.map((f) => Number(f.actual.usd) || 0);
   const cumR = r2(rs.reduce((s, v) => s + v, 0));
-  const cumUsd = Math.round(usds.reduce((s, v) => s + v, 0));
+  const cumUsd = Math.round(all.reduce((s, f) => s + (Number(f?.actual?.usd) || 0), 0));
   const wins = rs.filter((r) => r > 0);
   const losses = rs.filter((r) => r < 0);
   // BE scratches don't count against win-rate — win% is over decided trades.
@@ -390,4 +394,157 @@ export function computeFaithfulness(setup, trade = null, brief = null) {
     marks: [bias.status, priceAction.status, entryModel.status],
     summary: { faithful: gradable && deviations === 0, deviations, softs, gradable },
   };
+}
+
+// ── Review truth domains (Task C4) ──────────────────────────────────────────
+// REVIEW splits the record into three explicit provenance domains so a
+// SIMULATED / deterministic R can NEVER be shown as an executed one (PRODUCT.md
+// #3 honesty). The copy is load-bearing — a contract test asserts JOURNAL is
+// never labeled executed and always says SIMULATED.
+export const REVIEW_DOMAINS = Object.freeze({
+  EXECUTED: Object.freeze({ key: "EXECUTED", label: "EXECUTED", source: "broker fills", note: "Real broker fills — money that actually moved." }),
+  JOURNAL: Object.freeze({ key: "JOURNAL", label: "JOURNAL", source: "deterministic · SIMULATED", note: "Deterministic walker journal — SIMULATED R, not executed." }),
+  BACKTEST: Object.freeze({ key: "BACKTEST", label: "BACKTEST", source: "corpus fold", note: "Historical corpus fold — replayed, not executed." }),
+});
+
+// Tag a record with its provenance domain. Fail-safe default is JOURNAL
+// (simulated) — a record is only ever promoted to EXECUTED on POSITIVE broker
+// evidence (a real fill with a $ result + an account it routed to), so a
+// simulated row can never masquerade as executed.
+export function tagDomain(record = {}) {
+  if (!record || typeof record !== "object") return REVIEW_DOMAINS.JOURNAL.key;
+  if (record.domain && REVIEW_DOMAINS[record.domain]) return record.domain;
+  if (record.corpus === true || record.run_id != null || record.backtest === true) return REVIEW_DOMAINS.BACKTEST.key;
+  const a = record.actual || null;
+  const hasBrokerResult = !!a && (a.usd != null || a.exit != null);
+  const hasAccount = record.accountId != null || record.account != null || record.broker != null;
+  if (hasBrokerResult && hasAccount) return REVIEW_DOMAINS.EXECUTED.key;
+  return REVIEW_DOMAINS.JOURNAL.key;
+}
+
+function rvNum(v) {
+  if (v == null || v === "") return null; // Number(null) === 0 — guard it
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function rvSide(s) {
+  const v = String(s || "").toLowerCase();
+  if (v === "long" || v === "buy") return "long";
+  if (v === "short" || v === "sell") return "short";
+  return null;
+}
+
+// Points of adverse entry slippage that count as a discrepancy worth surfacing.
+export const SLIPPAGE_MATERIAL_PTS = 0.5;
+
+// Entry slippage between the PLANNED entry and the ACTUAL broker fill. Shown
+// ONLY when both are finite — a Tradovate bracket that filled with a null
+// planned entry (no plan recorded) returns shown:false rather than a fabricated
+// zero. `points` is signed so positive = adverse (worse than planned) for the
+// trade's own direction.
+export function computeSlippage(fill = {}) {
+  const p = fill?.planned || {};
+  const a = fill?.actual || {};
+  const pe = rvNum(p.entry);
+  const ae = rvNum(a.entry);
+  if (pe == null || ae == null) return { shown: false, points: null, adverse: false };
+  const dir = rvSide(fill.side);
+  const raw = ae - pe;
+  const points = Math.round((dir === "short" ? -raw : raw) * 100) / 100;
+  return { shown: true, points, adverse: points > 0 };
+}
+
+// The end-to-end evidence chain for one executed/journaled trade: intent →
+// order → fill → journal → reconcile. A missing hop is available:false (never
+// invented) so the drill-down honestly shows where the trail breaks.
+export function buildEvidenceChain({ fill = null, intent = null, journalTrade = null, reconcile = null } = {}) {
+  const acked = !!intent && ["BROKER_ACKNOWLEDGED", "POSITION_CONFIRMED", "STOP_CONFIRMED"].includes(intent.state);
+  const recState = typeof reconcile === "string" ? reconcile : reconcile?.state ?? null;
+  return [
+    { key: "INTENT", label: "Intent", available: !!intent, detail: intent ? `${intent.decision_id ?? "—"} · ${intent.state ?? "—"}` : null },
+    { key: "ORDER", label: "Broker order", available: acked || !!fill, detail: intent?.state ?? (fill ? "filled" : null) },
+    { key: "FILL", label: "Fill", available: !!(fill && fill.actual), detail: fill?.actual ? `${fill.actual.entry ?? "—"} → ${fill.actual.exit ?? "—"}` : null },
+    { key: "JOURNAL", label: "Journal", available: !!journalTrade, detail: journalTrade ? `#${journalTrade.id ?? "—"} · ${journalTrade.outcome ?? journalTrade.state ?? "—"}` : null },
+    { key: "RECONCILE", label: "Reconcile", available: recState != null, detail: recState },
+  ];
+}
+
+// Discrepancies between what the journal recorded and what the broker executed.
+// A clean, fully-consistent trade returns []. Kinds: qty_mismatch /
+// outcome_mismatch / naked_stop / intent_unresolved / slippage.
+export function computeDiscrepancies({ fill = null, intent = null, journalTrade = null, reconcile = null } = {}) {
+  const out = [];
+  const jqty = rvNum(journalTrade?.size?.contracts ?? journalTrade?.contracts ?? null);
+  const fqty = rvNum(fill?.qty ?? null);
+  if (jqty != null && fqty != null && jqty !== fqty) {
+    out.push({ kind: "qty_mismatch", detail: `journal ${jqty}c vs broker ${fqty}c` });
+  }
+  const jOut = journalTrade?.outcome ?? null;
+  const fr = rvNum(fill?.actual?.r ?? null);
+  if (jOut && fr != null) {
+    const journalWin = /TP/i.test(jOut);
+    const journalLoss = /STOP|INVALID/i.test(jOut);
+    if ((journalWin && fr < 0) || (journalLoss && fr > 0)) {
+      out.push({ kind: "outcome_mismatch", detail: `journal ${jOut} but executed ${fr}R` });
+    }
+  }
+  const recState = typeof reconcile === "string" ? reconcile : reconcile?.state ?? null;
+  if (recState === "CRITICAL_NO_STOP") {
+    out.push({ kind: "naked_stop", detail: "reconcile: open position with NO protective stop" });
+  }
+  if (intent && ["RECOVERY_REQUIRED", "UNKNOWN"].includes(intent.state)) {
+    out.push({ kind: "intent_unresolved", detail: `intent held in ${intent.state}` });
+  }
+  const slip = computeSlippage(fill || {});
+  if (slip.shown && slip.adverse && Math.abs(slip.points) >= SLIPPAGE_MATERIAL_PTS) {
+    out.push({ kind: "slippage", detail: `${slip.points}pt adverse fill vs plan` });
+  }
+  return out;
+}
+
+// ── Fill ↔ trade assignment (Task C4) ───────────────────────────────────────
+// Executed fills carry no decision_id/trade_id, so the evidence chain joins a
+// fill to a journal trade heuristically: same instrument root + side, nearest
+// timestamp — but bounded and 1:1. A fill matches at most ONE trade (greedy
+// nearest first), a trade with no ts gets no match, and a match outside the
+// window is rejected. No fallback-to-first: a miss is an honest no-match so the
+// evidence chain shows the FILL hop unavailable rather than misattributing.
+export const FILL_MATCH_WINDOW_MS = 10 * 60 * 1000; // 10 min
+
+const rvRoot = (s) => (String(s || "").toUpperCase().match(/(MNQ|MES|NQ|ES)/) || [])[1] || null;
+function rvSideEq(a, b) {
+  const sa = rvSide(a), sb = rvSide(b);
+  return sa != null && sa === sb;
+}
+
+// Returns Map(trade.id → fill). Greedy: rank every eligible (trade, fill) pair
+// by |Δt|, assign smallest first, each fill and each trade used at most once.
+export function assignFillsToTrades(trades = [], fills = [], { maxDeltaMs = FILL_MATCH_WINDOW_MS } = {}) {
+  const pairs = [];
+  for (const t of trades || []) {
+    if (!t || t.id == null || !t.ts) continue; // no ts → honest no-match
+    const tms = Date.parse(t.ts);
+    if (!Number.isFinite(tms)) continue;
+    const tRoot = rvRoot(t.symbol);
+    for (let fi = 0; fi < (fills || []).length; fi += 1) {
+      const f = fills[fi];
+      if (!f || !f.ts) continue;
+      if (rvRoot(f.symbol) !== tRoot) continue;
+      if (!rvSideEq(f.side, t.side)) continue;
+      const fms = Date.parse(f.ts);
+      if (!Number.isFinite(fms)) continue;
+      const d = Math.abs(fms - tms);
+      if (d > maxDeltaMs) continue;
+      pairs.push({ tid: t.id, fi, d });
+    }
+  }
+  pairs.sort((a, b) => a.d - b.d);
+  const out = new Map();
+  const usedFills = new Set();
+  for (const p of pairs) {
+    if (out.has(p.tid) || usedFills.has(p.fi)) continue;
+    out.set(p.tid, fills[p.fi]);
+    usedFills.add(p.fi);
+  }
+  return out;
 }

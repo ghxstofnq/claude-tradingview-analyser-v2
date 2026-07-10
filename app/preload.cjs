@@ -143,6 +143,8 @@ contextBridge.exposeInMainWorld("api", {
     // Broker/journal reconcile — status / retry / recovery. The readiness card's
     // "retry broker read" action calls reconcile({ action: "retry" }).
     reconcile(opts) { return ipcRenderer.invoke("execution:reconcile", opts || {}); },
+    // C3.1: RAW durable order-intent journal for the LIVE lifecycle timeline.
+    orderIntents() { return ipcRenderer.invoke("execution:orderIntents"); },
     account: {
       get() { return ipcRenderer.invoke("execution:account"); },
       confirm(typed) { return ipcRenderer.invoke("execution:confirmAccount", { typed }); },

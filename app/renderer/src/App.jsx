@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from "react";
 import { EvidenceContext, EvidenceSidePanel } from "./Shared.jsx";
 import { CommandShell } from "./shell/CommandShell.jsx";
+import { ErrorBoundary } from "./ErrorBoundary.jsx";
 import { loadGuards, saveGuards } from "./Account.helpers.js";
 import { useChat } from "./hooks/useChat.js";
 import { useSymbolCache } from "./hooks/useSymbolCache.js";
@@ -48,16 +49,24 @@ function App() {
 
   return (
     <EvidenceContext.Provider value={openEvidence}>
-      <CommandShell
-        symbol={symbol} setSymbol={setSymbol}
-        guards={guards} setGuards={setGuards}
-        chats={chats} currentPrice={currentPrice}
-        onToggleTheme={toggleTheme} />
-      <EvidenceSidePanel
-        open={!!evidence}
-        refData={evidence?.refData}
-        label={evidence?.label}
-        onClose={closeEvidence} />
+      {/* Outermost safety net (Task C5): the shell is a money-path surface, so
+          if it throws below every inner boundary the fallback still offers a
+          broker-confirmed FLATTEN + OPEN SYSTEM rather than a blank screen. */}
+      <ErrorBoundary label="APP SHELL" variant="emergency"
+                     onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
+        <CommandShell
+          symbol={symbol} setSymbol={setSymbol}
+          guards={guards} setGuards={setGuards}
+          chats={chats} currentPrice={currentPrice}
+          onToggleTheme={toggleTheme} />
+      </ErrorBoundary>
+      <ErrorBoundary label="EVIDENCE PANEL">
+        <EvidenceSidePanel
+          open={!!evidence}
+          refData={evidence?.refData}
+          label={evidence?.label}
+          onClose={closeEvidence} />
+      </ErrorBoundary>
     </EvidenceContext.Provider>
   );
 }
