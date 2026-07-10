@@ -57,7 +57,7 @@ describe("orders helpers", () => {
 });
 
 // ── chooser rows (refined BUY/SELL ticket, 2026-07-10) ──────────────────────
-import { stopChooserRows, tpChooserRows, stopTag, parseInstantStop } from "../app/renderer/src/Orders.helpers.js";
+import { stopChooserRows, tpChooserRows, stopTag, parseInstantStop, packetTicketSeed } from "../app/renderer/src/Orders.helpers.js";
 
 const PREVIEW = {
   entry: 21000,
@@ -143,5 +143,22 @@ describe("parseInstantStop (instant-SL quick order, 2026-07-10)", () => {
     assert.equal(parseInstantStop("29,910").mode, "invalid"); // thousands separator isn't a number
     assert.equal(parseInstantStop("-5").mode, "invalid");
     assert.equal(parseInstantStop("0").mode, "invalid");
+  });
+});
+
+describe("packetTicketSeed (one-key packet ticket, 2026-07-09 Task 4)", () => {
+  it("maps a fired packet to buy/sell + exact typed stop/tp strings", () => {
+    const seed = packetTicketSeed({ market: "MNQ1!", model: "Inversion", side: "short", grade: "B", entry: 29691, stop: 29811.75, tp1: 29302.5 });
+    assert.deepEqual(seed, { side: "sell", stop: "29811.75", tp: "29302.5", label: "MNQ1! Inversion short B" });
+  });
+  it("long maps to buy; missing prices stay empty (ticket defaults take over)", () => {
+    const seed = packetTicketSeed({ side: "long", model: "MSS" });
+    assert.equal(seed.side, "buy");
+    assert.equal(seed.stop, "");
+    assert.equal(seed.tp, "");
+  });
+  it("null / unknown side → null (no ticket to open)", () => {
+    assert.equal(packetTicketSeed(null), null);
+    assert.equal(packetTicketSeed({ side: "flat" }), null);
   });
 });

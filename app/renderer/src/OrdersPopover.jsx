@@ -14,13 +14,15 @@ import { routingLabel, blockMessage, orderResultToast, stopChooserRows, tpChoose
 const fmt = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
 const symShort = (s) => String(s || "").replace(/1!$/, "") || "—";
 
-function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
+function OrdersBody({ onToast, toast, symbol, initialSide = "buy", initialStop = "", initialTp = "" }) {
   const [ctx, setCtx] = useState(null);
   const [acct, setAcct] = useState(null);
   const [pos, setPos] = useState(null);
   const [side, setSide] = useState(initialSide === "sell" ? "sell" : "buy");
-  const [typedStop, setTypedStop] = useState("");
-  const [typedTp, setTypedTp] = useState("");
+  // Packet seeding (plan 2026-07-09 Task 4): the packet's exact stop/tp1
+  // arrive as typed values — the chooser shows them selected (custom rows).
+  const [typedStop, setTypedStop] = useState(initialStop);
+  const [typedTp, setTypedTp] = useState(initialTp);
   const [risk, setRisk] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -43,8 +45,10 @@ function OrdersBody({ onToast, toast, symbol, initialSide = "buy" }) {
   // old symbol's stop/TP don't linger. On a symbol change, settle briefly first
   // so the webview finishes switching before we read it.
   useEffect(() => {
-    setTypedStop(""); setTypedTp(""); setPreview(null);
+    // First run keeps any seeded typed values (packet ticket); only a real
+    // symbol CHANGE clears them — the old symbol's stop/TP must not linger.
     if (firstLoad.current) { firstLoad.current = false; loadContext(false); return; }
+    setTypedStop(""); setTypedTp(""); setPreview(null);
     const t = setTimeout(() => loadContext(false), 800);
     return () => clearTimeout(t);
   }, [loadContext]);

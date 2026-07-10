@@ -15,6 +15,7 @@ export function buildCommands(ctx = {}) {
     automationMode = "manual",
     symbol = "MNQ1!",
     cdpDown = false,
+    hasPacket = false,
   } = ctx;
 
   const rows = [];
@@ -51,6 +52,13 @@ export function buildCommands(ctx = {}) {
   rows.push({ id: "sym", icon: "▦", tint: "mute", root: true,
     label: `Switch to ${symbol === "MNQ1!" ? "MES1!" : "MNQ1!"}`,
     action: { type: "switch-symbol" } });
+
+  // One-key ticket from the walker's packet (plan 2026-07-09 Task 4) —
+  // root-promoted while a packet is live this session.
+  rows.push({ id: "packet-ticket", icon: "◆", tint: hasPacket ? "green" : "mute", root: hasPacket,
+    label: "Ticket from last packet",
+    detail: hasPacket ? "prefilled with the packet's entry · stop · tp1" : "no packet fired this session",
+    action: { type: "packet-ticket" } });
 
   // Surfaces at root the moment TV Desktop runs without the CDP flag — the
   // one failure that blinds everything (2026-07-07→09) and has a one-click fix.
@@ -104,6 +112,7 @@ const VERB_SHORTCUTS = [
   [/^(manual|auto)\b/, (c, m) => c.id === `auto:${m[1]}`],
   [/^(detector|start|stop)\b/, (c) => c.id === "detector"],
   [/^(relaunch|cdp|tradingview)\b/, (c) => c.id === "tv-relaunch"],
+  [/^packet\b/, (c) => c.id === "packet-ticket"],
 ];
 
 export function visibleRows(all, qRaw) {

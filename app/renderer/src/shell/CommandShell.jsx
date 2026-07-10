@@ -41,7 +41,7 @@ import { useCalendar } from "../hooks/useCalendar.js";
 import { readPrefs } from "../hooks/usePrefs.js";
 import { classifyWalkerTransitions, describeSignal, signalEffects } from "./walkerSignals.helpers.js";
 import { playChime } from "./chimes.js";
-import { parseInstantStop, orderResultToast } from "../Orders.helpers.js";
+import { parseInstantStop, orderResultToast, packetTicketSeed } from "../Orders.helpers.js";
 import { JournalPrompt } from "./JournalPrompt.jsx";
 
 let TOAST_SEQ = 0;
@@ -151,9 +151,12 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const hasPosition = !!exec?.position;
   const detectorRunning = health?.loop === "healthy";
   const cdpDown = health?.cdp === "down";
+  // Last fired packet (plan 2026-07-09 Task 4) — state, not a ref, so the
+  // palette's "Ticket from last packet" command surfaces the moment one lands.
+  const [lastPacket, setLastPacket] = useState(null);
   const commands = useMemo(
-    () => buildCommands({ tripped: false, levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown }),
-    [levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown]);
+    () => buildCommands({ tripped: false, levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown, hasPacket: !!lastPacket }),
+    [levels, hasPosition, detectorRunning, automationMode, symbol, cdpDown, lastPacket]);
 
   // Walker stage-change chimes + packet notifications (plan 2026-07-09 Task 1).
   // Consecutive deterministic:packet truths are classified into signals; the
@@ -176,10 +179,26 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
         if (fx.chime && prefs.walkerChimes) playChime(fx.chime);
         if (fx.notify && prefs.walkerNotif) notifyDesktop("Walker packet", describeSignal(sig));
         if (fx.toast) addToast(describeSignal(sig), sig.kind === "packet_fired" ? "amber" : "green");
+        if (sig.kind === "packet_fired") {
+          setLastPacket(sig.packet);
+          // One-key ticket: the autoTicket pref auto-opens the prefilled
+          // ticket the moment a packet fires (user decision: opt-in OFF).
+          if (prefs.autoTicket) openPacketTicketRef.current?.(sig.packet);
+        }
       }
     });
     return () => off?.();
   }, [addToast]);
+
+  // Packet → prefilled ticket (exact packet numbers as typed stop/TP; the
+  // trader's accept gate is the ticket's own CONFIRM, unchanged).
+  const openPacketTicket = useCallback((packet) => {
+    const seed = packetTicketSeed(packet ?? lastPacket);
+    if (!seed) { addToast("no packet fired this session yet", "amber"); return; }
+    setPal({ open: true, query: seed.side === "buy" ? "long" : "short", sel: 0, forced: null, askQuery: null, seed });
+  }, [lastPacket, addToast]);
+  const openPacketTicketRef = useRef(null);
+  openPacketTicketRef.current = openPacketTicket;
 
   // Auto-journal note prompt (plan 2026-07-09 Task 5): main raises
   // journal:close after every recorded round-trip; the dismissible card asks
@@ -224,8 +243,8 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   }, [addToast]);
 
   // ── palette open/close ────────────────────────────────────────────────
-  const openPalette = (query = "") => setPal({ open: true, query, sel: 0, forced: null, askQuery: null });
-  const closePalette = () => setPal((p) => ({ ...p, open: false, forced: null, askQuery: null }));
+  const openPalette = (query = "") => setPal({ open: true, query, sel: 0, forced: null, askQuery: null, seed: null });
+  const closePalette = () => setPal((p) => ({ ...p, open: false, forced: null, askQuery: null, seed: null }));
   const openPage = (p) => { setPage(p); closePalette(); setFlat({ open: false, hold: false }); setPrep({ open: false, step: 0 }); };
   const openFlatten = () => { closePalette(); setFlat({ open: true, hold: false }); };
   const closeFlatten = () => setFlat({ open: false, hold: false });
@@ -290,9 +309,10 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       case "theme": closePalette(); onToggleTheme?.(); return;
       case "startPrep": startPrep(); return;
       case "tv-relaunch": closePalette(); await relaunchTv(); return;
+      case "packet-ticket": openPacketTicket(); return;
       default: return;
     }
-  }, [symbol, detectorRunning, addToast, setSymbol, onToggleTheme, relaunchTv]);
+  }, [symbol, detectorRunning, addToast, setSymbol, onToggleTheme, relaunchTv, openPacketTicket]);
 
   // ── palette Enter: run selected, or fall through to ask ───────────────
   const paletteEnter = () => {
@@ -447,7 +467,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
             <Palette
               query={pal.query} onQuery={(q) => setPal((p) => ({ ...p, query: q, sel: 0 }))}
               sel={pal.sel} onHover={(i) => setPal((p) => ({ ...p, sel: i }))}
-              forcedView={pal.forced} askQuery={pal.askQuery}
+              forcedView={pal.forced} askQuery={pal.askQuery} packetSeed={pal.seed}
               commands={commands} symbol={symbol} chat={chats?.claude}
               alerts={alerts} events={events} workingOrders={exec?.workingOrders || []}
               onRunCommand={runCommand} onDisarm={disarmAlert}
