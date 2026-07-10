@@ -26,3 +26,20 @@ export function journalDraftState(row) {
 }
 
 export { MANUAL_PLACEHOLDER, DRAFT_LABEL };
+
+// Reducer for incoming journal:close events. A single trade close emits
+// journal:close up to three times (row → +screenshot → +suggested_note, the
+// last landing 30-90s later). This decides the next open-card state so a late
+// emit never clobbers the trader's flow:
+//   • a row whose id was already saved/dismissed (in `handledIds`) is IGNORED —
+//     never re-open a card the trader closed;
+//   • an emit for the currently-open card (same id) is MERGED in place — the
+//     late suggested_note lands without remounting / re-opening / stealing focus;
+//   • otherwise the row is raised as a fresh card.
+// Pure — `prev` is the current card (or null), `handledIds` is a Set of ids.
+export function reduceJournalClose(prev, row, handledIds) {
+  if (!row || !row.id) return prev;
+  if (handledIds && handledIds.has(row.id)) return prev;
+  if (prev && prev.id === row.id) return { ...prev, ...row };
+  return row;
+}

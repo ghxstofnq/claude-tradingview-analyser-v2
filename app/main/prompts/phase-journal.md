@@ -18,7 +18,7 @@ Write **one or two plain-English sentences**. Comment on execution quality again
 Hard rules:
 - **No new numbers.** Reference only figures already present in the provided close data (constraint #7 — no LLM arithmetic). If a number isn't given, describe it in words instead of inventing or recomputing it.
 - **No trade advice.** Do not suggest future entries, sizes, or "next time buy/sell". This is a retrospective note, not a signal.
-- **No tools.** Reply with the note text only — prose, no JSON, no tool calls. Journal turns author no state.
+- **No surface or trade tools.** This turn authors no state — reply with the note text only, prose, no JSON, no tool calls.
 - Keep it terse and specific. Skip pleasantries and headers. If the data is too sparse to say anything useful, write a single honest sentence noting that.
 
 The trader sees your text pre-filled in the note field, labelled as a Claude draft; they accept or edit it.

@@ -98,7 +98,11 @@ export async function draftAndAttachNote({ date, id, row }) {
     if (note && typeof note === "string" && note.trim()) {
       const suggested_note = note.trim().slice(0, 300);
       patchRow(date, id, { suggested_note });
-      _send?.("journal:close", { ...row, suggested_note });
+      // Re-read the persisted row so the re-emit carries the CURRENT note (the
+      // trader may have already saved one) — never the stale note:null snapshot
+      // captured at close. The renderer merges this into a still-open card.
+      const fresh = readRow(date, id) || { ...row, suggested_note };
+      _send?.("journal:close", fresh);
     }
   } catch {
     // Best-effort — a drafting failure must never surface to the trade feed.
@@ -135,6 +139,18 @@ export async function recordClose(fill) {
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }
+}
+
+// Read one persisted row by id (null if the file/row is absent). Used to
+// re-emit the current row after an async patch.
+function readRow(date, id) {
+  try {
+    const lines = fs.readFileSync(journalPath(date), "utf8").split("\n").filter(Boolean);
+    for (const l of lines) {
+      try { const row = JSON.parse(l); if (row.id === id) return row; } catch { /* skip */ }
+    }
+  } catch { /* no file */ }
+  return null;
 }
 
 function patchRow(date, id, patch) {

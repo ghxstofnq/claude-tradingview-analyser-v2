@@ -937,7 +937,9 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
 // single-message iterable completes the turn identically to a string prompt.
 // Only image attachments with a base64 `data` string are included; malformed
 // entries are dropped so a bad screenshot never breaks the turn.
-function buildTurnPromptInput({ text, images, provider }) {
+// Exported so the trading-narration seam (images:null / non-Claude → the exact
+// string prompt) is test-pinned rather than inspection-guaranteed.
+export function buildTurnPromptInput({ text, images, provider }) {
   const imageBlocks = Array.isArray(images)
     ? images
         .filter((img) => img && typeof img.data === "string" && img.data.length > 0)

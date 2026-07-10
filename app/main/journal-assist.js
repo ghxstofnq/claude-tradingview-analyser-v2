@@ -10,7 +10,14 @@
 //     off without awaiting; every failure path resolves to null, never throws);
 //   • skipped silently when the LLM is unavailable (reuses the auth-blocked
 //     circuit — isClaudeAuthBlocked);
-//   • tool-less — the "journal" purpose exposes no surface_* / trade tools;
+//   • authors no surface / trade tools — the "journal" purpose maps to an empty
+//     tool list (Read/Glob built-ins remain reachable but the turn needs none);
+//   • lowest-priority — it fires after a short deferral so the immediate
+//     post-close narration turn goes first, and runs under a 20s hard cap so it
+//     can never hold the shared turn mutex long enough to defer the next bar's
+//     fold by more than 20s;
+//   • fresh session every draft — never resumes the prior conversation, so a
+//     day of closes doesn't accumulate screenshots / context / cost;
 //   • off the trade path — it runs strictly after the close is on disk and
 //     touches no execution / walker / gate code.
 //
@@ -22,15 +29,21 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { userTurn, isClaudeAuthBlocked } from "./sdk.js";
+import { userTurn, isClaudeAuthBlocked, resetSession } from "./sdk.js";
 import { record as recordMetric } from "./metrics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
-// How long to let the (queued behind live turns) journal turn run before we
-// give up. Best-effort: a timeout just means no draft, never a broken close.
-const JOURNAL_TURN_TIMEOUT_MS = 90_000;
+// Hard cap on the journal turn. A cosmetic post-close note must never hold the
+// shared turn mutex long enough to defer the next bar's narration fold — 20s is
+// the worst-case deferral of a subsequent turn. A timeout just means no draft.
+const JOURNAL_TURN_TIMEOUT_MS = 20_000;
+// Yield the immediate post-close turn: wait a few seconds before firing so a
+// bar-close / narration turn queued right at the close grabs the mutex first.
+const JOURNAL_TURN_DEFER_MS = 4_000;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MEDIA_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
@@ -90,21 +103,34 @@ export async function draftJournalNote(row, {
   turn = userTurn,
   isAuthBlocked = isClaudeAuthBlocked,
   readAttachment = readScreenshotAttachment,
+  reset = resetSession,
   metric = recordMetric,
   timeoutMs = JOURNAL_TURN_TIMEOUT_MS,
+  deferMs = JOURNAL_TURN_DEFER_MS,
+  wait = sleep,
 } = {}) {
   try {
     if (isAuthBlocked && isAuthBlocked()) {
       metric?.({ kind: "journal", event: "skipped", reason: "claude_auth_blocked" });
       return null;
     }
+    // Fresh session per draft — never resume prior closes (no screenshot /
+    // context / cost accumulation across the day's trades).
+    try { reset?.("journal"); } catch { /* best-effort */ }
+
     const text = buildCloseContext(row);
     const shot = readAttachment(row?.screenshot);
     const images = shot ? [shot] : null;
     metric?.({ kind: "journal", event: "started", image: !!shot });
 
+    // Yield to the immediate post-close narration turn before contending for
+    // the mutex (lowest-priority). The 20s cap bounds the rest.
+    if (deferMs > 0) await wait(deferMs);
+
     let out = "";
     let errored = false;
+    let timedOut = false;
+    let usage = null;
     await turn({
       purpose: "journal",
       text,
@@ -112,20 +138,18 @@ export async function draftJournalNote(row, {
       timeoutMs,
       onEvent: (ev) => {
         if (ev?.type === "chunk" && typeof ev.text === "string") out += ev.text;
-        if (ev?.type === "error") errored = true;
+        else if (ev?.type === "usage") usage = ev.usage;
+        else if (ev?.type === "error") { errored = true; if (ev.kind === "timeout") timedOut = true; }
       },
     });
 
     const note = out.trim().replace(/\s+/g, " ").slice(0, 300);
-    if (errored && !note) {
-      metric?.({ kind: "journal", event: "failed" });
-      return null;
-    }
     if (!note) {
-      metric?.({ kind: "journal", event: "failed", reason: "empty" });
+      if (timedOut) metric?.({ kind: "journal", event: "timeout", usage });
+      else metric?.({ kind: "journal", event: "failed", reason: errored ? undefined : "empty", usage });
       return null;
     }
-    metric?.({ kind: "journal", event: "succeeded", image: !!shot });
+    metric?.({ kind: "journal", event: "succeeded", image: !!shot, usage });
     return note;
   } catch (err) {
     // Best-effort: any failure means no draft, never a thrown error into the

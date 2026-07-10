@@ -67,6 +67,17 @@ describe("readScreenshotAttachment", () => {
   });
 });
 
+// Shared deps: no auth block, no screenshot, no-op reset/metric, ZERO defer so
+// tests never sleep the 4s production pre-delay. Override per test.
+const base = (over = {}) => ({
+  isAuthBlocked: () => null,
+  readAttachment: () => null,
+  reset: () => {},
+  metric: noopMetric,
+  deferMs: 0,
+  ...over,
+});
+
 describe("draftJournalNote", () => {
   it("returns the trimmed note when the turn resolves (text-only, no screenshot)", async () => {
     let sawImages = "unset";
@@ -75,7 +86,7 @@ describe("draftJournalNote", () => {
       onEvent?.({ type: "chunk", text: "  Clean MSS short, entry followed the packet.  " });
       onEvent?.({ type: "turn_complete" });
     };
-    const note = await draftJournalNote(ROW, { turn, isAuthBlocked: () => null, readAttachment: () => null, metric: noopMetric });
+    const note = await draftJournalNote(ROW, base({ turn }));
     assert.equal(note, "Clean MSS short, entry followed the packet.");
     assert.equal(sawImages, null, "no screenshot → images should be null (text-only)");
   });
@@ -84,37 +95,68 @@ describe("draftJournalNote", () => {
     let sawImages = null;
     const turn = async ({ images, onEvent }) => { sawImages = images; onEvent?.({ type: "chunk", text: "note" }); onEvent?.({ type: "turn_complete" }); };
     const readAttachment = () => ({ data: "AAAA", media_type: "image/png" });
-    const note = await draftJournalNote({ ...ROW, screenshot: "state/x.png" }, { turn, isAuthBlocked: () => null, readAttachment, metric: noopMetric });
+    const note = await draftJournalNote({ ...ROW, screenshot: "state/x.png" }, base({ turn, readAttachment }));
     assert.equal(note, "note");
     assert.deepEqual(sawImages, [{ data: "AAAA", media_type: "image/png" }]);
   });
 
-  it("skips silently when the LLM is auth-blocked (never calls the turn)", async () => {
-    let called = false;
+  it("resets the session before EACH draft — no cross-trade accumulation", async () => {
+    const resets = [];
+    const turn = fakeTurn("note");
+    await draftJournalNote(ROW, base({ turn, reset: (p) => resets.push(p) }));
+    await draftJournalNote(ROW, base({ turn, reset: (p) => resets.push(p) }));
+    assert.deepEqual(resets, ["journal", "journal"], "each draft gets a fresh journal session");
+  });
+
+  it("skips silently when the LLM is auth-blocked (never calls the turn or reset)", async () => {
+    let called = false, reset = false;
     const turn = async () => { called = true; };
-    const note = await draftJournalNote(ROW, { turn, isAuthBlocked: () => ({ ts: 1, message: "blocked" }), readAttachment: () => null, metric: noopMetric });
+    const note = await draftJournalNote(ROW, base({ turn, isAuthBlocked: () => ({ ts: 1, message: "blocked" }), reset: () => { reset = true; } }));
     assert.equal(note, null);
     assert.equal(called, false);
+    assert.equal(reset, false, "no reset when we never fire");
+  });
+
+  it("records event:'timeout' (not 'failed') when the turn times out", async () => {
+    const events = [];
+    const turn = async ({ onEvent }) => { onEvent?.({ type: "error", message: "timed out", kind: "timeout" }); };
+    const note = await draftJournalNote(ROW, base({ turn, metric: (e) => events.push(e) }));
+    assert.equal(note, null);
+    assert.ok(events.some((e) => e.event === "timeout"), "timeout metric recorded");
+    assert.ok(!events.some((e) => e.event === "failed"), "not recorded as failed");
+  });
+
+  it("passes the usage event through to the succeeded metric (per-purpose cost)", async () => {
+    const events = [];
+    const turn = async ({ onEvent }) => {
+      onEvent?.({ type: "usage", usage: { cost_usd: 0.004, input_tokens: 900 } });
+      onEvent?.({ type: "chunk", text: "note" });
+      onEvent?.({ type: "turn_complete" });
+    };
+    await draftJournalNote(ROW, base({ turn, metric: (e) => events.push(e) }));
+    const ok = events.find((e) => e.event === "succeeded");
+    assert.ok(ok, "succeeded metric recorded");
+    assert.deepEqual(ok.usage, { cost_usd: 0.004, input_tokens: 900 });
   });
 
   it("returns null (never throws) when the turn errors with no text", async () => {
-    const note = await draftJournalNote(ROW, { turn: fakeTurn("", { error: true }), isAuthBlocked: () => null, readAttachment: () => null, metric: noopMetric });
+    const note = await draftJournalNote(ROW, base({ turn: fakeTurn("", { error: true }) }));
     assert.equal(note, null);
   });
 
   it("returns null when the turn produces empty text", async () => {
-    const note = await draftJournalNote(ROW, { turn: fakeTurn("   "), isAuthBlocked: () => null, readAttachment: () => null, metric: noopMetric });
+    const note = await draftJournalNote(ROW, base({ turn: fakeTurn("   ") }));
     assert.equal(note, null);
   });
 
   it("never throws even when the turn fn itself rejects", async () => {
     const turn = async () => { throw new Error("kaboom"); };
-    const note = await draftJournalNote(ROW, { turn, isAuthBlocked: () => null, readAttachment: () => null, metric: noopMetric });
+    const note = await draftJournalNote(ROW, base({ turn }));
     assert.equal(note, null);
   });
 
   it("caps the note at 300 chars", async () => {
-    const note = await draftJournalNote(ROW, { turn: fakeTurn("x".repeat(500)), isAuthBlocked: () => null, readAttachment: () => null, metric: noopMetric });
+    const note = await draftJournalNote(ROW, base({ turn: fakeTurn("x".repeat(500)) }));
     assert.equal(note.length, 300);
   });
 });

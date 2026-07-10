@@ -120,6 +120,27 @@ describe("draftAndAttachNote — suggested_note patch + re-emit", () => {
     await assert.doesNotReject(draftAndAttachNote({ date: DATE, id: "jr-draft", row: { id: "jr-draft", date: DATE } }));
     setJournalNoteDrafter(null);
   });
+
+  it("re-emit carries the PERSISTED note, not the stale close snapshot", async () => {
+    const D2 = "2026-07-12";
+    fs.mkdirSync(path.join(stateRoot(), "session", D2), { recursive: true });
+    const seed = buildJournalRow(FILL, { date: D2, session: "ny-am", id: "jr-note" });
+    fs.writeFileSync(path.join(stateRoot(), "session", D2, "journal.jsonl"), JSON.stringify(seed) + "\n");
+    // Trader saves a note BEFORE the async draft lands.
+    addNote({ date: D2, id: "jr-note", note: "chased it, pillar 2 marginal" });
+
+    const sent = [];
+    setJournalSend((ch, payload) => sent.push({ ch, payload }));
+    setJournalNoteDrafter(async () => "suggested draft from claude");
+    // The stale snapshot passed to draftAndAttachNote still has note:null.
+    await draftAndAttachNote({ date: D2, id: "jr-note", row: { ...seed } });
+
+    const emit = sent.find((s) => s.ch === "journal:close");
+    assert.equal(emit.payload.note, "chased it, pillar 2 marginal", "re-emit carries the saved note, not null");
+    assert.equal(emit.payload.suggested_note, "suggested draft from claude");
+    setJournalSend(null);
+    setJournalNoteDrafter(null);
+  });
 });
 
 describe("recordClose is not delayed or broken by the journal turn", () => {
@@ -146,6 +167,22 @@ describe("recordClose is not delayed or broken by the journal turn", () => {
     // Let the fire-and-forget rejection settle; it must be swallowed.
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(drafterCalled, true, "the drafter was invoked (fire-and-forget)");
+    setJournalScreenshotFn(null);
+    setJournalNoteDrafter(null);
+    setJournalSend(null);
+  });
+
+  it("returns promptly even when the journal turn HANGS (never resolves)", async () => {
+    setJournalScreenshotFn(async () => null);
+    // A drafter that never settles — proves recordClose does not await it.
+    setJournalNoteDrafter(() => new Promise(() => {}));
+    setJournalSend(() => {});
+    const started = Date.now();
+    const res = await recordClose(FILL);
+    const elapsed = Date.now() - started;
+    assert.equal(res.ok, true);
+    assert.ok(res.id);
+    assert.ok(elapsed < 1000, `recordClose must return promptly under a hung turn (took ${elapsed}ms)`);
     setJournalScreenshotFn(null);
     setJournalNoteDrafter(null);
     setJournalSend(null);
