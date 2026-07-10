@@ -284,16 +284,52 @@ All seven were put to the user one by one on 2026-07-10:
 7. **catch-up purpose — delete.** Remove the dormant prompt, tool map,
    metrics bucket, and routing; git history keeps it.
 
-Still evidence-gated (asked when the evidence exists): final corpus sign-off
-after green certification; each lever's approval from its moved-session
-report (never from aggregate R); the runner ruling after the transcript
-derivation + fold.
+## Full pre-approval — ruled later on 2026-07-10
+
+The user converted the remaining evidence-gated checkpoints into standing
+grants so the autonomous loop can run the goal to completion without
+mid-loop parks. These supersede the "user rules after the fold" clauses in
+checkpoints 1–3 above:
+
+1. **Corpus window auto-approves on green certification.** When
+   `tv backtest certify` reports `certified: true` on the manifest (missing
+   sessions repaired, parity certificate present), the approval record is
+   written automatically under `state/backtest/approvals/` citing this
+   ruling. A missing day proven unrecordable (data gap at the source,
+   holiday/early close) becomes a documented manifest exception with
+   evidence, not a silent skip.
+2. **Strategy levers pass through a strict mechanical fidelity gate** in
+   place of per-session user review. A lever auto-enables ONLY if all three
+   hold: (a) the full certified-corpus fold is non-negative on BOTH symbols;
+   (b) every hand-verified oracle/tape day still passes; (c) no moved
+   session contradicts a transcript citation. A lever failing any prong
+   stays default-off with its report filed — reported, not parked.
+3. **Runner ruling is delegated with a tie-breaker.** Implement whatever
+   Lanto's transcripts clearly support (cited); if the evidence is
+   ambiguous, keep current behavior (BE at TP1 + fixed TP2 — which prior
+   folds favored). Same strict fidelity gate applies to any change.
+4. **Paper/AUTO bring-up bar: 5 clean sessions.** The bot trades paper
+   unattended through real NY sessions; a session is clean when it produces
+   zero unresolved reconciliation, protection, or parity events. Five clean
+   sessions complete ladder step 7.
+5. **Pre-ruled constraint changes ship on their rulings** (e.g. the
+   constraint #5 journaling carve-out); any constraint change without a
+   prior ruling still parks.
+6. **The one irreducible human action: the LIVE arm.** Claude is not
+   permitted to initiate real-money trading, and the system requires the
+   deliberate type-"LIVE" arm + per-session resume by design. When
+   everything above is green, the loop sends one notification and stops.
+   Ladder steps 8–9 begin with the user typing the arm.
 
 ## Definition of done
 
 - **Track 1 is done** at go-live ladder step 9: live/auto armed on the
   user-approved certified window, with reconciliation, protection watchdog,
   EOD independence, and parity all green — then "done" means hands-off during
-  sessions, review after.
-- **Track 2 has no terminal state** — it ships continuously and must never
-  block, destabilize, or reach into Track 1's trade path.
+  sessions, review after. The loop's own terminal state is the step just
+  before: every gate green, 5 clean paper sessions banked, and the LIVE-arm
+  notification sent.
+- **Track 2's terminal state for the loop** is the enumerated backlog
+  shipped (motion v1, CSS hygiene, token lint, and the seven LLM items as
+  ruled). Beyond that it ships continuously and must never block,
+  destabilize, or reach into Track 1's trade path.
