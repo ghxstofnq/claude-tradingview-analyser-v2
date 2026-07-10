@@ -1,4 +1,5 @@
 import test from "node:test";
+import { EXPECTED_CODE_REV } from "../cli/lib/ict-engine-parser.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,7 +34,7 @@ test("tv backtest certify prints parseable report and exits nonzero when uncerti
   assert.equal(rep.manifest_id, "gate-corpus-2026-h1-v1");
   assert.equal(rep.certified, false);
   assert.equal(rep.requirements.schema, 4);
-  assert.equal(rep.requirements.code_rev, 1);
+  assert.equal(rep.requirements.code_rev, EXPECTED_CODE_REV);
   assert.equal(rep.requirements.expected_sessions_per_symbol, 239);
   assert.deepEqual(Object.keys(rep.symbols).sort(), ["MES1!", "MNQ1!"]);
   assert.ok(rep.blockers.some((b) => b.code === "no_index"), "empty state -> no_index blocker");
