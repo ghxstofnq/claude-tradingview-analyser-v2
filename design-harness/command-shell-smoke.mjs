@@ -11,12 +11,22 @@
 // Deterministic: no network, fixed 1440×900 viewport + one 760×1200 pass. The
 // only wall-clock dependence is the "stale-feed" scenario, which waits out the
 // >6s exec-stale timer.
+//
+// TREE IDENTITY (why this never validates the wrong bytes): by default the
+// harness SPAWNS its own Vite dev server from THIS worktree's app dir on an
+// OS-assigned ephemeral port — so what it tests is, by construction, this tree.
+// It never touches or kills a pre-existing :5173 server. Reusing an already
+// running server is opt-in (GOFNQ_TESTUI_REUSE=1, GOFNQ_TESTUI_URL) and gated by
+// an identity check: the server must serve this branch's fixture-adapter module
+// (present only here) — a mismatch (e.g. :5173 serving the main checkout) is
+// refused loudly rather than silently passing.
 
 import { chromium } from "playwright";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readFileSync, mkdirSync } from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +35,6 @@ const appDir = path.join(repoRoot, "app");
 const OUT = process.env.SHOOT_OUT || path.join(dir, "shots");
 mkdirSync(OUT, { recursive: true });
 
-const BASE = "http://localhost:5173";
 const FIXTURES = JSON.parse(readFileSync(path.join(dir, "fixtures", "command-shell-state.json"), "utf8"));
 const V = { wide: { width: 1440, height: 900 }, narrow: { width: 760, height: 1200 } };
 
@@ -74,7 +83,7 @@ async function openPage(page, name) {
 }
 async function esc(page) { await page.keyboard.press("Escape"); await sleep(200); }
 
-// ── vite dev server (spawn unless one is already answering) ─────────────────────
+// ── vite dev server: spawn from THIS tree by default; identity-check on reuse ────
 function ping(url) {
   return new Promise((resolve) => {
     const req = http.get(url, (res) => { res.resume(); resolve(true); });
@@ -82,19 +91,72 @@ function ping(url) {
     req.setTimeout(800, () => { req.destroy(); resolve(false); });
   });
 }
-async function ensureVite() {
-  if (await ping(BASE)) return { stop: async () => {} }; // reuse a running dev server
-  const viteBin = path.join(appDir, "node_modules", "vite", "bin", "vite.js");
-  const child = spawn(process.execPath, [viteBin, "--port", "5173"], {
-    cwd: appDir, stdio: "ignore", env: { ...process.env },
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
   });
-  for (let i = 0; i < 60; i++) { if (await ping(BASE)) break; await sleep(500); }
-  if (!(await ping(BASE))) { child.kill("SIGTERM"); throw new Error("vite dev server did not come up on :5173"); }
-  return { stop: async () => { child.kill("SIGTERM"); } };
+}
+function localTreeSha() {
+  try { return execFileSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(); }
+  catch { return null; }
+}
+async function fetchText(url) {
+  try { const r = await fetch(url); return r.ok ? await r.text() : null; } catch { return null; }
+}
+// A running server serves THIS worktree iff it can serve this branch's
+// fixture-adapter module (new in this PR) AND that module carries the exact
+// guard token from this tree's source on disk. A different tree (e.g. the main
+// checkout without this file) fails both — no silent wrong-tree validation.
+async function servesThisTree(base) {
+  const served = await fetchText(base + "/src/fixture-adapter.js");
+  if (!served) return false;
+  const localGuard = "fixture-adapter: refusing to install"; // literal from this tree's adapter
+  return served.includes("__isGofnqFixtureHarness") && served.includes(localGuard);
+}
+async function ensureVite() {
+  const sha = localTreeSha();
+  if (process.env.GOFNQ_TESTUI_REUSE === "1") {
+    const base = process.env.GOFNQ_TESTUI_URL || "http://localhost:5173";
+    if (!(await ping(base))) throw new Error(`GOFNQ_TESTUI_REUSE=1 but no server answered at ${base}`);
+    if (!(await servesThisTree(base))) {
+      throw new Error(`GOFNQ_TESTUI_REUSE=1: the server at ${base} does NOT serve this worktree ` +
+        `(fixture-adapter identity check failed). Refusing to validate the wrong bytes — unset ` +
+        `GOFNQ_TESTUI_REUSE to spawn a fresh server from this tree.`);
+    }
+    console.log(`reusing server at ${base} — tree identity confirmed${sha ? ` (${sha.slice(0, 12)})` : ""}`);
+    return { base, stop: async () => {} }; // NEVER kill a server we did not spawn
+  }
+  // Default: spawn a fresh Vite from THIS tree on an ephemeral port.
+  const viteBin = path.join(appDir, "node_modules", "vite", "bin", "vite.js");
+  let child = null;
+  let base = null;
+  for (let attempt = 0; attempt < 3 && !base; attempt++) {
+    const port = await freePort();
+    const url = `http://localhost:${port}`;
+    const c = spawn(process.execPath, [viteBin, "--port", String(port), "--strictPort"], {
+      cwd: appDir, stdio: "ignore", env: { ...process.env },
+    });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      if (await ping(url)) { up = true; break; }
+      if (c.exitCode != null) break; // port race → retry
+      await sleep(500);
+    }
+    if (up) { child = c; base = url; } else { c.kill("SIGTERM"); }
+  }
+  if (!base) throw new Error("failed to spawn a Vite dev server from this worktree");
+  if (!(await servesThisTree(base))) {
+    child.kill("SIGTERM");
+    throw new Error(`spawned server at ${base} does not serve this worktree's fixture-adapter — aborting`);
+  }
+  console.log(`spawned Vite from ${appDir} at ${base} — tree identity confirmed${sha ? ` (${sha.slice(0, 12)})` : ""}`);
+  return { base, stop: async () => { child.kill("SIGTERM"); } };
 }
 
 // ── run one scenario in an isolated context with its own injected fixture ───────
-async function runScenario(browser, key, viewport, fn) {
+async function runScenario(browser, base, key, viewport, fn) {
   const scenario = FIXTURES.scenarios[key];
   if (!scenario) throw new Error(`unknown scenario "${key}"`);
   const sentinel = { __isGofnqFixtureHarness: true, title: scenario.title, crashPage: scenario.crashPage || null, state: scenario.state || {} };
@@ -103,7 +165,7 @@ async function runScenario(browser, key, viewport, fn) {
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e?.message || e)));
   await context.addInitScript((fx) => { window.__GOFNQ_FIXTURE__ = fx; }, sentinel);
-  await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 20000 });
+  await page.goto(base, { waitUntil: "domcontentloaded", timeout: 20000 });
   await assertVisible(page, ".app.shell", { timeout: 12000 });
   // The fixture adapter must have installed a fake window.api.
   const hasApi = await page.evaluate(() => typeof window.api === "object" && !!window.api.__fixtureCalls);
@@ -257,19 +319,20 @@ const SCENARIOS = [
 // ── driver ────────────────────────────────────────────────────────────────────
 async function main() {
   const vite = await ensureVite();
+  const base = vite.base;
   const browser = await chromium.launch();
   const results = [];
   try {
     // Full suite at the fixed 1440×900 viewport.
     for (const [label, key, fn] of SCENARIOS) {
       const t0 = Date.now();
-      try { await runScenario(browser, key, V.wide, fn); results.push({ label, ok: true, ms: Date.now() - t0 }); }
+      try { await runScenario(browser, base, key, V.wide, fn); results.push({ label, ok: true, ms: Date.now() - t0 }); }
       catch (e) { results.push({ label, ok: false, ms: Date.now() - t0, err: String(e?.message || e) }); }
     }
     // One narrow 760×1200 pass — briefing + live render without horizontal page scroll.
     try {
       const t0 = Date.now();
-      await runScenario(browser, "briefing", V.narrow, async (page) => {
+      await runScenario(browser, base, "briefing", V.narrow, async (page) => {
         await openPage(page, "briefing");
         await assertVisible(page, ".shell-page.cs-brief");
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

@@ -3,15 +3,18 @@
 // `window.api` from a fixture state bag so the real renderer can run under
 // Playwright with NO Electron, broker, TradingView, or LLM.
 //
-// PRODUCTION SAFETY (hard guard, not env-only):
-//   installFixtureApi() THROWS unless the harness sentinel object it was handed
-//   is the very same object the harness injected on `window.__GOFNQ_FIXTURE__`
-//   AND that object carries `__isGofnqFixtureHarness === true`. The shipped app
-//   never sets that global (only the Playwright harness does, via
-//   addInitScript before any page script runs), so this branch is dead code in
-//   production — and even if some code called installFixtureApi() with a forged
-//   argument, the sentinel check refuses. main.jsx only ever calls this when the
-//   sentinel is present. Importing this module has no side effects.
+// PRODUCTION SAFETY — what actually keeps this out of the shipped app:
+//   1. window.__GOFNQ_FIXTURE__ is set ONLY by the Playwright harness (via
+//      addInitScript, before any page script). The shipped app never sets it,
+//      so main.jsx's guarded branch never runs in production.
+//   2. This module is loaded by a DYNAMIC import, so Vite code-splits it into a
+//      chunk that a production run never requests.
+//   installFixtureApi()'s sentinel check is an ACCIDENT guard — it makes a
+//   mis-wired call fail loudly instead of half-installing — NOT a security
+//   boundary. Any code already executing in the renderer could set the global or
+//   assign window.api directly; the sentinel does not defend against that. The
+//   real protections are #1 and #2; the sentinel just documents intent and
+//   prevents foot-guns. Importing this module has no side effects.
 //
 // Every `on*(cb)` subscriber returns an unsubscribe function (the hooks call
 // `off?.()` in cleanup). `invoke`-style methods return resolved Promises whose
@@ -270,9 +273,12 @@ export function buildFixtureApi(scenario = {}) {
   };
 }
 
-// Install the fixture api onto window. HARD guard: the sentinel handed in must
-// be the exact object the harness injected on window.__GOFNQ_FIXTURE__ and carry
-// __isGofnqFixtureHarness===true. Refuses otherwise — this is test-only.
+// Install the fixture api onto window. Accident guard (not a security boundary —
+// see the header): the sentinel handed in must be the exact object the harness
+// injected on window.__GOFNQ_FIXTURE__ and carry __isGofnqFixtureHarness===true,
+// so a mis-wired call fails loudly instead of half-installing. This module is
+// test-only; production keeps it out via the dynamic-import split + the global
+// never being set.
 export function installFixtureApi(sentinel) {
   const g = typeof window !== "undefined" ? window : undefined;
   const ok = !!g
