@@ -85,9 +85,12 @@ export async function runAnalysisTurn({
   } catch (err) {
     const message = String(err?.message || err);
     metric?.({ kind: "analysis", event: "failed", durationMs: Date.now() - startedAt, reason: message });
-    // Surface it to the caller as an error event too (the IPC relay turns this
-    // into app:error) so the renderer re-enables the AI button.
+    // userTurn itself rejected (never reached its own turn_complete). Mirror its
+    // error→turn_complete convention: surface the error (the IPC relay turns it
+    // into app:error), THEN emit turn_complete so useAiAnalysis always clears its
+    // running flag — otherwise the AI button would stay stuck on RUNNING.
     onEvent?.({ type: "error", message });
+    onEvent?.({ type: "turn_complete" });
     return { ok: false, error: message };
   }
 }

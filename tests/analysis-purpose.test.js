@@ -154,4 +154,20 @@ describe("analysis purpose — one-shot session (reset per turn)", () => {
     assert.equal(res.ok, false);
     assert.ok(metrics.some((m) => m.kind === "analysis" && m.event === "failed"));
   });
+
+  it("when the turn itself rejects, emits error THEN turn_complete so RUNNING clears", async () => {
+    // userTurn rejecting (never reaching its own turn_complete) is the stuck-RUNNING
+    // trap: without a synthetic turn_complete, useAiAnalysis's running flag never
+    // clears and the AI button hangs. runAnalysisTurn must mirror userTurn's
+    // error→turn_complete convention on the reject path.
+    const seen = [];
+    const rejectingTurn = async () => { throw new Error("kaboom"); };
+    const res = await runAnalysisTurn({
+      text: "q", provider: "claude",
+      onEvent: (ev) => seen.push(ev.type),
+      turn: rejectingTurn, reset: () => {}, metric: () => {},
+    });
+    assert.equal(res.ok, false);
+    assert.deepEqual(seen, ["error", "turn_complete"], "reject path must emit error then turn_complete");
+  });
 });
