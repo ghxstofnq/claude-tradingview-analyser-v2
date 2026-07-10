@@ -582,6 +582,42 @@ export function critiqueViewModel(raw) {
   return { ts: meta.ts, session: meta.session, provider: meta.provider, paragraphs };
 }
 
+// ── Coach narration (Track 2 §2b item 2) ────────────────────────────────────
+// The coach.md the coach turn writes has the SAME shape as critique.md — a
+// small `--- ts/provider/digest_hash ---` frontmatter then plain-text
+// paragraphs — so it reuses the same defensive, HTML-inert parser for prose.
+// Every paragraph is rendered as a React text node, so an embedded `<script>`
+// is inert text, never executed markup. Returns null when there's nothing to
+// show.
+//
+// Staleness: the read was generated from a digest whose hash is stored in the
+// frontmatter (`digest_hash`). The caller passes `currentHash` — the hash of a
+// digest folded over TODAY's sessions. When they differ (or the stored file
+// predates the field → stored is null), the read is stale and the card shows a
+// muted "regenerate" cue. When `currentHash` is null (couldn't compute), we
+// never claim stale — no misleading badge.
+export function coachViewModel(raw, { currentHash = null } = {}) {
+  const base = critiqueViewModel(raw);
+  if (!base) return null;
+  const stored_hash = coachStoredHash(raw);
+  const stale = currentHash != null && stored_hash !== currentHash;
+  return { ...base, stored_hash, stale };
+}
+
+// Parse the `digest_hash` frontmatter field out of a coach.md string. null when
+// absent. Pure; mirrors the main-side parseStoredDigestHash so the renderer
+// never trusts a hash the backend didn't also see.
+export function coachStoredHash(raw) {
+  if (typeof raw !== "string") return null;
+  const m = raw.replace(/^﻿/, "").replace(/^\s+/, "").match(/^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/);
+  if (!m) return null;
+  for (const line of m[1].split("\n")) {
+    const kv = line.match(/^digest_hash:[ \t]*(.*)$/i);
+    if (kv) return kv[1].trim() || null;
+  }
+  return null;
+}
+
 // Compact, human label for the critique card's provider · time meta line.
 // Purely cosmetic — never fabricates data (returns "" when a part is absent).
 export function critiqueMetaLabel({ provider, ts } = {}) {

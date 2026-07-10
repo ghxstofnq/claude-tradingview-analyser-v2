@@ -232,6 +232,11 @@ export function buildFixtureApi(scenario = {}) {
       journal: async () => ({ ok: true, journal: st.review.journal }),
       library: async () => ({ ok: true, rows: st.review.library || [] }),
       exportSession: async () => ({ ok: true }),
+      // current_hash matches the fixture coach's frontmatter digest_hash so the
+      // card renders FRESH (no stale badge) in the harness. A fixture that wants
+      // to exercise the stale path sets st.review.coachCurrentHash to differ.
+      coach: async () => ({ ok: true, coach: st.review.coach ?? null, current_hash: st.review.coachCurrentHash ?? "9a1b2c3d" }),
+      generateCoach: async () => ({ ok: true, coach: st.review.coach ?? null, digest_hash: "9a1b2c3d" }),
     },
     memory: { read: async () => ({ ok: true, user: "", memory: "" }) },
     usage: { today: async () => ({ ok: true, byPurpose: {}, byModel: {}, total_cost_usd: 0 }) },

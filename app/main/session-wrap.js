@@ -13,6 +13,7 @@ import { userTurn } from "./sdk.js";
 import { runDirectSessionWrap } from "./direct-session-wrap.js";
 import { record as recordMetric } from "./metrics.js";
 import { getPersistentMemory } from "./persistent-memory.js";
+import { extractMarkedSection } from "./prose-section.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -92,17 +93,11 @@ Required action:
 // `## CRITIQUE` heading (discard everything before it, incl. the heading line).
 // No such heading → null (better absent than polluted). Line-anchored +
 // last-occurrence so an inline mention or an earlier code-fence can't
-// false-trigger. Pure — exported for tests.
+// false-trigger. Pure — exported for tests. Delegates to the shared
+// extractMarkedSection so the coach narration (Track 2 §2b item 2) reuses the
+// exact same slicing for its `## COACH` marker.
 export function extractCritiqueSection(prose) {
-  const text = String(prose ?? "");
-  if (!text) return null;
-  // A Markdown H2 whose sole content is CRITIQUE, on its own line.
-  const re = /^[ \t]*##[ \t]+CRITIQUE[ \t]*$/gm;
-  let last = null;
-  for (let m; (m = re.exec(text)); ) last = m;
-  if (!last) return null;
-  const body = text.slice(last.index + last[0].length).trim();
-  return body || null;
+  return extractMarkedSection(prose, "CRITIQUE");
 }
 
 // Assemble the critique.md contents (frontmatter + body). Pure — exported for

@@ -49,6 +49,9 @@ const PHASE_PATHS = {
   // journal — post-close note draft (Track 2, ruled 2026-07-10). Pure prose,
   // no tools; may attach the auto-journal screenshot (constraint #5 carve-out).
   "journal":   path.join(PROMPTS_DIR, "phase-journal.md"),
+  // coach — on-demand weekly performance narration (Track 2 §2b item 2). Pure
+  // prose over a deterministic digest; no tools, no surface_*.
+  "coach":     path.join(PROMPTS_DIR, "phase-coach.md"),
 };
 
 // (Was `let _systemPrompt = null` for caching — removed when hot-reload
@@ -225,6 +228,10 @@ export const TOOLS_BY_PURPOSE = {
   // are still added by buildAllowedToolNames, same as review; the turn never
   // needs them because all data arrives in the prompt.)
   journal: [],
+  // coach is a pure prose turn — it narrates a deterministic performance digest
+  // and authors only its own coach.md narrative. No surface_*, no alerts, no
+  // analyze captures. (Read/Glob built-ins aside, same as journal/review.)
+  coach: [],
 };
 
 export function buildAllowedToolNames(purpose) {
@@ -864,7 +871,7 @@ const EFFORT = "high";
 
 /**
  * userTurn — the one entry point for any Claude turn (brief / wrap / bar-close
- * / chat). Three deepening guarantees:
+ * / chat / review / journal / coach). Three deepening guarantees:
  *
  *  1. **Mutex** — only one turn runs at a time. Eliminates the concurrent-
  *     resume class of bug where a brief and a bar-close fired in parallel.
@@ -886,7 +893,7 @@ const EFFORT = "high";
  */
 export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null, images = null }) {
   if (!purpose) {
-    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review | journal)";
+    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review | journal | coach)";
     onEvent?.({ type: "error", message: msg });
     onEvent?.({ type: "turn_complete" });
     throw new Error(msg);

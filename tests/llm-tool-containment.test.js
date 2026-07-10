@@ -33,6 +33,15 @@ describe("per-purpose tool allow-list (C26)", () => {
     assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "journal must reach no mcp__tv__ tool");
     assert.ok(!allowed.some((t) => t.includes("surface_")), "journal must reach no surface_* tool");
   });
+  it("coach authors no surface / trade tools (Read/Glob built-ins aside)", () => {
+    // The on-demand coach narrator (Track 2 §2b item 2) maps to an empty tool
+    // list: no surface_*, no alerts, no analyze captures — pure prose over a
+    // deterministic digest. Read/Glob remain reachable but the turn needs none.
+    assert.deepEqual(TOOLS_BY_PURPOSE.coach, [], "coach must map to an empty tool list");
+    const allowed = buildAllowedToolNames("coach");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "coach must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "coach must reach no surface_* tool");
+  });
   it("brief owns only surface_session_brief; wrap owns only surface_session_summary", () => {
     assert.ok(TOOLS_BY_PURPOSE.brief.includes("surface_session_brief"));
     assert.ok(!TOOLS_BY_PURPOSE.brief.includes("surface_session_summary"));

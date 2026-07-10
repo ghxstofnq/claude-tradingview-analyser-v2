@@ -241,6 +241,15 @@ contextBridge.exposeInMainWorld("api", {
     exportSession(date, session) {
       return ipcRenderer.invoke("review:export_session", { date, session });
     },
+    // Weekly coach narration (Track 2 §2b item 2). coach() reads the persisted
+    // coach.md (null → no card); generateCoach() runs one on-demand turn over a
+    // deterministic digest of the last `limit` sessions.
+    coach() {
+      return ipcRenderer.invoke("review:coach_get");
+    },
+    generateCoach(limit) {
+      return ipcRenderer.invoke("review:coach_generate", { limit });
+    },
   },
   memory: {
     // Read-only view of state/memory/{USER,MEMORY}.md for the REVIEW

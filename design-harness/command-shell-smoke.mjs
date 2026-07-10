@@ -262,11 +262,22 @@ const SCENARIOS = [
     await assertText(page, ".cs-cell.card.critique", "<script>alert(1)</script>");
     const liveScripts = await page.$$eval(".cs-cell.card.critique script", (els) => els.length);
     if (liveScripts !== 0) throw new Error(`critique injected a live <script> element (${liveScripts}) — must be inert text`);
+    // Track 2 §2b item 2: the on-demand coach read is a second JOURNAL-domain
+    // card, with its trigger in the header. Same text-node-only safety.
+    await assertVisible(page, ".cs-coach-btn");                       // the COACH trigger
+    await assertVisible(page, ".cs-cell.card.coach");
+    await assertText(page, ".cs-cell.card.coach", "CLAUDE'S COACH READ");
+    await assertText(page, ".cs-cell.card.coach", "Equity is grinding higher");
+    await assertText(page, ".cs-cell.card.coach", "<script>alert(2)</script>");
+    const liveCoachScripts = await page.$$eval(".cs-cell.card.coach script", (els) => els.length);
+    if (liveCoachScripts !== 0) throw new Error(`coach read injected a live <script> element (${liveCoachScripts}) — must be inert text`);
+    await assertNotVisible(page, ".cs-coach-stale");                 // hashes match → fresh, no stale badge
     // switch to EXECUTED domain via the tab
     await page.click('[role="tab"][aria-label="EXECUTED"]');
     await assertVisible(page, ".cs-domain-banner.d-executed");
     await assertText(page, ".cs-domain-banner.d-executed", "broker fills");
     await assertNotVisible(page, ".cs-cell.card.critique");          // never in the EXECUTED domain
+    await assertNotVisible(page, ".cs-cell.card.coach");             // coach is JOURNAL-only too
   }],
 
   ["9 Backtest certification fails one gate → BLOCKED", "backtest-blocked", async (page) => {

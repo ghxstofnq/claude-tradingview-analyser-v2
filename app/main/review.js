@@ -222,6 +222,19 @@ export async function getLibrary({ limit = 20 } = {}) {
   }));
 }
 
+// The most-recent N full journals (most-recent first). Backs the on-demand
+// coach narration (Track 2 §2b item 2) — recorded outcomes only. Best-effort:
+// a journal that fails to read is skipped, never throws.
+export async function getRecentJournals({ limit = 10 } = {}) {
+  const folders = await listSessionFolders();
+  const top = folders.slice(0, limit);
+  const out = [];
+  for (const f of top) {
+    try { out.push(await getJournalFor(f)); } catch { /* skip torn session */ }
+  }
+  return out;
+}
+
 // Default REVIEW landing page = the most-recent session that has anything
 // in it (brief, summary, setups, or trades). Falls back to most-recent folder.
 export async function getDefaultJournal() {

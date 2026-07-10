@@ -239,7 +239,8 @@
               { "id": "t8", "ts": "2026-07-10T13:52:00.000Z", "side": "buy", "qty": 2, "symbol": "MNQ1!", "entry": 21500, "exit": 21560, "r": 1.2, "note": "TP1" }
             ],
             "critique": "---\nts: 2026-07-10T16:06:00.000Z\nsession: ny-am\nprovider: claude\n---\n\nThe chain followed the 7-step checklist cleanly today. Bias was a 2/3 B lean into the 1H FVG draw, and the open reaction confirmed it.\n\nThe weakest link was price quality — the range was only marginal, so the single MSS long was correctly capped at B rather than elevated. Lesson: on marginal-range days, wait for a second alignment before pushing size.\n\nSanity check: the literal string <script>alert(1)</script> must render as inert text, never execute."
-          }
+          },
+          "coach": "---\nts: 2026-07-10T16:10:00.000Z\nprovider: claude\ndigest_hash: 9a1b2c3d\n---\n\nEquity is grinding higher over the last several NY-AM sessions, mostly on clean B-grade MSS longs into the daily draw. Faithfulness is holding and the chain has run clean, so the process is doing what it should.\n\nWhat to keep: the discipline of capping marginal-range days at B instead of forcing A+. What to watch: a thin loss streak whenever price quality slips — protect the streak, do not chase size. Coach injection check: <script>alert(2)</script> must render as inert text."
         }
       }
     },
