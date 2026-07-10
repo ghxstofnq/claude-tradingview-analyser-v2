@@ -184,6 +184,31 @@ export function registerExecutionIpc() {
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
 
+  // C3.1: RAW durable order-intent journal for the LIVE order-lifecycle
+  // timeline. Returns the tolerant-parsed records + dropped count + the last
+  // reconcile verdict, straight off order-intents.jsonl in the active session
+  // dir. It NEVER folds, NEVER invents ages, NEVER derives a stage — the
+  // renderer re-derives everything from this raw truth (#233 discipline). A
+  // read error degrades to empty records (fail-closed: the timeline shows no
+  // progress rather than a fabricated one), and dropped>0 propagates so the
+  // renderer can block the happy path on a corrupt journal.
+  ipcMain.handle("execution:orderIntents", async () => {
+    try {
+      const reconciler = await import("./execution/reconciler.js");
+      const sessions = await import("./sessions.js");
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+      const { parseJsonlTolerant } = await import("../../cli/lib/jsonl.js");
+      const file = path.join(await sessions.activeSessionDir(), "order-intents.jsonl");
+      let records = [], dropped = 0;
+      try {
+        const txt = await fs.readFile(file, "utf8");
+        ({ records, dropped } = parseJsonlTolerant(txt));
+      } catch { /* absent journal → empty (no intents yet) */ }
+      return { ok: true, records, dropped, reconcile: reconciler.getLastReconcileState() };
+    } catch (e) { return { ok: false, error: String(e?.message || e), records: [], dropped: 0, reconcile: null }; }
+  });
+
   // Revert routing to SIM: clear the live confirmation (arm a PAPER confirmed
   // account) + drop live-auto arming. A routing change, NOT a flatten — so it
   // BLOCKS when a live position is open (re-routing would strand it), unless
@@ -352,6 +377,11 @@ export function registerExecutionIpc() {
         // Tradovate broker (sniffed from the webview's REST traffic).
         activeBroker: feed.activeBroker ?? "paper",
         tradovate: feed.tradovate ?? null,
+        // C5 ruling 2: main-sourced read timestamp so the renderer's freshness
+        // chips age the position/orders/price against when MAIN actually read
+        // the broker — not against a renderer round-trip. The renderer's own
+        // received-at stays as the separate bridge-liveness signal.
+        read_at: Date.now(),
       };
       return { ok: true, state };
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }

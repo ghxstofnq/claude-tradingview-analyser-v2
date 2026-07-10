@@ -24,6 +24,7 @@ import {
 } from "./Live.helpers.js";
 import { useWalkers } from "./hooks/useWalkers.js";
 import { stripCitations, openReactionVerdict } from "./Prep.helpers.js";
+import { foldIntentChain, deriveTimeline, brokerVsJournal, sourceAgeChips, pnlGate } from "./LiveTimeline.helpers.js";
 import { realAccountView } from "./Account.helpers.js";
 import { walkerTruthToProse } from "./Brain.helpers.js";
 import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
@@ -253,7 +254,77 @@ function TradeProgress({ side, entry, stop, tp1, price, tp1Hit }) {
   );
 }
 
-function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, brief, session }) {
+// ── Order-lifecycle timeline (Task C3) — the 7-stage rail derived from the
+// durable order-intent chain, forge-proofed against live broker truth. The
+// current stage pulses; a failed / recovery stage turns red and carries a
+// persistent recovery action whose verbs are pinned to the reconcile
+// whitelist (retry / adopt / protect / flatten).
+const STAGE_TAG = { done: "✓", current: "…", failed: "✕", pending: "" };
+function OrderLifecycleTimeline({ timeline, onRecover }) {
+  if (!timeline) return null;
+  const { stages, recovery, corrupt } = timeline;
+  return (
+    <div className="cs-oltl">
+      <div className="cs-oltl-hd">
+        <span className="cs-oltl-hd__lbl">ORDER LIFECYCLE</span>
+        {corrupt && <span className="cs-oltl-hd__corrupt">CORRUPT JOURNAL</span>}
+      </div>
+      <div className="cs-oltl-rail">
+        {stages.map((s) => (
+          <div key={s.key} className={"cs-oltl-step is-" + s.status + (s.badge ? " badge-" + s.badge : "")}>
+            <span className="cs-oltl-node" aria-hidden="true" />
+            <span className="cs-oltl-lbl">{s.label}</span>
+            <span className="cs-oltl-tag">{STAGE_TAG[s.status] || ""}</span>
+          </div>
+        ))}
+      </div>
+      {recovery && (
+        <div className="cs-oltl-recovery">
+          <div className="cs-oltl-recovery__msg">⚠ {recovery.message}</div>
+          <div className="cs-oltl-recovery__acts">
+            {recovery.verbs.map((v) => (
+              <button key={v} className="cs-oltl-recovery__btn" onClick={() => onRecover(v)}>{v.toUpperCase()}</button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const bvjFmt = (n) => (n == null ? "—" : String(n));
+function BrokerVsJournalPanel({ v }) {
+  if (!v) return null;
+  const tone = v.verdict === "covered" ? "green" : v.verdict === "unknown" ? "amber" : "red";
+  return (
+    <div className="cs-bvj">
+      <div className="cs-bvj-hd">
+        <span className="cs-bvj-hd__lbl">BROKER vs JOURNAL</span>
+        <span className={"cs-bvj-verdict " + tone}>{String(v.verdict).toUpperCase()}</span>
+      </div>
+      <div className="cs-bvj-grid">
+        <div className="cs-bvj-cell"><span className="k">QTY</span><span className="mono">J {bvjFmt(v.qty.journal)} · B {bvjFmt(v.qty.broker)}</span></div>
+        <div className="cs-bvj-cell"><span className="k">STOP</span><span className="mono">J {bvjFmt(v.stop.journal)} · B {bvjFmt(v.stop.broker)}</span></div>
+      </div>
+    </div>
+  );
+}
+
+function SourceAgeChipsRow({ chips }) {
+  if (!chips?.length) return null;
+  return (
+    <div className="cs-agechips">
+      {chips.map((c) => (
+        <span key={c.key} className={"cs-agechip" + (c.stale ? " stale" : "")}
+              title={c.stale ? `${c.key} read is stale — do not trust` : `${c.key} fresh`}>
+          {c.key} {c.age_s == null ? "—" : c.age_s + "s"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, brief, session, exec, orderIntent, health }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -298,6 +369,29 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
       grid.pnl = { v: `${r >= 0 ? "+" : "−"}$${Math.abs(r).toLocaleString("en-US")}`, sub: "unrealized", tone: r > 0 ? "green" : r < 0 ? "red" : "" };
     }
   }
+  // ── Order-lifecycle truth (Task C3). Re-derive the visible rail purely from
+  // the raw durable order-intent chain + live broker truth — never trust a
+  // record's claimed stage at face value (#233). The IN-TRADE panel is the one
+  // place a live position renders, so this is where the trader sees whether the
+  // order actually reached the broker, whether the stop is really working, and
+  // whether the P&L number is a real fill or a hopeful simulation.
+  const showLifecycle = orderIntent !== undefined;
+  const execTruth = { position, workingOrders, read_at: exec?.read_at ?? null, connected: exec?.connected, price: livePrice };
+  const chain = showLifecycle ? foldIntentChain(orderIntent?.records || [], { symbol: position?.symbol || symbol }).active : null;
+  const timeline = showLifecycle
+    ? deriveTimeline({ chain, trade: t, exec: execTruth, reconcile: orderIntent?.reconcile ?? null, dropped: orderIntent?.dropped ?? 0 })
+    : null;
+  const bvj = showLifecycle ? brokerVsJournal({ trade: t, exec: execTruth, reconcile: orderIntent?.reconcile ?? null }) : null;
+  const ageChips = showLifecycle ? sourceAgeChips({ exec: execTruth, reconcile: orderIntent?.reconcile ?? null, health, lastBar, now: Date.now() }) : null;
+  // P&L is a money number: gate it on a DURABLE fill (POSITION_CONFIRMED+). A
+  // journal "filled" state alone is not enough — that can be simulated. Absent
+  // the durable proof, show PENDING rather than a fabricated live R.
+  const gate = showLifecycle ? pnlGate({ chain, trade: t }) : { show: true };
+  const pnlCell = gate.show ? grid.pnl : { v: "PENDING", tone: "", sub: "awaiting durable fill" };
+  const onRecover = async (verb) => {
+    try { await window.api?.execution?.reconcile?.({ action: verb }); } catch { /* surfaced via app:error */ }
+  };
+
   // Trade-management actions await the broker ack and surface any failure
   // (audit C34) — a fire-and-forget FLATTEN that the broker rejects previously
   // looked successful while the position stayed open.
@@ -323,8 +417,12 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
       <div className="cs-pos-hero">
         <span className="cs-pos-hero__sym">{sym}</span>
         <span className="cs-pos-hero__avg">avg {entry ?? "—"}</span>
-        <span className={"cs-pos-hero__pnl " + (grid.pnl.tone || "")}>{grid.pnl.v}</span>
+        <span className={"cs-pos-hero__pnl " + (pnlCell.tone || "")}>{pnlCell.v}</span>
       </div>
+
+      {showLifecycle && <OrderLifecycleTimeline timeline={timeline} onRecover={onRecover} />}
+      {showLifecycle && <BrokerVsJournalPanel v={bvj} />}
+      {showLifecycle && <SourceAgeChipsRow chips={ageChips} />}
 
       <TradeProgress side={side} entry={entry} stop={stop} tp1={tp1} price={livePrice} tp1Hit={t.tp1_hit} />
 
@@ -752,7 +850,7 @@ function LiveFlatEmpty() {
 // detector strip; POSITIONS hosts the open-position card, session guards, and
 // today's fills. Rendered inside `.bt-popover.embedded` so every existing LIVE
 // style applies. Every order-flow handler is preserved verbatim.
-function LiveBody({ guards, symbol, seg, setSeg, setUserPicked }) {
+function LiveBody({ guards, symbol, seg, setSeg, setUserPicked, orderIntent }) {
   // seg (effectiveSeg) + setSeg/setUserPicked are owned by LivePage, which renders
   // the FEED | POSITIONS toggle inline in the page header.
   const [ticketing, setTicketing] = useState(false); // ticket sub-state under FEED
@@ -828,7 +926,7 @@ function LiveBody({ guards, symbol, seg, setSeg, setUserPicked }) {
         )}
         {(exec.position || activeTrade)
           ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
-                         brief={brief} session={session} />
+                         brief={brief} session={session} exec={exec} orderIntent={orderIntent} health={health} />
           : <LiveFlatEmpty />}
         <SessionGuardsCard fills={fills} guards={guards} />
         <TodaysFillsCard fills={fills} />
