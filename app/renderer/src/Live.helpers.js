@@ -12,6 +12,27 @@ export function pnlDisplay(cell, stale) {
   return { v: cell.v, tone: cell.tone || "", stale: false };
 }
 
+// parsePnlR — pull the signed R magnitude out of a liveGridFromTrade pnl cell
+// value ("+1.5 R", "-0.75 R", "+0 R"). Returns a finite number, or null for the
+// non-numeric states ("PENDING", "—"). Used to gate the P&L value tick so only a
+// real, filled position with a live R can pulse.
+export function parsePnlR(v) {
+  if (typeof v !== "string" || !/r/i.test(v)) return null;
+  const m = v.match(/-?\d+(?:\.\d+)?/);
+  const n = m ? Number(m[0]) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+// pnlTickBucket — the motion-v1 milestone bucket for live P&L. It changes ONLY on
+// a sign flip (profit↔loss, i.e. the break-even crossing) or a 0.5R step, so
+// feeding it to useValueTick pulses the money number on a meaningful move rather
+// than on every 2s poll. floor(r / 0.5) is the band index: it steps at each 0.5R
+// and flips across 0, capturing both the BE crossing and every ±0.5R milestone.
+export function pnlTickBucket(r) {
+  if (r == null || !Number.isFinite(r)) return "na";
+  return `r${Math.floor(r / 0.5)}`;
+}
+
 // Live footer copy, mode-aware (Task C2-c). The old footer hardcoded "fires only
 // after your accept", which is FALSE in AUTO. This returns copy that matches the
 // real execution path for the current automation mode:

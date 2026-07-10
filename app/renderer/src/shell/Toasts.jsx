@@ -3,6 +3,7 @@
 
 import React from "react";
 import { clickable } from "../a11y.js";
+import { useExitList } from "./exitList.helpers.js";
 
 // tint token → status hue applied INLINE on the dot (status-only, never chrome).
 const TOAST_HUE = {
@@ -11,11 +12,16 @@ const TOAST_HUE = {
 };
 
 export function Toasts({ toasts, onDismiss }) {
-  if (!toasts?.length) return null;
+  // Motion v1 — keep a dismissed toast mounted for one brief slide/fade-out
+  // (.cs-toast.is-closing) before it leaves the DOM, whether it was clicked away
+  // or auto-expired by the parent. useExitList carries each toast's payload so a
+  // closing toast still renders its message/tint.
+  const items = useExitList((toasts || []).map((t) => ({ key: t.id, ...t })), 150);
+  if (!items.length) return null;
   return (
     <div className="cs-toasts">
-      {toasts.map((t) => (
-        <div key={t.id} className="cs-toast"
+      {items.map(({ key, closing, item: t }) => (
+        <div key={key} className={"cs-toast" + (closing ? " is-closing" : "")}
              {...clickable(() => onDismiss(t.id))}>
           <span className="cs-toast-dot" style={{ background: TOAST_HUE[t.tint] || TOAST_HUE.green }} />
           <span className="cs-toast-msg">{t.msg}</span>
