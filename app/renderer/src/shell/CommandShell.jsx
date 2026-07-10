@@ -43,6 +43,7 @@ import { classifyWalkerTransitions, describeSignal, signalEffects } from "./walk
 import { playChime } from "./chimes.js";
 import { parseInstantStop, orderResultToast, packetTicketSeed } from "../Orders.helpers.js";
 import { JournalPrompt } from "./JournalPrompt.jsx";
+import { reduceJournalClose } from "./JournalPrompt.helpers.js";
 
 let TOAST_SEQ = 0;
 
@@ -202,11 +203,17 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
 
   // Auto-journal note prompt (plan 2026-07-09 Task 5): main raises
   // journal:close after every recorded round-trip; the dismissible card asks
-  // for the optional "weakest pillar?" line. A newer close replaces an unread
-  // prompt — the rows themselves are already on disk.
+  // for the optional "weakest pillar?" line. The Claude-drafted suggestion
+  // (Track 2, ruled 2026-07-10) lands on a LATER journal:close for the same id
+  // (30-90s post-close), so reduceJournalClose merges it into a still-open card
+  // and ignores any emit for an already-saved/dismissed id — a late draft must
+  // never re-open a card the trader closed (which would steal focus and let a
+  // stale snapshot overwrite their saved note).
   const [jrRow, setJrRow] = useState(null);
+  const jrHandled = useRef(new Set());
   useEffect(() => {
-    const off = window.api?.journal?.onClose?.((row) => setJrRow(row));
+    const off = window.api?.journal?.onClose?.((row) =>
+      setJrRow((prev) => reduceJournalClose(prev, row, jrHandled.current)));
     return () => off?.();
   }, []);
 
@@ -506,7 +513,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       )}
 
       <Toasts toasts={toasts} onDismiss={dismissToast} />
-      <JournalPrompt row={jrRow} onDone={(saved) => { setJrRow(null); if (saved) addToast("journal note saved", "green"); }} />
+      <JournalPrompt key={jrRow?.id} row={jrRow} onDone={(saved) => { if (jrRow?.id) jrHandled.current.add(jrRow.id); setJrRow(null); if (saved) addToast("journal note saved", "green"); }} />
       {coach && !page && !pal.open && !flat.open && !prep.open && <CoachChip onClose={() => setCoach(false)} />}
     </div>
   );
