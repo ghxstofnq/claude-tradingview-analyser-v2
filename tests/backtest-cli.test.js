@@ -1,40 +1,26 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { computeVerdict } from "../cli/lib/backtest-verdict.js";
+import { fileURLToPath } from "node:url";
 
-// The go-live gate is the keystone output — one rule, deterministic. Lock it.
-test("computeVerdict — no corpus", () => {
-  const v = computeVerdict({ cum_r: 0, sessions: 0 });
-  assert.equal(v.verdict, "NO_CORPUS");
-  assert.equal(v.ready, false);
-});
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("computeVerdict — thin corpus is NEEDS_MORE_DATA even when positive", () => {
-  const v = computeVerdict({ cum_r: 40, sessions: 5, minSessions: 20 });
-  assert.equal(v.verdict, "NEEDS_MORE_DATA");
-  assert.equal(v.ready, false);
-});
+test("tv backtest verdict emits parseable BLOCKED JSON and exits nonzero when evidence is absent", () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "backtest-cli-blocked-"));
+  const result = spawnSync(process.execPath, ["cli/index.js", "backtest", "verdict", "--symbol", "MNQ1!"], {
+    cwd: REPO,
+    env: { ...process.env, GOFNQ_STATE_DIR: stateDir },
+    encoding: "utf8",
+  });
 
-test("computeVerdict — enough sessions but not net-positive is NOT_READY", () => {
-  const v = computeVerdict({ cum_r: -4.2, sessions: 31, minSessions: 20 });
-  assert.equal(v.verdict, "NOT_READY");
-  assert.equal(v.ready, false);
-});
-
-test("computeVerdict — zero R over a full window is NOT_READY (net-positive is strict >0)", () => {
-  const v = computeVerdict({ cum_r: 0, sessions: 31, minSessions: 20 });
-  assert.equal(v.verdict, "NOT_READY");
-  assert.equal(v.ready, false);
-});
-
-test("computeVerdict — net-positive over a trusted window is the only green-light", () => {
-  const v = computeVerdict({ cum_r: 22.66, sessions: 31, minSessions: 20 });
-  assert.equal(v.verdict, "NET_POSITIVE");
-  assert.equal(v.ready, true);
-});
-
-test("computeVerdict — min floor is honored (custom min)", () => {
-  const v = computeVerdict({ cum_r: 12, sessions: 10, minSessions: 10 });
-  assert.equal(v.verdict, "NET_POSITIVE");
-  assert.equal(v.ready, true);
+  assert.equal(result.status, 1, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.verdict, "BLOCKED");
+  assert.equal(payload.ready, false);
+  assert.ok(Array.isArray(payload.gates));
+  assert.equal(payload.gates.find((gate) => gate.id === "corpus")?.status, "fail");
+  assert.equal(payload.gates.find((gate) => gate.id === "parity")?.status, "fail");
 });

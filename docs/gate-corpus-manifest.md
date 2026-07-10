@@ -120,3 +120,10 @@ Do not claim the corpus is certified. The current real corpus is blocked by miss
 - Pause with `pkill -f record-corpus`; recording is resumable.
 - Resume with the same command; use `--force` only when deliberately running inside market-session guard hours.
 - MES pass uses the same command plus `--symbol MES1!` after MNQ completes.
+
+## Readiness Evidence
+`tv backtest verdict --symbol MNQ1!` and the Backtest baseline UI render the same fail-closed readiness object. Positive R is evidence only; readiness also requires current green test evidence, certified corpus, certified parity, explicit strategy review approval, and explicit user-window approval.
+
+Use `tv backtest verify-tests` to run the broad repository test command. It writes `state/backtest/readiness/tests-green.json` only after exit 0 and only for a fully clean worktree at the current HEAD SHA. Failed tests or dirty code leave no current positive evidence.
+
+Use `tv backtest approve --symbol MNQ1! --strategy-review approved --user-window-approved --note "..."` only after `tv backtest verify-tests` and review. The approval record is timestamped and bound to manifest ID, selection digest, the exact evidence scope/window digest, clean full code SHA, symbol, and normalized non-secret `GOFNQ_*` strategy levers. Any code, corpus selection, scope/window, symbol, or strategy-lever drift makes approval pending again.
