@@ -254,10 +254,15 @@ const SCENARIOS = [
     await openPage(page, "review");
     await assertVisible(page, ".cs-domain-banner.d-journal");        // default JOURNAL tab
     await assertText(page, ".cs-domain-banner.d-journal", "SIMULATED");
+    // the review turn's session critique surfaces as a JOURNAL-domain card
+    await assertVisible(page, ".cs-cell.card.critique");
+    await assertText(page, ".cs-cell.card.critique", "CLAUDE'S SESSION CRITIQUE");
+    await assertText(page, ".cs-cell.card.critique", "weakest link was price quality");
     // switch to EXECUTED domain via the tab
     await page.click('[role="tab"][aria-label="EXECUTED"]');
     await assertVisible(page, ".cs-domain-banner.d-executed");
     await assertText(page, ".cs-domain-banner.d-executed", "broker fills");
+    await assertNotVisible(page, ".cs-cell.card.critique");          // never in the EXECUTED domain
   }],
 
   ["9 Backtest certification fails one gate → BLOCKED", "backtest-blocked", async (page) => {

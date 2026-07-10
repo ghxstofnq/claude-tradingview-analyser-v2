@@ -37,6 +37,12 @@
 .cs-cell-right { margin-left: auto; }
 .cs-wrap-text { margin: 0; font-size: 11.5px; line-height: 1.65; color: var(--value); }
 
+/* ── session critique card (Track 2 §2b): muted Claude-prose narrative ───── */
+/* Neutral hairline accent only — no saturated chrome (DESIGN.md: hues are
+   status-only). Multiple paragraphs stack with a small gap. */
+.cs-cell.card.critique { border-left: 2px solid var(--border); }
+.cs-cell.card.critique .cs-wrap-text + .cs-wrap-text { margin-top: 8px; }
+
 /* empty states */
 .cs-empty { color: var(--label-dim); font-size: 11px; padding: 10px 0; }
 

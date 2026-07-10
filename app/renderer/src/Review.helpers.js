@@ -548,3 +548,52 @@ export function assignFillsToTrades(trades = [], fills = [], { maxDeltaMs = FILL
   }
   return out;
 }
+
+// ── Session critique (Track 2 §2b item 1) ───────────────────────────────────
+// Parse the raw critique.md the review turn writes into a render-ready view
+// model. Pure + defensive: parses the small `--- ts/session/provider ---`
+// frontmatter, splits the body into plain-text paragraphs, and drops empty
+// input. It performs NO HTML/markdown interpretation — every paragraph is a
+// plain string the card renders as a React text node (auto-escaped by React),
+// so an embedded `<script>` renders as inert text, never executed markup.
+// Returns null when there is nothing to show (so the card doesn't render).
+export function critiqueViewModel(raw) {
+  if (typeof raw !== "string") return null;
+  let rest = raw.replace(/^﻿/, "").replace(/^\s+/, "");
+  const meta = { ts: null, session: null, provider: null };
+  // Optional YAML-lite frontmatter fenced by lines of exactly `---`.
+  const fence = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/;
+  const m = rest.match(fence);
+  if (m) {
+    for (const line of m[1].split("\n")) {
+      const kv = line.match(/^([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*)$/);
+      if (!kv) continue;
+      const key = kv[1].toLowerCase();
+      const val = kv[2].trim();
+      if (key === "ts" || key === "session" || key === "provider") meta[key] = val || null;
+    }
+    rest = rest.slice(m[0].length);
+  }
+  const paragraphs = rest
+    .split(/\n[ \t]*\n/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (paragraphs.length === 0) return null;
+  return { ts: meta.ts, session: meta.session, provider: meta.provider, paragraphs };
+}
+
+// Compact, human label for the critique card's provider · time meta line.
+// Purely cosmetic — never fabricates data (returns "" when a part is absent).
+export function critiqueMetaLabel({ provider, ts } = {}) {
+  const parts = [];
+  if (provider) parts.push(String(provider).toUpperCase());
+  if (ts) {
+    const d = new Date(ts);
+    if (!Number.isNaN(d.getTime())) {
+      parts.push(d.toLocaleString(undefined, {
+        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      }));
+    }
+  }
+  return parts.join(" · ");
+}

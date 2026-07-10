@@ -44,4 +44,16 @@ Do NOT call any surface_* tool in this turn — review is memory-only.
 
 ---
 
+## FINAL — SESSION CRITIQUE (the last thing you write)
+
+After the memory step, end the turn with a short session critique in plain language (5-10 sentences). This prose is surfaced to the trader on the Review page, so make it worth reading:
+
+- How the chain did against the 7-step checklist — what it got right, what it got wrong.
+- The weakest pillar and why.
+- One concrete lesson for next session.
+
+Reference the checklist by name and keep it conversational. This turn has no analyze bundle, so prefer to reference NO specific prices — if you mention a number, cite its source per the kernel cite-or-reject rule. Do NOT call any tool here — the critique is the final prose block of the turn.
+
+---
+
 <!-- @partial:memory-guidance -->

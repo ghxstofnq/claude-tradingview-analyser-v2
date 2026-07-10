@@ -22,6 +22,7 @@ import { Row } from "../../Shared.jsx";
 import {
   buildLedger, formatGradeShort, buildTrackRecordFromFills, degradedChainStages, computeFaithfulness,
   buildTrackRecordByAccount, REVIEW_DOMAINS, buildEvidenceChain, computeDiscrepancies, assignFillsToTrades,
+  critiqueViewModel, critiqueMetaLabel,
 } from "../../Review.helpers.js";
 import "../../cs/review.css";
 
@@ -152,6 +153,9 @@ function JournalTab({ journal }) {
   const wrap = journal.summary?.bias_picture || journal.brief?.brief || "no wrap yet for this session.";
   const degraded = degradedChainStages(journal.summary?.chain_audit);
   const closes = journal.closes ?? [];
+  // Track 2 §2b item 1: the review turn's session critique (SIMULATED/journal
+  // narrative). Absent → the card doesn't render (no empty-state noise).
+  const critique = useMemo(() => critiqueViewModel(journal.critique), [journal.critique]);
   const onExport = () => window.api?.review?.exportSession?.(journal.date, journal.session).catch(() => {});
 
   // Evidence + discrepancy join: intent by exact decision_id; fill via a
@@ -208,6 +212,15 @@ function JournalTab({ journal }) {
           <Ledger ledger={ledger} brief={journal.brief} evidenceFor={evidenceFor} />
         </Card>
       </div>
+      {critique && (
+        <div className="cs-band">
+          <Card title="CLAUDE'S SESSION CRITIQUE" className="critique" meta={critiqueMetaLabel(critique)}>
+            {critique.paragraphs.map((p, i) => (
+              <p key={i} className="cs-wrap-text">{p}</p>
+            ))}
+          </Card>
+        </div>
+      )}
       {closes.length > 0 && (
         <div className="cs-band">
           <Card title="CLOSED TRADES · AUTO-JOURNAL" meta={`${closes.length} rows`}>
