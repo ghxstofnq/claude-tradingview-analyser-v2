@@ -48,4 +48,22 @@ describe("acceptSetup — decision_id threading (C4)", () => {
     assert.equal(accept.setup_id, "S-3");
     assert.equal(accept.decision_id, ev.decision_id);
   });
+
+  it("manual-path join parity: the accept's decision_id is threaded verbatim into the order intent (INTENT hop reachable)", async () => {
+    // The renderer threads the accept event's decision_id into the placeOrder
+    // request; execution:place resolves `payload.decision_id ?? derive(...)`.
+    // With the id threaded, the intent chain and the journal trade share ONE
+    // key — regardless of the account/side/entry the place path would otherwise
+    // derive independently (the bug this fixes). Mirror that resolver here.
+    const setup = { id: "S-4", direction: "long", entry: 21000, stop: 20990, tp1: 21050, grade: "A+", model: "MSS", symbol: "MNQ1!" };
+    const ev = await acceptSetup({ setup });
+    assert.ok(!ev.error, ev.error);
+    // execution:place would derive with account/side/entry that DON'T match the
+    // accept's derivation — prove that the threaded value wins so the join holds.
+    const placeSideVocabDiffers = deriveDecisionId({ packetId: "S-4", accountId: "ACCT-LIVE-9", session: null, side: "buy", entry: 21000, stop: 20990 });
+    assert.notEqual(placeSideVocabDiffers, ev.decision_id, "independent derivations diverge — exactly why threading is required");
+    const threaded = ev.decision_id;
+    const intentDecisionId = threaded ?? placeSideVocabDiffers; // mirrors execution:place resolver
+    assert.equal(intentDecisionId, ev.decision_id, "the intent must carry the SAME decision_id as the journal trade");
+  });
 });

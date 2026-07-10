@@ -397,8 +397,11 @@ export function registerExecutionIpc() {
       // paper, so firing a setup while on Tradovate placed nothing.
       const active = getActiveAccount();
       // B1: durable order-intent around the surfaced-setup fire path.
+      // C4: the renderer threads the journal accept's own decision_id here so
+      // the intent chain and the journal trade share ONE join key exactly. Fall
+      // back to a fresh derivation only when none was threaded.
       const { deriveDecisionId } = await import("./execution/order-intent.js");
-      const decisionId = deriveDecisionId({
+      const decisionId = payload?.decision_id ?? deriveDecisionId({
         packetId: payload?.id ?? `${payload?.symbol}|${payload?.side}|${payload?.entry}|${payload?.stop}`,
         accountId: active?.id ?? null, session: null,
         side: payload?.side, entry: payload?.entry, stop: payload?.stop,

@@ -171,10 +171,42 @@ describe("deriveTimeline — broker-truth escalation & CLOSED", () => {
     });
     assert.equal(reached(rail), "MANAGED");
   });
-  it("journal terminal outcome → CLOSED", () => {
+  it("journal terminal outcome + broker flat → CLOSED", () => {
     const rail = deriveTimeline({ chain: { state: "STOP_CONFIRMED" }, trade: { outcome: "STOPPED" } });
     assert.equal(reached(rail), "CLOSED");
     assert.equal(stageStatus(rail, "CLOSED"), "done");
+  });
+
+  it("journal terminal outcome BUT broker still shows a position → NOT CLOSED (inverse mismatch)", () => {
+    // A simulated STOPPED while the broker stop silently failed must never paint
+    // a clean CLOSED rail over a live position.
+    const rail = deriveTimeline({
+      chain: { state: "STOP_CONFIRMED" },
+      trade: { outcome: "STOPPED" },
+      exec: { position: { symbol: "MNQ1!", side: "buy", qty: 1, sl: 20990 } },
+    });
+    assert.notEqual(reached(rail), "CLOSED");
+    assert.equal(stageStatus(rail, "CLOSED"), "pending");
+    assert.equal(rail.recovery.kind, "BROKER_STILL_OPEN");
+    assert.deepEqual(rail.recovery.verbs, ["retry", "flatten"]);
+    assert.ok(rail.blocked);
+  });
+
+  it("broker-outage mid-trade: POSITION_CONFIRMED + unreadable broker → holds last-known FILL, recovery, no silent green", () => {
+    const rail = deriveTimeline({
+      chain: { state: "POSITION_CONFIRMED" },
+      exec: null,
+      reconcile: { state: "UNKNOWN", broker_read: { ok: false, position: null } },
+    });
+    // Last-known durable progress is retained (FILL CONFIRMED from the durable
+    // state) — the rail does NOT regress or fabricate a close…
+    assert.equal(reached(rail), "FILL_CONFIRMED");
+    // …but it is blocked with an UNKNOWN recovery (hold), never a clean green.
+    assert.equal(rail.recovery.kind, "UNKNOWN");
+    assert.ok(rail.blocked);
+    assert.notEqual(reached(rail), "CLOSED");
+    // And P&L is gated OFF during the outage.
+    assert.equal(pnlGate({ chain: { state: "POSITION_CONFIRMED" }, exec: null, reconcile: { state: "UNKNOWN", broker_read: { ok: false, position: null } } }).show, false);
   });
   it("broker flat AFTER a confirmed position → CLOSED", () => {
     const rail = deriveTimeline({
@@ -321,25 +353,35 @@ describe("sourceAgeChips", () => {
 });
 
 describe("pnlGate", () => {
+  const brokerPos = { position: { symbol: "MNQ1!", side: "buy", qty: 1 } };
   it("PENDING until durable ≥ POSITION_CONFIRMED", () => {
     for (const state of ["INTENT_CREATED", "SUBMITTING", "BROKER_ACKNOWLEDGED"]) {
-      const g = pnlGate({ chain: { state } });
+      const g = pnlGate({ chain: { state }, exec: brokerPos });
       assert.equal(g.show, false);
       assert.equal(g.label, "PENDING");
     }
   });
-  it("shows P&L at POSITION_CONFIRMED and STOP_CONFIRMED", () => {
-    assert.equal(pnlGate({ chain: { state: "POSITION_CONFIRMED" } }).show, true);
-    assert.equal(pnlGate({ chain: { state: "STOP_CONFIRMED" } }).show, true);
+  it("shows P&L at POSITION_CONFIRMED/STOP_CONFIRMED WHEN the broker shows a position", () => {
+    assert.equal(pnlGate({ chain: { state: "POSITION_CONFIRMED" }, exec: brokerPos }).show, true);
+    assert.equal(pnlGate({ chain: { state: "STOP_CONFIRMED" }, exec: brokerPos }).show, true);
+  });
+  it("durable POSITION_CONFIRMED during a broker outage (no position visible) → PENDING (no green-lit simulated R)", () => {
+    // Broker unreadable: no exec position + reconcile UNKNOWN.
+    const g = pnlGate({ chain: { state: "POSITION_CONFIRMED" }, exec: null, reconcile: { state: "UNKNOWN", broker_read: { ok: false, position: null } } });
+    assert.equal(g.show, false);
+    assert.equal(g.label, "PENDING");
+  });
+  it("reconcile MANAGEMENT_ONLY corroborates a position → shows P&L even without exec", () => {
+    assert.equal(pnlGate({ chain: { state: "STOP_CONFIRMED" }, exec: null, reconcile: "MANAGEMENT_ONLY" }).show, true);
   });
   it("journal 'filled' state alone is NOT enough (no durable intent → PENDING)", () => {
-    const g = pnlGate({ chain: null, trade: { state: "filled" } });
+    const g = pnlGate({ chain: null, trade: { state: "filled" }, exec: brokerPos });
     assert.equal(g.show, false);
     assert.equal(g.label, "PENDING");
   });
   it("REJECTED / RECOVERY never show P&L", () => {
-    assert.equal(pnlGate({ chain: { state: "REJECTED" } }).show, false);
-    assert.equal(pnlGate({ chain: { state: "RECOVERY_REQUIRED" } }).show, false);
+    assert.equal(pnlGate({ chain: { state: "REJECTED" }, exec: brokerPos }).show, false);
+    assert.equal(pnlGate({ chain: { state: "RECOVERY_REQUIRED" }, exec: brokerPos }).show, false);
   });
 });
 

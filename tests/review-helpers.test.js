@@ -20,6 +20,8 @@ import {
   buildEvidenceChain,
   computeDiscrepancies,
   SLIPPAGE_MATERIAL_PTS,
+  assignFillsToTrades,
+  FILL_MATCH_WINDOW_MS,
 } from "../app/renderer/src/Review.helpers.js";
 
 describe("todayBadge", () => {
@@ -542,5 +544,69 @@ describe("computeDiscrepancies matrix", () => {
     assert.ok(!tiny.some((x) => x.kind === "slippage"));
     const favorable = computeDiscrepancies({ fill: { side: "long", planned: { entry: 21000 }, actual: { entry: 20990 } } });
     assert.ok(!favorable.some((x) => x.kind === "slippage"));
+  });
+});
+
+describe("assignFillsToTrades — bounded, 1:1 (Task C4)", () => {
+  it("two same-side trades → each fill assigned to the NEAREST trade (no misattribution)", () => {
+    const trades = [
+      { id: "T1", symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:00:00Z" },
+      { id: "T2", symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:30:00Z" },
+    ];
+    const fills = [
+      { symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:31:00Z", actual: { r: 1 } },   // nearest T2
+      { symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:01:00Z", actual: { r: -1 } },  // nearest T1
+    ];
+    const map = assignFillsToTrades(trades, fills);
+    assert.equal(map.get("T1").actual.r, -1);
+    assert.equal(map.get("T2").actual.r, 1);
+  });
+  it("a fill matches at most one trade (1:1)", () => {
+    const trades = [
+      { id: "T1", symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:00:00Z" },
+      { id: "T2", symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:02:00Z" },
+    ];
+    const fills = [{ symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:00:30Z", actual: { r: 1 } }];
+    const map = assignFillsToTrades(trades, fills);
+    // The single fill goes to the nearest trade (T1) and T2 gets nothing.
+    assert.ok(map.has("T1"));
+    assert.ok(!map.has("T2"));
+  });
+  it("rejects a match outside the window", () => {
+    const trades = [{ id: "T1", symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:00:00Z" }];
+    const fills = [{ symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:20:00Z", actual: { r: 1 } }]; // 20 min > 10 min
+    assert.equal(assignFillsToTrades(trades, fills).size, 0);
+  });
+  it("a trade with no ts gets no match (honest — no fallback-to-first)", () => {
+    const trades = [{ id: "T1", symbol: "MNQ1!", side: "long" }];
+    const fills = [{ symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:00:00Z", actual: { r: 1 } }];
+    assert.equal(assignFillsToTrades(trades, fills).size, 0);
+  });
+  it("side and instrument-root must both match", () => {
+    const trades = [{ id: "T1", symbol: "MNQ1!", side: "long", ts: "2026-07-10T13:00:00Z" }];
+    assert.equal(assignFillsToTrades(trades, [{ symbol: "MNQ1!", side: "short", ts: "2026-07-10T13:00:10Z" }]).size, 0);
+    assert.equal(assignFillsToTrades(trades, [{ symbol: "MES1!", side: "long", ts: "2026-07-10T13:00:10Z" }]).size, 0);
+  });
+  it("window constant is 10 minutes", () => {
+    assert.equal(FILL_MATCH_WINDOW_MS, 600000);
+  });
+});
+
+describe("buildTrackRecordFromFills — NET P&L over ALL fills (Task C4)", () => {
+  it("cum_usd includes an un-bracketed (r:null) fill so EXECUTED agrees with the account ledger", () => {
+    const fills = [
+      { actual: { r: 1, usd: 100 } },       // bracketed
+      { actual: { usd: -40 } },             // un-bracketed (r missing) — real money moved
+    ];
+    const tr = buildTrackRecordFromFills(fills);
+    assert.equal(tr.cum_usd, 60);   // 100 + (-40) over ALL fills
+    assert.equal(tr.cum_r, 1);      // R stats only over the bracketed fill
+    assert.equal(tr.n_trades, 1);   // n counts R-bearing round-trips
+  });
+  it("agrees with the per-account net_usd on the same fills", () => {
+    const fills = [{ accountId: "A", actual: { r: 1, usd: 100 } }, { accountId: "A", actual: { usd: -40 } }];
+    const headline = buildTrackRecordFromFills(fills).cum_usd;
+    const perAccount = buildTrackRecordByAccount(fills, null).reduce((s, g) => s + g.net_usd, 0);
+    assert.equal(headline, perAccount);
   });
 });

@@ -21,7 +21,7 @@ import { useBrokerAccount } from "../../hooks/useBrokerAccount.js";
 import { Row } from "../../Shared.jsx";
 import {
   buildLedger, formatGradeShort, buildTrackRecordFromFills, degradedChainStages, computeFaithfulness,
-  buildTrackRecordByAccount, REVIEW_DOMAINS, buildEvidenceChain, computeDiscrepancies,
+  buildTrackRecordByAccount, REVIEW_DOMAINS, buildEvidenceChain, computeDiscrepancies, assignFillsToTrades,
 } from "../../Review.helpers.js";
 import "../../cs/review.css";
 
@@ -29,11 +29,6 @@ const TABS = [["EXECUTED", "EXECUTED"], ["JOURNAL", "JOURNAL"], ["BACKTEST", "BA
 const gTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "dim");
 const sessionShort = (s) => ({ "ny-am": "NY-AM", "ny-pm": "NY-PM", london: "LONDON" }[s] ?? (s ?? ""));
 const signed = (n) => (n > 0 ? "+" : "") + n; // no double sign on negatives
-const rootOf = (s) => (String(s || "").toUpperCase().match(/(MNQ|MES)/) || [])[1] || null;
-const sideEq = (a, b) => {
-  const n = (v) => (v === "long" || v === "buy" ? "long" : v === "short" || v === "sell" ? "short" : null);
-  return n(String(a).toLowerCase()) != null && n(String(a).toLowerCase()) === n(String(b).toLowerCase());
-};
 
 // Domain provenance banner — makes the source of every number on the tab
 // unmistakable (PRODUCT.md #3). Copy comes straight from REVIEW_DOMAINS.
@@ -143,23 +138,8 @@ function latestIntentByDecision(intents = []) {
   }
   return m;
 }
-// Best-effort fill match for the evidence chain (fills carry no decision_id):
-// same instrument root + side, nearest timestamp. A miss returns null and the
-// chain honestly shows the FILL hop as unavailable.
-function matchFill(trade, fills = []) {
-  if (!trade || !fills?.length) return null;
-  const tr = rootOf(trade.symbol);
-  const cand = fills.filter((f) => rootOf(f.symbol) === tr && sideEq(f.side, trade.side));
-  if (!cand.length) return null;
-  const ts = trade.ts ? Date.parse(trade.ts) : null;
-  if (ts == null) return cand[0];
-  let best = null;
-  for (const f of cand) {
-    const d = Math.abs(Date.parse(f.ts) - ts);
-    if (best == null || d < best.d) best = { f, d };
-  }
-  return best?.f ?? cand[0];
-}
+// Fill↔trade assignment for the evidence chain lives in Review.helpers.js
+// (bounded window + 1:1, no misattribution) — see assignFillsToTrades.
 
 // ── JOURNAL tab (SESSION folds in here) ────────────────────────────────────
 function JournalTab({ journal }) {
@@ -174,17 +154,19 @@ function JournalTab({ journal }) {
   const closes = journal.closes ?? [];
   const onExport = () => window.api?.review?.exportSession?.(journal.date, journal.session).catch(() => {});
 
-  // Evidence + discrepancy join (intent by decision_id, fill best-effort).
+  // Evidence + discrepancy join: intent by exact decision_id; fill via a
+  // bounded, 1:1 assignment (no misattribution across same-side trades).
   const intentMap = useMemo(() => latestIntentByDecision(journal.intents), [journal.intents]);
+  const fillMap = useMemo(() => assignFillsToTrades(journal.trades || [], journal.fills || []), [journal.trades, journal.fills]);
   const evidenceFor = useMemo(() => (row) => {
     const trade = row.trade;
     if (!trade) return null;
     const intent = trade.decision_id ? intentMap.get(trade.decision_id) || null : null;
-    const fill = matchFill(trade, journal.fills || []);
+    const fill = fillMap.get(trade.id) || null;
     const chain = buildEvidenceChain({ fill, intent, journalTrade: trade, reconcile: null });
     const discrepancies = computeDiscrepancies({ fill, intent, journalTrade: trade, reconcile: null });
     return { chain, discrepancies };
-  }, [intentMap, journal.fills]);
+  }, [intentMap, fillMap]);
 
   // Session-wide discrepancy roll-up for the strip.
   const discSummary = useMemo(() => {

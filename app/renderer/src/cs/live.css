@@ -224,3 +224,9 @@
 .cs-agechips { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .cs-agechip { font: 400 9px var(--mono); letter-spacing: .04em; color: var(--label-dim); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 7px; white-space: nowrap; }
 .cs-agechip.stale { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+
+/* ── Stale P&L (Task C5) — a broker-read outage greys the money number and
+   marks it STALE so last-known P&L is never mistaken for live. */
+.cmd-pos-pnl.stale { color: var(--label-dim); }
+.cs-pos-hero__pnl.stale { color: var(--label-dim); }
+.cs-pnl-stale { margin-left: 8px; font: 400 9px var(--mono); letter-spacing: .1em; color: var(--red); vertical-align: middle; }

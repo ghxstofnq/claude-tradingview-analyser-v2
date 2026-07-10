@@ -61,12 +61,6 @@ const RECONCILE_RECOVERY_STATES = new Set([
 export const RECOVERY_VERBS = Object.freeze(["retry", "adopt", "protect", "flatten"]);
 
 const rootOf = (s) => (String(s || "").toUpperCase().match(/(MNQ|MES|NQ|ES)/) || [])[1] || null;
-const sideKey = (s) => {
-  const v = String(s || "").toLowerCase();
-  if (v === "long" || v === "buy") return "long";
-  if (v === "short" || v === "sell") return "short";
-  return null;
-};
 
 // Filter an arbitrary verb list down to the pinned whitelist, de-duped and in
 // input order. A forged / drifted record can't smuggle an unknown action.
@@ -236,15 +230,26 @@ export function deriveTimeline({ chain = null, trade = null, exec = null, reconc
     // Claimed STOP WORKING but the broker shows no working stop.
     reachedIdx = Math.min(reachedIdx, STAGE_IDX.FILL_CONFIRMED);
   }
-  // ── Terminal CLOSED. Two POSITIVE signals only:
-  //   1. the journal has a terminal outcome (the grader wrote STOPPED/TP2/etc.);
-  //   2. reconcile is JOURNAL_STALE — the reconciler's own verdict that the
-  //      broker went flat while the journal thought it open (a real close).
-  // A bare HEALTHY-flat while the intent claims a fill is NOT a close — it's a
-  // contradiction handled by the forge-proof mismatch below. #233 fail-closed.
+  // ── Terminal CLOSED requires broker corroboration of flat. CLOSED is only
+  // rendered when the broker is NOT still showing a live position — a clean
+  // CLOSED rail over a position the broker still holds is exactly the unsafe
+  // state a simulated STOPPED (with a silently-failed broker stop) would paint.
+  //   1. reconcile JOURNAL_STALE — the reconciler's own verdict that the broker
+  //      went flat while the journal thought it open (a real close); or
+  //   2. a journal terminal outcome AND the broker not still holding a position.
+  // Journal-closed but broker-still-open is the INVERSE mismatch → recovery.
+  // A bare HEALTHY-flat while the intent claims a fill is the forge mismatch
+  // below. #233 fail-closed.
   const closedByBroker = rec.state === "JOURNAL_STALE" && (durable === "POSITION_CONFIRMED" || durable === "STOP_CONFIRMED");
-  if (journalTerminal(trade) || closedByBroker) {
+  if (closedByBroker) {
     reachedIdx = STAGE_IDX.CLOSED;
+  } else if (journalTerminal(trade)) {
+    if (bt.positionPresent) {
+      // Journal says closed but the broker still shows a live position.
+      recovery = recovery || { kind: "BROKER_STILL_OPEN", verbs: sanitizeVerbs(["retry", "flatten"]), message: "Journal shows the trade closed but the broker still shows a live position — reconcile before trusting flat." };
+    } else {
+      reachedIdx = STAGE_IDX.CLOSED;
+    }
   } else if (reachedIdx >= STAGE_IDX.FILL_CONFIRMED && bt.positionFlat) {
     // Claimed a live fill but the broker is DEFINITELY flat with no terminal
     // outcome → the position we think we hold isn't there. Re-derive to the
@@ -388,10 +393,14 @@ const DURABLE_RANK = Object.freeze({
   INTENT_CREATED: 0, SUBMITTING: 1, BROKER_ACKNOWLEDGED: 2,
   POSITION_CONFIRMED: 3, STOP_CONFIRMED: 4,
 });
-export function pnlGate({ chain = null, trade = null } = {}) {
+export function pnlGate({ chain = null, trade = null, exec = null, reconcile = null } = {}) {
   void trade;
   const state = chain?.state ?? null;
   const rank = DURABLE_RANK[state];
-  const show = rank != null && rank >= DURABLE_RANK.POSITION_CONFIRMED;
+  // Broker cross-check: a durable POSITION_CONFIRMED during a broker-read
+  // outage (no position visible) must not green-light a simulated R. Require
+  // both a durable fill AND live broker corroboration of a position.
+  const bt = brokerTruth({ exec, rec: normalizeReconcile(reconcile) });
+  const show = rank != null && rank >= DURABLE_RANK.POSITION_CONFIRMED && bt.positionPresent;
   return { show, label: show ? null : "PENDING", durable: state ?? null };
 }

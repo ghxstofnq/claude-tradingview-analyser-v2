@@ -163,12 +163,16 @@ export function buildTrackRecord(rows = []) {
 // at close (computed in code from realized $ ÷ risk — not fabricated).
 export function buildTrackRecordFromFills(fills = []) {
   const r2 = (n) => Math.round(n * 100) / 100;
-  const list = (fills || []).filter((f) => f && f.actual && typeof f.actual.r === "number");
+  // R stats are computed over fills that recorded an R (bracketed round-trips);
+  // NET $ is summed over ALL fills — including un-bracketed (r:null) ones — so
+  // the EXECUTED headline agrees with buildTrackRecordByAccount.net_usd on the
+  // same fills (a Tradovate null-bracket fill still moved real money).
+  const all = (fills || []).filter(Boolean);
+  const list = all.filter((f) => f && f.actual && typeof f.actual.r === "number");
   const n = list.length;
   const rs = list.map((f) => f.actual.r);
-  const usds = list.map((f) => Number(f.actual.usd) || 0);
   const cumR = r2(rs.reduce((s, v) => s + v, 0));
-  const cumUsd = Math.round(usds.reduce((s, v) => s + v, 0));
+  const cumUsd = Math.round(all.reduce((s, f) => s + (Number(f?.actual?.usd) || 0), 0));
   const wins = rs.filter((r) => r > 0);
   const losses = rs.filter((r) => r < 0);
   // BE scratches don't count against win-rate — win% is over decided trades.
@@ -494,6 +498,53 @@ export function computeDiscrepancies({ fill = null, intent = null, journalTrade 
   const slip = computeSlippage(fill || {});
   if (slip.shown && slip.adverse && Math.abs(slip.points) >= SLIPPAGE_MATERIAL_PTS) {
     out.push({ kind: "slippage", detail: `${slip.points}pt adverse fill vs plan` });
+  }
+  return out;
+}
+
+// ── Fill ↔ trade assignment (Task C4) ───────────────────────────────────────
+// Executed fills carry no decision_id/trade_id, so the evidence chain joins a
+// fill to a journal trade heuristically: same instrument root + side, nearest
+// timestamp — but bounded and 1:1. A fill matches at most ONE trade (greedy
+// nearest first), a trade with no ts gets no match, and a match outside the
+// window is rejected. No fallback-to-first: a miss is an honest no-match so the
+// evidence chain shows the FILL hop unavailable rather than misattributing.
+export const FILL_MATCH_WINDOW_MS = 10 * 60 * 1000; // 10 min
+
+const rvRoot = (s) => (String(s || "").toUpperCase().match(/(MNQ|MES|NQ|ES)/) || [])[1] || null;
+function rvSideEq(a, b) {
+  const sa = rvSide(a), sb = rvSide(b);
+  return sa != null && sa === sb;
+}
+
+// Returns Map(trade.id → fill). Greedy: rank every eligible (trade, fill) pair
+// by |Δt|, assign smallest first, each fill and each trade used at most once.
+export function assignFillsToTrades(trades = [], fills = [], { maxDeltaMs = FILL_MATCH_WINDOW_MS } = {}) {
+  const pairs = [];
+  for (const t of trades || []) {
+    if (!t || t.id == null || !t.ts) continue; // no ts → honest no-match
+    const tms = Date.parse(t.ts);
+    if (!Number.isFinite(tms)) continue;
+    const tRoot = rvRoot(t.symbol);
+    for (let fi = 0; fi < (fills || []).length; fi += 1) {
+      const f = fills[fi];
+      if (!f || !f.ts) continue;
+      if (rvRoot(f.symbol) !== tRoot) continue;
+      if (!rvSideEq(f.side, t.side)) continue;
+      const fms = Date.parse(f.ts);
+      if (!Number.isFinite(fms)) continue;
+      const d = Math.abs(fms - tms);
+      if (d > maxDeltaMs) continue;
+      pairs.push({ tid: t.id, fi, d });
+    }
+  }
+  pairs.sort((a, b) => a.d - b.d);
+  const out = new Map();
+  const usedFills = new Set();
+  for (const p of pairs) {
+    if (out.has(p.tid) || usedFills.has(p.fi)) continue;
+    out.set(p.tid, fills[p.fi]);
+    usedFills.add(p.fi);
   }
   return out;
 }
