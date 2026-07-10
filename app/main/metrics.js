@@ -46,6 +46,7 @@ function freshTally() {
     "bar-close": { started: 0, succeeded: 0, failed: 0, timeout: 0 },
     chat: { started: 0, succeeded: 0, failed: 0 },
     review: { started: 0, succeeded: 0, failed: 0, skipped: 0, timeout: 0 },
+    journal: { started: 0, succeeded: 0, failed: 0, skipped: 0, timeout: 0 },
   };
 }
 

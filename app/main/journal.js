@@ -23,6 +23,16 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 let _send = null;
 export function setJournalSend(send) { _send = send; }
 
+// Injectable seams (production defaults bind the real implementations lazily so
+// this module stays importable in tests without booting the Agent SDK / TV).
+//   _drafter          — LLM note drafter (app/main/journal-assist.js).
+//   _screenshotFn     — chart capture; overridable so recordClose tests never
+//                       shell out to `./bin/tv screenshot`.
+let _drafter = null;
+export function setJournalNoteDrafter(fn) { _drafter = fn; }
+let _screenshotFn = null;
+export function setJournalScreenshotFn(fn) { _screenshotFn = fn; }
+
 function dayDir(date) { return path.join(stateRoot(), "session", date); }
 function journalPath(date) { return path.join(dayDir(date), "journal.jsonl"); }
 
@@ -70,7 +80,29 @@ export function buildJournalRow(fill, { date, session, id } = {}) {
     planned: fill?.planned ?? null,
     screenshot: null,
     note: null,
+    // Claude's post-close draft note (best-effort, filled asynchronously after
+    // the close is on disk). null until/unless the journal turn resolves.
+    suggested_note: null,
   };
+}
+
+// Fire-and-forget: ask Claude to draft the post-close note, then patch it onto
+// the row as `suggested_note` and re-emit journal:close so the open prompt can
+// pre-fill it. Never throws, never blocks the caller, never touches the trade
+// path — it runs strictly after the close is durably recorded. Exported so
+// tests can drive the exact code path recordClose uses.
+export async function draftAndAttachNote({ date, id, row }) {
+  try {
+    const drafter = _drafter || (await import("./journal-assist.js")).draftJournalNote;
+    const note = await drafter(row);
+    if (note && typeof note === "string" && note.trim()) {
+      const suggested_note = note.trim().slice(0, 300);
+      patchRow(date, id, { suggested_note });
+      _send?.("journal:close", { ...row, suggested_note });
+    }
+  } catch {
+    // Best-effort — a drafting failure must never surface to the trade feed.
+  }
 }
 
 // Called from the fills-store hook on every recorded close. Never throws into
@@ -88,11 +120,17 @@ export async function recordClose(fill) {
     _send?.("journal:close", row);
     // Screenshot after the row exists (append-then-patch) so a capture failure
     // never loses the trade record.
-    const shot = await captureScreenshot(date, id);
+    const capture = _screenshotFn || captureScreenshot;
+    const shot = await capture(date, id);
     if (shot) {
       patchRow(date, id, { screenshot: shot });
       _send?.("journal:close", { ...row, screenshot: shot });
     }
+    // Post-close journal assist (Track 2, ruled 2026-07-10): fire-and-forget,
+    // strictly AFTER the row + screenshot are durable. Not awaited — recordClose
+    // returns immediately, so the LLM turn never delays or breaks the close.
+    const finalRow = shot ? { ...row, screenshot: shot } : row;
+    draftAndAttachNote({ date, id, row: finalRow }).catch(() => {});
     return { ok: true, id };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };

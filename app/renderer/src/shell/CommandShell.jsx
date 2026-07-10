@@ -487,7 +487,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
       )}
 
       <Toasts toasts={toasts} onDismiss={dismissToast} />
-      <JournalPrompt row={jrRow} onDone={(saved) => { setJrRow(null); if (saved) addToast("journal note saved", "green"); }} />
+      <JournalPrompt key={jrRow?.id} row={jrRow} onDone={(saved) => { setJrRow(null); if (saved) addToast("journal note saved", "green"); }} />
       {coach && !page && !pal.open && !flat.open && !prep.open && <CoachChip onClose={() => setCoach(false)} />}
     </div>
   );

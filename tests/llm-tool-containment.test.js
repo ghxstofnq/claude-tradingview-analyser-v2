@@ -24,6 +24,14 @@ describe("per-purpose tool allow-list (C26)", () => {
       assert.ok(!TOOLS_BY_PURPOSE[p].some((t) => t.startsWith("surface_")), `${p} must expose no surface_* tool`);
     }
   });
+  it("journal is a pure prose turn — NO tools at all", () => {
+    // The post-close journal assist (Track 2, ruled 2026-07-10) authors no
+    // state: no surface_*, no alerts, no analyze captures.
+    assert.deepEqual(TOOLS_BY_PURPOSE.journal, [], "journal must map to an empty tool list");
+    const allowed = buildAllowedToolNames("journal");
+    assert.ok(!allowed.some((t) => t.startsWith("mcp__tv__")), "journal must reach no mcp__tv__ tool");
+    assert.ok(!allowed.some((t) => t.includes("surface_")), "journal must reach no surface_* tool");
+  });
   it("brief owns only surface_session_brief; wrap owns only surface_session_summary", () => {
     assert.ok(TOOLS_BY_PURPOSE.brief.includes("surface_session_brief"));
     assert.ok(!TOOLS_BY_PURPOSE.brief.includes("surface_session_summary"));
