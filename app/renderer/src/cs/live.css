@@ -172,3 +172,61 @@
 
 /* AUTO-mode footer accent (C2-c): auto-fire is a status the trader must notice. */
 .cs-live-foot-auto { color: var(--amber); }
+
+/* ── Order-lifecycle timeline (Task C3) ─────────────────────────────────────
+   The 7-stage rail derived from the durable order-intent chain + live broker
+   truth. Neutral chrome; saturated hues are status-only (done=green tick,
+   current=amber pulse, failed/recovery=red) per DESIGN.md. */
+.cs-oltl { margin-top: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 10px 12px; }
+.cs-oltl-hd { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cs-oltl-hd__lbl { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cs-oltl-hd__corrupt { margin-left: auto; font: 400 9px var(--mono); letter-spacing: .06em; color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-radius: var(--r-sm); padding: 1px 6px; }
+.cs-oltl-rail { display: flex; flex-direction: column; }
+.cs-oltl-step { display: flex; align-items: center; gap: 9px; padding: 3px 0 3px 2px; position: relative; }
+.cs-oltl-step::before { content: ""; position: absolute; left: 5px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.cs-oltl-step:first-child::before { top: 50%; }
+.cs-oltl-step:last-child::before { bottom: 50%; }
+.cs-oltl-node { width: 9px; height: 9px; border-radius: 50%; background: #1c1e1f; border: 1px solid var(--border); flex: none; position: relative; z-index: 1; }
+.cs-oltl-lbl { font-size: 10.5px; color: var(--label-dim); letter-spacing: .02em; }
+.cs-oltl-tag { margin-left: auto; font: 400 10px var(--mono); color: var(--label-dim); }
+.cs-oltl-step.is-done .cs-oltl-node { background: var(--green); border-color: var(--green); }
+.cs-oltl-step.is-done .cs-oltl-lbl { color: var(--value); }
+.cs-oltl-step.is-done .cs-oltl-tag { color: var(--green); }
+.cs-oltl-step.is-current .cs-oltl-node { background: var(--amber); border-color: var(--amber); animation: cs-oltl-pulse 1.4s ease-in-out infinite; }
+.cs-oltl-step.is-current .cs-oltl-lbl { color: var(--value-strong); font-weight: 500; }
+.cs-oltl-step.is-current .cs-oltl-tag { color: var(--amber); }
+.cs-oltl-step.is-failed .cs-oltl-node,
+.cs-oltl-step.badge-recovery .cs-oltl-node { background: var(--red); border-color: var(--red); animation: none; }
+.cs-oltl-step.is-failed .cs-oltl-lbl,
+.cs-oltl-step.badge-recovery .cs-oltl-lbl { color: var(--red); }
+.cs-oltl-step.is-failed .cs-oltl-tag { color: var(--red); }
+@keyframes cs-oltl-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 55%, transparent); } 50% { box-shadow: 0 0 0 4px transparent; } }
+.cs-oltl-recovery { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+.cs-oltl-recovery__msg { font-size: 10.5px; line-height: 1.5; color: var(--red); margin-bottom: 8px; }
+.cs-oltl-recovery__acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.cs-oltl-recovery__btn { font: 400 9.5px var(--mono); letter-spacing: .06em; color: var(--red); background: transparent; border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-radius: var(--r-sm); padding: 3px 10px; cursor: pointer; }
+.cs-oltl-recovery__btn:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
+
+/* ── Broker vs journal coverage ─────────────────────────────────────────── */
+.cs-bvj { margin-top: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 10px 12px; }
+.cs-bvj-hd { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cs-bvj-hd__lbl { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cs-bvj-verdict { margin-left: auto; font: 400 9px var(--mono); letter-spacing: .06em; border-radius: var(--r-sm); padding: 1px 7px; border: 1px solid var(--border); }
+.cs-bvj-verdict.green { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.cs-bvj-verdict.amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.cs-bvj-verdict.red { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.cs-bvj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cs-bvj-cell { display: flex; flex-direction: column; gap: 3px; }
+.cs-bvj-cell .k { font-size: 9px; letter-spacing: .08em; color: var(--label-dim); }
+.cs-bvj-cell .mono { font: 400 11px var(--mono); color: var(--value); }
+
+/* ── Source-age freshness chips ─────────────────────────────────────────── */
+.cs-agechips { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.cs-agechip { font: 400 9px var(--mono); letter-spacing: .04em; color: var(--label-dim); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 7px; white-space: nowrap; }
+.cs-agechip.stale { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+
+/* ── Stale P&L (Task C5) — a broker-read outage greys the money number and
+   marks it STALE so last-known P&L is never mistaken for live. */
+.cmd-pos-pnl.stale { color: var(--label-dim); }
+.cs-pos-hero__pnl.stale { color: var(--label-dim); }
+.cs-pnl-stale { margin-left: 8px; font: 400 9px var(--mono); letter-spacing: .1em; color: var(--red); vertical-align: middle; }

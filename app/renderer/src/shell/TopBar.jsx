@@ -13,7 +13,7 @@ import { useSessionBrief } from "../hooks/useSessionBrief.js";
 import { useOpenReaction } from "../hooks/useOpenReaction.js";
 import { buildDayChip } from "./dayChip.helpers.js";
 import { parseInstantStop } from "../Orders.helpers.js";
-import { liveGridFromTrade } from "../Live.helpers.js";
+import { liveGridFromTrade, pnlDisplay } from "../Live.helpers.js";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
@@ -121,7 +121,15 @@ export function TopBar({
         </div>
         <div className="cmd-strip-item" title="open position">
           <span className={"cmd-pos-side " + posSide}>{posSide.toUpperCase()}</span>
-          {pnl && <span className={"cmd-pos-pnl " + (pnl.tone === "red" ? "down" : "up")}>{pnl.v}</span>}
+          {pnl && (() => {
+            // Broker-read outage (exec.stale) → render last-known P&L greyed +
+            // STALE, never live-green (Task C5). pnlDisplay maps tone "stale".
+            const disp = pnlDisplay(pnl, exec?.stale);
+            return <span className={"cmd-pos-pnl " + (disp.stale ? "stale" : disp.tone === "red" ? "down" : "up")}
+                         title={disp.stale ? "broker read stale — last-known P&L, not live" : undefined}>
+              {disp.v}{disp.stale ? " · STALE" : ""}
+            </span>;
+          })()}
         </div>
         <span className="sp" />
         {/* Manual BUY/SELL (plan 2026-07-10). SL field empty → the buttons open

@@ -441,6 +441,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
   const pageProps = { onClose: () => setPage(null) };
   if (page === "briefing") Object.assign(pageProps, { symbol, currentPrice, onStartPrep: startPrep });
   if (page === "live") Object.assign(pageProps, { symbol, guards, onFlatten: openFlatten });
+  if (page === "review") Object.assign(pageProps, { symbol });
   if (page === "agent") Object.assign(pageProps, { chats });
   if (page === "settings") Object.assign(pageProps, { guards, setGuards, symbol, onToast: addToast });
   if (page === "system") Object.assign(pageProps, { pushToast: addToast, symbol });
@@ -448,15 +449,17 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
 
   return (
     <div className="app shell" onMouseDownCapture={refocus}>
-      <TopBar
-        symbol={symbol} setSymbol={setSymbol} guards={guards} exec={exec}
-        alertCount={alerts.armed.length + alerts.fired.length}
-        newsCount={newsCount} newsImminent={newsImminent}
-        onOpenPalette={() => openPalette()}
-        onOpenNews={() => openPalette("news")}
-        onOpenAlerts={() => openPalette("alerts")}
-        onVerClick={cycleVer} onRelaunchTv={relaunchTv} onOpenBriefing={() => openPage("briefing")}
-        onTrade={onTrade} slDraft={slDraft} setSlDraft={setSlDraft} />
+      <ErrorBoundary label="TOPBAR">
+        <TopBar
+          symbol={symbol} setSymbol={setSymbol} guards={guards} exec={exec}
+          alertCount={alerts.armed.length + alerts.fired.length}
+          newsCount={newsCount} newsImminent={newsImminent}
+          onOpenPalette={() => openPalette()}
+          onOpenNews={() => openPalette("news")}
+          onOpenAlerts={() => openPalette("alerts")}
+          onVerClick={cycleVer} onRelaunchTv={relaunchTv} onOpenBriefing={() => openPage("briefing")}
+          onTrade={onTrade} slDraft={slDraft} setSlDraft={setSlDraft} />
+      </ErrorBoundary>
 
       <div className="chart-host">
         <div className="chart-body">
@@ -469,16 +472,32 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
 
       {scrimShown && (
         <div className="shell-scrim" onClick={dismiss}>
-          {PageComp && <PageComp {...pageProps} />}
+          {/* Per-page containment (Task C5): a crash in one page renders its own
+              fallback and never blanks the shell — TopBar + FLATTEN stay alive.
+              LIVE is a money-path region → emergency variant (broker-confirmed
+              flatten in the fallback). key/resetKey={page} auto-recovers on
+              switch. */}
+          {PageComp && (
+            <ErrorBoundary label={page} variant={page === "live" || page === "orders" ? "emergency" : "page"}
+                           key={page} resetKey={page}
+                           onOpenSystem={() => openPage("system")}
+                           onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
+              <PageComp {...pageProps} />
+            </ErrorBoundary>
+          )}
           {pal.open && (
-            <Palette
-              query={pal.query} onQuery={(q) => setPal((p) => ({ ...p, query: q, sel: 0 }))}
-              sel={pal.sel} onHover={(i) => setPal((p) => ({ ...p, sel: i }))}
-              forcedView={pal.forced} askQuery={pal.askQuery} packetSeed={pal.seed}
-              commands={commands} symbol={symbol} chat={chats?.claude}
-              alerts={alerts} events={events} workingOrders={exec?.workingOrders || []}
-              onRunCommand={runCommand} onDisarm={disarmAlert}
-              onCancelAll={cancelAllOrders} onToast={addToast} onClose={closePalette} />
+            <ErrorBoundary label="COMMAND PALETTE" variant="emergency"
+                           onOpenSystem={() => openPage("system")}
+                           onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
+              <Palette
+                query={pal.query} onQuery={(q) => setPal((p) => ({ ...p, query: q, sel: 0 }))}
+                sel={pal.sel} onHover={(i) => setPal((p) => ({ ...p, sel: i }))}
+                forcedView={pal.forced} askQuery={pal.askQuery} packetSeed={pal.seed}
+                commands={commands} symbol={symbol} chat={chats?.claude}
+                alerts={alerts} events={events} workingOrders={exec?.workingOrders || []}
+                onRunCommand={runCommand} onDisarm={disarmAlert}
+                onCancelAll={cancelAllOrders} onToast={addToast} onClose={closePalette} />
+            </ErrorBoundary>
           )}
           {prep.open && (
             <PrepWizard step={prep.step} onNext={prepNext} onBack={prepBack} onClose={closePrep}

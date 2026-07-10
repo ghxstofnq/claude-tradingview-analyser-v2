@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { activeSessionDir } from "./sessions.js";
 import { sizeFor, dayOfWeek } from "../../cli/lib/sizing.js";
+import { deriveDecisionId } from "./execution/order-intent.js";
 
 let _seq = 0;
 function nextTradeId() {
@@ -84,10 +85,25 @@ export async function acceptSetup({ setup, send }) {
       _acceptInFlight.delete(dedupeKey);
       return { error: "accept payload missing setup.id — cannot link to setups.jsonl entry" };
     }
+    // C4: thread the durable decision_id onto the journal accept so the
+    // intent↔trade join is EXACT. The AUTO path (tranche-manager) passes the
+    // very id it used for the order-intent chain — that wins. The manual path
+    // has none, so derive the SAME id the execution:place path would compute
+    // (packetId=setup.id, session-less, from side/entry/stop) as a best-effort
+    // join key. Purely additive; no behavioral change.
+    const decision_id = setup.decision_id ?? deriveDecisionId({
+      packetId: setup.id ?? null,
+      accountId: setup.account_id ?? null,
+      session: setup.session ?? null,
+      side: setup.direction,
+      entry: setup.entry,
+      stop: setup.stop,
+    });
     const event = {
       type: "accept",
       id,
       setup_id: setup.id,
+      decision_id,
       ts: new Date().toISOString(),
       // Chart symbol — lets the broker-exit reconciler match this trade to the
       // real Tradovate round-trip by root (MNQ1! ↔ MNQU6).

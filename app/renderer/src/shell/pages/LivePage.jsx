@@ -12,6 +12,7 @@ import { LiveBody } from "../../LivePopover.jsx";
 import { clickable } from "../../a11y.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useTrades } from "../../hooks/useTrades.js";
+import { useOrderIntent } from "../../hooks/useOrderIntent.js";
 import { liveFooterCopy } from "../../Live.helpers.js";
 
 const SEGS = [["feed", "FEED"], ["positions", "POSITIONS"]];
@@ -21,6 +22,9 @@ export function LivePage({ symbol, guards, onFlatten, onClose }) {
   const [userPicked, setUserPicked] = useState(false);
   const exec = useExecutionState();
   const { activeTrade } = useTrades();
+  // Raw durable order-intent journal for the IN-TRADE order-lifecycle timeline
+  // (Task C3) — threaded into LiveBody so the rail re-derives from broker truth.
+  const orderIntent = useOrderIntent();
   const hasPosition = !!exec.position || !!activeTrade;
   const effectiveSeg = userPicked ? seg : (hasPosition ? "positions" : "feed");
 
@@ -56,7 +60,7 @@ export function LivePage({ symbol, guards, onFlatten, onClose }) {
     <Page icon={PAGE_ICONS.live} tint="green" title="Live" page="live" hosted narrow className="narrow" onClose={onClose}
           tabs={tabs} foot={foot}
           right={<span className="cs-btn-flatten" onClick={onFlatten} title="⇧⌘F flattens anywhere">FLATTEN</span>}>
-      <LiveBody guards={guards} symbol={symbol} seg={effectiveSeg} setSeg={setSeg} setUserPicked={setUserPicked} />
+      <LiveBody guards={guards} symbol={symbol} seg={effectiveSeg} setSeg={setSeg} setUserPicked={setUserPicked} orderIntent={orderIntent} />
     </Page>
   );
 }

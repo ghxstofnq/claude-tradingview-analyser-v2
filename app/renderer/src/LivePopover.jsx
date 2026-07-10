@@ -8,7 +8,6 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { clickable } from "./a11y.js";
-import { useFloat } from "./hooks/useFloat.js";
 import { Panel, Row } from "./Shared.jsx";
 import {
   selectPillar3,
@@ -21,9 +20,11 @@ import {
   liveGuardBudgets,
   fillChips,
   walkerHuntRows,
+  pnlDisplay,
 } from "./Live.helpers.js";
 import { useWalkers } from "./hooks/useWalkers.js";
 import { stripCitations, openReactionVerdict } from "./Prep.helpers.js";
+import { foldIntentChain, deriveTimeline, brokerVsJournal, sourceAgeChips, pnlGate } from "./LiveTimeline.helpers.js";
 import { realAccountView } from "./Account.helpers.js";
 import { walkerTruthToProse } from "./Brain.helpers.js";
 import { useBrokerAccount } from "./hooks/useBrokerAccount.js";
@@ -253,7 +254,77 @@ function TradeProgress({ side, entry, stop, tp1, price, tp1Hit }) {
   );
 }
 
-function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, brief, session }) {
+// ── Order-lifecycle timeline (Task C3) — the 7-stage rail derived from the
+// durable order-intent chain, forge-proofed against live broker truth. The
+// current stage pulses; a failed / recovery stage turns red and carries a
+// persistent recovery action whose verbs are pinned to the reconcile
+// whitelist (retry / adopt / protect / flatten).
+const STAGE_TAG = { done: "✓", current: "…", failed: "✕", pending: "" };
+function OrderLifecycleTimeline({ timeline, onRecover }) {
+  if (!timeline) return null;
+  const { stages, recovery, corrupt } = timeline;
+  return (
+    <div className="cs-oltl">
+      <div className="cs-oltl-hd">
+        <span className="cs-oltl-hd__lbl">ORDER LIFECYCLE</span>
+        {corrupt && <span className="cs-oltl-hd__corrupt">CORRUPT JOURNAL</span>}
+      </div>
+      <div className="cs-oltl-rail">
+        {stages.map((s) => (
+          <div key={s.key} className={"cs-oltl-step is-" + s.status + (s.badge ? " badge-" + s.badge : "")}>
+            <span className="cs-oltl-node" aria-hidden="true" />
+            <span className="cs-oltl-lbl">{s.label}</span>
+            <span className="cs-oltl-tag">{STAGE_TAG[s.status] || ""}</span>
+          </div>
+        ))}
+      </div>
+      {recovery && (
+        <div className="cs-oltl-recovery">
+          <div className="cs-oltl-recovery__msg">⚠ {recovery.message}</div>
+          <div className="cs-oltl-recovery__acts">
+            {recovery.verbs.map((v) => (
+              <button key={v} className="cs-oltl-recovery__btn" onClick={() => onRecover(v)}>{v.toUpperCase()}</button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const bvjFmt = (n) => (n == null ? "—" : String(n));
+function BrokerVsJournalPanel({ v }) {
+  if (!v) return null;
+  const tone = v.verdict === "covered" ? "green" : v.verdict === "unknown" ? "amber" : "red";
+  return (
+    <div className="cs-bvj">
+      <div className="cs-bvj-hd">
+        <span className="cs-bvj-hd__lbl">BROKER vs JOURNAL</span>
+        <span className={"cs-bvj-verdict " + tone}>{String(v.verdict).toUpperCase()}</span>
+      </div>
+      <div className="cs-bvj-grid">
+        <div className="cs-bvj-cell"><span className="k">QTY</span><span className="mono">J {bvjFmt(v.qty.journal)} · B {bvjFmt(v.qty.broker)}</span></div>
+        <div className="cs-bvj-cell"><span className="k">STOP</span><span className="mono">J {bvjFmt(v.stop.journal)} · B {bvjFmt(v.stop.broker)}</span></div>
+      </div>
+    </div>
+  );
+}
+
+function SourceAgeChipsRow({ chips }) {
+  if (!chips?.length) return null;
+  return (
+    <div className="cs-agechips">
+      {chips.map((c) => (
+        <span key={c.key} className={"cs-agechip" + (c.stale ? " stale" : "")}
+              title={c.stale ? `${c.key} read is stale — do not trust` : `${c.key} fresh`}>
+          {c.key} {c.age_s == null ? "—" : c.age_s + "s"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, brief, session, exec, orderIntent, health }) {
   // The live broker position (from execution.state / trading WS) is the source
   // of truth for entry/stop/tp/side/qty; the journal trade supplies model /
   // grade / id metadata when present.
@@ -298,6 +369,32 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
       grid.pnl = { v: `${r >= 0 ? "+" : "−"}$${Math.abs(r).toLocaleString("en-US")}`, sub: "unrealized", tone: r > 0 ? "green" : r < 0 ? "red" : "" };
     }
   }
+  // ── Order-lifecycle truth (Task C3). Re-derive the visible rail purely from
+  // the raw durable order-intent chain + live broker truth — never trust a
+  // record's claimed stage at face value (#233). The IN-TRADE panel is the one
+  // place a live position renders, so this is where the trader sees whether the
+  // order actually reached the broker, whether the stop is really working, and
+  // whether the P&L number is a real fill or a hopeful simulation.
+  const showLifecycle = orderIntent !== undefined;
+  const execTruth = { position, workingOrders, read_at: exec?.read_at ?? null, connected: exec?.connected, price: livePrice };
+  const chain = showLifecycle ? foldIntentChain(orderIntent?.records || [], { symbol: position?.symbol || symbol }).active : null;
+  const timeline = showLifecycle
+    ? deriveTimeline({ chain, trade: t, exec: execTruth, reconcile: orderIntent?.reconcile ?? null, dropped: orderIntent?.dropped ?? 0 })
+    : null;
+  const bvj = showLifecycle ? brokerVsJournal({ trade: t, exec: execTruth, reconcile: orderIntent?.reconcile ?? null }) : null;
+  const ageChips = showLifecycle ? sourceAgeChips({ exec: execTruth, reconcile: orderIntent?.reconcile ?? null, health, lastBar, now: Date.now() }) : null;
+  // P&L is a money number: gate it on a DURABLE fill (POSITION_CONFIRMED+). A
+  // journal "filled" state alone is not enough — that can be simulated. Absent
+  // the durable proof, show PENDING rather than a fabricated live R.
+  const gate = showLifecycle ? pnlGate({ chain, trade: t, exec: execTruth, reconcile: orderIntent?.reconcile ?? null }) : { show: true };
+  const gatedPnl = gate.show ? grid.pnl : { v: "PENDING", tone: "", sub: "awaiting durable fill" };
+  // Broker-read outage (exec.stale) → last-known P&L renders greyed + STALE,
+  // never live-green (Task C5). Only applies once the gate lets a number show.
+  const pnlCell = gate.show ? pnlDisplay(gatedPnl, showLifecycle && exec?.stale) : gatedPnl;
+  const onRecover = async (verb) => {
+    try { await window.api?.execution?.reconcile?.({ action: verb }); } catch { /* surfaced via app:error */ }
+  };
+
   // Trade-management actions await the broker ack and surface any failure
   // (audit C34) — a fire-and-forget FLATTEN that the broker rejects previously
   // looked successful while the position stayed open.
@@ -323,8 +420,15 @@ function InTradeView({ position, trade, lastBar, price, symbol, workingOrders, b
       <div className="cs-pos-hero">
         <span className="cs-pos-hero__sym">{sym}</span>
         <span className="cs-pos-hero__avg">avg {entry ?? "—"}</span>
-        <span className={"cs-pos-hero__pnl " + (grid.pnl.tone || "")}>{grid.pnl.v}</span>
+        <span className={"cs-pos-hero__pnl " + (pnlCell.tone || "")}
+              title={pnlCell.stale ? "broker read stale — last-known P&L, not live" : undefined}>
+          {pnlCell.v}{pnlCell.stale ? <span className="cs-pnl-stale">STALE</span> : null}
+        </span>
       </div>
+
+      {showLifecycle && <OrderLifecycleTimeline timeline={timeline} onRecover={onRecover} />}
+      {showLifecycle && <BrokerVsJournalPanel v={bvj} />}
+      {showLifecycle && <SourceAgeChipsRow chips={ageChips} />}
 
       <TradeProgress side={side} entry={entry} stop={stop} tp1={tp1} price={livePrice} tp1Hit={t.tp1_hit} />
 
@@ -492,187 +596,6 @@ function BacktestRunningPlaceholder({ session }) {
   );
 }
 
-// ── LiveCell — topbar cell + 660px tabbed popover ────────────────────────
-function LiveCell({ guards, symbol }) {
-  const [open, setOpen] = useState(false);
-  const float = useFloat();
-  const [view, setView] = useState("hunt");   // hunt | ticket | intrade
-  const [userPickedView, setUserPickedView] = useState(false);
-  const [fireMsg, setFireMsg] = useState(null);   // placement failure banner
-
-  const backtest = useBacktestRunning();
-  const health = useHealth();
-  const { activeTrade, accept } = useTrades();
-  const { activeSetup, noTrade, noTradeReason } = useActiveSetup();
-  const lastBar = useLastBar();
-  const chat = useChat();
-  const exec = useExecutionState();
-  const { brief, session } = useSessionBrief();
-  const openReaction = useOpenReaction(session);
-  // Real account orders route to (paper/live) — for the ticket badge + journal
-  // metadata. Routing itself is enforced main-side by the confirmed account.
-  const { acct } = useBrokerAccount();
-  const accountType = realAccountView(acct).type;
-
-  // Default view follows the data unless the user clicked a tab this session.
-  // A live broker position (execution feed) OR a journal trade → IN-TRADE.
-  const hasPosition = !!exec.position || !!activeTrade;
-  const dataView = hasPosition ? "intrade" : "hunt";
-  const effectiveView = userPickedView ? view : dataView;
-
-  useEffect(() => {
-    const onOpen = (e) => {
-      if (e.detail?.which === "live") setOpen((o) => !o);
-      if (e.detail?.which === "all-close") setOpen(false);
-    };
-    window.addEventListener("topbar:open-cell", onOpen);
-    return () => window.removeEventListener("topbar:open-cell", onOpen);
-  }, []);
-
-  // Auto-open the popover the moment a NEW setup surfaces, so the trader can
-  // confirm/reject it without hunting for the cell. Keyed on the setup id so it
-  // fires once per surface (not every render); resets when the setup clears so a
-  // re-surface re-opens. Forces the HUNT view, where accept/reject lives.
-  const lastSurfacedId = useRef(null);
-  useEffect(() => {
-    const id = activeSetup?.id;
-    if (id && id !== lastSurfacedId.current) {
-      lastSurfacedId.current = id;
-      setOpen(true);
-      setUserPickedView(true);
-      setView("hunt");
-    } else if (!id) {
-      lastSurfacedId.current = null;
-    }
-  }, [activeSetup?.id]);
-
-  // Cell badge: green/red P&L when in a position (live broker or journal),
-  // amber HUNT when hunting, else dim.
-  let badge;
-  if (exec.position || activeTrade) {
-    const src = exec.position
-      ? { entry: exec.position.avgFill, stop: exec.position.sl, tp1: exec.position.tp, side: normalizeSide(exec.position.side) || "long" }
-      : activeTrade;
-    const badgePrice = (typeof exec.price === "number" && Number.isFinite(exec.price)) ? exec.price : lastBar?.close;
-    const pnl = liveGridFromTrade(src, badgePrice)?.pnl;
-    const cls = pnl?.tone === "red" ? "red" : "green";
-    badge = (<><span className={"pulse " + cls} /><span className={"pnl " + cls}>{pnl?.v ?? "—"}</span></>);
-  } else if (activeSetup) {
-    badge = (<><span className="pulse" /><span className="state amber">HUNT</span></>);
-  } else {
-    badge = (<span className="dot dim" />);
-  }
-
-  const loopRunning = health?.loop === "healthy";
-  const loopStale = health?.loop === "stale";
-  const detText = loopRunning ? "RUNNING" : loopStale ? "STALE" : "STOPPED";
-  const toggleDetector = async () => {
-    try { if (loopRunning) await window.api?.detector?.stop?.(); else await window.api?.detector?.start?.(); } catch { /* best-effort */ }
-  };
-
-  const pickView = (v) => {
-    setUserPickedView(true);
-    setView(v);
-  };
-
-  const lastPrice = lastBar?.close;
-  const ticketSetup = activeSetup;
-  const TABS = [["hunt", "HUNT"], ["ticket", "TICKET"], ["intrade", "IN-TRADE"]];
-
-  // Accept from HUNT → size in TICKET; fire in TICKET → real accept + order → IN-TRADE.
-  // One position at a time (scale-in removed 2026-06-23).
-  const onHuntAccept = () => { setUserPickedView(true); setView("ticket"); };
-  const onTicketFire = async (order) => {
-    setFireMsg(null);
-    try {
-      if (ticketSetup) {
-        const req = buildOrderRequest({
-          setup: ticketSetup, sizing: order.sizing, guards, account: accountType, symbol, type: order.type,
-        });
-        await accept({ ...ticketSetup, symbol });
-        const res = await executionAdapter.placeOrder(req);
-        // Surface a failed/blocked placement instead of silently advancing to
-        // IN-TRADE — otherwise a rejected order looks like a live trade.
-        if (!res?.ok) {
-          const why = res?.blocked ? (res.code || res.reason || "blocked by guardrails")
-            : (res?.error || res?.result?.body || "broker rejected the order");
-          setFireMsg(`ORDER NOT PLACED — ${why}`);
-          return;
-        }
-      }
-    } catch (e) {
-      setFireMsg(`ORDER NOT PLACED — ${String(e?.message || e)}`);
-      return;
-    }
-    setUserPickedView(true); setView("intrade");
-  };
-
-  let body;
-  if (backtest.running) {
-    body = <BacktestRunningPlaceholder session={backtest.session} />;
-  } else if (effectiveView === "intrade") {
-    body = (exec.position || activeTrade)
-      ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
-                     brief={brief} session={session} />
-      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no active position ]</div>;
-  } else if (effectiveView === "ticket") {
-    body = ticketSetup
-      ? <TicketView setup={ticketSetup} account={accountType} guards={guards} symbol={symbol}
-                    onFire={onTicketFire} onCancel={() => pickView("hunt")} />
-      : <div className="stub" style={{ padding: 20, color: "var(--label)" }}>[ no candidate to ticket ]</div>;
-  } else {
-    body = <EntryHuntView setup={activeSetup} lastBarPrice={lastPrice} chat={chat}
-                          noTrade={noTrade} noTradeReason={noTradeReason}
-                          onAccept={onHuntAccept} onReject={() => pickView("hunt")}
-                          openReaction={openReaction} brief={brief} session={session} symbol={symbol} />;
-  }
-
-  return (
-    <div className={"cell pop-cell" + (open ? " open" : "")} {...clickable((e) => { if (e.target.closest(".bt-popover")) return; setOpen((o) => !o); })}>
-      <span className="k">LIVE</span>
-      {badge}
-      {open && (
-        <div className={"bt-popover w-660" + float.popoverClass} style={float.popoverStyle} onClick={(e) => e.stopPropagation()}>
-          <div className="head live-head" onMouseDown={float.onDragStart}>
-            <span className="t">LIVE</span>
-            <span className="det">
-              <i className="dot" />
-              <span className="lbl">DETECTOR</span>
-              <span className={"run" + (loopRunning ? "" : loopStale ? " warn" : " off")}>{detText}</span>
-              <span className="stop" onClick={toggleDetector}>{loopRunning ? "STOP" : "START"}</span>
-            </span>
-            <span className="spacer" style={{ flex: 1 }} />
-            <div className="live-tabs">
-              {TABS.map(([v, l]) => (
-                <span key={v} className={"tab" + (effectiveView === v ? " on" : "")} onClick={() => pickView(v)}>{l}</span>
-              ))}
-            </div>
-            <span className={"float-btn" + (float.floating ? " on" : "")}
-                  title={float.floating ? "Dock window" : "Float — move & resize freely"}
-                  onClick={float.toggle}>⛶</span>
-            <span className="x" onClick={() => setOpen(false)}>×</span>
-          </div>
-          <div className="body">
-            {!exec.connected && !exec.loading && (
-              <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)",
-                            color: "var(--amber)", fontSize: 10.5, letterSpacing: ".14em" }}>
-                ⚠ PAPER TRADING NOT CONNECTED — connect it in TradingView to place orders
-              </div>
-            )}
-            {fireMsg && (
-              <div onClick={() => setFireMsg(null)} style={{ padding: "6px 16px", borderBottom: "1px solid var(--border)",
-                            background: "var(--surface-2)", color: "var(--red)", fontSize: 10.5, letterSpacing: ".14em", cursor: "pointer" }}>
-                ⚠ {fireMsg}
-              </div>
-            )}
-            {body}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Today's date (matches TopBar's guard-meter convention) for useFills.
 const LIVE_TODAY = () => new Date().toISOString().slice(0, 10);
 
@@ -752,7 +675,7 @@ function LiveFlatEmpty() {
 // detector strip; POSITIONS hosts the open-position card, session guards, and
 // today's fills. Rendered inside `.bt-popover.embedded` so every existing LIVE
 // style applies. Every order-flow handler is preserved verbatim.
-function LiveBody({ guards, symbol, seg, setSeg, setUserPicked }) {
+function LiveBody({ guards, symbol, seg, setSeg, setUserPicked, orderIntent }) {
   // seg (effectiveSeg) + setSeg/setUserPicked are owned by LivePage, which renders
   // the FEED | POSITIONS toggle inline in the page header.
   const [ticketing, setTicketing] = useState(false); // ticket sub-state under FEED
@@ -797,8 +720,11 @@ function LiveBody({ guards, symbol, seg, setSeg, setUserPicked }) {
     try {
       if (ticketSetup) {
         const req = buildOrderRequest({ setup: ticketSetup, sizing: order.sizing, guards, account: accountType, symbol, type: order.type });
-        await accept({ ...ticketSetup, symbol });
-        const res = await executionAdapter.placeOrder(req);
+        // C4: thread the journal accept's decision_id into the order so the
+        // order-intent chain and the journal trade share ONE exact join key
+        // (the manual path used to derive two divergent ids → INTENT hop lost).
+        const acc = await accept({ ...ticketSetup, symbol });
+        const res = await executionAdapter.placeOrder({ ...req, decision_id: acc?.trade?.decision_id ?? null });
         if (!res?.ok) {
           const why = res?.blocked ? (res.code || res.reason || "blocked by guardrails")
             : (res?.error || res?.result?.body || "broker rejected the order");
@@ -828,7 +754,7 @@ function LiveBody({ guards, symbol, seg, setSeg, setUserPicked }) {
         )}
         {(exec.position || activeTrade)
           ? <InTradeView position={exec.position} trade={activeTrade} lastBar={lastBar} price={exec.price} symbol={symbol} workingOrders={exec.workingOrders}
-                         brief={brief} session={session} />
+                         brief={brief} session={session} exec={exec} orderIntent={orderIntent} health={health} />
           : <LiveFlatEmpty />}
         <SessionGuardsCard fills={fills} guards={guards} />
         <TodaysFillsCard fills={fills} />
@@ -862,6 +788,4 @@ function LiveBody({ guards, symbol, seg, setSeg, setUserPicked }) {
   );
 }
 
-export { LiveCell, LiveBody, TicketView, InTradeView, EntryHuntView };
-// Legacy alias kept for any importer expecting LiveWorkstation.
-export { LiveCell as LiveWorkstation };
+export { LiveBody, TicketView, InTradeView, EntryHuntView };
