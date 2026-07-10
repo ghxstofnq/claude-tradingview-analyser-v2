@@ -4655,6 +4655,8 @@ button { border-radius: var(--r-sm); }
 .jr-head { display: flex; align-items: center; gap: 8px; }
 .jr-head .sp { flex: 1; }
 .jr-title { font-size: 9.5px; letter-spacing: 0.08em; color: var(--label-dim); }
+/* Claude-draft provenance badge — muted chrome, matches .jr-title register. */
+.jr-draft { font-size: 8.5px; letter-spacing: 0.08em; color: var(--label-dim); text-transform: uppercase; }
 .jr-sym { font-family: var(--mono); font-size: 11px; color: var(--value-strong); }
 .jr-r { font-family: var(--mono); font-size: 11px; }
 .jr-r.up { color: var(--green); }

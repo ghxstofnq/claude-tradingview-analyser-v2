@@ -137,8 +137,21 @@ Stop at **structural invalidation** — the point that, if reached, unwinds the 
 
 ### Implementation status
 
-Day-of-week sizing (the table above), the no-trim runner/trail with stop-to-BE on TP1,
-ultimate-target = HTF draw, and structural stops are **faithful**. The bot codes only
-the no-trim style (the trim variants are intentionally omitted), and applies a **hard
-1.5R floor** on TP1 (the high end of Lanto's 1–1.5R). Details + `file:line`:
-[`lanto-source-of-truth.md`](lanto-source-of-truth.md) §4.
+Day-of-week sizing (the table above), ultimate-target = HTF draw, and entry structural
+stops are **faithful**. **Runner management is a known divergence / open decision, not
+yet the no-trim trail.** Current production is **stop-to-BE at TP1 + a fixed TP2 for A+
+runners**; B banks 100% at TP1 (`cli/lib/trade-outcomes.js:17-22,107-124`;
+`app/main/execution/tranche-exec.js:57-99`). The tick engine
+(`trade-outcomes.js:126-159`) *contains* a no-trim structural-trail path, but it is
+**dormant** — it fires only when structural-trail context is supplied, and no production
+caller supplies it (`app/main/trade-ticker.js:117`, `cli/commands/trades.js:31` call
+`tickTrades(open, bar)` with no context); its producer `deriveRunnerStructure`
+(`cli/lib/runner-structure.js`) is imported only by `tests/runner-structure.test.js`. The
+runner **style is an open user checkpoint** (2026-07-10 ruling): re-derive Lanto's actual
+runner management from the transcripts, run a side-by-side fold, and keep current behavior
+on ambiguity — so this doc must not be read as "structural trailing is implemented or
+required". The bot codes only the no-trim family (the trim variants are intentionally
+omitted) and applies a **hard 1.5R floor** on TP1 (the high end of Lanto's 1–1.5R).
+Full trace:
+[`../audits/2026-07-10-strategy-gap-matrix.md`](../audits/2026-07-10-strategy-gap-matrix.md)
+(row 4.3) and [`lanto-source-of-truth.md`](lanto-source-of-truth.md) §4.

@@ -46,6 +46,9 @@ const PHASE_PATHS = {
   "wrap":      path.join(PROMPTS_DIR, "phase-wrap.md"),
   "chat":      path.join(PROMPTS_DIR, "phase-chat.md"),
   "review":    path.join(PROMPTS_DIR, "phase-review.md"),
+  // journal — post-close note draft (Track 2, ruled 2026-07-10). Pure prose,
+  // no tools; may attach the auto-journal screenshot (constraint #5 carve-out).
+  "journal":   path.join(PROMPTS_DIR, "phase-journal.md"),
 };
 
 // (Was `let _systemPrompt = null` for caching — removed when hot-reload
@@ -217,6 +220,11 @@ export const TOOLS_BY_PURPOSE = {
   wrap: ["surface_session_summary"],
   chat: [...ALERT_TOOLS],
   review: [],
+  // journal is a pure prose turn — it drafts a post-close note and authors no
+  // state. No surface_*, no alerts, no analyze captures. (Read/Glob built-ins
+  // are still added by buildAllowedToolNames, same as review; the turn never
+  // needs them because all data arrives in the prompt.)
+  journal: [],
 };
 
 export function buildAllowedToolNames(purpose) {
@@ -871,10 +879,14 @@ const EFFORT = "high";
  *   - `text`: the user-turn message.
  *   - `onEvent`: event callback (chunk / tool_call / turn_complete / error).
  *   - `timeoutMs`: optional override (default 300_000).
+ *   - `images`: optional array of `{ data, media_type }` (base64) attached as
+ *     image content blocks. Only honored on the Claude provider (switches that
+ *     turn to streaming-input mode); the Codex text path ignores them. Used by
+ *     the `journal` purpose for the post-close screenshot carve-out.
  */
-export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null }) {
+export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null, images = null }) {
   if (!purpose) {
-    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review)";
+    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review | journal)";
     onEvent?.({ type: "error", message: msg });
     onEvent?.({ type: "turn_complete" });
     throw new Error(msg);
@@ -907,7 +919,7 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
 
   try {
     if (queued) onEvent?.({ type: "queue_ready" });
-    await runOneTurn({ text, purpose, onEvent, timeoutMs, providerOverride });
+    await runOneTurn({ text, purpose, onEvent, timeoutMs, providerOverride, images });
   } finally {
     if (backtestContext) {
       clearBacktestSessionContext();
@@ -917,7 +929,37 @@ export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TUR
   }
 }
 
-async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, providerOverride = null }) {
+// Build the `prompt` argument for query(). Default: the plain string (print
+// mode — unchanged for every existing purpose). When images are attached AND
+// the provider is Claude, return a single-yield async iterable of one
+// SDKUserMessage carrying a text block plus one image block per attachment
+// (base64). The SDK's streamInput drains it and calls endInput(), so a
+// single-message iterable completes the turn identically to a string prompt.
+// Only image attachments with a base64 `data` string are included; malformed
+// entries are dropped so a bad screenshot never breaks the turn.
+// Exported so the trading-narration seam (images:null / non-Claude → the exact
+// string prompt) is test-pinned rather than inspection-guaranteed.
+export function buildTurnPromptInput({ text, images, provider }) {
+  const imageBlocks = Array.isArray(images)
+    ? images
+        .filter((img) => img && typeof img.data === "string" && img.data.length > 0)
+        .map((img) => ({
+          type: "image",
+          source: { type: "base64", media_type: img.media_type || "image/png", data: img.data },
+        }))
+    : [];
+  if (imageBlocks.length === 0 || provider?.name !== "claude") return text;
+  async function* single() {
+    yield {
+      type: "user",
+      parent_tool_use_id: null,
+      message: { role: "user", content: [{ type: "text", text }, ...imageBlocks] },
+    };
+  }
+  return single();
+}
+
+async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, providerOverride = null, images = null }) {
   const provider = resolveLlmProvider({ purpose, providerOverride });
   const toolCallsThisTurn = [];
   // Wrap onEvent so every "error" event picks up a classified `kind` +
@@ -1012,9 +1054,17 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, provi
   // races on.)
   setCurrentTurnPurpose(purpose);
 
+  // Image attachments (journal screenshot carve-out) switch this turn to the
+  // SDK's streaming-input mode: prompt becomes an async iterable yielding one
+  // user message whose content is [text, ...image blocks]. The SDK drains the
+  // single message, then endInput() closes stdin so the turn completes exactly
+  // like print mode. Guarded to the Claude provider + non-empty images; every
+  // other purpose keeps the byte-identical string-prompt path. See
+  // buildTurnPromptInput.
+  const promptInput = buildTurnPromptInput({ text, images, provider });
   let q;
   try {
-    q = query({ prompt: text, options: opts });
+    q = query({ prompt: promptInput, options: opts });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[sdk] query() threw", err);

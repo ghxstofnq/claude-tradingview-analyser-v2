@@ -192,8 +192,15 @@ gap is unambiguous, where 1m often shows several competing gaps.
 ### Implementation status
 
 The three models, best-gap ranking (took-liquidity + displacement), 1m confirmation, the
-15-minute fight-timeout, and model-specific structural stops are **faithful**. The bot
-**diverges** on: MSS significance (it spawns on any rejected sweep, with no
-significant-liquidity / reversal-speed gate — §2/§3), the multi-alignment entry (absent),
-and the 5m gap preference (entries hunt on 1m). Details + `file:line`:
-[`lanto-source-of-truth.md`](lanto-source-of-truth.md) §3.
+15-minute fight-timeout, and model-specific structural stops are **faithful**. As of
+2026-07-10, **MSS significance / reversal-speed** (§2/§3) is implemented — the anchoring
+sweep must take a named session/PD level and the reversal leg must displace ≥ 1 ATR
+(`app/main/strategy/walkers/mss-lifecycle.js:42-69`, default-on `GOFNQ_MSS_SPEED_MATCH`;
+`tests/mss-lifecycle.test.js`) — and the **multi-alignment (two-and-one) A+ entry** is
+implemented as a Trend-lifecycle variant plus a grade elevator
+(`trend-lifecycle.js:213-296`; `execution-packet.js:588-658`;
+`tests/fresh-oracle-02-09-multi-align.test.js`). The one remaining entry-model gap is the
+**5m gap preference** (base models still hunt on 1m; 5m arrays are used only inside the
+multi-alignment elevator) — plan E3a, default-off pending a certified fold. Full trace:
+[`../audits/2026-07-10-strategy-gap-matrix.md`](../audits/2026-07-10-strategy-gap-matrix.md)
+(Pillar 3) and [`lanto-source-of-truth.md`](lanto-source-of-truth.md) §3.

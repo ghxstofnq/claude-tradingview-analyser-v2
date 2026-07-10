@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { _loadSystemPromptForTests as loadSystemPrompt } from "../app/main/sdk.js";
 import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 
-const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close"];
+const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close", "journal"];
 
 test("kernel content present in every purpose", async () => {
   for (const purpose of PURPOSES) {
@@ -29,6 +29,8 @@ test("per-purpose content present", async () => {
     ["review", /REVIEW TURN PROTOCOL/i],
     ["review", /PERSISTENT MEMORY GUIDANCE/i],
     ["wrap", /PERSISTENT MEMORY GUIDANCE/i],
+    ["journal", /JOURNAL NOTE PROTOCOL/i],
+    ["journal", /post-close journaling only/i],
   ];
   for (const [purpose, pattern] of cases) {
     const prompt = joinSystemPrompt(await loadSystemPrompt(purpose));
@@ -51,6 +53,14 @@ test("review does NOT contain analysis content", async () => {
   assert.doesNotMatch(review, /publish the PREP-panel SESSION BRIEF/, "review should not have brief phase body");
   assert.doesNotMatch(review, /<examples>/, "review should not have entry-model examples");
   assert.doesNotMatch(review, /<bundle_fields>/, "review should not have bundle_fields");
+});
+
+test("journal does NOT contain analysis content", async () => {
+  const journal = joinSystemPrompt(await loadSystemPrompt("journal"));
+  assert.doesNotMatch(journal, /You are in entry hunt\. The deterministic walker chain/, "journal should not have entry_hunt phase body");
+  assert.doesNotMatch(journal, /publish the PREP-panel SESSION BRIEF/, "journal should not have brief phase body");
+  assert.doesNotMatch(journal, /<examples>/, "journal should not have entry-model examples");
+  assert.doesNotMatch(journal, /<bundle_fields>/, "journal should not have bundle_fields");
 });
 
 test("wrap does NOT contain entry-hunt or brief content", async () => {

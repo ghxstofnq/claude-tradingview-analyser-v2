@@ -102,10 +102,15 @@ mass-displacement count and no coupling to overnight strength.
 > ES showcased that sell, that told me price most likely were to drive lower — so I
 > flipped on ES and looked to ride NQ." (BIAS 36:32–37:28; also 32:21 ES-vs-NQ at entry)
 
-**Verdict: MISSING.** Leader is chosen by single-symbol displacement **magnitude**
-(`cli/lib/compute-leader.js:82-83`); the chosen symbol is then traded in isolation
-(`app/main/live-open-reaction-finalizer.js:93`) — ES/NQ disagreement never sets bias.
-Real SMT exists only on an unmerged branch.
+**Verdict: PARTIAL** *(updated 2026-07-10 — was MISSING).* Relative-strength SMT leader
+logic now exists in production: `cli/lib/smt-leader.js` (`computeSmtLeader`, opposite-sign
+divergence) + `cli/lib/smt-leader-evidence.js`, wired into the analyze bundle
+(`cli/commands/analyze.js:890`) and LLM narration (`app/main/sdk.js:711`); tests
+`tests/smt-leader.test.js`, `tests/smt-leader-evidence.test.js`. It does **not** yet select
+the live traded symbol — that stays `PAIR_PRIMARY` from config, with no `smt-leader` import
+under `app/main/strategy/**` or `bar-close.js` — and it is **uncertified** (no
+leader-only-vs-both-symbols fold; plan F1). So ES/NQ disagreement informs the brief, not
+the deterministic trade path.
 
 ### 1.7 Sessions & timing
 > Asia 18:00–03:00 ET · London 03:00–09:30 ET · New York 09:30–16:00 ET. (BIAS 12:11)
@@ -171,9 +176,12 @@ internal swing (`pine/ict-engine.pine:393-398`).
 > shows complete reversal at a speed that engulfs / matches the down-move. I never play
 > an MSS off a 1m equal-low." (BIAS 28:47–31:34)
 
-**Verdict: MISSING.** MSS spawns on **any** rejected sweep + a post-sweep failure-swing
-(`mss-lifecycle.js:38-61,121-160`); no significance gate on the grab, no
-down-move-vs-reversal speed compare beyond the binary clean/acceptable flag.
+**Verdict: MATCH** *(updated 2026-07-10 — was MISSING).* The grab is now gated to a
+**significant named level** (`mss-lifecycle.js:42-52` `SIGNIFICANT_SWEEP_TARGETS`, applied
+at `:78`) and the reversal break must be **swing-tier + displaced ≥ 1 ATR**
+(`:61-69` `isSignificantDisplacedShift`, default-on `GOFNQ_MSS_SPEED_MATCH`); both gates
+fail-open on field-less legacy contexts. Tests: `tests/mss-lifecycle.test.js` (significant
+grab spawns; insignificant grab, non-displaced break, and internal-tier shift do not).
 
 ### 3.4 Confirmation = 1m candle close
 > "Confirmation is one-minute confirmation on every gap… a strong, deliberate candle
@@ -193,7 +201,13 @@ discipline: only the Trend wick-tap path enforces body ≥ 0.6
 > — two imbalances making one move. That's why today's trade was A+." (ENTRY
 > 25:13–27:05)
 
-**Verdict: MISSING.** No code joins a 5m FVG + 1m iFVG into one stronger entry.
+**Verdict: MATCH** *(updated 2026-07-10 — was MISSING).* A 5m FVG rebalance is paired with
+a 1m iFVG go-invert as one stronger entry: `trend-lifecycle.js:213-296`
+(`findTappedFiveMinuteRebalance` + `findHistoricalIfvgAlignment` + `findEntryIfvgAnchor`,
+evidence `multiAlignmentTrendEntry` at `:367`), and it elevates a 2/3 B day to A+ only when
+the day is not divergent (`execution-packet.js:588-658`, default-on
+`GOFNQ_D5_ELEVATION_RESPECTS_CAP`). Tests: `tests/fresh-oracle-02-09-multi-align.test.js`,
+`tests/grading-levers.test.js` (C5), `tests/derive-grade-nested.test.js`.
 
 ### 3.6 1m vs 5m preference
 > "If I had to pick, the 5-minute — less noise; a clear 5m gap isn't even debatable."
@@ -233,10 +247,17 @@ B=0.5R.
 > trim at TP1, size to the R. **Me: no trim — I play with the trail, hold through
 > targets, exit on a structure change.**" (RISK 02:50–14:55)
 
-**Verdict: MATCH (his personal style).** Bot codes only the no-trim ride: A+ runs to
-TP2, B banks 100% at TP1, stop→BE on TP1 (`cli/lib/trade-outcomes.js:17-22,94-128`).
-The trim variants are not coded (intentional — they're the prop-firm styles, not his
-cash-account style).
+**Verdict: PARTIAL / open decision** *(corrected 2026-07-10 — was "MATCH his personal
+style").* Production is **stop-to-BE at TP1 + a fixed TP2 for A+**; B banks 100% at TP1
+(`cli/lib/trade-outcomes.js:17-22,107-124`; `app/main/execution/tranche-exec.js:57-99`). It
+is **not** Lanto's no-trim *structural trail*: the tick engine
+(`trade-outcomes.js:126-159`) has a `CLOSED_STRUCTURE` / `STOP_TRAILED` trail path but it
+is **dormant** (fires only on supplied `ctx.structureBreakAgainst` / `ctx.protectiveLevel`,
+which no production caller passes — `trade-ticker.js:117`, `trades.js:31`); its producer
+`deriveRunnerStructure` (`cli/lib/runner-structure.js`) is imported only by
+`tests/runner-structure.test.js`. Runner style is an **open user checkpoint** (2026-07-10):
+derive from transcripts, side-by-side fold, keep current on ambiguity. The trim variants
+are not coded (intentional — prop-firm styles, not his cash-account style).
 
 ### 4.4 Stops
 > "Stop at the invalidation point slightly under the FVG, or through the relative low."
@@ -264,20 +285,33 @@ None trace to a transcript; some push **away** from pure Lanto.
 
 ## 6. Divergences ranked (candidate levers)
 
-1. **Grade model** — no-HTF-draw = no-trade vs Lanto's tradable 2/3 B; overnight inert.
-2. **SMT / leading asset (ES↔NQ)** — absent on `main`.
-3. **MSS significance gate** — any rejected sweep qualifies.
-4. **Near-price draw selection** — distance computed, never ranked.
-5. **Gap-size → draw/target magnetism** — ranks but doesn't gate target validity.
-6. **Hard consolidation stand-aside** — soft-cap only.
-7. **Multi-alignment 5m+1m entry** — net-new model.
-8. **Anti-bias-flip discipline** — single MSS flips the day.
-9. **Re-examine the bot-specific overlays (§5)** — some contradict Lanto.
+*Updated 2026-07-10 — items 2, 3, 7 are now implemented (see the sections above and
+[`../audits/2026-07-10-strategy-gap-matrix.md`](../audits/2026-07-10-strategy-gap-matrix.md)).
+Remaining open divergences / candidate levers:*
 
-**Strong fidelity (no action):** three models + mechanics, 1m confirmation + chop guard
-+ 15-min fight-timeout, took_liq + displacement ranking, model-specific structural
-stops, side-vs-bias gate, sizing table, runner/trail + stop-to-BE, ultimate = HTF draw,
-open-reaction window timing, ny-pm reads NYAM levels.
+1. **Grade model** — no-HTF-draw = no-trade vs Lanto's tradable 2/3 B; overnight still
+   inert (a nested 3-vote count runs when supplied, but the pillar-status gate blocks a
+   no-draw 2/3 day).
+2. ~~**SMT / leading asset (ES↔NQ)**~~ — **DONE** in production evidence (analyze/brief);
+   not yet on the trade path, **uncertified** (plan F1).
+3. ~~**MSS significance gate**~~ — **DONE** (named-level grab + ≥1-ATR reversal, §3.3).
+4. **Near-price draw selection** — distance computed, never ranks the primary draw.
+5. **Gap-size → draw/target magnetism** — ranks but doesn't gate target validity.
+6. **Hard consolidation stand-aside** — implemented as the `pillar2-verdict` `poor` gate
+   (§2.3); the residual gap is gap-size gating target validity.
+7. ~~**Multi-alignment 5m+1m entry**~~ — **DONE** (Trend variant + A+ elevator, §3.5).
+8. **Anti-bias-flip discipline** — a single swing-tier MSS still flips the day.
+9. **5m gap preference** — base models hunt on 1m (plan E3a; the one remaining
+   entry-model gap).
+10. **Runner style** — production is stop-to-BE + fixed TP2, not the no-trim structural
+    trail; open user decision (§4.3).
+11. **Re-examine the bot-specific overlays (§5)** — some contradict Lanto.
+
+**Strong fidelity (no action):** three models + mechanics, MSS significance + reversal-speed
+gate, multi-alignment two-and-one entry, 1m confirmation + chop guard + 15-min
+fight-timeout, took_liq + displacement ranking, model-specific structural entry stops,
+side-vs-bias gate, sizing table, stop-to-BE at TP1 + fixed TP2 (runner style pending —
+§4.3), ultimate = HTF draw, open-reaction window timing, ny-pm reads NYAM levels.
 
 ---
 

@@ -47,6 +47,9 @@ const EXPECTED_SECTIONS = {
     "## REVIEW TURN PROTOCOL",
     "## PERSISTENT MEMORY GUIDANCE",
   ],
+  journal: [
+    "## JOURNAL NOTE PROTOCOL",
+  ],
 };
 
 for (const [purpose, sections] of Object.entries(EXPECTED_SECTIONS)) {
@@ -80,4 +83,11 @@ test("composed prompt for wrap does NOT contain analysis-only sections", async (
   const prompt = joinSystemPrompt(await loadSystemPrompt("wrap"));
   assert.ok(!prompt.includes("<bundle_fields>"), "wrap must not carry bundle_fields");
   assert.ok(!prompt.includes("<examples>"), "wrap must not carry examples");
+});
+
+test("composed prompt for journal does NOT contain analysis-only sections", async () => {
+  const prompt = joinSystemPrompt(await loadSystemPrompt("journal"));
+  assert.ok(!prompt.includes("<bundle_fields>"), "journal must not carry bundle_fields");
+  assert.ok(!prompt.includes("<examples>"), "journal must not carry examples");
+  assert.ok(!prompt.includes("<anti_patterns>\n"), "journal must not carry anti_patterns");
 });
