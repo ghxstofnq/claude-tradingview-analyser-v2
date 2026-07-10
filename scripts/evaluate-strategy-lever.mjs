@@ -3,14 +3,15 @@
  * evaluate-strategy-lever.mjs — standardized, reusable full-corpus evaluation of
  * ONE strategy lever (Task E2 of docs/plans/2026-07-09-app-and-bot-improvement-plan.md).
  *
- * It folds the certified corpus twice for each symbol — baseline (the lever's
- * env flag(s) UNSET, i.e. code default) and treatment (the flag(s) SET) — using
- * the EXISTING fold machinery (app/main/backtest-baseline.js `foldSymbol`), never
- * a reimplementation. It then emits state/backtest/tests/<lever-id>.json with the
- * per-symbol R delta, EVERY moved date/session (packet/model/side/entry/stop/
- * target/grade changes and no-trade<->trade flips, each defaulting to
- * needs_review), and the STRICT MECHANICAL FIDELITY GATE the user ruled on
- * 2026-07-10 (docs/intent/2026-07-10-unified-goal.md §Full pre-approval item 2):
+ * It folds the certified corpus twice for each symbol — baseline (ALL levers
+ * scrubbed to code default) and treatment (the tested flag(s) applied on top of
+ * scrubbed defaults) — using the EXISTING fold machinery
+ * (app/main/backtest-baseline.js `foldSymbol`), never a reimplementation. It then
+ * emits state/backtest/tests/<lever-id>.json with the per-symbol R delta, EVERY
+ * moved date/session (packet/model/side/entry/stop/target/grade changes and
+ * no-trade<->trade flips, each defaulting to needs_review), and the STRICT
+ * MECHANICAL FIDELITY GATE the user ruled on 2026-07-10
+ * (docs/intent/2026-07-10-unified-goal.md §Full pre-approval item 2):
  *
  *   A lever auto-enables ONLY if all three hold:
  *     (a) the full certified-corpus fold is non-negative on BOTH symbols;
@@ -18,11 +19,16 @@
  *     (c) no moved session contradicts a transcript citation.
  *   A lever failing any prong stays default-off with its report filed.
  *
- * FAIL-CLOSED: `corpus_certified` is stamped from cli/lib/corpus-certification.js.
- * The corpus is currently uncertified (rev-2 re-record pending), so this script
- * runs against whatever corpus exists and stamps `corpus_certified:false`; that
- * alone forces `auto_enable_eligible:false` so no lever can auto-enable off an
- * uncertified corpus.
+ * FAIL-CLOSED, and the gate never lies about its own prongs:
+ *   - `corpus_certified` is stamped from cli/lib/corpus-certification.js; the
+ *     current uncertified corpus forces `auto_enable_eligible:false`.
+ *   - A crashed / zero-session fold on EITHER symbol fails the fold prong AND
+ *     blocks the vacuous transcript branch (a fold that produced nothing can
+ *     never be "non-negative" or "moved nothing").
+ *   - `fold_non_negative_both_symbols` requires the full required symbol set
+ *     (MNQ1!+MES1!) to be present — a single-symbol run cannot pass it.
+ *   - `oracle_tapes_intact` requires at least one VERIFIED tape to have run;
+ *     an empty verified-tape set is not "intact".
  *
  * The heavy fold/certify/tape machinery is loaded via dynamic import INSIDE
  * `main()` so the pure report builders below stay import-light and unit-testable
@@ -38,12 +44,25 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_SYMBOLS = ["MNQ1!", "MES1!"];
+export const LEVER_ID_RE = /^[a-z0-9._-]+$/i;
+const LEVER_ENV_RE = /^(GOFNQ|TV)_/;
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+export function isValidLeverId(id) {
+  return typeof id === "string" && LEVER_ID_RE.test(id);
+}
+
+// True when an existing report carries any hand-recorded (non-default) decision,
+// so an overwrite would clobber human review. Used to protect approvals.
+export function hasRecordedDecisions(report) {
+  if (!report?.symbols) return false;
+  return Object.values(report.symbols).some((s) =>
+    (s?.moved_sessions ?? []).some((m) => m?.decision && m.decision !== "needs_review"));
+}
+
 // ── Pure report builders (unit-tested; zero heavy imports) ───────────────────
 
-// One surfaced "open" setup row -> the fields a reviewer compares.
 function summarizeSetup(open = {}, realizedR = null) {
   return {
     id: open.id ?? null,
@@ -133,34 +152,64 @@ export function movedSessions(baselineFold = {}, treatmentFold = {}) {
   return moved;
 }
 
-// The strict mechanical fidelity gate (unified-goal §Full pre-approval item 2),
-// with the corpus-certified fail-closed precondition (E2 spec item 1). Pure.
-//   transcript_contradiction: null = unreviewed, false = reviewed & clear,
-//   true = a moved session contradicts a transcript. Prong (c) passes only when
-//   nothing moved (vacuous) or review explicitly cleared it (=== false).
+/**
+ * The strict mechanical fidelity gate (unified-goal §Full pre-approval item 2),
+ * with the corpus-certified fail-closed precondition (E2 spec item 1). Pure and
+ * fail-closed on every prong:
+ *   - fold prong requires the full required symbol set present AND each required
+ *     symbol non-negative-AND-healthy (foldNonNegativeBySymbol already folds
+ *     fold health in — a crashed/zero-session symbol is false);
+ *   - transcript prong: null=unreviewed, false=reviewed & clear, true=contradiction.
+ *     The vacuous "nothing moved" branch is allowed ONLY when every required
+ *     symbol folded ≥1 session (allSymbolsHealthy) — a crashed/empty fold that
+ *     "moved nothing" cannot vacuously clear it;
+ *   - oracle prong requires oracleTapesIntact AND at least one verified tape ran.
+ */
 export function computeFidelityGate({
   corpusCertified,
+  requiredSymbols = DEFAULT_SYMBOLS,
+  presentSymbols = [],
   foldNonNegativeBySymbol = {},
+  allSymbolsHealthy = false,
   oracleTapesIntact,
+  oracleTapesRun = 0,
   transcriptContradiction = null,
   movedSessionCount = 0,
 } = {}) {
-  const perSymbol = { ...foldNonNegativeBySymbol };
+  const blockers = [];
+
+  const missing = requiredSymbols.filter((s) => !presentSymbols.includes(s));
+  if (missing.length) blockers.push(`missing required symbol(s): ${missing.join(", ")}`);
   const foldNonNegativeBoth =
-    Object.values(perSymbol).length > 0 && Object.values(perSymbol).every((v) => v === true);
-  const transcriptClear =
-    movedSessionCount === 0 ? true : transcriptContradiction === false;
+    missing.length === 0 && requiredSymbols.every((s) => foldNonNegativeBySymbol[s] === true);
+  if (missing.length === 0 && !foldNonNegativeBoth) {
+    blockers.push("fold negative, crashed, or zero-session on a required symbol");
+  }
+
+  const oracleOk = oracleTapesIntact === true && oracleTapesRun > 0;
+  if (!oracleOk) blockers.push(oracleTapesRun > 0 ? "oracle tapes failed" : "no verified oracle tapes ran");
+
+  const canBeVacuous = movedSessionCount === 0 && allSymbolsHealthy === true;
+  const transcriptClear = canBeVacuous ? true : transcriptContradiction === false;
+  if (!transcriptClear) {
+    blockers.push(movedSessionCount === 0
+      ? "cannot vacuously clear transcript on an unhealthy/empty fold"
+      : "moved sessions not cleared against transcript citations");
+  }
+
+  if (corpusCertified !== true) blockers.push("corpus not certified");
+
   const autoEnableEligible =
-    corpusCertified === true &&
-    foldNonNegativeBoth === true &&
-    oracleTapesIntact === true &&
-    transcriptClear === true;
+    corpusCertified === true && foldNonNegativeBoth && oracleOk && transcriptClear;
+
   return {
-    fold_non_negative_by_symbol: perSymbol,
+    fold_non_negative_by_symbol: { ...foldNonNegativeBySymbol },
     fold_non_negative_both_symbols: foldNonNegativeBoth,
-    oracle_tapes_intact: oracleTapesIntact === true,
+    oracle_tapes_intact: oracleOk,
+    oracle_tapes_run: oracleTapesRun,
     transcript_contradiction: transcriptContradiction ?? null,
     auto_enable_eligible: autoEnableEligible,
+    blockers,
   };
 }
 
@@ -177,7 +226,7 @@ export function overallStatus(perSymbolMoved = {}) {
 export function effectiveLeverSet(envFlags = {}, baseEnv = {}) {
   const out = {};
   for (const [k, v] of Object.entries(baseEnv)) {
-    if (/^(GOFNQ|TV)_/.test(k)) out[k] = v;
+    if (LEVER_ENV_RE.test(k)) out[k] = v;
   }
   for (const [k, v] of Object.entries(envFlags)) out[k] = v;
   return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
@@ -196,38 +245,61 @@ export function buildLeverReport({
   treatmentSha = null,
   corpusCertified,
   oracleTapesIntact,
+  oracleTapesRun = 0,
   transcriptContradiction = null,
   folds = {},
+  requiredSymbols = DEFAULT_SYMBOLS,
+  ambientLevers = null,
   now = null,
 } = {}) {
   if (!leverId) throw new Error("buildLeverReport: leverId is required");
+  if (!isValidLeverId(leverId)) {
+    throw new Error(`buildLeverReport: invalid leverId "${leverId}" (allowed: ${LEVER_ID_RE})`);
+  }
 
   const symbols = {};
   const perSymbolMoved = {};
   const foldNonNegativeBySymbol = {};
-  for (const [symbol, pair] of Object.entries(folds)) {
+  // Sort symbol iteration so report key order is input-order-independent.
+  for (const symbol of Object.keys(folds).sort()) {
+    const pair = folds[symbol] ?? {};
     const baseline = pair?.baseline ?? {};
     const treatment = pair?.treatment ?? {};
+    const foldError = treatment._fold_error ?? baseline._fold_error ?? null;
+    const sessionsFolded = (treatment.per_day ?? []).length;
+    const baselineSessions = (baseline.per_day ?? []).length;
+    // A symbol is only trustworthy when BOTH folds ran and produced sessions.
+    const healthy = !foldError && sessionsFolded > 0 && baselineSessions > 0;
     const baselineTotal = round2(baseline.total_r ?? 0);
     const treatmentTotal = round2(treatment.total_r ?? 0);
-    const moved = movedSessions(baseline, treatment);
+    const moved = healthy ? movedSessions(baseline, treatment) : [];
     perSymbolMoved[symbol] = moved;
-    foldNonNegativeBySymbol[symbol] = treatmentTotal >= 0;
+    foldNonNegativeBySymbol[symbol] = healthy && treatmentTotal >= 0;
     symbols[symbol] = {
       baseline_total_r: baselineTotal,
       treatment_total_r: treatmentTotal,
       delta: round2(treatmentTotal - baselineTotal),
-      fold_non_negative: treatmentTotal >= 0,
-      sessions_folded: (treatment.per_day ?? []).length,
+      sessions_folded: sessionsFolded,
+      baseline_sessions_folded: baselineSessions,
+      fold_error: foldError,
+      healthy,
+      fold_non_negative: foldNonNegativeBySymbol[symbol],
       moved_sessions: moved,
     };
   }
 
+  const presentSymbols = Object.keys(folds);
+  const allSymbolsHealthy =
+    requiredSymbols.length > 0 && requiredSymbols.every((s) => symbols[s]?.healthy === true);
   const movedSessionCount = Object.values(perSymbolMoved).reduce((s, m) => s + m.length, 0);
   const fidelity_gate = computeFidelityGate({
     corpusCertified,
+    requiredSymbols,
+    presentSymbols,
     foldNonNegativeBySymbol,
+    allSymbolsHealthy,
     oracleTapesIntact,
+    oracleTapesRun,
     transcriptContradiction,
     movedSessionCount,
   });
@@ -244,17 +316,19 @@ export function buildLeverReport({
     baseline: { manifest_id: baselineManifestId, code_sha: baselineSha },
     treatment: { code_sha: treatmentSha },
     corpus_certified: corpusCertified === true,
+    required_symbols: [...requiredSymbols],
     symbols,
     moved_session_count: movedSessionCount,
     fidelity_gate,
     status: overallStatus(perSymbolMoved),
+    warnings: { ambient_levers: ambientLevers ?? {} },
   };
 }
 
 // ── Runnable driver (dynamic-imports the heavy fold machinery) ───────────────
 
 function parseArgs(argv) {
-  const out = { lever: null, env: {}, symbols: DEFAULT_SYMBOLS, stateDir: null, transcriptContradiction: null };
+  const out = { lever: null, env: {}, symbols: DEFAULT_SYMBOLS, stateDir: null, transcriptContradiction: null, force: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--lever") out.lever = argv[++i];
@@ -263,6 +337,7 @@ function parseArgs(argv) {
       out.env[k] = rest.join("=");
     } else if (a === "--symbols") out.symbols = String(argv[++i]).split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--state-dir") out.stateDir = argv[++i];
+    else if (a === "--force") out.force = true;
     else if (a === "--transcript-contradiction") {
       const v = String(argv[++i]).toLowerCase();
       out.transcriptContradiction = v === "true" ? true : v === "false" ? false : null;
@@ -271,18 +346,19 @@ function parseArgs(argv) {
   return out;
 }
 
+// Fold `symbol` with a reproducible env: ALL GOFNQ_*/TV_* vars scrubbed to code
+// default, then (treatment only) the tested flags applied on top. Restores the
+// process env afterward. A crash becomes an explicit `_fold_error` marker so the
+// gate can fail closed instead of reading a swallowed 0R as "non-negative".
 async function foldWithEnv({ foldSymbol, symbol, stateDir, envFlags, on }) {
-  const keys = Object.keys(envFlags);
-  const saved = keys.map((k) => [k, process.env[k]]);
-  for (const k of keys) {
-    if (on) process.env[k] = envFlags[k];
-    else delete process.env[k];
-  }
+  const keys = new Set(Object.keys(envFlags));
+  for (const k of Object.keys(process.env)) if (LEVER_ENV_RE.test(k)) keys.add(k);
+  const saved = [...keys].map((k) => [k, process.env[k]]);
+  for (const k of keys) delete process.env[k]; // scrub ALL levers to code default
+  if (on) for (const [k, v] of Object.entries(envFlags)) process.env[k] = v; // apply only tested flags
   try {
     return await foldSymbol({ symbol, stateDir });
   } catch (err) {
-    // No corpus on disk / unfoldable symbol -> empty fold (corpus_certified will
-    // be false regardless, so this stays fail-closed).
     return { symbol, total_r: 0, per_day: [], run_details: [], code_sha: null, _fold_error: String(err?.message ?? err) };
   } finally {
     for (const [k, v] of saved) {
@@ -295,15 +371,31 @@ async function foldWithEnv({ foldSymbol, symbol, stateDir, envFlags, on }) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.lever) {
-    console.error("usage: node scripts/evaluate-strategy-lever.mjs --lever <id> --env KEY=VAL [--env ...] [--symbols MNQ1!,MES1!] [--state-dir <path>] [--transcript-contradiction true|false]");
+    console.error("usage: node scripts/evaluate-strategy-lever.mjs --lever <id> --env KEY=VAL [--env ...] [--symbols MNQ1!,MES1!] [--state-dir <path>] [--transcript-contradiction true|false] [--force]");
+    process.exit(2);
+  }
+  if (!isValidLeverId(args.lever)) {
+    console.error(`invalid --lever "${args.lever}" (allowed: ${LEVER_ID_RE})`);
     process.exit(2);
   }
   const stateDir = args.stateDir || process.env.GOFNQ_STATE_DIR || path.join(REPO_ROOT, "state");
 
-  const { foldSymbol, writeTest } = await import("../app/main/backtest-baseline.js");
+  // Ambient levers present at launch are recorded (they are scrubbed for the fold
+  // so the measurement is reproducible; the operator is warned they were set).
+  const ambientLevers = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => LEVER_ENV_RE.test(k)).sort(([a], [b]) => a.localeCompare(b)));
+
+  const { foldSymbol, writeTest, readTest } = await import("../app/main/backtest-baseline.js");
   const { certifyCorpus, DEFAULT_MANIFEST } = await import("../cli/lib/corpus-certification.js");
   const { runTapesFromDir } = await import("../cli/lib/day-tape.js");
   const { __test } = await import("../app/main/bar-close.js");
+
+  // Overwrite protection: never clobber a report carrying hand-recorded decisions.
+  const existing = readTest({ stateDir, id: args.lever });
+  if (existing && hasRecordedDecisions(existing) && !args.force) {
+    console.error(`refusing to overwrite ${args.lever}.json — it carries recorded decisions (approved/rejected). Re-run with --force to replace.`);
+    process.exit(3);
+  }
 
   const folds = {};
   let treatmentSha = null;
@@ -325,24 +417,28 @@ async function main() {
   } catch { /* uncertified -> fail-closed */ }
 
   let oracleTapesIntact = false;
+  let oracleTapesRun = 0;
   try {
     const run = await runTapesFromDir(path.join(REPO_ROOT, "tests", "tapes"), {
       truthFn: __test.buildDeterministicPacketTruthFromInputs,
     });
     oracleTapesIntact = run.ok === true;
+    oracleTapesRun = (run.tapes ?? []).length; // VERIFIED tapes actually run (unverified are skipped)
   } catch { /* tapes broken -> fail-closed */ }
 
   const report = buildLeverReport({
     leverId: args.lever,
     envFlags: args.env,
-    effectiveLevers: effectiveLeverSet(args.env, process.env),
     baselineManifestId: manifestId,
     baselineSha,
     treatmentSha,
     corpusCertified,
     oracleTapesIntact,
+    oracleTapesRun,
     transcriptContradiction: args.transcriptContradiction,
     folds,
+    requiredSymbols: DEFAULT_SYMBOLS, // fidelity standard: both symbols, regardless of --symbols
+    ambientLevers,
   });
 
   writeTest({ stateDir, test: report });
@@ -353,7 +449,8 @@ async function main() {
     moved_session_count: report.moved_session_count,
     fidelity_gate: report.fidelity_gate,
     status: report.status,
-    symbols: Object.fromEntries(Object.entries(report.symbols).map(([s, v]) => [s, { delta: v.delta, treatment_total_r: v.treatment_total_r, moved: v.moved_sessions.length }])),
+    warnings: report.warnings,
+    symbols: Object.fromEntries(Object.entries(report.symbols).map(([s, v]) => [s, { delta: v.delta, treatment_total_r: v.treatment_total_r, sessions_folded: v.sessions_folded, fold_error: v.fold_error, moved: v.moved_sessions.length }])),
     written: outPath,
   }, null, 2));
   process.exit(report.fidelity_gate.auto_enable_eligible ? 0 : 1);

@@ -25,13 +25,18 @@ measures and documents only.
 
 ## Summary counts
 
-| Verdict | Count |
-|---|---|
-| MATCH | 9 |
-| PARTIAL | 8 |
-| MISSING | 3 |
-| INTENTIONAL DIVERGENCE | 5 |
-| **Total rules** | **25** |
+Counted as one **primary** verdict per row (the first verdict listed on a
+dual-labelled row — e.g. 3.4 "MATCH (body PARTIAL)" counts MATCH; 4.2
+"PARTIAL / INTENTIONAL DIVERGENCE" counts PARTIAL). Reconciles exactly with the
+rows below.
+
+| Verdict | Count | Rows |
+|---|---|---|
+| MATCH | 11 | 1.2, 2.1, 2.3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.7, 4.1, 4.4 |
+| PARTIAL | 7 | 1.1, 1.3, 1.4, 1.6, 1.7, 2.2, 4.2 |
+| MISSING | 2 | 1.5, 3.6 |
+| INTENTIONAL DIVERGENCE | 5 | 4.3, + the 4 overlays (exhaustion cap, 15:32 cutoff, 11:40 cutoff, PM carry-only) |
+| **Total rules** | **25** | |
 
 Changes since the `bf85f6f` audit (the reason E1 exists):
 
