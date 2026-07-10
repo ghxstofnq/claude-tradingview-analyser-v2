@@ -14,6 +14,7 @@ const mod = await import("../app/main/coach-assist.js");
 const {
   buildCoachContext, buildCoachFile, coachFilePath, readCoachRaw,
   createInFlightGate, generateCoach, COACH_DEFAULT_SESSIONS,
+  parseStoredDigestHash, computeCurrentDigestHash,
 } = mod;
 
 // A turn stub that streams `chunks` (array of strings), then optionally an
@@ -180,6 +181,73 @@ describe("generateCoach — in-flight guard", () => {
     assert.equal(res.inFlight, true);
     assert.equal(turn.calls.length, 0); // never fired a second turn
     assert.equal(gate.busy(), true);    // the original holder still owns the lock
+  });
+
+  test("the session fold runs INSIDE the gate — a busy gate never double-folds disk", async () => {
+    const gate = createInFlightGate();
+    gate.tryAcquire(); // a turn is already running
+    let folds = 0;
+    const loadJournals = async () => { folds += 1; return []; };
+    const turn = makeTurn({ chunks: ["## COACH\n\nx"] });
+    // Pass loadJournals (not pre-folded journals) so the fold is the gate's job.
+    const res = await generateCoach(baseDeps({ gate, turn, journals: null, loadJournals }));
+    assert.equal(res.inFlight, true);
+    assert.equal(folds, 0);            // rejected BEFORE folding — no disk read
+    assert.equal(turn.calls.length, 0);
+  });
+
+  test("loadJournals folds inside the gate on the happy path", async () => {
+    let folds = 0;
+    const loadJournals = async ({ limit }) => { folds += 1; assert.equal(limit, 10); return [{ date: "2026-07-10", stats: { wins: 1, net_r: 2 } }]; };
+    const deps = baseDeps({ journals: null, loadJournals, turn: makeTurn({ chunks: ["## COACH\n\nread."] }) });
+    const res = await generateCoach(deps);
+    assert.equal(res.ok, true);
+    assert.equal(folds, 1);
+  });
+});
+
+describe("parseStoredDigestHash", () => {
+  test("reads the digest_hash frontmatter field", () => {
+    assert.equal(parseStoredDigestHash("---\nts: t\nprovider: claude\ndigest_hash: abcd1234\n---\n\nbody"), "abcd1234");
+  });
+  test("missing field / no frontmatter / non-string → null", () => {
+    assert.equal(parseStoredDigestHash("---\nprovider: claude\n---\n\nbody"), null);
+    assert.equal(parseStoredDigestHash("no frontmatter here"), null);
+    assert.equal(parseStoredDigestHash(null), null);
+    assert.equal(parseStoredDigestHash("---\ndigest_hash:\n---\n\nbody"), null); // empty value
+  });
+});
+
+describe("computeCurrentDigestHash", () => {
+  test("folds via loadJournals and hashes the digest (stable, hex)", async () => {
+    const loadJournals = async ({ limit }) => { assert.equal(limit, 10); return [{ date: "2026-07-10", stats: { wins: 1, net_r: 2 } }]; };
+    const h1 = await computeCurrentDigestHash({ loadJournals });
+    const h2 = await computeCurrentDigestHash({ loadJournals });
+    assert.match(h1, /^[0-9a-f]{8}$/);
+    assert.equal(h1, h2); // deterministic
+
+    // A stored coach generated from the SAME sessions carries a matching hash →
+    // not stale; a changed session set yields a different hash → stale.
+    const loadChanged = async () => [{ date: "2026-07-10", stats: { wins: 0, losses: 1, net_r: -1 } }];
+    assert.notEqual(await computeCurrentDigestHash({ loadJournals: loadChanged }), h1);
+  });
+  test("no loadJournals → empty-window hash (never throws)", async () => {
+    assert.match(await computeCurrentDigestHash({}), /^[0-9a-f]{8}$/);
+  });
+});
+
+describe("digest_hash round-trips generate → get (staleness wiring)", () => {
+  test("a freshly generated read's stored hash equals the current hash of the same sessions", async () => {
+    const journals = [{ date: "2026-07-10", session: "ny-am", brief: { pillar_grade: "B" }, stats: { wins: 1, losses: 0, net_r: 2 }, setups: [], trades: [], fills: [], intents: [] }];
+    const loadJournals = async () => journals;
+    // Generate captures the coach.md (with its digest_hash frontmatter).
+    const deps = baseDeps({ journals: null, loadJournals, turn: makeTurn({ chunks: ["## COACH\n\nfresh read."] }) });
+    const res = await generateCoach(deps);
+    assert.equal(res.ok, true);
+    const storedHash = parseStoredDigestHash(res.coach);
+    const currentHash = await computeCurrentDigestHash({ loadJournals });
+    assert.equal(storedHash, res.digest_hash);
+    assert.equal(storedHash, currentHash); // same sessions → not stale
   });
 });
 

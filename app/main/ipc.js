@@ -430,18 +430,27 @@ export function registerIpc(win) {
   });
 
   // Weekly coach narration (Track 2 §2b item 2). Read the persisted coach.md
-  // (absent → no card); the renderer parses/sanitizes the raw text.
+  // (absent → no card); the renderer parses/sanitizes the raw text. Also compute
+  // the CURRENT digest hash so the card can flag a stale read (stored != current)
+  // — the stored hash rode in on the coach.md frontmatter.
   ipcMain.handle("review:coach_get", async () => {
     try {
-      const { readCoachRaw } = await import("./coach-assist.js");
-      return { ok: true, coach: await readCoachRaw() };
+      const { readCoachRaw, parseStoredDigestHash, computeCurrentDigestHash } = await import("./coach-assist.js");
+      const { getRecentJournals } = await import("./review.js");
+      const coach = await readCoachRaw();
+      if (!coach) return { ok: true, coach: null };
+      const stored_hash = parseStoredDigestHash(coach);
+      let current_hash = null;
+      try { current_hash = await computeCurrentDigestHash({ loadJournals: getRecentJournals }); } catch { /* best-effort */ }
+      return { ok: true, coach, stored_hash, current_hash };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }
   });
 
   // On-demand: build the deterministic digest over recent sessions and run one
-  // coach turn. In-flight guarded (a re-click while running is rejected). On
+  // coach turn. The session fold runs INSIDE the in-flight gate (passed as a lazy
+  // loader), so a rapid double-click is rejected before it double-folds disk. On
   // any failure NO file is written and the error is surfaced via app:error so
   // the renderer shows a toast and re-enables the button.
   ipcMain.handle("review:coach_generate", async (_evt, args = {}) => {
@@ -449,8 +458,7 @@ export function registerIpc(win) {
       const { getRecentJournals } = await import("./review.js");
       const { generateCoach, COACH_DEFAULT_SESSIONS } = await import("./coach-assist.js");
       const limit = Number(args?.limit) > 0 ? Number(args.limit) : COACH_DEFAULT_SESSIONS;
-      const journals = await getRecentJournals({ limit });
-      const res = await generateCoach({ journals, limit });
+      const res = await generateCoach({ loadJournals: getRecentJournals, limit });
       if (!res.ok && !res.inFlight) {
         send("app:error", { source: "review:coach", level: "warn", message: res.error || "coach read failed" });
       }

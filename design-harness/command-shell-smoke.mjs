@@ -271,6 +271,7 @@ const SCENARIOS = [
     await assertText(page, ".cs-cell.card.coach", "<script>alert(2)</script>");
     const liveCoachScripts = await page.$$eval(".cs-cell.card.coach script", (els) => els.length);
     if (liveCoachScripts !== 0) throw new Error(`coach read injected a live <script> element (${liveCoachScripts}) — must be inert text`);
+    await assertNotVisible(page, ".cs-coach-stale");                 // hashes match → fresh, no stale badge
     // switch to EXECUTED domain via the tab
     await page.click('[role="tab"][aria-label="EXECUTED"]');
     await assertVisible(page, ".cs-domain-banner.d-executed");

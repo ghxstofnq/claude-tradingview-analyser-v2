@@ -133,19 +133,45 @@ export function createInFlightGate() {
 const _gate = createInFlightGate();
 export function isCoachInFlight() { return _gate.busy(); }
 
+// Parse the `digest_hash` frontmatter field out of a coach.md string. null when
+// absent — old files predate the field, so the caller treats a null stored hash
+// as stale. Pure.
+export function parseStoredDigestHash(raw) {
+  if (typeof raw !== "string") return null;
+  const m = raw.replace(/^﻿/, "").replace(/^\s+/, "").match(/^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/);
+  if (!m) return null;
+  for (const line of m[1].split("\n")) {
+    const kv = line.match(/^digest_hash:[ \t]*(.*)$/i);
+    if (kv) return kv[1].trim() || null;
+  }
+  return null;
+}
+
+// Fold the current recent sessions and hash the resulting digest — the
+// fingerprint of what a fresh coach read WOULD summarize right now. Compared
+// against the stored coach.md's digest_hash to flag a stale card. Cheap at
+// N=10. loadJournals injectable for tests.
+export async function computeCurrentDigestHash({ loadJournals, limit = COACH_DEFAULT_SESSIONS } = {}) {
+  const journals = loadJournals ? await loadJournals({ limit }) : [];
+  return hashDigest(buildCoachDigest(journals, { limit }));
+}
+
 /**
- * generateCoach({ journals, limit, deps }) — build the digest, fire the coach
- * turn, slice the `## COACH` section, persist coach.md. Returns a structured
- * result the IPC handler forwards to the renderer:
+ * generateCoach({ journals | loadJournals, limit, deps }) — build the digest,
+ * fire the coach turn, slice the `## COACH` section, persist coach.md. Returns a
+ * structured result the IPC handler forwards to the renderer:
  *
  *   { ok: true,  coach, path, digest_hash }             on success
  *   { ok: false, error, inFlight?, skipped? }           on any failure
  *
- * Never throws. Deps are injectable for tests (turn / persist / gate / metric /
- * auth-check / clock).
+ * The session fold runs INSIDE the in-flight gate: pass `loadJournals` (a lazy
+ * async fold) and a rapid double-click is rejected BEFORE any disk read, so it
+ * never double-folds. `journals` (pre-folded) is still accepted for tests.
+ * Never throws. Deps are injectable for tests.
  */
 export async function generateCoach({
-  journals = [],
+  journals = null,
+  loadJournals = null,
   limit = COACH_DEFAULT_SESSIONS,
   turn = userTurn,
   persist = persistCoach,
@@ -156,7 +182,8 @@ export async function generateCoach({
   now = () => new Date().toISOString(),
   timeoutMs = COACH_TURN_TIMEOUT_MS,
 } = {}) {
-  // Reject a re-click while a turn is running — no queue pileup, no second turn.
+  // Reject a re-click while a turn is running — BEFORE the fold below, so a rapid
+  // double-click never double-folds the session tree, no queue pileup.
   if (!gate.tryAcquire()) {
     return { ok: false, error: "a coach read is already in progress", inFlight: true };
   }
@@ -166,7 +193,10 @@ export async function generateCoach({
       return { ok: false, error: "Claude is unavailable — try again once it reconnects", skipped: true };
     }
 
-    const digest = buildCoachDigest(journals, { limit });
+    // Fold the recent sessions INSIDE the gate (skipped when journals were passed
+    // pre-folded, e.g. tests). This is the only disk read the gate protects.
+    const src = journals != null ? journals : (loadJournals ? await loadJournals({ limit }) : []);
+    const digest = buildCoachDigest(src, { limit });
     const digest_hash = hashDigest(digest);
     const text = buildCoachContext(digest);
 

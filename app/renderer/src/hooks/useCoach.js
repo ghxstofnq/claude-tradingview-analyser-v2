@@ -11,13 +11,17 @@ import { useEffect, useState, useCallback, useRef } from "react";
 
 export function useCoach() {
   const [coach, setCoach] = useState(null); // raw coach.md text or null
+  const [currentHash, setCurrentHash] = useState(null); // hash of a fresh digest
   const [inFlight, setInFlight] = useState(false);
   const inFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
       const res = await window.api?.review?.coach?.();
-      if (res?.ok) setCoach(res.coach ?? null);
+      if (res?.ok) {
+        setCoach(res.coach ?? null);
+        setCurrentHash(res.current_hash ?? null);
+      }
     } catch { /* absent → no card */ }
   }, []);
 
@@ -29,12 +33,17 @@ export function useCoach() {
     setInFlight(true);
     try {
       const res = await window.api?.review?.generateCoach?.(limit);
-      if (res?.ok && res.coach) setCoach(res.coach);
+      if (res?.ok && res.coach) {
+        setCoach(res.coach);
+        // A just-generated read is fresh by definition: the digest it was built
+        // from IS the current one, so match currentHash to it (no extra fold).
+        if (res.digest_hash) setCurrentHash(res.digest_hash);
+      }
     } catch { /* error surfaced via app:error toast; keep existing coach */ } finally {
       inFlightRef.current = false;
       setInFlight(false);
     }
   }, []);
 
-  return { coach, inFlight, generate };
+  return { coach, currentHash, inFlight, generate };
 }

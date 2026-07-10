@@ -144,7 +144,7 @@ function latestIntentByDecision(intents = []) {
 // (bounded window + 1:1, no misattribution) — see assignFillsToTrades.
 
 // ── JOURNAL tab (SESSION folds in here) ────────────────────────────────────
-function JournalTab({ journal, coach, coachInFlight, onGenerateCoach }) {
+function JournalTab({ journal, coach, coachCurrentHash, coachInFlight, onGenerateCoach }) {
   if (!journal) return <div className="cs-empty" style={{ margin: "auto", padding: 40 }}>no journal yet for the active session</div>;
   const ledger = buildLedger(journal.setups || [], journal.trades || []);
   const grade = journal.brief?.pillar_grade || "—";
@@ -160,7 +160,7 @@ function JournalTab({ journal, coach, coachInFlight, onGenerateCoach }) {
   // Coach narration (Track 2 §2b item 2) — cross-session read, rendered below
   // the critique. Absent → no card. Kept alongside the other JOURNAL useMemos
   // so the hook order matches the early-return guard above.
-  const coachVm = useMemo(() => coachViewModel(coach), [coach]);
+  const coachVm = useMemo(() => coachViewModel(coach, { currentHash: coachCurrentHash }), [coach, coachCurrentHash]);
   const onExport = () => window.api?.review?.exportSession?.(journal.date, journal.session).catch(() => {});
 
   // Evidence + discrepancy join: intent by exact decision_id; fill via a
@@ -236,7 +236,8 @@ function JournalTab({ journal, coach, coachInFlight, onGenerateCoach }) {
       )}
       {coachVm && (
         <div className="cs-band">
-          <Card title="CLAUDE'S COACH READ" className="coach" meta={critiqueMetaLabel(coachVm)}>
+          <Card title="CLAUDE'S COACH READ" className="coach" meta={critiqueMetaLabel(coachVm)}
+                right={coachVm.stale ? <span className="cs-coach-stale" title="the numbers moved since this read — regenerate for a fresh one">STALE · REGENERATE</span> : null}>
             {coachVm.paragraphs.map((p, i) => (
               <p key={i} className="cs-wrap-text">{p}</p>
             ))}
@@ -496,7 +497,7 @@ export function ReviewPage({ onClose, symbol = "MNQ1!" }) {
   const [view, setView] = useState("JOURNAL");
   const [picked, setPicked] = useState({});
   const { journal, library } = useReview(picked);
-  const { coach, inFlight: coachInFlight, generate: generateCoach } = useCoach();
+  const { coach, currentHash: coachCurrentHash, inFlight: coachInFlight, generate: generateCoach } = useCoach();
   const { fills } = useFills("all");
 
   const tabs = (
@@ -512,7 +513,7 @@ export function ReviewPage({ onClose, symbol = "MNQ1!" }) {
           foot={<><span>{PAGE_FOOT}</span><span className="sp" /><span>rows expand · chart stays live behind</span></>}>
       {view !== "BACKTEST" && <SessionPicker library={library} picked={picked} onPick={setPicked} />}
       {view === "EXECUTED" && <ExecutedTab allFills={fills} sessionFills={journal?.fills || []} />}
-      {view === "JOURNAL" && <JournalTab journal={journal} coach={coach} coachInFlight={coachInFlight} onGenerateCoach={generateCoach} />}
+      {view === "JOURNAL" && <JournalTab journal={journal} coach={coach} coachCurrentHash={coachCurrentHash} coachInFlight={coachInFlight} onGenerateCoach={generateCoach} />}
       {view === "BACKTEST" && <BacktestTab symbol={symbol} />}
     </Page>
   );

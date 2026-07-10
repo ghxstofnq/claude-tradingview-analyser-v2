@@ -52,6 +52,13 @@
 .cs-coach-btn:disabled { opacity: .5; cursor: default; }
 .cs-cell.card.coach { border-left: 2px solid var(--border); }
 .cs-cell.card.coach .cs-wrap-text + .cs-wrap-text { margin-top: 8px; }
+/* Stale cue — muted amber status tint (DESIGN.md: hues are status-only, never
+   saturated chrome), matching the shell's .cs-status.proposed / .cs-tag.amber. */
+.cs-coach-stale {
+  font: 400 9px var(--sans); letter-spacing: .06em;
+  padding: 2px 8px; border-radius: var(--r-pill);
+  color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
 
 /* empty states */
 .cs-empty { color: var(--label-dim); font-size: 11px; padding: 10px 0; }
