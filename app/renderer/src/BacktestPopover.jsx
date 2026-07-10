@@ -10,11 +10,11 @@ import { useBaseline } from "./hooks/useBaseline.js";
 import { useTests } from "./hooks/useTests.js";
 import Analytics from "./Analytics.jsx";
 import { buildAnalytics } from "../../../cli/lib/backtest-analytics.js";
-import { verdictFromBaseline, verdictTone } from "../../../cli/lib/backtest-verdict.js";
 import {
   aggregateRuns, filterRuns, formatRunForRow,
   formatClockEt, recordClockEt, outcomeMeta, runGrade, displayGrade,
   weekdaysBetween, expandStudy, todayET, parseGateInput,
+  readinessSummaryStats, readinessViewModel,
 } from "./Backtest.helpers.js";
 
 // Three workflow modes the panel walks: RECORD a corpus → measure it
@@ -588,49 +588,67 @@ const fmtFoldTime = (iso) => {
   return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 };
 
-// FAITHFUL BASELINE header — folded-when + sessions + sha + RE-FOLD button.
-// The go-live VERDICT — the top-level answer the shape asked for. Renders the
-// SAME object as `tv backtest verdict` (shared verdictFromBaseline), so the GUI
-// headline and an agent read one source of truth.
-const VERDICT_WORDS = { NET_POSITIVE: "NET-POSITIVE", NOT_READY: "NOT READY", NEEDS_MORE_DATA: "NEEDS MORE DATA", NO_CORPUS: "NO CORPUS" };
-function BaselineVerdict({ baseline, loading, symbolView, onRefold, refolding, builtAt, sha }) {
-  const v = verdictFromBaseline(baseline);
+function gateEvidenceText(evidence) {
+  if (!evidence || typeof evidence !== "object") return "";
+  if (Number.isFinite(evidence.sessions) && Number.isFinite(evidence.min_sessions)) return `${evidence.sessions}/${evidence.min_sessions}`;
+  if (Number.isFinite(evidence.cum_r) && Number.isFinite(evidence.sessions)) return `${fmtR(evidence.cum_r)} · ${evidence.sessions}S`;
+  if (evidence.manifest_id) return String(evidence.manifest_id);
+  if (evidence.code_sha) return String(evidence.code_sha).slice(0, 8);
+  if (typeof evidence.approval_ok === "boolean") return evidence.approval_ok ? "current" : "pending";
+  return "";
+}
+
+function BaselineVerdict({ readiness, loading, symbolView, onRefold, refolding, builtAt, sha }) {
+  const vm = readinessViewModel(readiness);
   const label = symbolView ? String(symbolView).replace("1!", "") : "";
   const refoldBtn = onRefold ? (
-    <button className="cs-btn-ghost-sm bt-verdict-refold" onClick={onRefold} disabled={refolding}
-      aria-label="re-fold the baseline">{refolding ? "RE-FOLDING…" : "RE-FOLD"}</button>
+    <button className="cs-btn-ghost-sm bt-verdict-refold" onClick={onRefold} disabled={refolding} aria-label="re-fold baseline">{refolding ? "RE-FOLDING…" : "RE-FOLD"}</button>
   ) : null;
-  if (loading && !v) {
+  if (loading && !readiness) {
     return (
       <div className="bt-verdict is-dim">
         <span className="bt-verdict-dot" />
-        <span className="bt-verdict-head" role="heading" aria-level={3}>folding baseline…</span>
+        <span className="bt-verdict-head" role="heading" aria-level={3}>loading readiness...</span>
         {refoldBtn}
       </div>
     );
   }
-  const tone = v ? verdictTone(v.verdict) : "dim";
-  const word = v ? (VERDICT_WORDS[v.verdict] || v.verdict) : "NO CORPUS";
   const foldedWhen = builtAt ? new Date(builtAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }) : null;
+  const { sessions, cum_r: cumR } = readinessSummaryStats(vm);
+  const stats = Number.isFinite(cumR) && Number.isInteger(sessions)
+    ? `${fmtR(cumR)} · ${sessions} session${sessions === 1 ? "" : "s"}`
+    : "evidence unavailable";
   return (
-    <div className={"bt-verdict is-" + tone}>
+    <div className={"bt-verdict is-" + vm.tone}>
       <span className="bt-verdict-dot" />
       <div className="bt-verdict-main">
         <div className="bt-verdict-line">
-          <span className="bt-verdict-head" role="heading" aria-level={3}>{word}</span>
+          <span className="bt-verdict-head" role="heading" aria-level={3}>{vm.word}</span>
           <span className="bt-verdict-stat">
-            {label ? label + " · " : ""}
-            {v && v.verdict !== "NO_CORPUS" ? `${v.cum_r >= 0 ? "+" : ""}${v.cum_r}R · ` : ""}
-            {(v?.sessions ?? 0)} session{(v?.sessions ?? 0) === 1 ? "" : "s"}
+            {label ? label + " · " : ""}{stats}
           </span>
         </div>
-        <span className="bt-verdict-sub">{v ? v.reason : "record a session to build the baseline"}{foldedWhen ? ` · folded ${foldedWhen}${sha ? " · " + sha : ""}` : ""}</span>
+        <span className="bt-verdict-sub">{vm.reason}{foldedWhen ? ` · folded ${foldedWhen}${sha ? " · " + sha : ""}` : ""}</span>
+        {vm.rows.length > 0 && (
+          <div className="bt-gates" role="list" aria-label="readiness gates">
+            {vm.rows.map((row) => {
+              const evidence = gateEvidenceText(row.evidence);
+              return (
+                <div className={"bt-gate is-" + row.status} role="listitem" key={row.id}>
+                  <span className="bt-gate-status">{row.status}</span>
+                  <span className="bt-gate-label">{row.label}</span>
+                  <span className="bt-gate-reason" title={row.reason}>{row.reason}</span>
+                  {evidence && <span className="bt-gate-evidence">{evidence}</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       {refoldBtn}
     </div>
   );
 }
-
 function BaselineHeader({ baseline, loading, refolding, onRefold, symbolView }) {
   const sym = symbolView === "MES1!" ? "MES" : "MNQ";
   const meta = loading
@@ -878,7 +896,7 @@ function LibraryBody({ state, actions, symbolView }) {
   const agg = aggregateRuns(symRuns);
   // Dashboard reads the FAITHFUL fold-week baseline (regen + AM->PM carry), not
   // a live re-fold of raw setups.jsonl. Same Analytics component, honest data.
-  const { baseline, history, loading, refolding, refold } = useBaseline(symbolView);
+  const { baseline, readiness, history, loading, refolding, refold } = useBaseline(symbolView);
   const A = useMemo(() => buildAnalytics(baseline?.run_details ?? []), [baseline]);
   // Grade win% from the SAME faithful fold the dashboard uses (BE-excluded), so
   // the AGGREGATE grid agrees with the BY GRADE card — not the stale
@@ -899,7 +917,7 @@ function LibraryBody({ state, actions, symbolView }) {
   // borderless, split by vertical hairlines.
   return (
     <div className="bt-baseline">
-      <BaselineVerdict baseline={baseline} loading={loading || refolding} symbolView={symbolView}
+      <BaselineVerdict baseline={baseline} readiness={readiness} loading={loading || refolding} symbolView={symbolView}
         onRefold={() => refold()} refolding={refolding} builtAt={baseline?.built_at} sha={baseline?.code_sha} />
 
       <div className="bt-stats">

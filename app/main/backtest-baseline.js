@@ -86,7 +86,7 @@ export function diffPerDay(basePerDay = [], treatPerDay = []) {
 }
 
 function gitSha() {
-  try { return execSync("git rev-parse --short HEAD", { cwd: REPO }).toString().trim(); }
+  try { return execSync("git rev-parse HEAD", { cwd: REPO }).toString().trim(); }
   catch { return null; }
 }
 
@@ -200,11 +200,16 @@ async function foldSession(BT, symbol, runId, date, session) {
 // Returns the shape persisted to state/backtest/baseline/<slug>.json plus the
 // buildAnalytics-ready run_details. INVARIANT: buildAnalytics(run_details).cum_r
 // equals total_r (asserted in tests).
-export async function foldSymbol({ symbol, stateDir, dates }) {
+export async function foldSymbol({ symbol, stateDir, dates, runIds }) {
   const BT = path.join(stateDir, "backtest");
   const index = readJson(path.join(BT, "index.json"));
   const want = Array.isArray(dates) && dates.length ? new Set(dates) : null;
-  const runs = index.runs.filter((r) => r.symbol === symbol && (!want || want.has(r.date)));
+  const selectedRuns = Array.isArray(runIds) ? new Set(runIds) : null;
+  const runs = index.runs.filter((r) => (
+    r.symbol === symbol
+    && (!want || want.has(r.date))
+    && (!selectedRuns || selectedRuns.has(r.run_id))
+  ));
 
   const run_details = [];
   const per_day = [];
@@ -214,7 +219,7 @@ export async function foldSymbol({ symbol, stateDir, dates }) {
     const res = await foldSession(BT, symbol, entry.run_id, entry.date, entry.session);
     if (!res) continue;
     total += res.total_r;
-    per_day.push({ date: entry.date, session: entry.session, r: res.total_r });
+    per_day.push({ run_id: entry.run_id, date: entry.date, session: entry.session, r: res.total_r });
     run_details.push({
       // Prefer the run's RECORDED open-reaction (carries htf_ltf_alignment) so the
       // BIAS ALIGNMENT cut renders — same source the pre-baseline dashboard used.
@@ -238,6 +243,7 @@ export async function foldSymbol({ symbol, stateDir, dates }) {
     corpus: {
       n_sessions: run_details.length,
       dates: [...new Set(run_details.map((d) => d.entry.date))].sort(),
+      run_ids: run_results.map((result) => result.run_id).sort(),
     },
     total_r: round2(total),
     per_day,

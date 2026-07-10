@@ -340,6 +340,9 @@ contextBridge.exposeInMainWorld("api", {
       history(symbol) {
         return ipcRenderer.invoke("backtest:baseline:history", { symbol });
       },
+      readiness(symbol) {
+        return ipcRenderer.invoke("backtest:readiness:get", { symbol });
+      },
     },
     tests: {
       list(symbol) {

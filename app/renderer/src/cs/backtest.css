@@ -553,6 +553,44 @@
   border-bottom: 1px solid var(--border); border-radius: 0;
 }
 .bt-popover.embedded .bt-baseline .bt-verdict-head { font: 500 22px var(--sans); }
+.bt-popover.embedded .bt-gates {
+  display: grid;
+  gap: 1px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.bt-popover.embedded .bt-gate {
+  display: grid;
+  grid-template-columns: 58px 84px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--surface-1);
+  font: 400 10.5px var(--sans);
+}
+.bt-popover.embedded .bt-gate-status {
+  font: 600 9px var(--mono);
+  text-transform: uppercase;
+  color: var(--label-dim);
+}
+.bt-popover.embedded .bt-gate.is-pass .bt-gate-status { color: var(--green); }
+.bt-popover.embedded .bt-gate.is-fail .bt-gate-status { color: var(--red); }
+.bt-popover.embedded .bt-gate.is-pending .bt-gate-status { color: var(--amber); }
+.bt-popover.embedded .bt-gate-label { color: var(--value-strong); }
+.bt-popover.embedded .bt-gate-reason {
+  color: var(--label);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bt-popover.embedded .bt-gate-evidence {
+  color: var(--label-dim);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
 .bt-popover.embedded .bt-stats {
   display: grid; grid-template-columns: repeat(5, 1fr);
   padding: 18px 0; border-bottom: 1px solid var(--border);
