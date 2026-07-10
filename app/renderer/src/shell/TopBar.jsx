@@ -14,7 +14,7 @@ import { useSessionBrief } from "../hooks/useSessionBrief.js";
 import { useOpenReaction } from "../hooks/useOpenReaction.js";
 import { buildDayChip } from "./dayChip.helpers.js";
 import { parseInstantStop } from "../Orders.helpers.js";
-import { liveGridFromTrade, pnlDisplay } from "../Live.helpers.js";
+import { liveGridFromTrade, pnlDisplay, parsePnlR, pnlTickBucket } from "../Live.helpers.js";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
@@ -81,10 +81,14 @@ export function TopBar({
   const grid = pos ? liveGridFromTrade(
     { entry: pos.avgFill, stop: pos.sl, tp1: pos.tp, side: posSide }, exec?.price ?? lastBar?.close) : null;
   const pnl = grid?.pnl;
-  // Value tick (motion v1) — pulse when live P&L moves, tinted by sign. A stale
-  // broker read (last-known P&L) must NOT tick — it isn't a live change.
   const pnlDisp = pnl ? pnlDisplay(pnl, exec?.stale) : null;
-  const pnlTickRef = useValueTick(pnlDisp?.v, !!pnlDisp && !pnlDisp.stale);
+  // Value tick (motion v1) — the P&L value updates on every 2s poll, so key the
+  // tick on a MILESTONE bucket (sign flip / 0.5R step) and throttle to ≥10s, so
+  // the money number pulses on a meaningful move, never blinks. PENDING
+  // ("PENDING"/"—" → no numeric R), STALE, and no-fill never tick; first
+  // appearance is silent (useValueTick).
+  const pnlR = parsePnlR(pnl?.v);
+  const pnlTickRef = useValueTick(pnlTickBucket(pnlR), pnlR != null && !pnlDisp?.stale, { minIntervalMs: 10000 });
 
   return (
     <>

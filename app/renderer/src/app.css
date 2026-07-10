@@ -2480,7 +2480,7 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
 }
 .bt-popover .ah-sum .ah-n { color: var(--label); font-size: 10.5px; letter-spacing: 0.04em; }
 
-.bt-popover .acct-body { padding: 0 4px 12px 23px; animation: acct-in var(--dur-fast) ease-out; }
+.bt-popover .acct-body { padding: 0 4px 12px 23px; animation: acct-in var(--dur-fast) var(--ease-out); }
 .bt-popover .acct-stat {
   display: flex; flex-wrap: wrap; gap: 14px; padding: 4px 0 9px;
   color: var(--label); font-size: 10.5px; letter-spacing: 0.03em;
@@ -3217,7 +3217,7 @@ button { border-radius: var(--r-sm); }
 
 /* Ledger breakdown entrance — subtle, reduced-motion handled by the consolidated block */
 @keyframes fbreak-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
-.fbreak { animation: fbreak-in var(--dur-fast) ease-out; }
+.fbreak { animation: fbreak-in var(--dur-fast) var(--ease-out); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    COMMAND SHELL (2026-07-03 redesign handoff — PR1)
@@ -3258,9 +3258,10 @@ button { border-radius: var(--r-sm); }
                           pointer-events: none; }
 
 /* ── value tick (motion v1) — one-shot status-tinted pulse on a changed live
-   number (generalizes the old `.trade-card.flash`). An overlay `::after` fades
-   out so the element keeps its own background. Applied on P&L / day chip /
-   readiness verdict via useValueTick; STALE/PENDING never tick (JS-gated). */
+   number (a reusable complement to the still-in-use `.trade-card.flash` BE
+   pulse). An overlay `::after` fades out so the element keeps its own
+   background. Applied on P&L / day chip / readiness verdict via useValueTick;
+   STALE/PENDING never tick (JS-gated). */
 @keyframes value-tick { from { opacity: 1; } to { opacity: 0; } }
 .value-tick { position: relative; }
 .value-tick::after {
@@ -3443,7 +3444,7 @@ button { border-radius: var(--r-sm); }
 .shell-scrim {
   position: fixed; inset: 0; z-index: 64;
   background: color-mix(in srgb, var(--surface-0) 55%, transparent);
-  animation: cmd-dim-in var(--dur-med) ease-out;
+  animation: cmd-dim-in var(--dur-med) var(--ease-out);
 }
 .shell-page {
   /* Prototype geometry: 880 × 82vh @ top:9vh, radius 16 (Briefing/Review/
@@ -4095,7 +4096,7 @@ button { border-radius: var(--r-sm); }
 .rv-lrow .st.dim { color: var(--label); background: var(--surface-3); }
 .rv-lrow .rsn { font-size: 10px; color: var(--label-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-lexp { display: flex; gap: 16px; padding: 6px 0 10px 24px; font: 400 10.5px var(--mono); color: var(--label);
-  animation: fbreak-in var(--dur-fast) ease-out; }
+  animation: fbreak-in var(--dur-fast) var(--ease-out); }
 .rv-lexp b { color: var(--value-strong); font-weight: 500; }
 .rv-lexp b.up { color: var(--green); } .rv-lexp b.down { color: var(--red); }
 
