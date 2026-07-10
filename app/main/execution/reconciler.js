@@ -58,7 +58,11 @@ export function reconcile({ journalOpen, brokerRead, stopPresent, qtyAgree } = {
   }
   // Stop present.
   if (!journalOpen) {
-    // Row 3: broker holds a position the journal never recorded.
+    // Row 3: broker holds a position the journal never recorded. Also the
+    // cross-session-carry case (I-2): a position held across a session rollover
+    // reconciles against the NEW session's empty journal → ORPHAN, which blocks
+    // auto (fail-closed) pending an operator adopt/flatten. That is the intended,
+    // safe outcome — never auto-flatten or auto-adopt a carried position.
     return { state: ORPHAN_POSITION, action: "adopt_or_flatten", blockers: ["orphan_position"], evidence };
   }
   // Journal open + broker open + stop present.
@@ -104,7 +108,9 @@ export function planAdopt(brokerPosition = {}) {
     session: brokerPosition.session ?? "", side, entry, stop: null,
   });
   const tradeId = `ADOPT-${decisionId.slice(3)}`;
-  const accept = { type: "accept", id: tradeId, side, symbol, entry, stop: null, source: "adopted" };
+  // Carry the broker size onto the accept row so the NEXT boot's qtyMatches sees
+  // journal ≡ broker and doesn't false-alarm CRITICAL_QTY_MISMATCH.
+  const accept = { type: "accept", id: tradeId, side, symbol, entry, stop: null, contracts, size: { contracts }, source: "adopted" };
   const filled = { type: "outcome", id: tradeId, status: "FILLED", source: "adopted" };
   const intent = {
     decision_id: decisionId, state: INTENT_STATES.POSITION_CONFIRMED, trade_id: tradeId,
@@ -150,7 +156,7 @@ function reconcileMessage(result) {
 // run the pure matrix, persist a record, set the auto gate, and emit a loud
 // app:error on a CRITICAL_* / ORPHAN state. Pure over the deps.
 export function createReconciler(deps = {}) {
-  async function runReconcile() {
+  async function runReconcile(_depth = 0) {
     const openTrade = deps.getJournalOpen ? await deps.getJournalOpen() : null;
     const journalOpen = !!openTrade;
     const brokerRead = deps.readBroker ? await deps.readBroker() : { ok: false, position: null };
@@ -178,6 +184,17 @@ export function createReconciler(deps = {}) {
     if ([CRITICAL_NO_STOP, CRITICAL_QTY_MISMATCH, ORPHAN_POSITION].includes(result.state)) {
       deps.emitError?.({ level: "error", message: reconcileMessage(result) });
     }
+    // B-1: EXECUTE close_journal. A JOURNAL_STALE row (broker CONFIRMED flat —
+    // ok:true + position:null, guaranteed by this state) that is only an
+    // unfilled / recovery-held stub is written terminal so it leaves the open set
+    // and stops bricking auto for the session. Fail-closed: closeJournalStale only
+    // closes rows that never confirmed a fill; a genuinely-filled row is left for
+    // the grader / operator (never drop P&L). Then recompute once → HEALTHY.
+    if (result.state === JOURNAL_STALE && _depth === 0 && deps.closeJournalStale) {
+      let closed = 0;
+      try { closed = (await deps.closeJournalStale(openTrade)) || 0; } catch { closed = 0; }
+      if (closed > 0) return runReconcile(_depth + 1);
+    }
     return { ...result, record };
   }
   return { runReconcile };
@@ -201,13 +218,23 @@ async function buildReconcilerDeps({ send } = {}) {
   const autoResume = await import("./auto-resume.js");
   const reconFile = async () => path.join(await sessions.activeSessionDir(), "reconciliation.jsonl");
   const tradesFile = async () => path.join(await sessions.activeSessionDir(), "trades.jsonl");
+  // Read the open journal trades, surfacing any torn-tail corruption (I-3).
+  const readOpenTrades = async () => {
+    try {
+      const txt = await fs.readFile(await tradesFile(), "utf8");
+      const parsed = parseJsonlTolerant(txt);
+      if (parsed.dropped > 0) send?.("app:error", { source: "reconciler", level: "error", message: `trades.jsonl: ${parsed.dropped} corrupt line(s) while reconciling — treating the journal as UNCERTAIN (fail-closed).` });
+      return { open: foldOpenTrades(parsed.records), dropped: parsed.dropped };
+    } catch { return { open: [], dropped: 0 }; }
+  };
   return {
     getJournalOpen: async () => {
-      try {
-        const txt = await fs.readFile(await tradesFile(), "utf8");
-        const open = foldOpenTrades(parseJsonlTolerant(txt).records);
-        return open[0] ?? null;
-      } catch { return null; }
+      const { open, dropped } = await readOpenTrades();
+      // Corruption ⇒ pretend "journal open" so the matrix can never read HEALTHY
+      // off an unreadable journal (fail-closed): a synthetic marker keeps the
+      // journal side non-flat without inventing a closeable trade.
+      if (dropped > 0) return { id: null, state: "corrupt", __corrupt: true };
+      return open[0] ?? null;
     },
     readBroker: async () => {
       try {
@@ -217,9 +244,17 @@ async function buildReconcilerDeps({ send } = {}) {
           const r = await readTradovatePositionSafe();
           return { ok: r.ok === true, position: r.position ?? null, account_id: active.getActiveAccount()?.id ?? null };
         }
+        // Paper: the trading WS FEED is the reliable position source — the DOM
+        // table goes stale/absent when the panel is collapsed (B-2). Trust the
+        // feed only once it has affirmatively reported a position frame; otherwise
+        // fall back to the hardened DOM read (ok:false unless the table is present).
+        const fs2 = feed.getTradingState();
+        if (fs2.connected === true && fs2.hasReceivedPositionUpdate === true) {
+          return { ok: true, position: fs2.position ?? null, account_id: fs2.accountId ?? null };
+        }
         const { readStateSafe } = await import("./tv-adapter.js");
         const r = await readStateSafe();
-        return { ok: r.ok === true, position: r.position ?? null, account_id: feed.getTradingState().accountId ?? null };
+        return { ok: r.ok === true, position: r.position ?? null, account_id: fs2.accountId ?? null };
       } catch { return { ok: false, position: null }; }
     },
     readStop: async () => {
@@ -232,6 +267,21 @@ async function buildReconcilerDeps({ send } = {}) {
         const wos = feed.getTradingState().workingOrders || [];
         return wos.some((o) => String(o.type || "").toLowerCase().includes("stop"));
       } catch { return false; }
+    },
+    // B-1: close unfilled / recovery-held journal rows against a CONFIRMED-flat
+    // broker so a status-0 submit that never landed can't brick auto forever.
+    // Only touches states that never confirmed a fill; a filled row is left alone.
+    closeJournalStale: async () => {
+      const { open, dropped } = await readOpenTrades();
+      if (dropped > 0) return 0; // corrupt journal — never auto-close on uncertainty
+      const closeable = open.filter((t) => t.state === "recovery_held" || t.state === "pending_entry");
+      if (!closeable.length) return 0;
+      const stamp = new Date().toISOString();
+      for (const t of closeable) {
+        try { await fs.appendFile(await tradesFile(), JSON.stringify({ type: "outcome", id: t.id, status: "INVALIDATED", source: "reconcile-flat", ts: stamp }) + "\n", "utf8"); } catch { /* best-effort */ }
+      }
+      send?.("app:error", { source: "reconciler", level: "warn", message: `Closed ${closeable.length} unfilled/recovery journal row(s) against a CONFIRMED-flat broker — session auto unblocked.` });
+      return closeable.length;
     },
     recordReconciliation: async (record) => {
       _lastState = record.state;
@@ -249,25 +299,49 @@ export async function runReconcileNow({ send } = {}) {
   return createReconciler(deps).runReconcile();
 }
 
-// Start the boot reconciler: run immediately, then bounded 4s retries (matching
-// the fill poller cadence) WHILE the broker read is UNKNOWN — the broker feed may
-// not be connected the instant we boot, so keep retrying until it answers. Never
-// blocks boot (fire-and-forget). Returns a small handle for shutdown/tests.
-export function startReconciler({ send } = {}) {
+// Start the boot reconciler: run immediately, then a fast burst of retries while
+// the broker read is UNKNOWN, then keep retrying on a SLOW cadence indefinitely
+// (I-1 — the feed can connect >24s after boot; the read is cheap + read-only, so
+// the gate must never brick shut silently). Emits one loud app:error when the
+// fast burst ends still-UNKNOWN, and a one-time summary on any non-HEALTHY boot
+// settle so a paused paper-auto is never silent. Never blocks boot.
+export function startReconciler({ send, runOnce, schedule } = {}) {
   let stopped = false;
-  let attempts = 0;
-  const MAX_ATTEMPTS = 6;   // ~24s of retries — long enough for the feed to connect
-  const RETRY_MS = 4000;    // match startTradovateFillPoller / trading-feed reconnect
+  let burst = 0;
+  let burstExhaustedEmitted = false;
+  let bootSummaryEmitted = false;
+  const BURST_MAX = 6;      // ~24s of fast retries — matches the fill poller cadence
+  const BURST_MS = 4000;
+  const SLOW_MS = 30000;    // then every 30s, unbounded, while still UNKNOWN
+  // Injectable for tests; production runs the real reconcile + setTimeout.
+  const run = runOnce || (() => runReconcileNow({ send }));
+  const arm = schedule || ((fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); });
   async function attempt() {
     if (stopped) return;
     let result = null;
-    try { result = await runReconcileNow({ send }); } catch { /* never crash boot */ }
-    if (!stopped && result?.state === UNKNOWN && attempts < MAX_ATTEMPTS) {
-      attempts += 1;
-      setTimeout(attempt, RETRY_MS).unref?.();
+    try { result = await run(); } catch { /* never crash boot */ }
+    if (stopped) return;
+    const state = result?.state ?? UNKNOWN;
+    if (state === UNKNOWN) {
+      burst += 1;
+      if (burst < BURST_MAX) { arm(attempt, BURST_MS); return; }
+      if (!burstExhaustedEmitted) {
+        burstExhaustedEmitted = true;
+        send?.("app:error", { source: "reconciler", level: "error", message: `Broker feed still UNREADABLE ~${Math.round(BURST_MAX * BURST_MS / 1000)}s after boot — paper auto stays PAUSED (fail-closed). Retrying every ${SLOW_MS / 1000}s; RECONCILE retries now.` });
+      }
+      arm(attempt, SLOW_MS); // slow, UNBOUNDED while UNKNOWN — never give up
+      return;
+    }
+    // Resolved (non-UNKNOWN): stop the loop. CRITICAL/ORPHAN already surfaced
+    // inside runReconcile; emit a one-time summary for the other non-HEALTHY
+    // settles (MANAGEMENT_ONLY / a filled-row JOURNAL_STALE) so a paused auto
+    // never goes unexplained.
+    if (!bootSummaryEmitted && state !== HEALTHY) {
+      bootSummaryEmitted = true;
+      send?.("app:error", { source: "reconciler", level: "warn", message: `Boot reconciliation settled ${state} — paper auto stays PAUSED until resolved / explicitly resumed.` });
     }
   }
-  Promise.resolve().then(attempt);
+  arm(attempt, 0); // initial kick — fire-and-forget, never blocks boot
   return { stop: () => { stopped = true; }, get lastState() { return _lastState; } };
 }
 

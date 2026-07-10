@@ -2,10 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   RECONCILE_STATES, reconcile, reconciliationGatesAuto, latestReconciliation,
-  planAdopt, planProtect, planFlatten, createReconciler,
+  planAdopt, planProtect, planFlatten, createReconciler, startReconciler,
 } from "../app/main/execution/reconciler.js";
 import { parseJsonlTolerant } from "../cli/lib/jsonl.js";
 import { getReconciliationHealthy, setReconciliationHealthy } from "../app/main/execution/auto-resume.js";
+import { interpretPositionSnapshot } from "../app/main/execution/tv-adapter.js";
 
 const R = RECONCILE_STATES;
 const okOpen = (position) => ({ ok: true, position });
@@ -87,6 +88,10 @@ describe("operator planners", () => {
     assert.equal(p.journal[0].side, "long");
     assert.equal(p.journal[0].symbol, "MNQ1!");
     assert.equal(p.journal[0].entry, 21000);
+    // Cheap hardening: the accept carries the broker qty so the next boot's
+    // qtyMatches doesn't false-alarm CRITICAL_QTY_MISMATCH.
+    assert.equal(p.journal[0].contracts, 2);
+    assert.equal(p.journal[0].size.contracts, 2);
     assert.equal(p.journal[1].type, "outcome");
     assert.equal(p.journal[1].status, "FILLED");
     assert.equal(p.intent.state, "POSITION_CONFIRMED");
@@ -216,6 +221,113 @@ describe("createReconciler", () => {
     assert.equal(r.state, R.MANAGEMENT_ONLY);
     assert.equal(errors.length, 0);
     assert.equal(gate.healthy, false, "auto stays paused on an already-open managed position");
+  });
+});
+
+// ── B-1: recovery_held / stale journal has an EXIT path ─────────────────────
+describe("createReconciler close_journal (B-1 escape hatch)", () => {
+  it("JOURNAL_STALE with a recovery_held row → closeJournalStale runs, re-runs to HEALTHY, gate opens", async () => {
+    let closed = false;
+    const gate = { healthy: null };
+    const deps = {
+      // Before the close: an open recovery_held row. After: journal flat.
+      getJournalOpen: async () => (closed ? null : { id: "R", state: "recovery_held" }),
+      readBroker: async () => okFlat,                 // broker CONFIRMED flat
+      readStop: async () => false,
+      closeJournalStale: async () => { closed = true; return 1; },
+      recordReconciliation: async () => {},
+      setReconciliationHealthy: (v) => { gate.healthy = v; },
+      emitError: () => {},
+    };
+    const r = await createReconciler(deps).runReconcile();
+    assert.equal(closed, true, "close_journal executed");
+    assert.equal(r.state, R.HEALTHY, "recomputed to HEALTHY after the stale row was closed");
+    assert.equal(gate.healthy, true, "auto gate opened once the session was unblocked");
+  });
+
+  it("does NOT re-run / open the gate when there is no closeable row (a filled row is left alone)", async () => {
+    const gate = { healthy: null };
+    const deps = {
+      getJournalOpen: async () => ({ id: "F", state: "filled" }),
+      readBroker: async () => okFlat,
+      readStop: async () => false,
+      closeJournalStale: async () => 0, // filled row → nothing closed (P&L safety)
+      recordReconciliation: async () => {},
+      setReconciliationHealthy: (v) => { gate.healthy = v; },
+      emitError: () => {},
+    };
+    const r = await createReconciler(deps).runReconcile();
+    assert.equal(r.state, R.JOURNAL_STALE);
+    assert.equal(gate.healthy, false, "stays paused pending the operator");
+  });
+});
+
+// ── B-2: readStateSafe snapshot interpretation (panel-collapsed → ok:false) ──
+describe("interpretPositionSnapshot (B-2 phantom-flat guard)", () => {
+  it("collapsed panel (no positions table) → ok:false, never a confirmed flat", () => {
+    const r = interpretPositionSnapshot({ connected: true, tablePresent: false, position: null });
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, "panel_unreadable");
+  });
+  it("disconnected → ok:false", () => {
+    assert.equal(interpretPositionSnapshot({ connected: false, tablePresent: true }).ok, false);
+    assert.equal(interpretPositionSnapshot(null).ok, false);
+  });
+  it("table present + connected + empty → ok:true, position null (a verifiable flat)", () => {
+    const r = interpretPositionSnapshot({ connected: true, tablePresent: true, position: null });
+    assert.deepEqual(r, { ok: true, position: null, connected: true });
+  });
+  it("table present + a live position → ok:true with the position", () => {
+    const pos = { symbol: "MNQ1!", side: "buy", qty: 1 };
+    assert.deepEqual(interpretPositionSnapshot({ connected: true, tablePresent: true, position: pos }), { ok: true, position: pos, connected: true });
+  });
+});
+
+// ── I-1: paper auto is never silently bricked ───────────────────────────────
+describe("startReconciler burst/backoff (I-1)", () => {
+  it("emits ONE loud error when the fast burst ends still-UNKNOWN, then a later HEALTHY stops the loop", async () => {
+    const errors = [];
+    const send = (ch, p) => { if (ch === "app:error") errors.push(p); };
+    let calls = 0;
+    const runOnce = async () => { calls += 1; return { state: calls <= 7 ? R.UNKNOWN : R.HEALTHY }; };
+    const queue = [];
+    const schedule = (fn) => { queue.push(fn); };       // synchronous, drained by the test
+    startReconciler({ send, runOnce, schedule });
+    for (let i = 0; i < 40 && queue.length; i += 1) { const fn = queue.shift(); await fn(); }
+    // Burst is 6: at the 6th UNKNOWN the burst-exhausted error fires exactly once.
+    assert.equal(errors.length, 1, "exactly one burst-exhausted error");
+    assert.match(errors[0].message, /UNREADABLE/);
+    assert.equal(errors[0].level, "error");
+    assert.ok(calls >= 8, "kept retrying past the burst until HEALTHY");
+  });
+
+  it("a non-HEALTHY-but-resolved boot (e.g. MANAGEMENT_ONLY) emits a one-time summary", async () => {
+    const errors = [];
+    const send = (ch, p) => { if (ch === "app:error") errors.push(p); };
+    const runOnce = async () => ({ state: R.MANAGEMENT_ONLY });
+    const queue = [];
+    const schedule = (fn) => { queue.push(fn); };
+    startReconciler({ send, runOnce, schedule });
+    for (let i = 0; i < 5 && queue.length; i += 1) { const fn = queue.shift(); await fn(); }
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /PAUSED/);
+  });
+});
+
+// A fresh reconcile can flip the auto gate false→true — the mechanism
+// execution:resumeAuto relies on instead of circularly refusing.
+describe("a fresh reconcile flips the auto gate", () => {
+  it("HEALTHY run sets getReconciliationHealthy() true", async () => {
+    setReconciliationHealthy(false);
+    assert.equal(getReconciliationHealthy(), false);
+    await createReconciler({
+      getJournalOpen: async () => null,
+      readBroker: async () => okFlat,
+      recordReconciliation: async () => {},
+      setReconciliationHealthy,
+    }).runReconcile();
+    assert.equal(getReconciliationHealthy(), true);
+    setReconciliationHealthy(false); // reset for other tests
   });
 });
 

@@ -67,11 +67,15 @@ const FORWARD = {
 const RECONCILE_TARGETS = new Set([STOP_CONFIRMED, REJECTED, POSITION_CONFIRMED, RECOVERY_REQUIRED, UNKNOWN]);
 
 // nextIntentState(current, event) → the next state, or null for an illegal edge.
-// `event` is a target-state string for a forward edge, OR { type:"reconcile", to }
-// which is the ONLY way out of RECOVERY_REQUIRED / UNKNOWN.
+// `event` is a target-state string for a forward edge, OR { type:"reconcile", to }.
+// A reconcile resolution may arrive from ANY non-terminal state — a stuck
+// mid-flight INTENT_CREATED/SUBMITTING/BROKER_ACKNOWLEDGED/POSITION_CONFIRMED that
+// the broker read settles, or a held RECOVERY_REQUIRED/UNKNOWN. Terminals
+// (STOP_CONFIRMED / REJECTED) never move. Forward VERBS out of RECOVERY_REQUIRED /
+// UNKNOWN remain illegal — those two leave ONLY via a reconcile event.
 export function nextIntentState(current, event) {
   if (event && typeof event === "object" && event.type === "reconcile") {
-    if (current !== RECOVERY_REQUIRED && current !== UNKNOWN) return null;
+    if (current === STOP_CONFIRMED || current === REJECTED) return null;
     return RECONCILE_TARGETS.has(event.to) ? event.to : null;
   }
   const allowed = FORWARD[current];
@@ -94,11 +98,18 @@ export function foldIntents(records = []) {
   return byId;
 }
 
+// A fail-closed sentinel readIntent returns when the intent journal is corrupt —
+// planIntentAction maps it to blocked_recovery so corruption never looks like
+// "no intent, create away".
+export const CORRUPT_INTENT = Object.freeze({ __corrupt: true, state: "CORRUPT_READ" });
+
 // ── Decisions ───────────────────────────────────────────────────────────────
 // Given the latest folded record for a decision_id (or none), decide what the
 // caller should do when the same setup surfaces again.
 export function planIntentAction({ existing } = {}) {
   if (!existing) return { action: "create", state: null };
+  // A corrupt read is never "safe to place" — hold for recovery (fail-closed).
+  if (existing.__corrupt) return { action: "blocked_recovery", state: "CORRUPT_READ" };
   const state = existing.state;
   switch (state) {
     case INTENT_CREATED:
@@ -182,13 +193,45 @@ export function reconcileIntent({ intent, brokerRead, brokerStop } = {}) {
 // so callers get readIntent(decisionId) + recordTransition(record). Pure over the
 // deps — unit tests inject an in-memory pair.
 export function createIntentStore(deps = {}) {
+  // deps.readRecords may return a bare array (back-compat) or the tolerant-parse
+  // shape { records, dropped }. Normalise so corruption is never silently lost.
+  const readAll = async () => {
+    const res = deps.readRecords ? await deps.readRecords() : [];
+    if (Array.isArray(res)) return { records: res, dropped: 0 };
+    return { records: res?.records ?? [], dropped: res?.dropped ?? 0 };
+  };
   return {
     async readIntent(decisionId) {
-      const records = deps.readRecords ? await deps.readRecords() : [];
+      const { records, dropped } = await readAll();
+      if (dropped > 0) {
+        // I-3: a torn line in the money-path journal. NEVER let it read as
+        // "no intent" — surface loudly and return a fail-closed sentinel that
+        // planIntentAction maps to blocked_recovery.
+        deps.onCorrupt?.(dropped);
+        return { ...CORRUPT_INTENT, decision_id: decisionId };
+      }
       return foldIntents(records).get(decisionId) ?? null;
     },
     async recordTransition(record) {
       const rec = { ts: new Date().toISOString(), ...record };
+      // Make the state machine real, not decorative: validate the edge against
+      // the current folded state and surface any illegal transition. Best-effort
+      // (a read/validation failure never blocks the durable append). A reconcile-
+      // or adopt-sourced record is a reconcile event; everything else is forward.
+      try {
+        const { records, dropped } = await readAll();
+        if (dropped === 0) {
+          const current = foldIntents(records).get(rec.decision_id)?.state ?? null;
+          if (current != null) {
+            const isReconcile = rec.source === "reconcile" || rec.source === "adopted";
+            const event = isReconcile ? { type: "reconcile", to: rec.state } : rec.state;
+            if (nextIntentState(current, event) == null) {
+              rec.illegal_edge = { from: current, to: rec.state };
+              deps.onIllegal?.({ decision_id: rec.decision_id, from: current, to: rec.state });
+            }
+          }
+        }
+      } catch { /* validation is best-effort */ }
       if (deps.appendRecord) await deps.appendRecord(rec);
       return rec;
     },
@@ -196,22 +239,29 @@ export function createIntentStore(deps = {}) {
 }
 
 // Production deps — reads/appends order-intents.jsonl in the active session dir
-// (same pattern as tranche-manager.js:145-151). Lazy imports only.
-export async function buildRealDeps() {
+// (same pattern as tranche-manager.js:145-151). Lazy imports only. `send` wires
+// the corruption + illegal-edge surfaces to the renderer app:error channel.
+export async function buildRealDeps({ send } = {}) {
   const sessions = await import("../sessions.js");
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const { parseJsonlTolerant } = await import("../../../cli/lib/jsonl.js");
   const intentsFile = async () => path.join(await sessions.activeSessionDir(), "order-intents.jsonl");
   return {
+    // Return the full tolerant-parse shape so `dropped` propagates (I-3).
     readRecords: async () => {
       try {
         const txt = await fs.readFile(await intentsFile(), "utf8");
-        return parseJsonlTolerant(txt).records;
-      } catch { return []; }
+        return parseJsonlTolerant(txt);
+      } catch { return { records: [], dropped: 0 }; }
     },
+    // Defensive: append with a leading newline so a torn (newline-less) tail from
+    // a prior crash can't concatenate into — and corrupt — this new record. The
+    // parse tolerates the resulting blank line.
     appendRecord: async (obj) => {
-      await fs.appendFile(await intentsFile(), JSON.stringify(obj) + "\n", "utf8");
+      await fs.appendFile(await intentsFile(), "\n" + JSON.stringify(obj) + "\n", "utf8");
     },
+    onCorrupt: (dropped) => send?.("app:error", { source: "order-intent", level: "error", message: `order-intents.jsonl: ${dropped} corrupt line(s) — HOLDING for recovery (fail-closed). A new order will NOT be placed on this decision until it is resolved.` }),
+    onIllegal: ({ decision_id, from, to }) => send?.("app:error", { source: "order-intent", level: "warn", message: `Illegal order-intent transition ${from} → ${to} for ${decision_id} (recorded + flagged).` }),
   };
 }

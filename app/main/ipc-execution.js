@@ -127,11 +127,17 @@ export function registerExecutionIpc() {
     } catch (e) { return { ok: false, error: String(e?.message || e) }; }
   });
   ipcMain.handle("execution:resumeAuto", async () => {
-    // B2: never resume auto until the boot reconciler has confirmed journal ≡
-    // broker (HEALTHY). A pending / non-healthy reconciliation blocks the resume.
+    // B2 + I-1: never resume auto until reconciliation is HEALTHY. But don't just
+    // refuse (that was circular — resume required the very gate it should help
+    // recover): TRIGGER a fresh reconcile first (the feed may have connected since
+    // boot), then arm only if it now reports HEALTHY. Fail-closed otherwise.
     if (!getReconciliationHealthy()) {
-      const { getLastReconcileState } = await import("./execution/reconciler.js");
-      return { ok: false, code: "reconciliation_pending", state: getLastReconcileState() };
+      const reconciler = await import("./execution/reconciler.js");
+      let fresh = null;
+      try { fresh = await reconciler.runReconcileNow({ send: null }); } catch { /* structured below */ }
+      if (!getReconciliationHealthy()) {
+        return { ok: false, code: "reconciliation_pending", state: fresh?.state ?? reconciler.getLastReconcileState() };
+      }
     }
     setAutoResumed(true);
     return { ok: true, autoResumed: true };
@@ -146,9 +152,13 @@ export function registerExecutionIpc() {
       switch (arg?.action) {
         case "status":
           return { ok: true, state: reconciler.getLastReconcileState(), healthy: getReconciliationHealthy() };
-        case "retry": {
+        // retry + resolve-flat both re-run the reconciler; runReconcile EXECUTES
+        // close_journal on a CONFIRMED-flat JOURNAL_STALE, so this is the operator
+        // escape hatch for a recovery-held row that bricked auto (B-1).
+        case "retry":
+        case "resolve-flat": {
           const r = await reconciler.runReconcileNow({ send: null });
-          return { ok: true, state: r.state, action: r.action, blockers: r.blockers };
+          return { ok: true, state: r.state, action: r.action, blockers: r.blockers, healthy: getReconciliationHealthy() };
         }
         case "adopt": return await reconciler.adoptOpenPosition({ send: null });
         case "protect": return await reconciler.protectOpenPosition({ send: null, stopPrice: arg?.stopPrice });

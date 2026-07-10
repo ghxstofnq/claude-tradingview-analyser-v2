@@ -67,10 +67,19 @@ describe("nextIntentState", () => {
     // A reconcile event resolves it.
     assert.equal(nextIntentState(S.RECOVERY_REQUIRED, { type: "reconcile", to: S.STOP_CONFIRMED }), S.STOP_CONFIRMED);
     assert.equal(nextIntentState(S.UNKNOWN, { type: "reconcile", to: S.REJECTED }), S.REJECTED);
-    // A reconcile event from a non-held state is illegal.
-    assert.equal(nextIntentState(S.INTENT_CREATED, { type: "reconcile", to: S.STOP_CONFIRMED }), null);
     // A reconcile to a nonsense target is refused.
     assert.equal(nextIntentState(S.RECOVERY_REQUIRED, { type: "reconcile", to: "NONSENSE" }), null);
+  });
+
+  it("a reconcile event resolves a stuck mid-flight intent, but never a terminal", () => {
+    // A broker read can settle an interrupted INTENT_CREATED / SUBMITTING /
+    // BROKER_ACKNOWLEDGED (the reconcile branch relies on this).
+    assert.equal(nextIntentState(S.INTENT_CREATED, { type: "reconcile", to: S.STOP_CONFIRMED }), S.STOP_CONFIRMED);
+    assert.equal(nextIntentState(S.SUBMITTING, { type: "reconcile", to: S.POSITION_CONFIRMED }), S.POSITION_CONFIRMED);
+    assert.equal(nextIntentState(S.BROKER_ACKNOWLEDGED, { type: "reconcile", to: S.REJECTED }), S.REJECTED);
+    // Terminals never move, even via reconcile.
+    assert.equal(nextIntentState(S.STOP_CONFIRMED, { type: "reconcile", to: S.REJECTED }), null);
+    assert.equal(nextIntentState(S.REJECTED, { type: "reconcile", to: S.STOP_CONFIRMED }), null);
   });
 });
 
@@ -242,6 +251,48 @@ describe("createIntentStore", () => {
     const { store, records } = memStore();
     await store.recordTransition({ decision_id: "OI-1", state: S.INTENT_CREATED, ts: "2026-01-01T00:00:00.000Z" });
     assert.equal(records[0].ts, "2026-01-01T00:00:00.000Z");
+  });
+
+  // I-3: a corrupt intent journal must never read as "no intent, create away".
+  it("dropped>0 → readIntent returns a corrupt sentinel that planIntentAction blocks", async () => {
+    let surfaced = 0;
+    const store = createIntentStore({
+      readRecords: async () => ({ records: [{ decision_id: "OI-1", state: S.SUBMITTING }], dropped: 1 }),
+      appendRecord: async () => {},
+      onCorrupt: () => { surfaced += 1; },
+    });
+    const existing = await store.readIntent("OI-1");
+    assert.equal(existing.__corrupt, true);
+    assert.equal(surfaced, 1, "corruption surfaced");
+    assert.equal(planIntentAction({ existing }).action, "blocked_recovery");
+  });
+
+  // Cheap hardening: recordTransition makes the state machine real — an illegal
+  // edge is flagged + surfaced (not silently accepted).
+  it("recordTransition flags + surfaces an illegal edge, still appends for audit", async () => {
+    const records = [{ decision_id: "OI-1", state: S.STOP_CONFIRMED }]; // terminal
+    const illegal = [];
+    const store = createIntentStore({
+      readRecords: async () => records.slice(),
+      appendRecord: async (r) => { records.push(r); },
+      onIllegal: (o) => { illegal.push(o); },
+    });
+    const rec = await store.recordTransition({ decision_id: "OI-1", state: S.SUBMITTING }); // illegal from terminal
+    assert.deepEqual(rec.illegal_edge, { from: S.STOP_CONFIRMED, to: S.SUBMITTING });
+    assert.equal(illegal.length, 1);
+  });
+
+  it("recordTransition accepts a reconcile-sourced resolution from a mid-flight state", async () => {
+    const records = [{ decision_id: "OI-1", state: S.SUBMITTING }];
+    const illegal = [];
+    const store = createIntentStore({
+      readRecords: async () => records.slice(),
+      appendRecord: async (r) => { records.push(r); },
+      onIllegal: (o) => { illegal.push(o); },
+    });
+    const rec = await store.recordTransition({ decision_id: "OI-1", state: S.STOP_CONFIRMED, source: "reconcile" });
+    assert.equal(rec.illegal_edge, undefined, "a reconcile resolution is a legal edge");
+    assert.equal(illegal.length, 0);
   });
 });
 

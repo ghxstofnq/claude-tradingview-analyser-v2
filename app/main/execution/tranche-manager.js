@@ -193,16 +193,23 @@ async function buildRealDeps() {
   const path = await import("node:path");
   const tradesFile = async () => path.join(await sessions.activeSessionDir(), "trades.jsonl");
   // Durable order-intent store (B1) — lives in order-intents.jsonl beside trades.
-  const intentStore = orderIntent.createIntentStore(await orderIntent.buildRealDeps());
+  // `send` wires corruption / illegal-edge surfaces to app:error.
+  const intentStore = orderIntent.createIntentStore(await orderIntent.buildRealDeps({ send: _send }));
   // Broker position/stop reads for the reconcile branch (a stuck INTENT_CREATED/
-  // SUBMITTING). Same read-only sources as the fire path; a failed read yields
-  // ok:false so the reconcile holds rather than assuming flat.
+  // SUBMITTING). Fail-closed: a read we can't trust yields ok:false so the
+  // reconcile HOLDS rather than assuming flat (B-2 — the DOM table is stale/absent
+  // when the account-manager panel is collapsed, so the WS feed is the reliable
+  // paper source once it has affirmatively reported a position frame).
   const readBrokerPositionReal = async () => {
     try {
       if (active.getActiveAccount()?.broker === "tradovate") {
         const { readTradovatePositionSafe } = await import("./tradovate-adapter.js");
         const r = await readTradovatePositionSafe();
         return { ok: r.ok === true, position: r.position ?? null };
+      }
+      const fs = tradingFeed.getTradingState();
+      if (fs.connected === true && fs.hasReceivedPositionUpdate === true) {
+        return { ok: true, position: fs.position ?? null };
       }
       const { readStateSafe } = await import("./tv-adapter.js");
       const r = await readStateSafe();
