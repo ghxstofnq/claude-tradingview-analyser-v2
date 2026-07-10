@@ -13,7 +13,7 @@
 import React, { useState, useMemo } from "react";
 import { Page } from "./Page.jsx";
 import { PAGE_ICONS, PAGE_FOOT } from "../shell.constants.js";
-import { clickable } from "../../a11y.js";
+import { clickable, tab } from "../../a11y.js";
 import { useReview } from "../../hooks/useReview.js";
 import { useFills } from "../../hooks/useFills.js";
 import { useBaseline } from "../../hooks/useBaseline.js";
@@ -463,9 +463,14 @@ export function ReviewPage({ onClose, symbol = "MNQ1!" }) {
   const { journal, library } = useReview(picked);
   const { fills } = useFills("all");
 
-  const tabs = TABS.map(([v, l]) => (
-    <span key={v} className={"cs-tabpill" + (view === v ? " is-active" : "")} {...clickable(() => setView(v))}>{l}</span>
-  ));
+  const tabs = (
+    <span className="cs-tablist" role="tablist" aria-label="review domain">
+      {TABS.map(([v, l]) => (
+        <span key={v} className={"cs-tabpill" + (view === v ? " is-active" : "")}
+              {...tab(() => setView(v), { selected: view === v, label: l })}>{l}</span>
+      ))}
+    </span>
+  );
   return (
     <Page icon={PAGE_ICONS.review} tint="mute" title="Review" wide tabs={tabs} onClose={onClose}
           foot={<><span>{PAGE_FOOT}</span><span className="sp" /><span>rows expand · chart stays live behind</span></>}>

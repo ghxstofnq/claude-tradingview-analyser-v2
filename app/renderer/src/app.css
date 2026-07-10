@@ -4430,6 +4430,14 @@ button, input, textarea, select, a, webview, iframe, .cell, .sym-menu {
    tabindex + Enter/Space activation. */
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 [role="button"] { cursor: pointer; }
+[role="tab"] { cursor: pointer; }
+/* Segmented-control tabs sit in a tight group; pull the keyboard focus ring
+   inside so it stays visible instead of being clipped by the group border
+   (Task D2). Same --primary token as the global :focus-visible. */
+[role="tab"]:focus-visible,
+.cs-provpill:focus-visible,
+.cs-tabpill:focus-visible,
+.cmd-set-seg-opt:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
 /* ── PREP verdict-first redesign (2026-06-23) ──────────────────────────────────
    DECISION strip is the hero: grade + bias + 3-component count + draw, with the

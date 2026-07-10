@@ -84,6 +84,18 @@ const PAGE_COMPONENTS = {
   risk: RiskShellPage, prefs: PrefsShellPage,
 };
 
+// Test-only render-crash injection for the page-containment harness (Task D1
+// scenario 10). Inert in production: window.__GOFNQ_FIXTURE_CRASH__ is only ever
+// set by the Playwright fixture adapter (guarded by the harness sentinel), never
+// by the shipped app. Rendered as a sibling inside the per-page ErrorBoundary so
+// the throw is contained exactly like a real page crash.
+function FixtureCrashGuard({ page }) {
+  if (typeof window !== "undefined" && window.__GOFNQ_FIXTURE_CRASH__ === page) {
+    throw new Error(`fixture-injected crash on the ${page} page`);
+  }
+  return null;
+}
+
 export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, currentPrice, onToggleTheme }) {
   const [page, setPage] = useState(null);
   const [pal, setPal] = useState({ open: false, query: "", sel: 0, forced: null, askQuery: null });
@@ -475,6 +487,7 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
                            key={page} resetKey={page}
                            onOpenSystem={() => openPage("system")}
                            onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
+              <FixtureCrashGuard page={page} />
               <PageComp {...pageProps} />
             </ErrorBoundary>
           )}

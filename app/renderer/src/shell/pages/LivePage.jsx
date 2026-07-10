@@ -9,7 +9,7 @@ import React, { useState, useEffect } from "react";
 import { Page } from "./Page.jsx";
 import { PAGE_ICONS } from "../shell.constants.js";
 import { LiveBody } from "../../LivePopover.jsx";
-import { clickable } from "../../a11y.js";
+import { clickable, tab } from "../../a11y.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useTrades } from "../../hooks/useTrades.js";
 import { useOrderIntent } from "../../hooks/useOrderIntent.js";
@@ -40,10 +40,10 @@ export function LivePage({ symbol, guards, onFlatten, onClose }) {
   }, []);
 
   const tabs = (
-    <div className="cs-live-tabs">
+    <div className="cs-live-tabs" role="tablist" aria-label="live view">
       {SEGS.map(([v, l]) => (
         <span key={v} className={"cs-provpill" + (effectiveSeg === v ? " is-on" : "")}
-              {...clickable(() => { setUserPicked(true); setSeg(v); }, { label: l })}>{l}</span>
+              {...tab(() => { setUserPicked(true); setSeg(v); }, { selected: effectiveSeg === v, label: l })}>{l}</span>
       ))}
     </div>
   );
@@ -59,7 +59,8 @@ export function LivePage({ symbol, guards, onFlatten, onClose }) {
   return (
     <Page icon={PAGE_ICONS.live} tint="green" title="Live" page="live" hosted narrow className="narrow" onClose={onClose}
           tabs={tabs} foot={foot}
-          right={<span className="cs-btn-flatten" onClick={onFlatten} title="⇧⌘F flattens anywhere">FLATTEN</span>}>
+          right={<span className="cs-btn-flatten" title="⇧⌘F flattens anywhere"
+                       {...clickable(onFlatten, { label: "flatten all positions" })}>FLATTEN</span>}>
       <LiveBody guards={guards} symbol={symbol} seg={effectiveSeg} setSeg={setSeg} setUserPicked={setUserPicked} orderIntent={orderIntent} />
     </Page>
   );
