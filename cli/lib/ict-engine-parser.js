@@ -23,7 +23,7 @@ export const CURRENT_SCHEMA = 4;
 // Deploy-drift guard: the Pine's CODE_REV const must equal this. Bumped in
 // lockstep with every pine/ict-engine.pine change; live-check blocks with
 // pine_code_rev_mismatch when the deployed indicator drifts from the repo.
-export const EXPECTED_CODE_REV = 4;
+export const EXPECTED_CODE_REV = 5;
 
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
@@ -38,7 +38,9 @@ export const EXPECTED_CODE_REV = 4;
 // backend can re-use Wilder ATR instead of running its own proxy.
 const ROW_FIELD_TYPES = {
   // SMT read vs the sibling micro (Phase 3, 2026-07-10) — display-only.
-  smt: { state: 'str', sibling: 'str', ms: 'num' },
+  // `who` (rev 5) = symbol root holding the unconfirmed extreme; absent on
+  // pre-rev-5 recordings → undefined (unknown-key forward-compat).
+  smt: { state: 'str', sibling: 'str', ms: 'num', who: 'str' },
   // V3 adds bar_ms (open time of the bar the emit reflects) + bar_closed.
   meta: { schema: 'num', count: 'num', emit_ms: 'num', bar_ms: 'num', bar_closed: 'bool', code_rev: 'num' },
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },

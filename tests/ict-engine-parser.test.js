@@ -257,12 +257,20 @@ test('parseRow coerces the 3 FVG forming candles (V3) to numbers', () => {
 test("smt row (Phase 3, 2026-07-10): typed + exposed; absent row stays null", () => {
     const rows = [
       "meta | schema=4|count=2|emit_ny=09:31:00|emit_ms=1|tf=1|symbol=MNQ1!|bar_ms=1|bar_closed=1|code_rev=2",
-      "smt | state=diverge_high|sibling=CME_MINI:MES1!|ms=1783650000000",
+      "smt | state=diverge_high|who=MNQ|sibling=CME_MINI:MES1!|ms=1783650000000",
     ];
     const out = parseIctEngineTable(rows);
     assert.equal(out.smt.state, "diverge_high");
+    assert.equal(out.smt.who, "MNQ");        // rev 5: names the diverging symbol
     assert.equal(out.smt.sibling, "CME_MINI:MES1!");
     assert.equal(out.smt.ms, 1783650000000);
     const none = parseIctEngineTable([rows[0]]);
     assert.equal(none.smt, null);
+    // Pre-rev-5 recordings carry no `who` field → undefined (forward-compat).
+    const old = parseIctEngineTable([
+      rows[0],
+      "smt | state=confirm|sibling=CME_MINI:MES1!|ms=1783650000000",
+    ]);
+    assert.equal(old.smt.state, "confirm");
+    assert.equal(old.smt.who, undefined);
 });
