@@ -105,3 +105,16 @@ export function tpChooserRows(preview, typedTp) {
   }
   return { rows, customSel: typed != null && !rows.some((r) => r.sel) };
 }
+
+// ── Instant-SL entry (bottom-bar quick order, 2026-07-10) ───────────────────
+// The SL field beside BUY/SELL routes the button press: empty → open the
+// chooser ticket; a price → fire the market bracket immediately (stop = typed,
+// TP = the 1:2 default placeManual derives, risk = Settings defaultRisk);
+// junk → refuse loudly, never guess a stop.
+export function parseInstantStop(draft) {
+  const raw = String(draft ?? "").trim();
+  if (raw === "") return { mode: "popup" };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return { mode: "invalid", raw };
+  return { mode: "instant", stop: n };
+}

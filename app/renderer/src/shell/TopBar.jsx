@@ -12,6 +12,7 @@ import { useFills } from "../hooks/useFills.js";
 import { useSessionBrief } from "../hooks/useSessionBrief.js";
 import { useOpenReaction } from "../hooks/useOpenReaction.js";
 import { buildDayChip } from "./dayChip.helpers.js";
+import { parseInstantStop } from "../Orders.helpers.js";
 import { liveGridFromTrade } from "../Live.helpers.js";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
@@ -30,7 +31,8 @@ function verView(v) {
 export function TopBar({
   symbol, setSymbol, guards, exec,
   alertCount, newsCount, newsImminent,
-  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick, onRelaunchTv, onOpenBriefing, onOpenTicket,
+  onOpenPalette, onOpenNews, onOpenAlerts, onVerClick, onRelaunchTv, onOpenBriefing,
+  onTrade, slDraft = "", setSlDraft,
 }) {
   const version = useVersion();
   const lastBar = useLastBar();
@@ -44,6 +46,10 @@ export function TopBar({
   const { brief } = useSessionBrief();
   const { latest, ltf } = useOpenReaction();
   const dayChip = buildDayChip({ brief, latest, ltf });
+
+  // Instant-order arming — a valid stop price in the SL field makes the
+  // BUY/SELL buttons live triggers (see CommandShell onTrade).
+  const slArmed = parseInstantStop(slDraft).mode === "instant";
 
   const loop = health?.loop;
   // TV Desktop running without the CDP flag blinds the whole system — outranks
@@ -118,13 +124,23 @@ export function TopBar({
           {pnl && <span className={"cmd-pos-pnl " + (pnl.tone === "red" ? "down" : "up")}>{pnl.v}</span>}
         </div>
         <span className="sp" />
-        {/* Manual BUY/SELL — opens the palette ticket seeded with the side
-            (plan 2026-07-10): stop defaults to the nearest FVG's 1/3 candle,
-            TP to 1:2, risk to Settings defaultRisk; one confirm places the
-            guarded market bracket. */}
-        <span className="cmd-trade">
-          <span className="cmd-trade-btn sell" {...clickable(() => onOpenTicket?.("short"), { label: "sell ticket" })}>SELL</span>
-          <span className="cmd-trade-btn buy" {...clickable(() => onOpenTicket?.("long"), { label: "buy ticket" })}>BUY</span>
+        {/* Manual BUY/SELL (plan 2026-07-10). SL field empty → the buttons open
+            the chooser ticket. SL typed → the buttons FIRE a market bracket
+            instantly (typed stop · 1:2 TP · Settings risk) — armed styling
+            makes the live state unmissable. */}
+        <span className={"cmd-trade" + (slArmed ? " armed" : "")}>
+          <input className="cmd-sl-in" placeholder="SL" value={slDraft}
+                 onChange={(e) => setSlDraft?.(e.target.value)}
+                 title="Type a stop price to arm instant orders: BUY/SELL then places a market order with this SL and a 1:2 TP. Empty = the buttons open the ticket." />
+          {slDraft !== "" && <span className="cmd-sl-x" {...clickable(() => setSlDraft?.(""), { label: "clear stop" })}>×</span>}
+          <span className="cmd-trade-btn sell" {...clickable(() => onTrade?.("sell"), { label: "sell" })}
+                title={slArmed ? `SELL market now · SL ${slDraft} · TP 1:2` : "open the sell ticket"}>
+            SELL{slArmed ? " ⚡" : ""}
+          </span>
+          <span className="cmd-trade-btn buy" {...clickable(() => onTrade?.("buy"), { label: "buy" })}
+                title={slArmed ? `BUY market now · SL ${slDraft} · TP 1:2` : "open the buy ticket"}>
+            BUY{slArmed ? " ⚡" : ""}
+          </span>
         </span>
         {ver && <span className={"cmd-ver " + ver.cls} title={ver.title} {...clickable(onVerClick)}>{ver.label}</span>}
         <div className="cmd-k-btn" {...clickable(onOpenPalette)}>
