@@ -18,7 +18,7 @@ SCHEMA_VERSION = 4
 // and live-check blocks with pine_code_rev_mismatch when the deployed copy
 // drifts from the repo — the 2026-07-02 live session ran a weeks-stale deploy
 // undetected. Every emitted bar carries this stamp in meta.
-CODE_REV = 1
+CODE_REV = 2
 // Worst case at the old 120: 14 levels + 14 sweeps + 24 fvg + 12 bpr +
 // 26 swings + 24 structures + 12 pools + 1 quality = 127 — table.cell past
 // the row cap is a runtime error. 140 leaves headroom.
@@ -210,6 +210,10 @@ type Structure
     string tier
     string validation
     float dispPts = na
+    // Audit fix (deferred item, 2026-07-10): displacement-vs-ATR snapshotted
+    // AT the event bar. Emitting dispPts / current-bar ATR let the ratio
+    // drift with later volatility — a morning MSS read differently by lunch.
+    float dispAtr = na
 
 // An equal-high / equal-low liquidity pool — two consecutive external swings
 // within tolerance. `swept` latches once price trades through `price`.
@@ -233,6 +237,10 @@ showBprs       = input.bool(true,  "BPRs",               group = GRP_VIZ)
 showSwings     = input.bool(true,  "Swings",             group = GRP_VIZ)
 showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
 showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
+// Phase 3 additions (plan 2026-07-09): both display-only.
+showOpenWindow = input.bool(true,  "NY-open window",     group = GRP_VIZ, tooltip = "09:30 open marker + minute-15→30 decision-window shading (daily-bias.md §4 'wait 15–30 min'). Intraday TFs (≤15m) only.")
+showSmt        = input.bool(true,  "SMT row",            group = GRP_VIZ, tooltip = "Rolling-extremes SMT read vs the sibling micro (MNQ↔MES): a new swing extreme here that the sibling fails to confirm = cracked correlation. Panel + additive emit — never gates the chain.")
+smtSiblingIn   = input.symbol("",  "SMT sibling (blank = auto MNQ↔MES)", group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
 showLegEq      = input.bool(true,  "Leg equilibrium",    group = GRP_VIZ)
 showSessShade  = input.bool(false, "Killzone boxes",     group = GRP_VIZ)
@@ -390,6 +398,54 @@ htfLean() =>
 // Daily -> 4H -> 1H top-down, majority wins).
 [m15Lean, _m15a, _m15b, _m15c, _m15d, _m15e, _m15f] = request.security(syminfo.tickerid, "15", htfLean(), lookahead = barmerge.lookahead_on)
 [dLean, _dA, _dB, _dC, _dD, _dE, _dF] = request.security(syminfo.tickerid, "D", htfLean(), lookahead = barmerge.lookahead_on)
+
+// ── SMT vs the sibling micro (plan 2026-07-09 Phase 3 — display-only) ──────
+// Lanto picks the day's instrument via SMT (lanto-discord-actual-calls):
+// correlated micros should confirm each other's extremes; a new rolling
+// extreme HERE that the sibling fails to print on the same bar = cracked
+// correlation on that side. Rolling-extremes read (not swing-pair matching) —
+// lightweight, latched, decays after SMT_HOLD_BARS. Confirmed-bar values
+// ([1] + lookahead_on, the htfLean convention) so the read never repaints.
+SMT_WIN = 20
+SMT_HOLD_BARS = 24
+smtSibling = smtSiblingIn != "" ? smtSiblingIn : str.contains(syminfo.root, "MES") ? "CME_MINI:MNQ1!" : "CME_MINI:MES1!"
+smtExtremes() =>
+    nh = high >= ta.highest(high, SMT_WIN)
+    nl = low <= ta.lowest(low, SMT_WIN)
+    [nh[1], nl[1]]
+[sibNewHigh, sibNewLow] = request.security(smtSibling, timeframe.period, smtExtremes(), lookahead = barmerge.lookahead_on)
+[chNewHigh, chNewLow] = smtExtremes()
+var string smtState = "na"
+var int smtMs = na
+if showSmt
+    if chNewHigh and not sibNewHigh
+        smtState := "diverge_high"
+        smtMs := time
+    else if chNewLow and not sibNewLow
+        smtState := "diverge_low"
+        smtMs := time
+    else if (chNewHigh and sibNewHigh) or (chNewLow and sibNewLow)
+        smtState := "confirm"
+        smtMs := time
+    if smtState != "na" and not na(smtMs) and time - smtMs > SMT_HOLD_BARS * timeframe.in_seconds() * 1000
+        smtState := "na"
+        smtMs := na
+
+// ── NY-open reaction window (plan 2026-07-09 Phase 3 — visual only) ────────
+// Checklist Step 4 finally gets an anchor: a dashed marker on the 09:30 bar,
+// faint shading over the grab window (09:30–09:45) and slightly stronger over
+// the decision window (09:45–10:00, daily-bias.md §4 "wait 15–30 min").
+// Neutral tints only (hues stay status-only); intraday TFs (≤15m) only.
+openWinLtf = timeframe.in_seconds() <= 15 * 60
+tOpenGrab = time(timeframe.period, "0930-0945", TZ)
+tOpenDecide = time(timeframe.period, "0945-1000", TZ)
+openWinOn = showVisuals and showOpenWindow and openWinLtf
+var line openMark = na
+if openWinOn and not na(tOpenGrab) and na(tOpenGrab[1])
+    line.delete(openMark)
+    openMark := line.new(time, low, time, high, xloc.bar_time, extend.both, color.new(colNeutral, 45), line.style_dashed, 1)
+bgcolor(openWinOn and not na(tOpenGrab) ? color.new(colNeutral, 94) : na, title = "NY-open grab window")
+bgcolor(openWinOn and not na(tOpenDecide) ? color.new(colNeutral, 90) : na, title = "NY-open decision window")
 
 // Origin timestamps for the prior-period extremes, tracked on the chart
 // TF (the security call above gives the VALUE, not when it printed).
@@ -1062,6 +1118,7 @@ trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand
         if highArmed
             valid = close >= lastHigh + atrBand ? "break" : "sweep"
             pendingHigh := Structure.new(trendUp ? "bos" : "mss", "bull", lastHigh, lastHighMs, time, disp, tier, valid, dispPts)
+            pendingHigh.dispAtr := na(atr14) or atr14 <= 0 ? na : dispPts / atr14
             array.push(events, pendingHigh)
             trendUp := true
             highArmed := false
@@ -1071,12 +1128,14 @@ trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand
             pendingHigh.validation := "break"
             highMaxDisp := math.max(highMaxDisp, dispPts)
             pendingHigh.dispPts := highMaxDisp
+            pendingHigh.dispAtr := na(atr14) or atr14 <= 0 ? na : highMaxDisp / atr14
             pendingHigh.displacement := pendingHigh.displacement or disp
             highSwept := false
     if not na(lastLow) and close < lastLow
         if lowArmed
             valid = close <= lastLow - atrBand ? "break" : "sweep"
             pendingLow := Structure.new(trendUp ? "mss" : "bos", "bear", lastLow, lastLowMs, time, disp, tier, valid, dispPts)
+            pendingLow.dispAtr := na(atr14) or atr14 <= 0 ? na : dispPts / atr14
             array.push(events, pendingLow)
             trendUp := false
             lowArmed := false
@@ -1086,6 +1145,7 @@ trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand
             pendingLow.validation := "break"
             lowMaxDisp := math.max(lowMaxDisp, dispPts)
             pendingLow.dispPts := lowMaxDisp
+            pendingLow.dispAtr := na(atr14) or atr14 <= 0 ? na : lowMaxDisp / atr14
             pendingLow.displacement := pendingLow.displacement or disp
             lowSwept := false
     events
@@ -1368,7 +1428,10 @@ emitStructure(int row, Structure s) =>
               // I27: reversal-leg magnitude in ATRs — Lanto validates an MSS when
               // the reversal displacement MATCHES the speed of the move that took
               // the liquidity. Additive evidence; the walker does the comparison.
-              "|disp_atr=" + str.tostring(na(atr14) or atr14 <= 0 ? na : s.dispPts / atr14, "#.##")
+              // Audit fix 2026-07-10: the ratio is snapshotted at the event bar
+              // (Structure.dispAtr); the old current-bar fallback only covers
+              // rows created before this revision loaded.
+              "|disp_atr=" + str.tostring(na(s.dispAtr) ? (na(atr14) or atr14 <= 0 ? na : s.dispPts / atr14) : s.dispAtr, "#.##")
     table.cell(evidence, 0, row, "structure")
     table.cell(evidence, 1, row, payload)
     row + 1
@@ -1465,6 +1528,11 @@ if barstate.islast
         row := emitStructure(row, s)
     for p in pools
         row := emitLiquidity(row, p)
+    // SMT read (Phase 3, additive — schema stays 4; display-only downstream).
+    if showSmt
+        table.cell(evidence, 0, row, "smt")
+        table.cell(evidence, 1, row, "state=" + smtState + "|sibling=" + smtSibling + (na(smtMs) ? "" : "|ms=" + str.tostring(smtMs)))
+        row := row + 1
     row := emitQuality(row)
     emitMeta(row - 1)
     // The evidence table is a backend-only channel. A Pine table must exist
@@ -1512,7 +1580,7 @@ PANEL_TXT = panelSizeInp == "Normal" ? size.normal : panelSizeInp == "Small" ? s
 // 6 columns: glyph · label · 4 detail cells. Normal rows merge the last
 // four into one detail cell; the HTF row uses them as the MTF heatmap
 // (LuxAlgo scanner convention — the solid fill IS the state).
-var table panel = table.new(PANEL_POS, 6, 10, bgcolor = color.new(chart.bg_color, 12), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
+var table panel = table.new(PANEL_POS, 6, 11, bgcolor = color.new(chart.bg_color, 12), frame_color = color.new(chart.fg_color, 72), frame_width = 1, border_width = 0)
 
 clearViz() =>
     for b in vizBoxes
@@ -1574,6 +1642,11 @@ var array<float> lvlPx = array.new<float>()
 var array<string> lvlNm = array.new<string>()
 var array<int> lvlMs = array.new<int>()
 var array<int> lvlCol = array.new<int>()
+// Audit fix (merged-label price, 2026-07-10): a cluster whose members sit at
+// DIFFERENT prices (within the merge tolerance, up to 0.1×ATR apart) must not
+// print the first member's price as if it were everyone's. Mixed clusters
+// carry each member's own price inside the name and drop the trailing price.
+var array<bool> lvlMixed = array.new<bool>()
 
 mergeLevel(float price, string name, int x1, int labelCol) =>
     tol = na(atr14) or atr14 <= 0 ? syminfo.mintick * 2 : atr14 * LIQUIDITY_EQ_ATR_MULT
@@ -1581,7 +1654,16 @@ mergeLevel(float price, string name, int x1, int labelCol) =>
     if array.size(lvlPx) > 0
         for i = 0 to array.size(lvlPx) - 1
             if not merged and math.abs(array.get(lvlPx, i) - price) <= tol
-                array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name)
+                samePx = math.abs(array.get(lvlPx, i) - price) <= syminfo.mintick / 2
+                if samePx and not array.get(lvlMixed, i)
+                    array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name)
+                else
+                    // First divergence retrofits the cluster's own price onto
+                    // the names built so far, then every member states its own.
+                    if not array.get(lvlMixed, i)
+                        array.set(lvlNm, i, array.get(lvlNm, i) + " " + str.tostring(array.get(lvlPx, i), format.mintick))
+                        array.set(lvlMixed, i, true)
+                    array.set(lvlNm, i, array.get(lvlNm, i) + " = " + name + (samePx ? "" : " " + str.tostring(price, format.mintick)))
                 // Trace the merged line back to the OLDEST member's origin.
                 array.set(lvlMs, i, math.min(array.get(lvlMs, i), x1))
                 merged := true
@@ -1590,6 +1672,7 @@ mergeLevel(float price, string name, int x1, int labelCol) =>
         array.push(lvlNm, name)
         array.push(lvlMs, x1)
         array.push(lvlCol, labelCol)
+        array.push(lvlMixed, false)
 
 drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, string name, bool forming = false, int labelCol = 0) =>
     if not na(price)
@@ -1617,6 +1700,7 @@ renderLevels() =>
     array.clear(lvlNm)
     array.clear(lvlMs)
     array.clear(lvlCol)
+    array.clear(lvlMixed)
     drawLevel(asiaH, asiaHMs, asiaHSwept, asiaHSweptMs, asiaHRej, "AS.H", inAsia)
     drawLevel(asiaL, asiaLMs, asiaLSwept, asiaLSweptMs, asiaLRej, "AS.L", inAsia)
     drawLevel(lonH, lonHMs, lonHSwept, lonHSweptMs, lonHRej, "LO.H", inLondon)
@@ -1635,7 +1719,9 @@ renderLevels() =>
             price = array.get(lvlPx, i)
             x2 = time + RIGHT_PAD_MS * (1 + array.get(lvlCol, i) * 2)
             vizLine(array.get(lvlMs, i), price, x2, price, colNeutral, line.style_solid, 1)
-            vizLabel(x2, price, array.get(lvlNm, i) + "  " + str.tostring(price, format.mintick), color(na), colNeutral, label.style_label_left, size.small)
+            // Mixed clusters already name each member's own price — a single
+            // trailing price would misattribute it to every member.
+            vizLabel(x2, price, array.get(lvlNm, i) + (array.get(lvlMixed, i) ? "" : "  " + str.tostring(price, format.mintick)), color(na), colNeutral, label.style_label_left, size.small)
 
 // The current leg's running extremes — quiet dotted guides for the live
 // structural invalidation anchors (strategy §6).
@@ -1929,13 +2015,13 @@ renderChecklist() =>
     // into one cell EXCEPT row 2, whose four cells are the MTF heatmap.
     var bool panelMerged = false
     if not panelMerged
-        for r = 0 to 9
+        for r = 0 to 10
             for c = 0 to 5
                 pSet(c, r, "")
         table.merge_cells(panel, 0, 0, 5, 0)
-        table.merge_cells(panel, 0, 9, 5, 9)
+        table.merge_cells(panel, 0, 10, 5, 10)
         table.merge_cells(panel, 2, 1, 5, 1)
-        for r = 3 to 8
+        for r = 3 to 9
             table.merge_cells(panel, 2, r, 5, r)
         panelMerged := true
 
@@ -2143,6 +2229,13 @@ renderChecklist() =>
     candAge = candEntered and not na(candEnteredMs) ? " " + durTxt(candEnteredMs) : not na(candBornMs) ? " " + durTxt(candBornMs) : ""
     pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") + candAge : side == 0 ? "—" : "none near", "Best NEAR live gap in-direction (within ~8 ATR — near price is the realistic draw, daily-bias.md §2): fresh > took-liq > displacement. Age = since tap when entered, since birth otherwise.")
     pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone in the trade direction (confirmation.md). Same-candle tap-and-close is valid — the hand-graded winners are same-candle. Dead if it fights >10–15m.")
+    // SMT vs the sibling micro (Phase 3, display-only). A divergence AGAINST
+    // the working side reads as fail-red; with/undirected is attention-amber.
+    sibShort = str.replace(str.replace(smtSibling, "CME_MINI:", ""), "1!", "")
+    smtAgeMin = na(smtMs) ? 0 : math.round((time - smtMs) / 60000.0)
+    smtDetail = not showSmt ? "off" : smtState == "confirm" ? "in sync · " + str.tostring(smtAgeMin) + "m" : smtState == "diverge_high" ? sibShort + " not confirming HH ✕ · " + str.tostring(smtAgeMin) + "m" : smtState == "diverge_low" ? sibShort + " not confirming LL ✕ · " + str.tostring(smtAgeMin) + "m" : "—"
+    smtStat = not showSmt or smtState == "na" ? 0 : smtState == "confirm" ? 2 : (side == 1 and smtState == "diverge_high") or (side == -1 and smtState == "diverge_low") ? -1 : 1
+    pRow(9, smtStat, "SMT", smtDetail, "Rolling-extremes SMT vs " + sibShort + ": a new " + str.tostring(SMT_WIN) + "-bar extreme here that the sibling didn't print = cracked correlation (Lanto picks the day's instrument via SMT). Display-only — never gates the chain.")
 
     // ENTRY banner — always a tinted band (the card's one high-presence
     // element); fully saturated only when every row above it passes.
@@ -2166,7 +2259,7 @@ renderChecklist() =>
         bTxt := "▸ " + (side > 0 ? "lean LONG" : "lean SHORT") + " · bias " + str.tostring(count) + "/3"
         bCol := color.new(accent, 25)
         bBg := color.new(accent, 91)
-    pSet(0, 9, bTxt, bCol, bBg, "Model · mechanism · structural stop at the zone edge (risk-and-management.md). Visual aid — the walker chain is the setup brain.", true)
+    pSet(0, 10, bTxt, bCol, bBg, "Model · mechanism · structural stop at the zone edge (risk-and-management.md). Visual aid — the walker chain is the setup brain.", true)
 
     // Spotlight the tracked PD array — an accent outline + ◈ marker tie
     // the panel's PD-array row to the exact zone it means on the chart.
