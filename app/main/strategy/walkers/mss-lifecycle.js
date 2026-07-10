@@ -6,7 +6,11 @@ import { isValidConfirmationForSide, wickTapConfirm } from './lifecycle-utils.js
 // liquidity — a genuine fast displacement (>= 1 ATR), not a weak retrace
 // (Lanto: "more of a retrace than it does a reversal"). Gated by
 // GOFNQ_MSS_SPEED_MATCH (default-on; opt out with =0). Fails OPEN when disp_atr
-// is absent (pre-field tapes/fixtures) so recorded corpora are unaffected.
+// is absent (pre-field tapes/fixtures) so recorded corpora are unaffected — and
+// equally when it is null (an honest-na engine emit for a warmup structure with
+// no event-bar ATR, which the parser coerces to null; rev-3 Pine C8 fix). Only a
+// real finite ratio gates: Number(null) is 0, which must NOT read as a weak
+// sub-threshold reversal and block a legitimate MSS.
 const MSS_MIN_REVERSAL_ATR = 1.0;
 
 function directionForSide(side) {
@@ -62,7 +66,8 @@ function isSignificantDisplacedShift(fs) {
   if (fs?.tier != null && fs.tier !== 'swing') return false;
   if (fs?.displacement != null && !isTruthyFlag(fs.displacement)) return false;
   if (process.env.GOFNQ_MSS_SPEED_MATCH !== '0') {
-    const dispAtr = Number(fs?.disp_atr);
+    const rawDispAtr = fs?.disp_atr;
+    const dispAtr = rawDispAtr == null ? NaN : Number(rawDispAtr); // null (honest-na) / absent → fail OPEN
     if (Number.isFinite(dispAtr) && dispAtr < MSS_MIN_REVERSAL_ATR) return false; // I27: weak reversal ≠ MSS
   }
   return true;
