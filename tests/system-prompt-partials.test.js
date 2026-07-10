@@ -32,17 +32,6 @@ const EXPECTED_SECTIONS = {
     '<phase name="brief">\n',
     "<ict_vocabulary>",
   ],
-  "catch-up": [
-    "## OUTPUT PROTOCOL — TOOL SURFACES",
-    "<bundle_fields>",
-    '<phase name="open_reaction">\n',
-    '<phase name="catch_up">\n',
-    '<phase name="entry_hunt">\n',
-    "<anti_patterns>\n",
-    "<ict_vocabulary>",
-    "<examples>",
-    "<output_json>",
-  ],
   chat: [
     "## OUTPUT PROTOCOL — TOOL SURFACES",
     "## ALERT GUIDANCE",

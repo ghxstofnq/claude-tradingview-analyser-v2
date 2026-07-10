@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("api", {
   claude: {
     // Cross-purpose activity stream — fires for every event from any
-    // userTurn (brief, wrap, bar-close, chat, review, catch-up, shutdown).
+    // userTurn (brief, wrap, bar-close, chat, review, shutdown).
     // Used by the CLAUDE popover to show what Claude is doing globally,
     // not just in the interactive chat conversation.
     onActivity(cb) {

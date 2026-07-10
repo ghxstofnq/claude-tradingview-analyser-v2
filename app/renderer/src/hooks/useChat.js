@@ -13,7 +13,7 @@ import { shouldProviderHandleEvent } from "../provider-popover-contract.js";
 // prose must not leak into BRAIN. chat:chunk events are purpose-tagged by the
 // sender (bar-close.js) so the renderer can route them.
 export function isNarrationPurpose(purpose) {
-  return purpose === "bar-close" || purpose === "catch-up" || purpose === "catch_up";
+  return purpose === "bar-close";
 }
 
 // #20 Gate verbose console logging behind a localStorage flag so
@@ -113,7 +113,7 @@ export function useChat({ provider = "claude" } = {}) {
       dlog("[useChat] turn_complete", ev);
       // #63 Append a one-line duration footer to the streaming reply so
       // the trader sees "took 47s" without a separate panel. Skip if
-      // duration is missing (catch-up turns currently don't emit it).
+      // duration is missing.
       if (ev?.durationMs && streamingIdxRef.current != null) {
         setMessages((prev) => {
           const idx = streamingIdxRef.current;
@@ -167,7 +167,7 @@ export function useChat({ provider = "claude" } = {}) {
     // Global activity stream — every userTurn across all purposes. The
     // chat purpose has its own dedicated handlers above, so we skip
     // chat-purpose events here to avoid duplicating the prose. Other
-    // purposes (bar-close, brief, wrap, review, catch-up) get a compact
+    // purposes (bar-close, brief, wrap, review) get a compact
     // activity row showing start → tool calls → end with duration.
     const offActivity = window.api?.claude?.onActivity?.((ev) => {
       if (!shouldProviderHandleEvent(provider, ev)) return;

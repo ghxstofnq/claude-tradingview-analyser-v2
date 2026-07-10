@@ -106,24 +106,6 @@ function truthCacheKeyFor(ev) {
   return ev?.bar_close_time ?? ev?.ts ?? null;
 }
 
-/**
- * Should this bar-close turn route into <phase name="catch_up"> instead of
- * the regular phase? True iff:
- * - We're past the open-reaction window (entry_hunt phase or post_session)
- * - pillar1.md + pillar2.md exist (brief/pillar state is complete)
- * - ltf-bias.md does NOT exist (open-reaction never ran or didn't finalize)
- *
- * Spec: docs/superpowers/specs/2026-05-26-strategy-chain-design.md §5.1
- */
-export function shouldRouteToCatchUp({ sessionPhase, pillar1Exists, pillar2Exists, ltfBiasExists }) {
-  if (ltfBiasExists) return false;
-  if (!pillar1Exists) return false;
-  if (!pillar2Exists) return false;
-  if (sessionPhase === 'entry_hunt_ny_am' || sessionPhase === 'entry_hunt_ny_pm') return true;
-  if (sessionPhase === 'post_ny_am' || sessionPhase === 'post_ny_pm') return true;
-  return false;
-}
-
 export function briefFilenameForLeader(leader) {
   if (leader === "mnq") return `brief-${PAIR_PRIMARY}.json`;
   if (leader === "mes") return `brief-${PAIR_SECONDARY}.json`;
@@ -649,9 +631,7 @@ async function runClaudeTurnFor(ev, session, phase) {
   // Quiet-bar gate: during entry hunt, skip the LLM narration turn entirely
   // when nothing narration-worthy happened this bar. The walker chain already
   // surfaced its verdict; the UI's walker panel and deterministic events
-  // update every bar regardless. (The LLM catch-up routing was removed
-  // 2026-06-15 — the deterministic backfill above resolves leader + bias in
-  // code, so there is no longer a catch_up turn to keep alive on quiet bars.)
+  // update every bar regardless.
   if (phase === "entry_hunt" && !shouldRunNarrationTurn({ truth: walkerTruth, ev })) {
     recordMetric({ kind: "bar-close", event: "skipped", session, reason: "narration_quiet_bar" });
     return;

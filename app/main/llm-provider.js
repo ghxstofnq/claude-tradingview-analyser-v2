@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TOOL_REQUIRED_PURPOSES = new Set(['brief', 'bar-close', 'catch-up', 'wrap']);
+const TOOL_REQUIRED_PURPOSES = new Set(['brief', 'bar-close', 'wrap']);
 const APP_MAIN_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(APP_MAIN_DIR, '..', '..');
 const EXTRA_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'];

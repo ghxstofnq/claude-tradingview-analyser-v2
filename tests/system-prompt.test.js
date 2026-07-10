@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { _loadSystemPromptForTests as loadSystemPrompt } from "../app/main/sdk.js";
 import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 
-const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close", "catch-up"];
+const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close"];
 
 test("kernel content present in every purpose", async () => {
   for (const purpose of PURPOSES) {
@@ -23,8 +23,6 @@ test("per-purpose content present", async () => {
     ["brief", /publish the PREP-panel SESSION BRIEF/i],
     ["bar-close", /You are in entry hunt\. The deterministic walker chain/i],
     ["bar-close", /first 15 min of NY's reaction/i],
-    ["catch-up", /synthesize a missed `open_reaction`/i],
-    ["catch-up", /first 15 min of NY's reaction/i],
     ["wrap", /write a one-paragraph wrap to this session/i],
     ["chat", /ALERT GUIDANCE|alert tool call/i],
     ["chat", /PERSISTENT MEMORY GUIDANCE/i],
@@ -42,7 +40,6 @@ test("chat does NOT contain analysis content", async () => {
   const chat = joinSystemPrompt(await loadSystemPrompt("chat"));
   assert.doesNotMatch(chat, /You are in entry hunt\. The deterministic walker chain/, "chat should not have entry_hunt phase body");
   assert.doesNotMatch(chat, /publish the PREP-panel SESSION BRIEF/, "chat should not have brief phase body");
-  assert.doesNotMatch(chat, /synthesize a missed `open_reaction`/, "chat should not have catch_up phase body");
   assert.doesNotMatch(chat, /first 15 min of NY's reaction/, "chat should not have open_reaction phase body");
   assert.doesNotMatch(chat, /<examples>/, "chat should not have entry-model examples");
   assert.doesNotMatch(chat, /<bundle_fields>/, "chat should not have bundle_fields");

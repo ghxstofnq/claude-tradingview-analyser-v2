@@ -43,7 +43,6 @@ const PARTIALS_DIR = path.join(PROMPTS_DIR, "partials");
 const PHASE_PATHS = {
   "bar-close": path.join(PROMPTS_DIR, "phase-bar-close.md"),
   "brief":     path.join(PROMPTS_DIR, "phase-brief.md"),
-  "catch-up":  path.join(PROMPTS_DIR, "phase-catch-up.md"),
   "wrap":      path.join(PROMPTS_DIR, "phase-wrap.md"),
   "chat":      path.join(PROMPTS_DIR, "phase-chat.md"),
   "review":    path.join(PROMPTS_DIR, "phase-review.md"),
@@ -214,7 +213,6 @@ const ALERT_TOOLS = ["tv_alert_create", "tv_alert_list", "tv_alert_delete"];
 const CHAIN_SURFACE = ["surface_setup", "surface_no_trade", "surface_ltf_bias", "surface_leader_decision", "surface_open_reaction"];
 export const TOOLS_BY_PURPOSE = {
   "bar-close": [...ANALYZE_TOOLS, ...ALERT_TOOLS, ...CHAIN_SURFACE],
-  "catch-up": [...ANALYZE_TOOLS, ...CHAIN_SURFACE],
   brief: [...ANALYZE_TOOLS, ...ALERT_TOOLS, "surface_session_brief"],
   wrap: ["surface_session_summary"],
   chat: [...ALERT_TOOLS],
@@ -869,14 +867,14 @@ const EFFORT = "high";
  *
  * Caller contract:
  *   - `purpose`: required. One of 'brief' | 'wrap' | 'bar-close' | 'chat' |
- *     'catch-up'. Used as the session-id key.
+ *     'review'. Used as the session-id key.
  *   - `text`: the user-turn message.
  *   - `onEvent`: event callback (chunk / tool_call / turn_complete / error).
  *   - `timeoutMs`: optional override (default 300_000).
  */
 export async function userTurn({ text, purpose, onEvent, timeoutMs = DEFAULT_TURN_TIMEOUT_MS, backtestContext = null, providerOverride = null }) {
   if (!purpose) {
-    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | catch-up | review)";
+    const msg = "userTurn() requires a purpose (brief | wrap | bar-close | chat | review)";
     onEvent?.({ type: "error", message: msg });
     onEvent?.({ type: "turn_complete" });
     throw new Error(msg);
@@ -988,7 +986,7 @@ async function runOneTurn({ text, purpose, onEvent: rawOnEvent, timeoutMs, provi
     tools: ["Read", "Glob"],
     mcpServers: _mcpServer ? { tv: _mcpServer } : undefined,
     // Per-purpose whitelist: chat / wrap / review can call the memory tool;
-    // brief / bar-close / catch-up are read-only for memory. Keeps the
+    // brief / bar-close are read-only for memory. Keeps the
     // 420×/day bar-close turn from being a write surface.
     allowedTools: buildAllowedToolNames(purpose),
     // MCP_CONNECTION_NONBLOCKING=0 — per 0.3.142 release notes, MCP servers

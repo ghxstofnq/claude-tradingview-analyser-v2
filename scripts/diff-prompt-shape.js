@@ -18,7 +18,7 @@ import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOT_DIR = path.resolve(__dirname, "..", "tests", ".tmp-prompt-snapshots");
 
-const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close", "catch-up"];
+const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close"];
 
 function overlapPercent(newText, oldText) {
   // For each 3-char window in `newText`, check whether it appears in `oldText`.
