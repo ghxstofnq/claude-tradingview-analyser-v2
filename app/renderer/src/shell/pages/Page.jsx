@@ -6,8 +6,9 @@
 // `sidecar` switches to the Agent variant (right-pinned, no scrim dim). `hosted`
 // neutralizes an embedded popover body (legacy bridge; native pages don't use it).
 
-import React from "react";
+import React, { useRef } from "react";
 import { clickable } from "../../a11y.js";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 import { PAGE_ORDER, PAGE_TITLES } from "../shell.constants.js";
 
 // The ⌘-map footer — one span per page, the active one lit.
@@ -34,8 +35,13 @@ export function Page({
     + (narrow ? " narrow" : "")
     + (hosted ? " hosted" : "")
     + (className ? " " + className : "");
+  const frameRef = useRef(null);
+  // Trap Tab focus inside the floating page + restore it to the opener on close
+  // (Task D2). Sidecar (Agent) doesn't dim the scrim, so it isn't modal.
+  useFocusTrap(frameRef, { active: !sidecar });
   return (
-    <div className={cls} onClick={(e) => e.stopPropagation()}>
+    <div ref={frameRef} className={cls} onClick={(e) => e.stopPropagation()}
+         role="dialog" aria-modal={sidecar ? undefined : "true"} aria-label={title} tabIndex={-1}>
       <div className="head">
         {icon && <span className={"icon" + (tint ? " tint-" + tint : "")}>{icon}</span>}
         <span className="t">{title}</span>

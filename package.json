@@ -18,6 +18,7 @@
     "test": "npm run test:unit && npm run test:app",
     "test:unit": "node ./scripts/run-root-tests.mjs",
     "test:app": "npm --prefix app test",
+    "test:ui": "node ./design-harness/command-shell-smoke.mjs",
     "tapes": "node ./scripts/tape-runner.js",
     "parity": "GOFNQ_STATE_DIR=\"${GOFNQ_STATE_DIR:-$(mktemp -d)}\" node --test tests/parity-gate.test.js",
     "parity:add": "node ./scripts/make-parity-fixture.mjs"

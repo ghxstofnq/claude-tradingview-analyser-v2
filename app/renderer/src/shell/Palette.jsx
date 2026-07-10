@@ -5,6 +5,7 @@
 
 import React, { useRef, useEffect } from "react";
 import { clickable } from "../a11y.js";
+import { useFocusTrap } from "../hooks/useFocusTrap.js";
 import { detectIntent } from "./paletteIntent.helpers.js";
 import { parseTicket } from "./parseTicket.helpers.js";
 import { visibleRows } from "./commandList.helpers.js";
@@ -21,6 +22,11 @@ export function Palette({
   onRunCommand, onDisarm, onCancelAll, onToast, onClose,
 }) {
   const inputRef = useRef(null);
+  const palRef = useRef(null);
+  // Trap Tab inside the palette + restore focus to the opener on close (Task
+  // D2). Declared BEFORE the input-focus effect (and the input drops its
+  // autoFocus attr) so the trap captures the true opener, not the palette input.
+  useFocusTrap(palRef, { active: true, autoFocus: false });
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   // forcedView is set only on commit (Tab / Enter → ask). While typing a
@@ -34,12 +40,13 @@ export function Palette({
   const showInput = intent !== "ask" && intent !== "browse";
 
   return (
-    <div className="cmd-palette" onClick={(e) => e.stopPropagation()}>
+    <div ref={palRef} className="cmd-palette" onClick={(e) => e.stopPropagation()}
+         role="dialog" aria-modal="true" aria-label="Command palette" tabIndex={-1}>
       {showInput && (
         <div className="cmd-pal-input">
           <span className="glass">⌕</span>
           <input ref={inputRef} type="text" value={query} data-cmd-pal-input="1"
-                 onChange={(e) => onQuery(e.target.value)} autoFocus
+                 onChange={(e) => onQuery(e.target.value)}
                  placeholder="Type a command, a price, or a question…" />
           <span className="cmd-kbd" {...clickable(onClose)}>esc</span>
         </div>

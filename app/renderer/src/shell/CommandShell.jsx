@@ -85,6 +85,21 @@ const PAGE_COMPONENTS = {
   risk: RiskShellPage, prefs: PrefsShellPage,
 };
 
+// Test-only render-crash injection for the page-containment harness (Task D1
+// scenario 10). Gated on import.meta.env.DEV, which Vite replaces with the
+// literal `false` in a production build — so this check AND the
+// window.__GOFNQ_FIXTURE_CRASH__ reference are dead-code-eliminated from the
+// shipped bundle (matching the fixture adapter's cleanliness). In dev/test the
+// global is only ever set by the Playwright fixture adapter. Rendered as a
+// sibling inside the per-page ErrorBoundary so the throw is contained exactly
+// like a real page crash.
+function FixtureCrashGuard({ page }) {
+  if (import.meta.env.DEV && typeof window !== "undefined" && window.__GOFNQ_FIXTURE_CRASH__ === page) {
+    throw new Error(`fixture-injected crash on the ${page} page`);
+  }
+  return null;
+}
+
 export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, currentPrice, onToggleTheme }) {
   const [page, setPage] = useState(null);
   const [pal, setPal] = useState({ open: false, query: "", sel: 0, forced: null, askQuery: null });
@@ -478,12 +493,19 @@ export function CommandShell({ symbol, setSymbol, guards, setGuards, chats, curr
               flatten in the fallback). key/resetKey={page} auto-recovers on
               switch. */}
           {PageComp && (
-            <ErrorBoundary label={page} variant={page === "live" || page === "orders" ? "emergency" : "page"}
-                           key={page} resetKey={page}
-                           onOpenSystem={() => openPage("system")}
-                           onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
-              <PageComp {...pageProps} />
-            </ErrorBoundary>
+            /* display:contents wrapper carries aria-hidden while the ⌘K palette is
+               open OVER a page, so the background page dialog is removed from the
+               a11y tree — one live role=dialog aria-modal at a time (the palette),
+               never two. Restores when the palette closes. */
+            <div style={{ display: "contents" }} aria-hidden={pal.open ? "true" : undefined}>
+              <ErrorBoundary label={page} variant={page === "live" || page === "orders" ? "emergency" : "page"}
+                             key={page} resetKey={page}
+                             onOpenSystem={() => openPage("system")}
+                             onFlatten={() => window.api?.execution?.flatten?.({ symbol })}>
+                {import.meta.env.DEV && <FixtureCrashGuard page={page} />}
+                <PageComp {...pageProps} />
+              </ErrorBoundary>
+            </div>
           )}
           {pal.open && (
             <ErrorBoundary label="COMMAND PALETTE" variant="emergency"

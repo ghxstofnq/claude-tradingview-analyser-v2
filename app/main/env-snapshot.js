@@ -59,6 +59,10 @@ export const KNOWN_GOFNQ_KEYS = Object.freeze([
   "GOFNQ_STRONG_OVN_NET",
   "GOFNQ_STRUCTURE_TF",
   "GOFNQ_STRUCT_STOP_SIGNIFICANT",
+  // Command Shell workflow-harness knobs (design-harness/command-shell-smoke.mjs):
+  // opt into reusing an already-running Vite server + its URL. Not runtime levers.
+  "GOFNQ_TESTUI_REUSE",
+  "GOFNQ_TESTUI_URL",
   "GOFNQ_WAIT_FOR_REACTION",
   "GOFNQ_WIDE_STOP_CAP_ALL_MODELS",
 ]);

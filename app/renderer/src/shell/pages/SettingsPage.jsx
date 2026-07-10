@@ -9,7 +9,7 @@
 import React, { useState, useEffect } from "react";
 import { Page } from "./Page.jsx";
 import { PAGE_ICONS } from "../shell.constants.js";
-import { clickable } from "../../a11y.js";
+import { clickable, tab } from "../../a11y.js";
 import { armReady as isArmReady, realAccountView } from "../../Account.helpers.js";
 import { useExecutionState } from "../../hooks/useExecutionState.js";
 import { useHealth } from "../../hooks/useHealth.js";
@@ -152,9 +152,10 @@ export function SettingsPage({ guards, setGuards, symbol = "MNQ1!", onClose, onT
         </div>
 
         <Card label="AUTOMATION">
-          <div className="cmd-set-seg">
+          <div className="cmd-set-seg" role="tablist" aria-label="automation mode">
             {[["manual", "MANUAL"], ["suggest", "SUGGEST"], ["auto", "AUTO"]].map(([v, l]) => (
-              <span key={v} className={"cmd-set-seg-opt" + (mode === v ? " on" : "")} {...clickable(() => setMode(v), { label: l })}>{l}</span>
+              <span key={v} className={"cmd-set-seg-opt" + (mode === v ? " on" : "")}
+                    {...tab(() => setMode(v), { selected: mode === v, label: l })}>{l}</span>
             ))}
           </div>
           <p className="cmd-set-desc">{MODE_DESC[mode] || MODE_DESC.manual}</p>
