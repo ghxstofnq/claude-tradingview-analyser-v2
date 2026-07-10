@@ -12,7 +12,7 @@ import { joinSystemPrompt } from "../app/main/prompt-composer.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.resolve(__dirname, "..", "tests", ".tmp-prompt-snapshots");
 
-const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close", "catch-up"];
+const PURPOSES = ["chat", "review", "wrap", "brief", "bar-close"];
 
 async function main() {
   await fs.mkdir(OUT_DIR, { recursive: true });

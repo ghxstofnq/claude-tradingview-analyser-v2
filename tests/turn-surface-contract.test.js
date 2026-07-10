@@ -92,24 +92,3 @@ test("brief and wrap must use their dedicated one-shot surface only", () => {
     /exactly one surface_session_summary/,
   );
 });
-
-test("catch-up must end no_trade and never setup", () => {
-  const text = "CATCH-UP TURN — Pick leader + finalize LTF bias. Call surface_leader_decision and surface_ltf_bias.";
-  assert.deepEqual(validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [READ, LEADER, LTF, NO_TRADE] }), { ok: true });
-  assert.match(
-    validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [READ, LTF, NO_TRADE] }).message,
-    /must call surface_leader_decision/,
-  );
-  assert.match(
-    validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [READ, LEADER, NO_TRADE] }).message,
-    /must call surface_ltf_bias/,
-  );
-  assert.match(
-    validateTurnSurfaceContract({ purpose: "catch-up", text, toolCalls: [LEADER, LTF] }).message,
-    /must end with surface_no_trade/,
-  );
-  assert.match(
-    validateTurnSurfaceContract({ purpose: "catch-up", toolCalls: [SETUP, NO_TRADE] }).message,
-    /must not call surface_setup/,
-  );
-});

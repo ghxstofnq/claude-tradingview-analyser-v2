@@ -61,24 +61,6 @@ export function validateTurnSurfaceContract({ purpose, text = "", toolCalls = []
     return { ok: true };
   }
 
-  // Catch-up turns can choose leader + LTF bias, but must NOT surface a setup;
-  // they end with no_trade so the LIVE card cannot remain stale.
-  if (purpose === "catch-up" || /CATCH-UP TURN/i.test(text)) {
-    if (has(calls, "mcp__tv__surface_setup")) {
-      return fail("catch-up turn must not call surface_setup", calls);
-    }
-    if (/surface_leader_decision|Pick leader/i.test(text) && !has(calls, "mcp__tv__surface_leader_decision")) {
-      return fail("leader catch-up turn must call surface_leader_decision", calls);
-    }
-    if (/surface_ltf_bias|finalize LTF bias|ltf-bias\.md is missing/i.test(text) && !has(calls, "mcp__tv__surface_ltf_bias")) {
-      return fail("catch-up turn must call surface_ltf_bias", calls);
-    }
-    if (!has(calls, "mcp__tv__surface_no_trade")) {
-      return fail("catch-up turn must end with surface_no_trade", calls);
-    }
-    return { ok: true };
-  }
-
   if (purpose === "bar-close") {
     if (/Phase:\s*open_reaction\b/.test(text)) {
       if (has(calls, "mcp__tv__surface_setup")) {

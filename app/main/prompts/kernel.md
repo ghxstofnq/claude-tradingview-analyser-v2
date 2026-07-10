@@ -49,7 +49,7 @@ Eight non-negotiable rules (research-backed; sources in `docs/research/*.md`):
 8. **`chain_status` emission.** Every surface tool call (`surface_session_brief`, `surface_ltf_bias`, `surface_leader_decision`) sets `chain_status`. Enum values:
    - `clean` — all inputs read, all outputs structured
    - `degraded:<reason>` — output produced with a caveat (e.g. `degraded:leader_inconclusive`, `degraded:brief_no_trade_soft`)
-   - `backfilled:<phase>` — synthesized after the fact (catch_up only)
+   - `backfilled:<phase>` — synthesized after the fact by the deterministic backfill
    - `divergent` — open_reaction found HTF/LTF clash
    - `stale:<minutes>` — upstream output older than N min vs the bar this phase fired on
    Wrap reads these from each frontmatter to build the chain_audit block in `summary.md`.
@@ -60,7 +60,7 @@ Project constraints in `CLAUDE.md` always apply.
 
 <phase_routing>
 
-`gates.session.phase` carries one of: `pre_session_ny_am | pre_session_ny_pm | open_reaction_ny_am | open_reaction_ny_pm | entry_hunt_ny_am | entry_hunt_ny_pm | post_ny_am | post_ny_pm | catch_up_ny_am | catch_up_ny_pm | london_open | inter_session | closed`. The phase block in your per-purpose system prompt handles the phases your purpose covers.
+`gates.session.phase` carries one of: `pre_session_ny_am | pre_session_ny_pm | open_reaction_ny_am | open_reaction_ny_pm | entry_hunt_ny_am | entry_hunt_ny_pm | post_ny_am | post_ny_pm | london_open | inter_session | closed`. The phase block in your per-purpose system prompt handles the phases your purpose covers.
 
 **Brief turns** (fired from `session-brief.js` by the scheduler, 30-60 min before a session opens) follow the `<phase name="brief">` workflow regardless of the current `gates.session.phase`. The user message will say "This is a SESSION BRIEF turn for the <SESSION> session" — when you see that, do the brief phase end-to-end.
 

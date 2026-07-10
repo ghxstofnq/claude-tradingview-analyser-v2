@@ -15,7 +15,7 @@ describe("per-purpose tool allow-list (C26)", () => {
   it("only the live-chain purposes expose surface_setup / surface_no_trade", () => {
     for (const [purpose, tools] of Object.entries(TOOLS_BY_PURPOSE)) {
       const hasSetup = tools.includes("surface_setup") || tools.includes("surface_no_trade");
-      if (purpose === "bar-close" || purpose === "catch-up") assert.ok(hasSetup, `${purpose} should have setup tools`);
+      if (purpose === "bar-close") assert.ok(hasSetup, `${purpose} should have setup tools`);
       else assert.ok(!hasSetup, `${purpose} must NOT expose setup tools`);
     }
   });

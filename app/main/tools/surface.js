@@ -121,11 +121,11 @@ export function setCurrentTurnPurpose(purpose) {
   _currentTurnPurpose = purpose ?? null;
 }
 export const SURFACE_OWNERS = {
-  surface_setup: new Set(["bar-close", "catch-up"]),
-  surface_no_trade: new Set(["bar-close", "catch-up"]),
-  surface_ltf_bias: new Set(["bar-close", "catch-up"]),
-  surface_leader_decision: new Set(["bar-close", "catch-up"]),
-  surface_open_reaction: new Set(["bar-close", "catch-up"]),
+  surface_setup: new Set(["bar-close"]),
+  surface_no_trade: new Set(["bar-close"]),
+  surface_ltf_bias: new Set(["bar-close"]),
+  surface_leader_decision: new Set(["bar-close"]),
+  surface_open_reaction: new Set(["bar-close"]),
   surface_session_brief: new Set(["brief"]),
   surface_session_summary: new Set(["wrap"]),
 };

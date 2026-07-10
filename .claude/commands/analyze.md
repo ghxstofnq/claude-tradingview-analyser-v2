@@ -76,7 +76,7 @@ Eight non-negotiable rules (research-backed; sources in `docs/research/*.md`):
 8. **`chain_status` emission.** Every surface tool call (`surface_session_brief`, `surface_ltf_bias`, `surface_leader_decision`) sets `chain_status`. Enum values:
    - `clean` — all inputs read, all outputs structured
    - `degraded:<reason>` — output produced with a caveat (e.g. `degraded:leader_inconclusive`, `degraded:brief_no_trade_soft`)
-   - `backfilled:<phase>` — synthesized after the fact (catch_up only)
+   - `backfilled:<phase>` — synthesized after the fact by the deterministic backfill
    - `divergent` — open_reaction found HTF/LTF clash
    - `stale:<minutes>` — upstream output older than N min vs the bar this phase fired on
    Wrap reads these from each frontmatter to build the chain_audit block in `summary.md`.
@@ -95,7 +95,6 @@ Read `gates.session.phase`. Branch:
 | `open_reaction_ny_am`, `open_reaction_ny_pm` | Open-reaction watch (15-min window). |
 | `entry_hunt_ny_am`, `entry_hunt_ny_pm` | Per-bar entry-model hunt. |
 | `post_ny_am`, `post_ny_pm` | Session wrap. |
-| `catch_up_ny_am`, `catch_up_ny_pm` | Backfill `ltf-bias.md` + `pair-decision.json` after a missed open-reaction window. Grade always capped at B. See `<phase name="catch_up">`. |
 | `london_open` | (Optional) one-shot grade via the **brief** workflow (`<phase name="brief">`), London context. |
 | `inter_session`, `closed` | Idle; emit a one-line status, no state writes. |
 
@@ -373,7 +372,7 @@ If `htf_ltf_alignment: divergent`:
 - Leader decision uses verbatim `pair.leader_evidence.reason`.
 - `entry_model_priority` matches the decision tree.
 - `grade_cap` is `B` if and only if `htf_ltf_alignment == divergent`.
-- Backfill case (caught up after window) → `chain_status: backfilled:open_reaction` + `grade_cap: B` (see `<phase name="catch_up">`).
+- Backfill case (caught up after window) → `chain_status: backfilled:open_reaction` + `grade_cap: B`.
 
 If any check fails, fix the payload, then call `surface_leader_decision` + `surface_ltf_bias`.
 
@@ -459,56 +458,6 @@ The following 8 misreads happened in real sessions and produced bad output. The 
    If detector emits `grade_capped: B`, surfacing `grade: A+` will be rejected by the validator. Use `grade_capped` directly.
 
 </anti_patterns>
-
-<phase name="catch_up">
-
-**Goal:** synthesize a missed `open_reaction` after the window has passed (NY open ≥ 09:45 ET / 13:45 ET) but `ltf-bias.md` doesn't exist. Best-effort backfill so `entry_hunt` has the chain anchors it needs.
-
-**Triggered by:** the bar-close router when (a) `ltf-bias.md` is missing, (b) `pillar1.md` exists, (c) current ET time is past the open-reaction window for the active session. See `app/main/bar-close.js` `shouldRouteToCatchUp`.
-
-**Required reads:**
-- `<sdir>/pillar1.md` frontmatter → both symbols' `primary_draw` + `pillar_grade`.
-- Live bundle including `pair.leader_evidence` (if `pair` present).
-
-### Behavior
-
-1. Run the leader decision + LTF bias synthesis exactly like `<phase name="open_reaction">` Minute 14, but on data that has drifted past the actual open.
-
-2. Compute `backfill_lag_minutes` = (now ET) − (window start). Window starts at 09:30 ET (NY AM) / 13:30 ET (NY PM).
-
-3. Write `ltf-bias.md` with the structured handoff:
-
-```yaml
----
-phase: open_reaction_<session>_complete
-finalized_at: <now>
-backfilled: true
-backfill_lag_minutes: <int>
-leader: <chosen>
-ltf_bias: <bullish|bearish|mixed|stand_aside>
-htf_ltf_alignment: <aligned|divergent|unclear>
-is_retrace_day: <bool>
-entry_model_priority: <MSS|Trend|Inversion|undecided>
-priority_reason: <one-line>
-grade_cap: B                  # catch-up ALWAYS caps at B (we didn't see the actual open)
-chain_status: backfilled:open_reaction
----
-```
-
-4. Also call `surface_leader_decision` so `pair-decision.json` lands. Subsequent `tv analyze --pair` runs short-circuit to single-symbol.
-
-5. Chat output flags the backfill explicitly: *"Backfilled open-reaction at &lt;ET&gt; (&lt;lag&gt;min late). Grade capped at B for this session."*
-
-After this fires, subsequent bars route to `<phase name="entry_hunt">` normally.
-
-### Self-check
-
-- `grade_cap: B` is mandatory (no A+ in backfilled sessions).
-- `backfilled: true` and `backfill_lag_minutes` set.
-- `chain_status: backfilled:open_reaction`.
-- Both `surface_leader_decision` AND `surface_ltf_bias` fired in this turn.
-
-</phase>
 
 <phase name="post_session">
 

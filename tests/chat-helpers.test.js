@@ -19,8 +19,6 @@ describe("DEFAULT_CHAT_PROVIDER", () => {
 describe("isNarrationPurpose", () => {
   it("true for the per-bar narration purposes (rendered into BRAIN)", () => {
     assert.equal(isNarrationPurpose("bar-close"), true);
-    assert.equal(isNarrationPurpose("catch-up"), true);
-    assert.equal(isNarrationPurpose("catch_up"), true);
   });
   it("false for brief/wrap/review/chat and undefined (must NOT leak into BRAIN)", () => {
     assert.equal(isNarrationPurpose("brief"), false);
