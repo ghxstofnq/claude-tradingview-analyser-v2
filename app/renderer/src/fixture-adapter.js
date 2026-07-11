@@ -87,8 +87,32 @@ export function buildFixtureState(scenario = {}) {
     calendar: s.calendar || { events: [] },
     version: s.version || { boot_sha: "fixture", disk_sha: "fixture", origin_sha: "fixture", behind: 0 },
     quoteCache: s.quoteCache || {},
+    aiPrep: s.aiPrep || null,          // saved AI Prep record (prep.aiGet)
+    aiPrepText: s.aiPrepText || null,  // canned analysis-turn stream override
   };
 }
+
+// Canned AI Prep response the fixture `analysis.run` streams when a scenario
+// doesn't override it — eight ## sections grounded in the briefing scenario's
+// numbers, with citations in the raw (the UI strips them for display).
+const DEFAULT_AI_PREP_TEXT = [
+  "## CALENDAR",
+  "No high-impact USD prints on the slate, so the open trades on structure rather than a data spike. Keep the ±10-minute no-entry rule in your pocket anyway in case a speaker lands.",
+  "## OVERNIGHT",
+  "The overnight session kept working the same direction as the higher-timeframe draw rather than building a fresh range. That reads as continuation pressure into the open, not a reset.",
+  "## PRICE QUALITY",
+  "Quality is the weak leg today: the deterministic read grades it marginal, with displacement acceptable but not clean. Expect stop-hunts to travel further than they should before the real move shows.",
+  "## HTF READ",
+  "Bottom line: a bullish lean into the 1H FVG draw at 21500 (primary_draw.ce), capped at B by marginal quality. Daily momentum supports the long side while the intraday timeframes argue; the draw overhead is the reference that settles it.",
+  "## BIAS",
+  "Two of three components vote bull — the higher timeframe and the overnight read — and the third resolves at the open. Until the open reaction confirms, treat the lean as unconfirmed rather than a licence.",
+  "## OPEN REACTION",
+  "Watch the first move into overnight liquidity: the grab is noise, the reaction is signal. A reclaim after the sweep is what turns the 2/3 lean into a graded day.",
+  "## SCENARIOS",
+  "The B-scenario is a reclaim of 21500 (primary_draw.ce) on a deliberate 1m close, opening the path toward PDH at 21560 (key_levels[0].price). Failure to reclaim leaves the day ungraded — stand aside rather than fade.",
+  "## PLAN",
+  "Anchored target 21620 (anchored_target) against the swing stop at 21450 (anchored_stop), half size per the Friday sizing rule (sizing_note). Nothing here is an instruction to trade — the walker still owns the trigger.",
+].join("\n");
 
 // A subscription registry that mirrors the real preload's on*(cb) semantics:
 // SUBSCRIBING IS PASSIVE — it only registers a listener, it never invokes cb.
@@ -139,10 +163,44 @@ export function buildFixtureApi(scenario = {}) {
 
   const record = (bucket, payload) => { calls[bucket].push(payload); return { ok: true, ...payload }; };
 
+  // analysis: run() streams the canned AI-prep text chunk-by-chunk then
+  // completes — the whole AI Prep flow is demoable and testable without an
+  // LLM. Manually-triggered listeners (not makeEmitter: chunks are a burst
+  // caused by run(), not ambient state).
+  const analysisListeners = { chunk: new Set(), done: new Set() };
+  const analysisSub = (set) => (cb) => {
+    if (typeof cb !== "function") return () => {};
+    set.add(cb);
+    return () => set.delete(cb);
+  };
+  const analysisRun = async () => {
+    const text = st.aiPrepText || DEFAULT_AI_PREP_TEXT;
+    const pieces = text.match(/[\s\S]{1,64}/g) || [];
+    let i = 0;
+    const tick = () => {
+      if (i < pieces.length) {
+        for (const cb of [...analysisListeners.chunk]) { try { cb({ text: pieces[i], purpose: "analysis", provider: "claude" }); } catch { /* ignore */ } }
+        i += 1;
+        const t = setTimeout(tick, 30); if (t && typeof t.unref === "function") t.unref();
+      } else {
+        for (const cb of [...analysisListeners.done]) { try { cb({ purpose: "analysis" }); } catch { /* ignore */ } }
+      }
+    };
+    const t0 = setTimeout(tick, 50); if (t0 && typeof t0.unref === "function") t0.unref();
+    return { ok: true };
+  };
+
   return {
     __fixtureCalls: calls, // harness introspection only
 
     claude: { onActivity: makeEmitter(undefined) },
+    analysis: {
+      run: analysisRun,
+      onChunk: analysisSub(analysisListeners.chunk),
+      onTurnComplete: analysisSub(analysisListeners.done),
+      onQueued: analysisSub(new Set()),
+      onQueueReady: analysisSub(new Set()),
+    },
     chat: {
       send: async () => ({ ok: true }),
       cancel: async () => ({ ok: true }),
@@ -216,6 +274,8 @@ export function buildFixtureApi(scenario = {}) {
     prep: {
       get: async () => ({ ok: true, session: st.session, brief: st.brief, briefsBySymbol: st.briefsBySymbol }),
       refresh: async () => ({ ok: true }),
+      aiGet: async () => ({ ok: true, session: st.session, record: st.aiPrep }),
+      aiSave: async (_symbol, record) => { st.aiPrep = record; return { ok: true }; },
       recap: async () => ({ ok: true }),
       priorBrief: async () => ({ ok: true, brief: null }),
       resetPairDecision: async () => ({ ok: true }),

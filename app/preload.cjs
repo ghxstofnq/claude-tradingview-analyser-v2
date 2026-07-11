@@ -251,6 +251,12 @@ contextBridge.exposeInMainWorld("api", {
     refresh() {
       return ipcRenderer.invoke("prep:run");
     },
+    aiGet(symbol) {
+      return ipcRenderer.invoke("prep:aiGet", { symbol });
+    },
+    aiSave(symbol, record) {
+      return ipcRenderer.invoke("prep:aiSave", { symbol, record });
+    },
     recap() {
       return ipcRenderer.invoke("prep:recap_get");
     },

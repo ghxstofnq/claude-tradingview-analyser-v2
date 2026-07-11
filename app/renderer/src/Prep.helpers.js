@@ -23,6 +23,40 @@ export function humanizeToken(s) {
     .replace(/\b(htf|ltf|fvg|bpr|mss|pdh|pdl|pwh|pwl)\b/gi, (m) => m.toUpperCase());
 }
 
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// splitMarkedSections — renderer port of app/main/prose-section.js
+// extractMarkedSection, generalized to a full section map for the AI Prep
+// streamed turn. For each marker, the LAST line-anchored `## MARKER` heading
+// wins (inline mentions / earlier repeats can't false-trigger); a section's
+// body runs to the next found heading (any marker) or end of text.
+//
+// Returns { sections: {marker → body|null}, active: marker|null } where
+// `active` is the marker that owns the tail of the text — while a turn is
+// still streaming, that's the section being written.
+export function splitMarkedSections(text, markers) {
+  const src = String(text ?? "");
+  const sections = {};
+  const found = [];
+  for (const m of markers || []) {
+    sections[m] = null;
+    if (!src) continue;
+    const re = new RegExp(`^[ \\t]*##[ \\t]+${escapeRegex(m)}[ \\t]*$`, "gm");
+    let last = null;
+    for (let x; (x = re.exec(src)); ) last = x;
+    if (last) found.push({ marker: m, start: last.index, bodyStart: last.index + last[0].length });
+  }
+  found.sort((a, b) => a.start - b.start);
+  found.forEach((f, i) => {
+    const end = i + 1 < found.length ? found[i + 1].start : src.length;
+    const body = src.slice(f.bodyStart, end).trim();
+    sections[f.marker] = body || null;
+  });
+  return { sections, active: found.length ? found[found.length - 1].marker : null };
+}
+
 // Partition key_levels[] into { above, below } relative to currentPrice.
 // Each partition is sorted by absolute distance to currentPrice (closest
 // first), so the closest opposing levels lead in each direction.

@@ -119,6 +119,31 @@ export async function getBriefsBySymbolForToday(session) {
   return out;
 }
 
+// AI Prep — the one-shot reading-friendly AI brief written from the ⌘1 page.
+// Persisted beside the deterministic brief so the page reopens populated and
+// the session folder keeps the full record (raw text retains citations —
+// constraint #6 lives in the durable copy; the UI strips for display).
+export async function aiPrepPathFor(session, symbol, date = nyParts().date) {
+  const dir = await briefDirFor(session, date);
+  return path.join(dir, `ai-prep-${symbol}.json`);
+}
+
+export async function getAiPrepForToday(session, symbol) {
+  if (!session || !symbol) return null;
+  try {
+    return JSON.parse(await fs.readFile(await aiPrepPathFor(session, symbol), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAiPrepForToday(session, symbol, record) {
+  if (!session || !symbol || !record) return { ok: false, error: "missing session/symbol/record" };
+  const file = await aiPrepPathFor(session, symbol);
+  await fs.writeFile(file, JSON.stringify(record, null, 2));
+  return { ok: true, file };
+}
+
 async function isAlreadyDone(session) {
   return !!(await getBriefForToday(session));
 }

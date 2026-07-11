@@ -16,7 +16,7 @@ import { setMode } from "./mode.js";
 import { noteManualStop, noteManualStart, nudgeSupervisor } from "./session-supervisor.js";
 import { listFixtures, runFixture, runAllFixtures, readFixtureExpected } from "./fixtures.js";
 import { tvAlertCreate, tvAlertDeleteOne } from "./tools/tv-alerts.js";
-import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession } from "./session-brief.js";
+import { runManualRefresh, getBriefForToday, getBriefsBySymbolForToday, activeOrImminentSession, getAiPrepForToday, saveAiPrepForToday } from "./session-brief.js";
 import { getCurrentSurfaceState, clearCurrentSurfaceState } from "./tools/surface.js";
 import { listSessionFiles, openPath, revealInFolder, readFileForViewer } from "./fs-inspect.js";
 import { getSessionRecap, getOpenReaction, getSetupsList } from "./session-views.js";
@@ -360,6 +360,23 @@ export function registerIpc(win) {
   ipcMain.handle("prep:run", async () => {
     runManualRefresh().catch(() => {});
     return { ok: true };
+  });
+
+  // AI Prep — saved one-shot AI brief beside the deterministic one.
+  ipcMain.handle("prep:aiGet", async (_evt, { symbol } = {}) => {
+    const session = activeOrImminentSession();
+    const record = session ? await getAiPrepForToday(session, symbol) : null;
+    return { ok: true, session, record };
+  });
+
+  ipcMain.handle("prep:aiSave", async (_evt, { symbol, record } = {}) => {
+    try {
+      const session = activeOrImminentSession();
+      if (!session) return { ok: false, error: "no active session" };
+      return await saveAiPrepForToday(session, symbol, record);
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
   });
 
   ipcMain.handle("files:list", async () => {

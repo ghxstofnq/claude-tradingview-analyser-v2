@@ -68,6 +68,8 @@
 .cs-brief .brf-row .v .note { color: var(--label); font-family: var(--sans); }
 .cs-brief .brf-rowsub { font-size: 10px; line-height: 1.5; color: var(--label-dim); margin: -1px 0 4px; }
 .cs-brief .brf-scn .act { font-size: 10.5px; line-height: 1.5; color: var(--label); margin-top: 3px; }
+/* AI Prep — the turn failed; sits above the grid, red text, no chrome */
+.cs-brief .brf-ai-error { font-size: 10.5px; color: var(--red); padding: 2px 2px 0; }
 
 /* ── header: refresh glyph + white Start-prep pill (A1) ────────────────── */
 .cs-brief .page-tabs { display: flex; gap: 8px; align-items: center; }

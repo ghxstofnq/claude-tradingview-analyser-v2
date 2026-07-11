@@ -19,6 +19,7 @@ import {
   stripCitations,
   decisionLine,
   openReactionVerdict,
+  splitMarkedSections,
 } from "../app/renderer/src/Prep.helpers.js";
 
 describe("drawBiasVoteRows (Stage F — 3-component draw-bias grade)", () => {
@@ -565,5 +566,59 @@ describe("htfBiasToRowsDesigner — per-TF rows with tone + note + Draw", () => 
   it("returns [] for an empty brief", () => {
     assert.deepEqual(htfBiasToRowsDesigner({}), []);
     assert.deepEqual(htfBiasToRowsDesigner(null), []);
+  });
+});
+
+describe("splitMarkedSections (AI Prep streamed-section splitter)", () => {
+  const MARKERS = ["CALENDAR", "OVERNIGHT", "HTF READ", "PLAN"];
+
+  it("splits a complete document into per-marker bodies", () => {
+    const text = [
+      "preamble the model streamed first",
+      "## CALENDAR", "CPI at 08:30 keeps the open hot.",
+      "## OVERNIGHT", "Asia ranged; London swept its high.",
+      "## HTF READ", "Bottom line: no-trade until the walker confirms.",
+      "## PLAN", "Stand aside into 08:30.",
+    ].join("\n");
+    const { sections, active } = splitMarkedSections(text, MARKERS);
+    assert.equal(sections["CALENDAR"], "CPI at 08:30 keeps the open hot.");
+    assert.equal(sections["OVERNIGHT"], "Asia ranged; London swept its high.");
+    assert.match(sections["HTF READ"], /^Bottom line:/);
+    assert.equal(sections["PLAN"], "Stand aside into 08:30.");
+    assert.equal(active, "PLAN");
+  });
+
+  it("partial stream: only reached sections fill; tail section is active", () => {
+    const text = "thinking…\n## CALENDAR\nquiet day.\n## OVERNIGHT\nAsia still print";
+    const { sections, active } = splitMarkedSections(text, MARKERS);
+    assert.equal(sections["CALENDAR"], "quiet day.");
+    assert.equal(sections["OVERNIGHT"], "Asia still print");
+    assert.equal(sections["HTF READ"], null);
+    assert.equal(active, "OVERNIGHT");
+  });
+
+  it("missing marker stays null; inline mention does not false-trigger", () => {
+    const text = "the ## CALENDAR token inline\n## PLAN\nreal body";
+    const { sections } = splitMarkedSections(text, MARKERS);
+    assert.equal(sections["CALENDAR"], null);
+    assert.equal(sections["PLAN"], "real body");
+  });
+
+  it("duplicate heading: last occurrence wins", () => {
+    const text = "## PLAN\nstale first pass\n## PLAN\nfinal answer";
+    const { sections } = splitMarkedSections(text, MARKERS);
+    assert.equal(sections["PLAN"], "final answer");
+  });
+
+  it("null/empty input yields all-null sections and no active marker", () => {
+    const { sections, active } = splitMarkedSections(null, MARKERS);
+    assert.equal(active, null);
+    for (const m of MARKERS) assert.equal(sections[m], null);
+  });
+
+  it("heading with trailing whitespace and indentation still anchors", () => {
+    const text = "  ## HTF READ  \nindented heading body";
+    const { sections } = splitMarkedSections(text, MARKERS);
+    assert.equal(sections["HTF READ"], "indented heading body");
   });
 });
