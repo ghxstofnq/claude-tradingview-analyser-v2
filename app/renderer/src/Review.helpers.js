@@ -187,7 +187,7 @@ export function buildTrackRecordFromFills(fills = []) {
   const best = rs.length ? r2(Math.max(...rs)) : 0;
   const worst = rs.length ? r2(Math.min(...rs)) : 0;
   return {
-    n_trades: n, cum_r: cumR, cum_usd: cumUsd, win_pct: winRate,
+    n_trades: n, n_fills: all.length, cum_r: cumR, cum_usd: cumUsd, win_pct: winRate,
     win_n: wins.length, loss_n: losses.length, avg_win: avgWin, avg_loss: avgLoss,
     expectancy, payoff, max_drawdown_r: r2(maxDD), best_r: best, worst_r: worst,
   };

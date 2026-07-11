@@ -353,7 +353,9 @@ function AccountGroup({ acct, expanded, onToggle }) {
               aria-expanded={empty ? undefined : expanded}>
         <span className="ah-caret" aria-hidden="true">{empty ? "·" : expanded ? "▾" : "▸"}</span>
         <span className="ah-name">{acct.name}</span>
-        <span className={"ah-tag" + (acct.armed ? " armed" : "")}>{acct.armed ? "ARMED" : String(acct.broker || "").toUpperCase()}</span>
+        {/* broker tag adds nothing when it just repeats the account name */}
+        {(acct.armed || String(acct.broker || "").toUpperCase() !== String(acct.name || "").toUpperCase()) &&
+          <span className={"ah-tag" + (acct.armed ? " armed" : "")}>{acct.armed ? "ARMED" : String(acct.broker || "").toUpperCase()}</span>}
         <span className="ah-sum">
           <span className="ah-n">{empty ? "no fills here" : `${acct.n_trades} trade${acct.n_trades === 1 ? "" : "s"}`}</span>
           {acct.net_r != null && <span style={{ color: rTone }}>{acct.net_r > 0 ? "+" : ""}{acct.net_r}R</span>}
@@ -418,6 +420,14 @@ function ExecutedTab({ allFills, sessionFills }) {
           <div className="cs-stat-cell" key={k}><div className="k">{k}</div><div className={"v " + tone}>{v}</div></div>
         ))}
       </div>
+      {/* $ sums ALL fills; R metrics only cover bracketed round-trips that
+          recorded an R — when the two denominators diverge, say so instead of
+          letting the headline read as a contradiction. */}
+      {tr.n_fills > tr.n_trades && (
+        <div className="cs-stat-note">
+          $ covers all {tr.n_fills} fills · R metrics cover the {tr.n_trades} bracketed trade{tr.n_trades === 1 ? "" : "s"} that recorded an R
+        </div>
+      )}
       <div className="cs-equity-wrap">
         <Card title="EQUITY CURVE · CUMULATIVE R" meta={`max DD ${tr.max_drawdown_r}R`}>
           <EquityCurve fills={allFills} />

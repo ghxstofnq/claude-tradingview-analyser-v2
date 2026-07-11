@@ -19,10 +19,13 @@
 .cs-sesspill { font-size: 10px; padding: 3px 11px; border-radius: var(--r-pill); background: transparent; color: var(--label); cursor: pointer; user-select: none; }
 .cs-sesspill.is-active { background: var(--cs-onfill); color: var(--value-strong); }
 
-/* ── summary cells — 4-col grid (L826–831) ─────────────────────────────── */
-.cs-cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 12px 18px 0; }
+/* ── summary cells — 4-col row (DESIGN.md: stat cells are BORDERLESS —
+   label over mono value, hairline dividers only, never a bordered box) ──── */
+.cs-cells { display: grid; grid-template-columns: repeat(4, 1fr); padding: 12px 18px 0; }
+.cs-cells > .cs-cell { background: transparent; border: 0; border-radius: 0; padding: 6px 14px; border-left: 1px solid var(--border); }
+.cs-cells > .cs-cell:first-child { border-left: 0; padding-left: 0; }
 .cs-cell { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 12px 14px; }
-.cs-cell-label { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cs-cell-label { font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim); }
 .cs-cell-val { font: 500 18px var(--mono); margin-top: 5px; color: var(--value-strong); }
 .cs-cell-val.green { color: var(--green); }
 .cs-cell-val.red { color: var(--red); }
@@ -103,10 +106,13 @@
 .cs-lexp b.up { color: var(--green); }
 .cs-lexp b.down { color: var(--red); }
 
-/* ── STATS cells — 6-col grid (stat-cell L914–920; app has 6 metrics) ──── */
-.cs-stat-cells { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; padding: 12px 18px 0; }
-.cs-stat-cell { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 13px 15px; }
-.cs-stat-cell .k { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
+.cs-stat-note { padding: 6px 18px 0; font-size: 9.5px; color: var(--label-dim); }
+
+/* ── STATS cells — 6-col row (borderless per DESIGN.md; dividers only) ─── */
+.cs-stat-cells { display: grid; grid-template-columns: repeat(6, 1fr); padding: 12px 18px 0; }
+.cs-stat-cell { padding: 6px 15px; border-left: 1px solid var(--border); }
+.cs-stat-cell:first-child { border-left: 0; padding-left: 0; }
+.cs-stat-cell .k { font-size: 9.5px; letter-spacing: .08em; color: var(--label-dim); }
 .cs-stat-cell .v { font: 500 20px var(--mono); margin-top: 5px; color: var(--value-strong); }
 .cs-stat-cell .v.green { color: var(--green); }
 .cs-stat-cell .v.red { color: var(--red); }
@@ -163,7 +169,8 @@
 .cs-evhop { font: 400 9.5px var(--mono); letter-spacing: .02em; padding: 2px 8px; border-radius: var(--r-sm); border: 1px solid var(--border); color: var(--value); white-space: nowrap; }
 .cs-evhop.miss { color: var(--label-dim); border-style: dashed; }
 .cs-evdisc { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
-.cs-evdisc-chip { font: 400 9px var(--mono); letter-spacing: .04em; color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-radius: var(--r-sm); padding: 1px 7px; }
+/* status chip → filled tint (DESIGN.md ban on outline status pills), sans */
+.cs-evdisc-chip { font-size: 9px; letter-spacing: .04em; color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); border-radius: var(--r-xs); padding: 1px 7px; }
 
 .cs-fill-pva { padding: 7px 0; border-bottom: 1px dashed var(--border); }
 .cs-fill-pva:last-child { border-bottom: 0; }
