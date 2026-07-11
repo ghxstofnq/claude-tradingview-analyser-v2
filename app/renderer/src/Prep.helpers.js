@@ -9,9 +9,18 @@
 export function stripCitations(s) {
   if (!s) return "";
   return String(s)
-    .replace(/\s*\([a-z_]+(?:[._a-zA-Z0-9!\[\]]+)?(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\s*[^)]*\)/g, "")
+    .replace(/\s*\([a-z_]+(?:[-._a-zA-Z0-9!\[\]]+)?(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\s*[^)]*\)/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+// Humanize raw pipeline tokens for display: "extending_htf" → "extending HTF",
+// "doji_wick" → "doji wick". Underscores become spaces; known acronyms upcase.
+export function humanizeToken(s) {
+  if (!s) return "";
+  return String(s)
+    .replace(/_/g, " ")
+    .replace(/\b(htf|ltf|fvg|bpr|mss|pdh|pdl|pwh|pwl)\b/gi, (m) => m.toUpperCase());
 }
 
 // Partition key_levels[] into { above, below } relative to currentPrice.
@@ -94,10 +103,13 @@ export function pillar2ToRows(pillar2) {
 
   const rowFor = (label, el) => {
     if (!el) return { k: label, v: "—", tone: "dim" };
-    const detail = el.detail || el.note || "";
+    // Unison row grammar: the value stays a one-word verdict; the pipeline
+    // detail ("4H weak disp / doji_wick · …") renders as a muted sub-line.
+    const detail = humanizeToken(el.detail || el.note || "");
     return {
       k: label,
-      v: detail ? `${(el.status || "").toUpperCase()} · ${detail}` : (el.status || "").toUpperCase(),
+      v: (el.status || "—").toUpperCase(),
+      sub: detail || null,
       tone: statusTone(el.status),
     };
   };
@@ -214,13 +226,19 @@ export function htfBiasToRowsDesigner(brief) {
     if (v === "NEUTRAL" || v === "MIXED") return "neutral";
     return "";
   };
-  const rows = (brief?.htf_bias || []).map((r) => ({
-    k: tfLabel(r.tf),
-    v: biasLabel(r.bias),
-    tone: biasTone(r.bias),
-    note: stripCitations(r.note) || "",
-    tip: r.note || "",
-  }));
+  const rows = (brief?.htf_bias || []).map((r) => {
+    // The note usually opens by repeating the TF ("DAILY momentum 20.88%")
+    // — drop the duplicate so the row reads "Daily  BULL momentum 20.88%".
+    const note = stripCitations(r.note) || "";
+    const deduped = note.replace(new RegExp(`^${String(r.tf || "").trim()}\\s+`, "i"), "");
+    return {
+      k: tfLabel(r.tf),
+      v: biasLabel(r.bias),
+      tone: biasTone(r.bias),
+      note: deduped,
+      tip: r.note || "",
+    };
+  });
 
   const pd = brief?.primary_draw;
   if (pd) {
@@ -238,7 +256,7 @@ export function htfBiasToRowsDesigner(brief) {
       tip: pd.cite ? `primary draw · ${pd.cite}` : "Primary HTF draw",
     });
   } else if (brief?.htf_destination) {
-    rows.push({ k: "Draw", v: brief.htf_destination, tone: "", note: "", tip: "Main HTF draw" });
+    rows.push({ k: "Draw", v: stripCitations(brief.htf_destination), tone: "", note: "", tip: "Main HTF draw", prose: true });
   }
   return rows;
 }
@@ -259,7 +277,14 @@ export function htfBiasToRowsDesigner(brief) {
 export function overnightHeaderRows(brief) {
   const ob = brief?.overnight_block || {};
   const kl = brief?.key_levels || [];
-  const findOne = (names) => kl.find((k) => names.some((n) => k.name === n));
+  // Sources widen over time: structured ob.asia/.london, key_levels, and the
+  // overnight pool lists (untaken_above/_below carry AS.H/LO.H entries — a
+  // current-overnight level has no sessionDay; history entries do).
+  const pools = [...(ob.untaken_above || []), ...(ob.untaken_below || [])];
+  const findOne = (names) =>
+    kl.find((k) => names.some((n) => k.name === n))
+    || pools.find((p) => names.some((n) => p.name === n) && !p.sessionDay)
+    || pools.find((p) => names.some((n) => p.name === n));
 
   const asia = ob.asia;
   const london = ob.london;
@@ -290,7 +315,8 @@ export function overnightHeaderRows(brief) {
     },
     {
       k: "Overnight",
-      v: overnight,
+      v: humanizeToken(stripCitations(String(overnight))),
+      prose: true,
       tip: "Overnight: extending HTF or consolidating",
     },
   ];
@@ -329,7 +355,7 @@ export function drawBiasVoteRows(brief) {
 // Render the SCENARIOS panel meta — sizing-if-A+ line. Reads sizing_note
 // from the deterministic/direct brief if present.
 export function scenariosMeta(brief) {
-  const note = brief?.sizing_note;
+  const note = stripCitations(brief?.sizing_note);
   if (!note) return "deterministic prep";
   return `deterministic prep · ${note}`;
 }

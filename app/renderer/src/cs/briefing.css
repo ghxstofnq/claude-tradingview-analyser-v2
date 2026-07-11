@@ -7,14 +7,17 @@
 
 /* ── A2. dash + three-column grid (1fr 1.15fr 1fr) ─────────────────────── */
 .cs-brief .brf-dash { padding: 16px 18px; gap: 12px; }
-.cs-brief .brf-grid { grid-template-columns: 1fr 1.15fr 1fr; gap: 12px; align-items: start; }
+/* stretch: columns share the tallest column's height and each column's last
+   card grows to fill — card bottoms align across all three columns. */
+.cs-brief .brf-grid { grid-template-columns: 1fr 1.15fr 1fr; gap: 12px; align-items: stretch; }
 .cs-brief .brf-col { gap: 12px; }
+.cs-brief .brf-col > .brf-card:last-child { flex: 1; }
 
 /* ── card shell: surface-2 fill, hairline border, r-lg, 14px pad ───────── */
 .cs-brief .brf-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; }
 .cs-brief .brf-card-hd { margin-bottom: 8px; gap: 8px; }
-.cs-brief .brf-card-hd .t { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
-.cs-brief .brf-card-hd .meta { font-size: 9px; letter-spacing: .04em; color: var(--label-dim); }
+.cs-brief .brf-card-hd .t { font-size: 9.5px; letter-spacing: .08em; color: var(--label); white-space: nowrap; }
+.cs-brief .brf-card-hd .meta { font-size: 9px; letter-spacing: .04em; color: var(--label-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cs-brief .brf-subhd { font-size: 9px; letter-spacing: .08em; color: var(--label-dim); margin: 8px 0 3px; }
 
 /* ── COLUMN 1 · CALENDAR ───────────────────────────────────────────────── */
@@ -52,10 +55,15 @@
 .cs-brief .brf-lvl .bell.fired { color: var(--green); }
 
 /* ── COLUMN 3 · OVERNIGHT + secondary cards (RowList) ──────────────────── */
+/* unison row grammar: one-line value (ellipsis; full text in the tooltip),
+   optional .brf-rowsub detail line under the row, prose values in sans. */
 .cs-brief .brf-row { display: flex; align-items: baseline; gap: 10px; padding: 2px 0; font-size: 11px; }
 .cs-brief .brf-row .k { color: var(--label); flex: none; min-width: 92px; }
-.cs-brief .brf-row .v { color: var(--value); flex: 1; text-align: right; font-family: var(--mono); font-size: 10.5px; }
+.cs-brief .brf-row .v { color: var(--value); flex: 1; text-align: right; font-family: var(--mono); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-brief .brf-row .v.prose { font-family: var(--sans); font-size: 11px; }
 .cs-brief .brf-row .v .note { color: var(--label); font-family: var(--sans); }
+.cs-brief .brf-rowsub { font-size: 10px; line-height: 1.5; color: var(--label-dim); margin: -1px 0 4px; }
+.cs-brief .brf-scn .act { font-size: 10.5px; line-height: 1.5; color: var(--label); margin-top: 3px; }
 
 /* ── header: refresh glyph + white Start-prep pill (A1) ────────────────── */
 .cs-brief .page-tabs { display: flex; gap: 8px; align-items: center; }
