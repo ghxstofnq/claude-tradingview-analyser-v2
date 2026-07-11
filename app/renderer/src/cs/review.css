@@ -15,7 +15,7 @@
 .cs-tabpill.is-active { background: var(--cs-onfill); color: var(--value-strong); }
 
 /* ── session-pick pills row (L817–825) ─────────────────────────────────── */
-.cs-picker { display: flex; align-items: center; gap: 2px; padding: 14px 18px 0; flex-wrap: wrap; }
+.cs-picker { display: flex; align-items: center; gap: 2px; padding: 14px 18px 12px; flex-wrap: wrap; }
 .cs-sesspill { font-size: 10px; padding: 3px 11px; border-radius: var(--r-pill); background: transparent; color: var(--label); cursor: pointer; user-select: none; }
 .cs-sesspill.is-active { background: var(--cs-onfill); color: var(--value-strong); }
 
