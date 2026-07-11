@@ -211,10 +211,11 @@
 .cs-bvj { margin-top: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 10px 12px; }
 .cs-bvj-hd { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .cs-bvj-hd__lbl { font-size: 9.5px; letter-spacing: .08em; color: var(--label); }
-.cs-bvj-verdict { margin-left: auto; font: 400 9px var(--mono); letter-spacing: .06em; border-radius: var(--r-sm); padding: 1px 7px; border: 1px solid var(--border); }
-.cs-bvj-verdict.green { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
-.cs-bvj-verdict.amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
-.cs-bvj-verdict.red { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+/* status = filled tint chip (DESIGN.md ban: never an outline pill), sans not mono */
+.cs-bvj-verdict { margin-left: auto; font-size: 8.5px; letter-spacing: .08em; border-radius: var(--r-xs); padding: 1px 7px; }
+.cs-bvj-verdict.green { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cs-bvj-verdict.amber { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.cs-bvj-verdict.red { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .cs-bvj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .cs-bvj-cell { display: flex; flex-direction: column; gap: 3px; }
 .cs-bvj-cell .k { font-size: 9px; letter-spacing: .08em; color: var(--label-dim); }
@@ -223,7 +224,9 @@
 /* ── Source-age freshness chips ─────────────────────────────────────────── */
 .cs-agechips { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .cs-agechip { font: 400 9px var(--mono); letter-spacing: .04em; color: var(--label-dim); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 7px; white-space: nowrap; }
-.cs-agechip.stale { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+/* stale = status → filled red tint (DESIGN.md ban on outline status pills);
+   fail-closed policy unchanged — an unprovable read still shows stale/red */
+.cs-agechip.stale { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); border-color: transparent; }
 
 /* ── Stale P&L (Task C5) — a broker-read outage greys the money number and
    marks it STALE so last-known P&L is never mistaken for live. */
