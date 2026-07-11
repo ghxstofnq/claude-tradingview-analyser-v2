@@ -3348,7 +3348,10 @@ button { border-radius: var(--r-sm); }
 /* Manual BUY/SELL (plan 2026-07-10) — bottom-strip right side. Filled tints;
    direction is status (long green / short red), same family as .cs-dir.
    The SL field arms instant orders: valid price → buttons brighten + ⚡. */
-.cmd-strip .cmd-trade { display: flex; gap: 6px; align-items: center; margin-right: 10px; -webkit-app-region: no-drag; }
+.cmd-strip .cmd-trade {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 6px; align-items: center; -webkit-app-region: no-drag;
+}
 .cmd-sl-in {
   width: 72px; height: 20px; padding: 0 8px;
   font: 500 10px var(--mono); font-variant-numeric: tabular-nums;
@@ -3395,6 +3398,7 @@ button { border-radius: var(--r-sm); }
 
 /* ── ambient strip (row 3) ───────────────────────────────────────────────── */
 .cmd-strip {
+  position: relative;
   display: flex; align-items: center; gap: 20px;
   padding: 0 16px; border-top: 1px solid var(--border); background: var(--surface-0);
   font-size: 10px; color: var(--label);
