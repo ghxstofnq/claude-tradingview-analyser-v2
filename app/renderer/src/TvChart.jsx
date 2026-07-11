@@ -30,6 +30,10 @@ function TradingViewChart({ symbol = "MNQ1!" }) {
   const [ready, setReady] = useStateTv(false);
   const [failure, setFailure] = useStateTv(null);
   const [retryNonce, setRetryNonce] = useStateTv(0);
+  // did-finish-load is registered once at mount — read the live symbol through
+  // a ref, or a symbol switch gets synced back to the mount-time symbol.
+  const symbolRef = useRefTv(symbol);
+  symbolRef.current = symbol;
 
   useEffectTv(() => {
     const wv = ref.current;
@@ -46,7 +50,7 @@ function TradingViewChart({ symbol = "MNQ1!" }) {
       console.log("[tv-webview] did-finish-load", wv.getURL?.());
       if (cancelled) return;
       clearTimeout(failsafe);
-      await syncWebviewSymbol(wv, symbol);
+      await syncWebviewSymbol(wv, symbolRef.current);
       if (cancelled) return;
       setReady(true);
       setFailure(null);

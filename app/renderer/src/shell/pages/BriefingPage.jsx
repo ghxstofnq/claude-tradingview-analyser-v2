@@ -11,7 +11,7 @@ import { clickable } from "../../a11y.js";
 import {
   decisionLine, drawBiasVoteRows, htfBiasToRowsDesigner, overnightHeaderRows,
   selectPillar, pillar2ToRows, groupLevelsByPrice, openReactionVerdict,
-  scenariosMeta, stripCitations,
+  scenariosMeta, stripCitations, humanizeToken,
 } from "../../Prep.helpers.js";
 import { useSessionBrief } from "../../hooks/useSessionBrief.js";
 import { useOpenReaction } from "../../hooks/useOpenReaction.js";
@@ -40,14 +40,19 @@ function Card({ title, meta, right, className, children }) {
 }
 
 function RowList({ rows }) {
+  // Unison row grammar: label left · one-line value right (ellipsis, full text
+  // in the tooltip) · optional muted sub-line under the row for long detail.
   return rows.map((r) => (
-    <div className="brf-row" key={r.k} title={r.tip}>
-      <span className="k">{r.k}</span>
-      <span className={"v " + toneCls(r.tone)}>
-        {r.v}
-        {r.note ? <span className="note"> {stripCitations(r.note)}</span> : null}
-      </span>
-    </div>
+    <React.Fragment key={r.k}>
+      <div className="brf-row" title={r.tip || (r.note ? `${r.v} ${r.note}` : r.v)}>
+        <span className="k">{r.k}</span>
+        <span className={"v " + toneCls(r.tone) + (r.prose ? " prose" : "")}>
+          {r.v}
+          {r.note ? <span className="note"> {stripCitations(r.note)}</span> : null}
+        </span>
+      </div>
+      {r.sub ? <div className="brf-rowsub">{r.sub}</div> : null}
+    </React.Fragment>
   ));
 }
 
@@ -70,11 +75,11 @@ function CalendarCard({ events }) {
           <div className={"brf-cal-row" + (hot ? " hot" : "")} key={i}>
             <span className="ts">{t(e.ts)}</span>
             <span className="ev">{e.event}</span>
-            <span className={"imp " + imp}>{(e.impact || "").toUpperCase().slice(0, 4)}</span>
+            <span className={"imp " + imp}>{imp === "medium" ? "MED" : (e.impact || "").toUpperCase().slice(0, 4)}</span>
           </div>
         );
       })}
-      <div className="brf-cal-rule">no entries ±10 min around HIGH impact</div>
+      {rows.length > 0 && <div className="brf-cal-rule">no entries ±10 min around HIGH impact</div>}
     </Card>
   );
 }
@@ -86,7 +91,7 @@ function OvernightCard({ brief }) {
   return (
     <Card title="OVERNIGHT" meta="Asia + London">
       <RowList rows={rows} />
-      {ob.path_to_destination && <div className="brf-row"><span className="k">Path</span><span className="v">{ob.path_to_destination}</span></div>}
+      {ob.path_to_destination && <div className="brf-row"><span className="k">Path</span><span className="v">{humanizeToken(stripCitations(String(ob.path_to_destination)))}</span></div>}
     </Card>
   );
 }
@@ -152,14 +157,14 @@ function ScenariosCard({ brief }) {
   if (!scenarios.length) return null;
   const gTone = (g) => (g === "A+" ? "green" : g === "B" ? "amber" : "red");
   return (
-    <Card title="SCENARIOS · IF / THEN" meta={scenariosMeta(brief)}>
+    <Card title="SCENARIOS" meta={scenariosMeta(brief)}>
       {scenarios.map((s, i) => (
         <div className="brf-scn" key={s.id ?? i}>
           <div className="hd">
             {s.grade && <span className={"brf-chip " + gTone(s.grade)}>{s.grade}</span>}
             <span className="cond">{s.condition || s.name}</span>
           </div>
-          {s.action && <div className="tgt">↳ {stripCitations(s.action)}</div>}
+          {s.action && <div className="act">↳ {stripCitations(s.action)}</div>}
           {s.target && <div className="tgt">→ {stripCitations(String(s.target))}</div>}
         </div>
       ))}
@@ -228,7 +233,7 @@ function HtfBiasCard({ brief, symbol, setSymbol, view, setView, session, current
 
 // ────────────────────────────────────────────────────────────────────────
 export function BriefingPage({ symbol, currentPrice, onStartPrep, onClose }) {
-  const { brief, selectedSymbol, setSelectedSymbol, session, status, refresh } = useSessionBrief();
+  const { brief, selectedSymbol, setSelectedSymbol, session, status, statusReason, refresh } = useSessionBrief();
   const [view, setView] = useState("det");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -272,18 +277,23 @@ export function BriefingPage({ symbol, currentPrice, onStartPrep, onClose }) {
   const grade = brief ? decisionLine(brief).grade : null;
   return (
     <Page className="cs-brief" icon={PAGE_ICONS.briefing} tint="blue" title="Brief"
-          sub={brief ? `${brief.date ?? ""} · ${sessionShort(brief.session)}${grade ? ` · ${grade}` : ""}` : (status || "no brief")}
+          sub={brief ? `${brief.date ?? ""} · ${sessionShort(brief.session)}${grade ? ` · ${grade}` : ""}` : (status === "running" ? "preparing…" : "no brief")}
           wide tabs={tabs} onClose={onClose}
           foot={<><span>chart stays live behind — esc returns</span></>}>
       {!brief ? (
         <div className="brf-empty" style={{ margin: "auto", padding: 40 }}>
-          {status ? status : "No brief yet for this session."}
+          {status === "running" ? "Preparing the brief… (2–5 min)"
+            : status === "error" ? `Brief failed${statusReason ? " — " + statusReason : ""} — ↻ retries.`
+            : status === "skipped" ? `Brief skipped${statusReason ? " — " + statusReason : ""}.`
+            : "No brief yet for this session — ↻ or Start prep builds one."}
         </div>
       ) : (
         <div className="brf-dash">
           <div className="brf-grid">
             <div className="brf-col">
               <CalendarCard events={events} />
+              <OvernightCard brief={brief} />
+              <QualityCard brief={brief} />
             </div>
             <div className="brf-col">
               <HtfBiasCard brief={brief} symbol={selectedSymbol || symbol} setSymbol={setSelectedSymbol}
@@ -292,8 +302,6 @@ export function BriefingPage({ symbol, currentPrice, onStartPrep, onClose }) {
               <BiasCard brief={brief} />
             </div>
             <div className="brf-col">
-              <OvernightCard brief={brief} />
-              <QualityCard brief={brief} />
               <OpenReactionCard brief={brief} session={session} />
               <ScenariosCard brief={brief} />
               <PlanCard brief={brief} />
