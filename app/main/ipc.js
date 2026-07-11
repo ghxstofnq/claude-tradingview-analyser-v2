@@ -11,7 +11,7 @@ import { acceptSetup, rejectSetup } from "./trades.js";
 import { activeSessionDir } from "./sessions.js";
 import { foldOpenTrades } from "../../cli/lib/trade-outcomes.js";
 import { parseJsonlTolerant } from "../../cli/lib/jsonl.js";
-import { startAlertPolling, stopAlertPolling } from "./alerts.js";
+import { startAlertPolling, stopAlertPolling, getAlertsSnapshot } from "./alerts.js";
 import { setMode } from "./mode.js";
 import { noteManualStop, noteManualStart, nudgeSupervisor } from "./session-supervisor.js";
 import { listFixtures, runFixture, runAllFixtures, readFixtureExpected } from "./fixtures.js";
@@ -296,6 +296,9 @@ export function registerIpc(win) {
       return { ok: false, error: String(err?.message || err) };
     }
   });
+
+  // Cached last-known armed list (no CDP call) — initial paint for bells/counts.
+  ipcMain.handle("alerts:get", async () => ({ ok: true, ...getAlertsSnapshot() }));
 
   ipcMain.handle("alert:disarm", async (_evt, { id }) => {
     try {

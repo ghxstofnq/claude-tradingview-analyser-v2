@@ -211,6 +211,7 @@ export function buildFixtureApi(scenario = {}) {
       disarm: async () => ({ ok: true }),
       onFired: makeEmitter(undefined),
       onState: makeEmitter({ armed: [] }),
+      state: async () => ({ ok: true, armed: [] }),
     },
     prep: {
       get: async () => ({ ok: true, session: st.session, brief: st.brief, briefsBySymbol: st.briefsBySymbol }),

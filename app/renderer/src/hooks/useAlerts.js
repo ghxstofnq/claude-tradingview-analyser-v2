@@ -6,7 +6,7 @@
 // what the user asked to arm. The "fired" list is authoritative — it's
 // what main saw transition armed→triggered in TradingView.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export function useAlertFiredListener(onFired) {
   useEffect(() => {
@@ -17,11 +17,19 @@ export function useAlertFiredListener(onFired) {
 }
 
 export function useAlertStateListener(onState) {
+  // Callers pass inline callbacks — hold the latest in a ref so the
+  // subscription (and the one-shot snapshot fetch) run once per mount.
+  const cbRef = useRef(onState);
+  cbRef.current = onState;
   useEffect(() => {
-    if (typeof onState !== "function") return;
-    const off = window.api?.alert?.onState?.(onState);
-    return () => off?.();
-  }, [onState]);
+    // Initial paint from main's cached snapshot — pushes only arrive on poll
+    // ticks (5-10s cadence, off outside live/prep), so without this a page
+    // that mounts between ticks shows every bell unarmed.
+    let alive = true;
+    window.api?.alert?.state?.().then((r) => { if (alive && r?.ok) cbRef.current?.(r); }).catch(() => {});
+    const off = window.api?.alert?.onState?.((ev) => cbRef.current?.(ev));
+    return () => { alive = false; off?.(); };
+  }, []);
 }
 
 export async function armAlertReal(priceStr, label) {

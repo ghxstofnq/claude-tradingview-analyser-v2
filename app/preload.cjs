@@ -240,6 +240,9 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("alerts:state", listener);
       return () => ipcRenderer.removeListener("alerts:state", listener);
     },
+    state() {
+      return ipcRenderer.invoke("alerts:get");
+    },
   },
   prep: {
     get() {

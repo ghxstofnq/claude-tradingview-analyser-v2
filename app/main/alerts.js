@@ -12,6 +12,7 @@ import { getMode, onModeChange } from "./mode.js";
 
 let _send = null;
 let _snapshot = null;      // Map<id, status>; null until initial snapshot
+let _lastArmed = null;     // last armed list pushed via alerts:state; null until first tick
 let _timer = null;
 let _unsubscribeMode = null;
 // Overlap guard. A live poll fires every 5s but each `tv alert list` can
@@ -57,6 +58,13 @@ export function startAlertPolling({ send }) {
   // First tick populates _snapshot AND pushes the initial alerts:state so
   // the renderer panel reflects TV state immediately, not 30s into PREP.
   tick();
+}
+
+// Last-known armed list without a fresh CDP call — lets a page that mounts
+// between poll ticks (or in a mode where polling is off) paint bells
+// immediately from cache instead of waiting for the next alerts:state push.
+export function getAlertsSnapshot() {
+  return { armed: _lastArmed || [] };
 }
 
 export function stopAlertPolling() {
@@ -108,11 +116,10 @@ async function tick() {
     }
     // Push the current armed list so the renderer panel can reflect TV
     // state regardless of how the alert got there (UI / Claude / phone).
-    _send?.("alerts:state", {
-      armed: items
-        .filter((a) => a.status === "armed")
-        .map((a) => ({ id: a.id, price: a.price, label: a.label })),
-    });
+    _lastArmed = items
+      .filter((a) => a.status === "armed")
+      .map((a) => ({ id: a.id, price: a.price, label: a.label }));
+    _send?.("alerts:state", { armed: _lastArmed });
     _send?.("health:update", { alerts: "healthy" });
   } catch (err) {
     // eslint-disable-next-line no-console
