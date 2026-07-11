@@ -301,7 +301,7 @@ export function BriefingPage({ symbol, currentPrice, onStartPrep, onClose }) {
   const tabs = (
     <>
       {(aiPrep.exists || aiPrep.running) && (
-        <span className="cs-brief-seg">
+        <span className="cs-brief-seg cs-seg-track">
           <span className={"cs-segpill" + (!aiOn ? " is-on" : "")} {...clickable(() => setMode("det"), { label: "deterministic view" })}>DET</span>
           <span className={"cs-segpill" + (aiOn ? " is-on" : "")} {...clickable(() => setMode("ai"), { label: "AI prep view" })}>AI</span>
         </span>

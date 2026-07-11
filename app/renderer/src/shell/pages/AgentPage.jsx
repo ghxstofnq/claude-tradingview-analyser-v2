@@ -18,7 +18,7 @@ export function AgentPage({ chats, onClose }) {
   const footLeft = interactive ? `CHAT · ${ch.toUpperCase()}` : `FEED · ${ch.toUpperCase()} · READ-ONLY`;
 
   const tabs = (
-    <div className="cs-prov-group">
+    <div className="cs-prov-group cs-seg-track">
       {CHANNELS.map((c) => (
         <span key={c.k} className={"cs-provpill" + (ch === c.k ? " is-on" : "")} onClick={() => setCh(c.k)}>{c.l}</span>
       ))}

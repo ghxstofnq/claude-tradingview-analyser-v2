@@ -40,7 +40,7 @@ export function LivePage({ symbol, guards, onFlatten, onClose }) {
   }, []);
 
   const tabs = (
-    <div className="cs-live-tabs" role="tablist" aria-label="live view">
+    <div className="cs-live-tabs cs-seg-track" role="tablist" aria-label="live view">
       {SEGS.map(([v, l]) => (
         <span key={v} className={"cs-provpill" + (effectiveSeg === v ? " is-on" : "")}
               {...tab(() => { setUserPicked(true); setSeg(v); }, { selected: effectiveSeg === v, label: l })}>{l}</span>

@@ -490,14 +490,16 @@ function SessionPicker({ library, picked, onPick }) {
   const anyActive = recent.some(active);
   return (
     <div className="cs-picker">
-      <span className={"cs-sesspill" + (!anyActive ? " is-active" : "")} {...clickable(() => onPick({}))}>LATEST</span>
-      {recent.map((r) => (
-        <span key={`${r.date}-${r.session}`} className={"cs-sesspill" + (active(r) ? " is-active" : "")}
-              {...clickable(() => onPick({ date: r.date, session: r.session }))}
-              title={`${r.date} · ${sessionShort(r.session)}`}>
-          {sessionShort(r.session)} {String(r.date).slice(5)}
-        </span>
-      ))}
+      <span className="cs-seg-track">
+        <span className={"cs-sesspill" + (!anyActive ? " is-active" : "")} {...clickable(() => onPick({}))}>LATEST</span>
+        {recent.map((r) => (
+          <span key={`${r.date}-${r.session}`} className={"cs-sesspill" + (active(r) ? " is-active" : "")}
+                {...clickable(() => onPick({ date: r.date, session: r.session }))}
+                title={`${r.date} · ${sessionShort(r.session)}`}>
+            {sessionShort(r.session)} {String(r.date).slice(5)}
+          </span>
+        ))}
+      </span>
     </div>
   );
 }
@@ -511,7 +513,7 @@ export function ReviewPage({ onClose, symbol = "MNQ1!" }) {
   const { fills } = useFills("all");
 
   const tabs = (
-    <span className="cs-tablist" role="tablist" aria-label="review domain">
+    <span className="cs-tablist cs-seg-track" role="tablist" aria-label="review domain">
       {TABS.map(([v, l]) => (
         <span key={v} className={"cs-tabpill" + (view === v ? " is-active" : "")}
               {...tab(() => setView(v), { selected: view === v, label: l })}>{l}</span>

@@ -1195,7 +1195,7 @@ function Seg({ value, onChange, options }) {
 // look). Drop-in for <Seg> where the redesign calls for pills, not boxes.
 function SegPills({ value, onChange, options }) {
   return (
-    <div className="bt-seg">
+    <div className="bt-seg cs-seg-track">
       {options.map(([v, lbl]) => (
         <button
           key={String(v)}
