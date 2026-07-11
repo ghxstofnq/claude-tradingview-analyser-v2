@@ -36,12 +36,26 @@
 .cs-segpill.is-on { background: var(--cs-onfill); color: var(--value-strong); border: 1px solid var(--cs-onborder); }
 
 /* Segmented toggle track (user ruling 2026-07-11): every mutually-exclusive
-   pill row reads as ONE contained control — hairline pill track around the
-   options, active option carries the on-fill. Pills inside drop their own
-   borders so the track is the only outline. */
-.cs-seg-track { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: var(--r-pill); flex-wrap: wrap; }
-.cs-seg-track .cs-segpill, .cs-seg-track .cs-sesspill, .cs-seg-track .cs-tabpill { border: 0; }
-.cs-seg-track .cs-segpill.is-on { border: 0; }
+   pill row reads as ONE contained control, matched to the ⌘4 mode switch the
+   user called the reference (cs/backtest.css .bt-popover.embedded .bt-modes):
+   surface-2 pill track, 500 11.5px options, active = on-fill + on-border ring
+   + 600 weight. Transparent 1px borders on idle pills so on/off never shifts. */
+.cs-seg-track {
+  display: inline-flex; align-items: center; gap: 0; padding: 2px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-pill); flex-wrap: wrap;
+}
+.cs-seg-track .cs-segpill, .cs-seg-track .cs-sesspill,
+.cs-seg-track .cs-tabpill, .cs-seg-track .cs-provpill {
+  font: 500 11.5px var(--sans); letter-spacing: .02em;
+  padding: 4px 13px; border-radius: var(--r-pill);
+  background: transparent; color: var(--label); border: 1px solid transparent;
+}
+.cs-seg-track .cs-segpill.is-on, .cs-seg-track .cs-provpill.is-on,
+.cs-seg-track .cs-sesspill.is-active, .cs-seg-track .cs-tabpill.is-active {
+  background: var(--cs-onfill); color: var(--value-strong); font-weight: 600;
+  border-color: var(--cs-onborder);
+}
 
 .cs-provpill { font: 400 9.5px var(--sans); padding: 2px 10px; border-radius: var(--r-pill); background: transparent; color: var(--label); cursor: pointer; border: 0; user-select: none; }
 .cs-provpill.is-on { background: var(--cs-onfill); color: var(--value-strong); }
