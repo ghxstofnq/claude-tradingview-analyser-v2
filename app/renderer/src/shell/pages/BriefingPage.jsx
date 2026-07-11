@@ -132,7 +132,8 @@ function LevelRow({ level, armed, fired, onArm, onDisarm }) {
   const toggle = () => (isArmed ? onDisarm(level) : onArm(level));
   return (
     <div className="brf-lvl">
-      <span className="name">{level.name}</span>
+      {/* display in the engine's dotted form (NYPM_H is the citation-safe key) */}
+      <span className="name">{String(level.name || "").replace(/_/g, ".")}</span>
       <span className="price">{level.price}</span>
       <span className={cls} title={title} {...clickable(toggle, { label: title })}>{bell}</span>
     </div>
@@ -207,7 +208,9 @@ function HtfBiasCard({ brief, symbol, setSymbol, view, setView, session, current
         <span className="cs-brief-sym" {...clickable(toggleSym, { label: "toggle symbol" })}>{symbol}<span className="x"> ⇄</span></span>
         <span className="cs-brief-seg">
           <span className={"cs-segpill" + (view === "det" ? " is-on" : "")} {...clickable(() => setView("det"))}>DET</span>
-          <span className={"cs-segpill" + (view === "ai" ? " is-on" : "")} {...clickable(() => setView("ai"))}>AI</span>
+          {/* re-tap while already on AI = manual retry (the auto-run effect only fires on view change) */}
+          <span className={"cs-segpill" + (view === "ai" ? " is-on" : "")}
+                {...clickable(() => { if (view === "ai" && !ai.running) ai.run(); else setView("ai"); })}>AI</span>
         </span>
         <span className={"cs-bias-badge " + badgeTone}>{bias}</span>
       </div>
@@ -220,6 +223,7 @@ function HtfBiasCard({ brief, symbol, setSymbol, view, setView, session, current
         <p className="cs-bias-prose">{stripCitations(detProse)}</p>
       )}
       {view === "ai" && ts && !ai.running && <div className="brf-note">claude · {ts}</div>}
+      {levels.length > 0 && <div className="brf-subhd">LEVELS · UNTAKEN · ◈ ARMS AN ALERT</div>}
       <div className="cs-levels">
         {levels.length > 0
           ? levels.map((lv) => (

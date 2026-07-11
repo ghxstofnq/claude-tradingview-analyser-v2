@@ -12,6 +12,10 @@
 .cs-brief .brf-grid { grid-template-columns: 1fr 1.15fr 1fr; gap: 12px; align-items: stretch; }
 .cs-brief .brf-col { gap: 12px; }
 .cs-brief .brf-col > .brf-card:last-child { flex: 1; }
+/* narrow window: three ~210px columns ellipsize every value — drop to two */
+@media (max-width: 820px) {
+  .cs-brief .brf-grid { grid-template-columns: 1fr 1fr; }
+}
 
 /* ── card shell: surface-2 fill, hairline border, r-lg, 14px pad ───────── */
 .cs-brief .brf-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; }
@@ -33,7 +37,7 @@
 .cs-brief .brf-cal-rule { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 9.5px; color: var(--label-dim); }
 
 /* ── COLUMN 2 · HTF BIAS (symbol ⇄ · DET/AI · LONG · prose · levels) ───── */
-.cs-brief .cs-bias-hd { display: flex; align-items: center; gap: 8px; }
+.cs-brief .cs-bias-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 4px; }
 .cs-brief .cs-brief-sym { font: 500 10px var(--mono); color: var(--value-strong); background: var(--cs-onfill); padding: 2px 9px; border-radius: var(--r-pill); cursor: pointer; user-select: none; }
 .cs-brief .cs-brief-sym .x { color: var(--label-dim); }
 .cs-brief .cs-brief-seg { display: flex; gap: 2px; margin-left: 2px; }

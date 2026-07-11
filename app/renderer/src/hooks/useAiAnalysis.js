@@ -38,6 +38,9 @@ export function useAiAnalysis({ symbol, session, brief, prompt: customPrompt } =
   const [ts, setTs] = useState(null);
   const runningRef = useRef(false);
   const bufRef = useRef("");
+  // Watchdog: a turn that starts but never completes (main restart, SDK
+  // wedge) would spin "Running…" forever — no completion event ever resets it.
+  const watchdogRef = useRef(null);
 
   useEffect(() => {
     // Capture only OUR turn: analysis-purpose claude chunks while we're running,
@@ -54,11 +57,15 @@ export function useAiAnalysis({ symbol, session, brief, prompt: customPrompt } =
     const offDone = window.api?.analysis?.onTurnComplete?.((ev) => {
       if (!runningRef.current) return;
       if (ev?.purpose && ev.purpose !== "analysis") return;
+      if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       runningRef.current = false;
       setRunning(false);
       setTs(Date.now());
     });
-    return () => { offChunk?.(); offDone?.(); };
+    return () => {
+      offChunk?.(); offDone?.();
+      if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+    };
   }, []);
 
   const run = useCallback(() => {
@@ -71,8 +78,17 @@ export function useAiAnalysis({ symbol, session, brief, prompt: customPrompt } =
 
     const prompt = buildAnalysisPrompt({ symbol, session, brief, customPrompt });
 
+    const fail = (msg) => {
+      if (!runningRef.current) return;
+      runningRef.current = false;
+      setRunning(false);
+      if (!bufRef.current) setText(msg);
+    };
+    if (watchdogRef.current) clearTimeout(watchdogRef.current);
+    watchdogRef.current = setTimeout(() => fail("Analysis didn't come back — tap AI to retry."), 90_000);
+
     Promise.resolve(window.api?.analysis?.run?.(prompt, { provider: "claude" }))
-      .catch(() => { runningRef.current = false; setRunning(false); });
+      .catch(() => fail("Analysis failed to start — tap AI to retry."));
   }, [symbol, session, brief, customPrompt]);
 
   return { text, running, ts, run };
