@@ -1,0 +1,22 @@
+{
+  "schema": "gxofnq.real-session-label.v1",
+  "fixture": "2026-07-23-mnq-ny-pm",
+  "fixtureSource": "2wk-replay-corpus",
+  "label_status": "capture_only",
+  "reviewer": "2wk-replay-2026-08-05",
+  "source_message": "2-week LANTO replay corpus (2026-07-22..2026-08-04, windows 10-12/13-16 ET, MNQ+MES). Capture-only. Judge = deepseek/deepseek-v4-flash-0731 via OpenRouter (pinned worker, STRATEGY_HASH 9f8b84).",
+  "trade_date": "2026-07-23",
+  "symbol": "MNQ",
+  "contract_hint": "CME_MINI:MNQ1!",
+  "session": "NY PM",
+  "expected": {
+    "outcome": "unknown",
+    "model": "deepseek/deepseek-v4-flash-0731",
+    "side": null,
+    "grade": null,
+    "entry": null,
+    "stop": null,
+    "tp1": null,
+    "tp2": null
+  }
+}

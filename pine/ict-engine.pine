@@ -2,7 +2,7 @@
 // ICT Engine — unified evidence indicator for the ai-trading-agent.
 // Emits one machine-readable table for the backend.
 // Phases 1-5: levels, FVG/iFVG, BPR, swings, structure, quality.
-// Spec: docs/specs/2026-05-21-unified-custom-indicator-design.md
+// Spec: docs/plans/2026-05-21-ict-engine-migration.md
 indicator("ICT Engine V5", "ICT-V5", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // ── Evidence table contract ──────────────────────────────────────────
@@ -18,15 +18,16 @@ SCHEMA_VERSION = 4
 // and live-check blocks with pine_code_rev_mismatch when the deployed copy
 // drifts from the repo — the 2026-07-02 live session ran a weeks-stale deploy
 // undetected. Every emitted bar carries this stamp in meta.
-CODE_REV = 5
-// Worst case at the old 120: 14 levels + 14 sweeps + 24 fvg + 12 bpr +
-// 26 swings + 24 structures + 12 pools + 1 quality = 127 — table.cell past
+CODE_REV = 7
+// Worst case: 12 levels + 12 sweeps + 24 fvg + 12 bpr + 26 swings +
+// 24 structures + 12 pools + 1 smt + 1 quality = 124 — table.cell past
 // the row cap is a runtime error. 140 leaves headroom.
 MAX_ROWS = 140
 TZ = "America/New_York"
 
 // Session windows (NY time) used for session highs/lows.
-// NY PM matches docs/strategy/ny-pm-session-rules.md (13:00–16:00 NY).
+// NY PM is the 13:00–16:00 slice of the New York 09:30–16:00 block in
+// docs/strategy/daily-bias.md §7.
 SESS_ASIA   = "1800-0300"
 SESS_LONDON = "0300-0930"
 SESS_NYAM   = "0930-1200"
@@ -80,7 +81,8 @@ SWEEP_REJECTION_BARS = 3
 SWEEP_REACTION_WINDOW_MS = 15 * 60 * 1000
 
 // Pillar-2 quality-metric tuning (v3, 2026-05-25 — doc-literal rewrite):
-//   - Range threshold: % of price, not ATR multiple, so it scales across TFs.
+//   - Range threshold: 3h range vs an ATR(14) multiple (I22 below), so it
+//     scales with the instrument's own volatility across TFs.
 //   - Displacement:    clean-bar count in a 6-bar window.
 //   - Candle anatomy:  3-bar doji/wick scan + last-bar engulfing test.
 //   - has_chop dropped — Kaufman ER conflated post-displacement consolidation
@@ -122,12 +124,22 @@ type Fvg
     string state
     string kind
     bool tookLiq
+    // Entry-confirmation lifecycle (retrace evidence; see the mitigation
+    // loop). `entered` opens on ANY wick contact with the zone — a shallow
+    // wick dip is the Trend model's preferred tap — and survives no-contact
+    // bars whose close respects the zone (beyond the push edge); it resets
+    // only on drift that neither confirms nor violates. `barsInZone` counts
+    // only MEANINGFUL touches (body overlap or wick through CE).
     bool entered = false
     bool reacted = false
     string reactionDir = "none"
     string sizeQuality = "unknown"
     int enteredMs = na
     int barsInZone = 0
+    // Recomputed on EVERY zone-contact bar (and held true on push-edge
+    // respect bars) — NOT a one-way latch: a deep tap that closes past CE
+    // is repaired by a later close back through CE, which is the strategy's
+    // canonical confirmation ("the respect is the confirmation").
     bool ceHeld = false
     bool confirmClose = false
     string confirmDir = "none"
@@ -161,7 +173,8 @@ type Fvg
     float c3c = na
 
 // A Balanced Price Range — the overlap of a bullish and a bearish FVG formed
-// close in time. `state` advances fresh -> tapped -> invalidated.
+// close in time, both LIVE (fresh or ce_tapped) at pairing time.
+// `state` advances fresh -> tapped -> invalidated.
 type Bpr
     float top
     float bottom
@@ -169,6 +182,11 @@ type Bpr
     int createdMs
     string state
     bool tookLiq
+    // Entry-confirmation lifecycle, same semantics as Fvg: `entered` opens on
+    // ANY wick contact, survives push-edge respect bars; `barsInZone` counts
+    // only meaningful touches; `ceHeld` is recomputed every contact bar (a
+    // close back through CE repairs a deep tap — the respect is the
+    // confirmation).
     bool entered = false
     bool reacted = false
     string reactionDir = "none"
@@ -238,7 +256,7 @@ showSwings     = input.bool(true,  "Swings",             group = GRP_VIZ)
 showStructure  = input.bool(true,  "Structure",          group = GRP_VIZ)
 showLiquidity  = input.bool(true,  "Liquidity",          group = GRP_VIZ)
 // Phase 3 additions (plan 2026-07-09): both display-only.
-showOpenWindow = input.bool(true,  "NY-open window",     group = GRP_VIZ, tooltip = "09:30 open marker + minute-15→30 decision-window shading (daily-bias.md §4 'wait 15–30 min'). Intraday TFs (≤15m) only.")
+showOpenWindow = input.bool(true,  "NY-open window",     group = GRP_VIZ, tooltip = "Master for the NY-open reaction window (daily-bias.md §4 'wait 15–30 min'). The 09:30 marker and the window shading have their own sub-toggles below ('09:30 open marker', 'Open-window shading'). Intraday TFs (≤15m) only.")
 showSmt        = input.bool(true,  "SMT row",            group = GRP_VIZ, tooltip = "Per-bar SMT read vs the sibling micro (MNQ↔MES): one side pushes beyond its own prior swing pivot while the sibling doesn't = cracked correlation on this bar. Current-state (no latch), symmetric on both charts, names the diverging symbol. Panel + additive emit — never gates the chain.")
 smtSiblingIn   = input.symbol("",  "SMT sibling (blank = auto MNQ↔MES)", group = GRP_VIZ)
 showLeg        = input.bool(true,  "Leg extremes",       group = GRP_VIZ)
@@ -260,6 +278,20 @@ hideTinyZones  = input.bool(true,  "Hide tiny zones (visual only)", group = GRP_
 // A live zone fully inside a larger live same-direction zone is noise —
 // the big zone IS the array (CandelaCharts "hide overlap"). Visual only.
 hideOverlapZones = input.bool(true, "Hide swallowed zones (visual only)", group = GRP_VIZ)
+
+// Granular sub-element toggles (all default ON — current behavior is
+// preserved when everything is default). Visual only: the evidence table
+// emit is byte-identical regardless of these. They read as globals inside
+// the drawing functions, same pattern as showInternal / hideTinyZones.
+showZoneCe       = input.bool(true, "Zone CE midlines",   group = GRP_VIZ, tooltip = "Dotted consequent-encroachment midline inside each active zone box.")
+showZoneTags     = input.bool(true, "Zone text tags",     group = GRP_VIZ, tooltip = "Text inside zone boxes: the FVG/iFVG/BPR tag and the split-fill mitigation percentage.")
+showEntryMarkers = input.bool(true, "Entry markers (✓ confirm / ✗ CE)", group = GRP_VIZ, tooltip = "Right-edge zone markers: '✓ confirm' on a deliberate confirm close, '✗ CE' when price entered but CE failed to hold.")
+showOpenMark     = input.bool(true, "09:30 open marker",  group = GRP_VIZ, tooltip = "Dashed vertical line on the 09:30 ET bar. Sub-toggle of 'NY-open window'.")
+showOpenShade    = input.bool(true, "Open-window shading", group = GRP_VIZ, tooltip = "Background shading over the grab window (09:30–09:45) and decision window (09:45–10:00). Sub-toggle of 'NY-open window'.")
+showSpotlight    = input.bool(true, "Candidate spotlight (◈)", group = GRP_VIZ, tooltip = "Accent outline + ◈ marker tying the checklist's PD-array row to the exact tracked zone on the chart.")
+showLevelText    = input.bool(true, "Level labels + sweep glyphs", group = GRP_VIZ, tooltip = "All level-renderer text: name/price labels at line ends and the ✕/◆ sweep glyphs. The level lines themselves always draw (subject to 'Levels').")
+showStructText   = input.bool(true, "Structure labels",   group = GRP_VIZ, tooltip = "MSS/BoS text labels on structure breaks. The break lines themselves always draw (subject to 'Structure').")
+
 // Named density preset over magic-number caps (premium-settings
 // convention). Caps how many zones / structure events draw at once; the
 // evidence table always keeps everything.
@@ -285,6 +317,10 @@ colLiq     = input.color(#d4a017, "Liquidity",    group = GRP_COL, inline = "cNe
 // ── Session high/low tracking ────────────────────────────────────────
 // Tracks one session's running high/low. `var` storage is per call site, so
 // each session keeps its own state. Returns [high, low, highMs, lowMs, inSession].
+// TF-alignment caveat: on TFs that don't divide session boundaries (e.g. 1H,
+// where the 09:00 bar isn't inside `0930-1200`), tracking starts from the
+// first bar fully inside the window — on 1H the 09:30–10:00 opening range is
+// missed. The canonical TF for session levels is the LTF (1m/5m/15m).
 trackSession(string sess) =>
     var float h = na
     var float l = na
@@ -456,12 +492,14 @@ openWinLtf = timeframe.in_seconds() <= 15 * 60
 tOpenGrab = time(timeframe.period, "0930-0945", TZ)
 tOpenDecide = time(timeframe.period, "0945-1000", TZ)
 openWinOn = showVisuals and showOpenWindow and openWinLtf
+// Marker and shading carry their own sub-toggles under the NY-open-window
+// master; the script re-executes on any input change, so no cleanup needed.
 var line openMark = na
-if openWinOn and not na(tOpenGrab) and na(tOpenGrab[1])
+if openWinOn and showOpenMark and not na(tOpenGrab) and na(tOpenGrab[1])
     line.delete(openMark)
     openMark := line.new(time, low, time, high, xloc.bar_time, extend.both, color.new(colNeutral, 45), line.style_dashed, 1)
-bgcolor(openWinOn and not na(tOpenGrab) ? color.new(colNeutral, 94) : na, title = "NY-open grab window")
-bgcolor(openWinOn and not na(tOpenDecide) ? color.new(colNeutral, 90) : na, title = "NY-open decision window")
+bgcolor(openWinOn and showOpenShade and not na(tOpenGrab) ? color.new(colNeutral, 94) : na, title = "NY-open grab window")
+bgcolor(openWinOn and showOpenShade and not na(tOpenDecide) ? color.new(colNeutral, 90) : na, title = "NY-open decision window")
 
 // Origin timestamps for the prior-period extremes, tracked on the chart
 // TF (the security call above gives the VALUE, not when it printed).
@@ -500,10 +538,23 @@ trackPrior(simple string tf) =>
 // rejection flag is re-checked for SWEEP_REJECTION_BARS bars after the
 // initial sweep — so a wick that pierces on bar N and closes back through
 // on bar N+1 or N+2 still tags rejected = true.
+//
+// Outputs (dual-emit house convention — additive, legacy semantics kept):
+//   swept        — first-sweep latch (true once ever swept; never unlatches
+//                  until the level re-forms).
+//   sweptMs      — time of the FIRST sweep. Unchanged legacy semantics.
+//   sweptLastMs  — time of the MOST RECENT wick-through (rev 6). Refreshes
+//                  on every later bar that wicks through the level, so a
+//                  level swept pre-open and RE-swept inside the NY-open
+//                  window registers there (§4: the reaction to the most
+//                  recent interaction is what matters).
+//   rejected     — the lever-selected rejection read (legacy field).
+//   rejWindow    — the reaction-window variant, always emitted alongside.
 trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
     var bool swept = false
     var int sweptBarIndex = na
     var int sweptMs = na
+    var int sweptLastMs = na
     // Dual-emit (gate corpus, docs/intent/2026-07-05-gate-corpus.md): BOTH
     // rejection variants are computed every bar so one recording carries both
     // worlds. `rejected` (the legacy field) follows the lever; `rejWindow` is
@@ -516,6 +567,7 @@ trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
         swept := false
         sweptBarIndex := na
         sweptMs := na
+        sweptLastMs := na
         rejLegacy := false
         rejWindow := false
     if levelComplete and not na(levelPrice)
@@ -524,19 +576,32 @@ trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
                 swept := true
                 sweptBarIndex := bar_index
                 sweptMs := time
+                sweptLastMs := time
                 rejLegacy := close < levelPrice
                 rejWindow := rejLegacy
             else if (not isHighSide) and low < levelPrice
                 swept := true
                 sweptBarIndex := bar_index
                 sweptMs := time
+                sweptLastMs := time
                 rejLegacy := close > levelPrice
                 rejWindow := rejLegacy
         else
-            // Legacy 3-bar latch: a close back through the level within
-            // SWEEP_REJECTION_BARS flips rejLegacy on, permanently. sweptMs
-            // is left alone so it always reflects the original wick.
-            if not rejLegacy and not na(sweptBarIndex) and bar_index - sweptBarIndex <= SWEEP_REJECTION_BARS
+            // Most-recent sweep time (§4 re-sweep fix): any later wick
+            // through the level refreshes sweptLastMs while sweptMs keeps
+            // first-sweep semantics, so the NY-open scans see a re-sweep
+            // of a level whose FIRST sweep happened pre-open.
+            if isHighSide and high > levelPrice
+                sweptLastMs := time
+            else if (not isHighSide) and low < levelPrice
+                sweptLastMs := time
+            // Legacy rejection latch: a close back through the level within
+            // SWEEP_REJECTION_BARS bars after the sweep flips rejLegacy on,
+            // permanently. `<` (not `<=`) matches the constant's documented
+            // intent — 1 = same-bar only, 3 = sweep bar + next 2 bars (the
+            // typical ICT next-1-or-2-bar reversal). sweptMs is left alone
+            // so it always reflects the original wick.
+            if not rejLegacy and not na(sweptBarIndex) and bar_index - sweptBarIndex < SWEEP_REJECTION_BARS
                 if isHighSide and close < levelPrice
                     rejLegacy := true
                 else if (not isHighSide) and close > levelPrice
@@ -550,20 +615,20 @@ trackSweep(float levelPrice, bool isHighSide, bool levelComplete) =>
             if not na(sweptMs) and time - sweptMs <= SWEEP_REACTION_WINDOW_MS
                 rejWindow := isHighSide ? close < levelPrice : close > levelPrice
     rejected = useReactionWindowRejection ? rejWindow : rejLegacy
-    [swept, sweptMs, rejected, rejWindow]
+    [swept, sweptMs, sweptLastMs, rejected, rejWindow]
 
-[asiaHSwept, asiaHSweptMs, asiaHRej, asiaHRejRw] = trackSweep(asiaH, true, not inAsia)
-[asiaLSwept, asiaLSweptMs, asiaLRej, asiaLRejRw] = trackSweep(asiaL, false, not inAsia)
-[lonHSwept, lonHSweptMs, lonHRej, lonHRejRw] = trackSweep(lonH, true, not inLondon)
-[lonLSwept, lonLSweptMs, lonLRej, lonLRejRw] = trackSweep(lonL, false, not inLondon)
-[nyamHSwept, nyamHSweptMs, nyamHRej, nyamHRejRw] = trackSweep(nyamH, true, not inNyam)
-[nyamLSwept, nyamLSweptMs, nyamLRej, nyamLRejRw] = trackSweep(nyamL, false, not inNyam)
-[nypmHSwept, nypmHSweptMs, nypmHRej, nypmHRejRw] = trackSweep(nypmH, true, not inNypm)
-[nypmLSwept, nypmLSweptMs, nypmLRej, nypmLRejRw] = trackSweep(nypmL, false, not inNypm)
-[pdhSwept, pdhSweptMs, pdhRej, pdhRejRw] = trackSweep(pdh, true, true)
-[pdlSwept, pdlSweptMs, pdlRej, pdlRejRw] = trackSweep(pdl, false, true)
-[pwhSwept, pwhSweptMs, pwhRej, pwhRejRw] = trackSweep(pwh, true, true)
-[pwlSwept, pwlSweptMs, pwlRej, pwlRejRw] = trackSweep(pwl, false, true)
+[asiaHSwept, asiaHSweptMs, asiaHSweptLast, asiaHRej, asiaHRejRw] = trackSweep(asiaH, true, not inAsia)
+[asiaLSwept, asiaLSweptMs, asiaLSweptLast, asiaLRej, asiaLRejRw] = trackSweep(asiaL, false, not inAsia)
+[lonHSwept, lonHSweptMs, lonHSweptLast, lonHRej, lonHRejRw] = trackSweep(lonH, true, not inLondon)
+[lonLSwept, lonLSweptMs, lonLSweptLast, lonLRej, lonLRejRw] = trackSweep(lonL, false, not inLondon)
+[nyamHSwept, nyamHSweptMs, nyamHSweptLast, nyamHRej, nyamHRejRw] = trackSweep(nyamH, true, not inNyam)
+[nyamLSwept, nyamLSweptMs, nyamLSweptLast, nyamLRej, nyamLRejRw] = trackSweep(nyamL, false, not inNyam)
+[nypmHSwept, nypmHSweptMs, nypmHSweptLast, nypmHRej, nypmHRejRw] = trackSweep(nypmH, true, not inNypm)
+[nypmLSwept, nypmLSweptMs, nypmLSweptLast, nypmLRej, nypmLRejRw] = trackSweep(nypmL, false, not inNypm)
+[pdhSwept, pdhSweptMs, pdhSweptLast, pdhRej, pdhRejRw] = trackSweep(pdh, true, true)
+[pdlSwept, pdlSweptMs, pdlSweptLast, pdlRej, pdlRejRw] = trackSweep(pdl, false, true)
+[pwhSwept, pwhSweptMs, pwhSweptLast, pwhRej, pwhRejRw] = trackSweep(pwh, true, true)
+[pwlSwept, pwlSweptMs, pwlSweptLast, pwlRej, pwlRejRw] = trackSweep(pwl, false, true)
 
 // ── Overnight direction + NY open-reaction (Pillar 1 evidence) ────────
 // Overnight (Asia 18:00 -> London 09:30): open captured at Asia start, close
@@ -613,10 +678,14 @@ else if inNyam and not na(orStartMs) and time - orStartMs <= OR_WINDOW_MS
     orLow := math.min(orLow, low)
 // §4: the REACTION wins — track the most recent in-window sweep, not the
 // first (the old first-latch kept a 09:31 grab over a decisive 09:40
-// sweep). Recomputed each bar; freezes after minute 30 since per-level
-// sweptMs latches and session levels don't re-form until their own session.
+// sweep). Scans the MOST-RECENT sweep times (*SweptLast, rev 6) — the
+// first-sweep latch (*SweptMs) was the blind spot: a level swept pre-open
+// (Asia high taken by London, PDH overnight) and RE-swept at the open was
+// invisible here and read as a quiet open. Recomputed each bar; freezes
+// after minute 30 since per-level sweep times latch and session levels
+// don't re-form until their own session.
 if not na(orStartMs)
-    orSwMs = array.from(asiaHSweptMs, asiaLSweptMs, lonHSweptMs, lonLSweptMs)
+    orSwMs = array.from(asiaHSweptLast, asiaLSweptLast, lonHSweptLast, lonLSweptLast)
     orSwNm = array.from("AS.H", "AS.L", "LO.H", "LO.L")
     int orBestMs = na
     string orBestNm = "none"
@@ -681,9 +750,18 @@ var array<Fvg> fvgs = array.new<Fvg>()
 var array<Bpr> bprs = array.new<Bpr>()
 
 // Most-recent confirmed internal swing high/low, latched in the swing section
-// below — used to tag took_liq on new FVGs and BPRs.
+// below — used to tag took_liq on new FVGs and BPRs. The swing's own bar time
+// is latched alongside so the tag can be age-bounded: internal liquidity is
+// LOCAL — the strategy's "took liquidity while forming" implies the swept
+// pivot sits nearby, not days back. TOOK_LIQ_MAX_BARS is a calibration knob:
+// widen it if slow sessions legitimately form zones against older internal
+// swings.
+TOOK_LIQ_MAX_BARS = 20
+tookLiqMaxMs = TOOK_LIQ_MAX_BARS * timeframe.in_seconds() * 1000
 var float priorSwingHigh = na
 var float priorSwingLow = na
+var int priorSwingHighMs = na
+var int priorSwingLowMs = na
 
 // Displacement score of the middle candle (the [1] bar). I24: Lanto's
 // displacement is a "large body of gap", not just a clean one — so weight the
@@ -728,6 +806,10 @@ zoneBodyOverlaps(float zoneTop, float zoneBottom) =>
     bodyBottom = math.min(open, close)
     bodyBottom <= zoneTop and bodyTop >= zoneBottom
 
+// A "meaningful" touch: body overlap with the zone, or a wick reaching CE.
+// This is the barsInZone / chop-evidence bookkeeping standard — it no longer
+// gates the entry window itself, which opens on ANY wick contact (see the
+// lifecycle loops below).
 meaningfulZoneTouch(float zoneTop, float zoneBottom, float ce) =>
     zoneBodyOverlaps(zoneTop, zoneBottom) or (low <= ce and high >= ce)
 
@@ -749,10 +831,10 @@ bprLookbackMs = BPR_LOOKBACK_BARS * timeframe.in_seconds() * 1000
 if barstate.isconfirmed
     Fvg newFvg = na
     if low > high[2]
-        tl = not na(priorSwingHigh) and high[1] > priorSwingHigh
+        tl = not na(priorSwingHigh) and not na(priorSwingHighMs) and high[1] > priorSwingHigh and time[1] - priorSwingHighMs <= tookLiqMaxMs
         newFvg := Fvg.new(low, high[2], "bull", time[1], disp2(), "fresh", "fvg", tl)
     else if high < low[2]
-        tl = not na(priorSwingLow) and low[1] < priorSwingLow
+        tl = not na(priorSwingLow) and not na(priorSwingLowMs) and low[1] < priorSwingLow and time[1] - priorSwingLowMs <= tookLiqMaxMs
         newFvg := Fvg.new(low[2], high, "bear", time[1], disp2(), "fresh", "fvg", tl)
     if not na(newFvg)
         // Tag the size class once, using ATR at the formation bar.
@@ -772,12 +854,15 @@ if barstate.isconfirmed
         newFvg.c3l := low[0]
         newFvg.c3c := close[0]
         // Pair the new FVG with the most recent opposite-direction FVG that
-        // overlaps it in price and formed within the lookback window.
+        // overlaps it in price and formed within the lookback window. Only
+        // LIVE partners count: a BPR is the overlap of two live imbalances —
+        // pairing against a filled/inverted/invalidated zone would mint a
+        // "balanced" range out of an imbalance that no longer exists.
         Fvg pairFvg = na
         for g in fvgs
             inWindow = newFvg.createdMs - g.createdMs <= bprLookbackMs
             overlaps = math.max(g.bottom, newFvg.bottom) < math.min(g.top, newFvg.top)
-            if g.dir != newFvg.dir and inWindow and overlaps
+            if g.dir != newFvg.dir and inWindow and overlaps and (g.state == "fresh" or g.state == "ce_tapped")
                 if na(pairFvg) or g.createdMs > pairFvg.createdMs
                     pairFvg := g
         if not na(pairFvg)
@@ -868,24 +953,50 @@ if barstate.isconfirmed
         // Reaction is skipped on the bar a zone inverts or invalidates.
         if runReaction
             ce = (f.top + f.bottom) / 2
-            if not f.wickTapped and high >= f.bottom and low <= f.top
+            zoneContact = high >= f.bottom and low <= f.top
+            if not f.wickTapped and zoneContact
                 f.wickTapped := true
             // Split-fill mitigation: remember how deep price has traded
             // into the zone (bull: lowest low, bear: highest high).
-            if high >= f.bottom and low <= f.top
+            if zoneContact
                 f.deepPx := f.dir == "bull" ? math.max(f.bottom, math.min(nz(f.deepPx, f.top), low)) : math.min(f.top, math.max(nz(f.deepPx, f.bottom), high))
             inZone = meaningfulZoneTouch(f.top, f.bottom, ce)
-            if inZone
+            if zoneContact
+                // The entry window opens on ANY wick contact with the zone
+                // — a shallow wick dip is the Trend model's preferred tap
+                // (entry-models.md Trend §3: "I prefer price tapping the
+                // entry of the FVG and then coming right back up"), not just
+                // a meaningful touch. barsInZone keeps the stricter
+                // meaningfulZoneTouch bookkeeping: it counts bars that
+                // genuinely trade the zone, so a glancing wick doesn't
+                // inflate the chop evidence.
                 if not f.entered
                     f.enteredMs := time
-                    f.ceHeld := true
                 f.entered := true
-                f.barsInZone += 1
-                ceOk = f.dir == "bull" ? close >= ce : close <= ce
-                if not ceOk
-                    f.ceHeld := false
+                if inZone
+                    f.barsInZone += 1
+                // ceHeld is recomputed on EVERY contact bar, not latched at
+                // first touch: a deep tap that closes past CE is repaired by
+                // a later close back through CE — that close-back IS the
+                // strategy's canonical confirmation ("the respect is the
+                // confirmation", confirmation.md).
+                f.ceHeld := f.dir == "bull" ? close >= ce : close <= ce
             else if f.entered and not f.confirmClose and not f.chop15
-                resetFvgEntryWindow(f)
+                // No zone contact this bar. A close beyond the push edge in
+                // the trade direction is the zone being explosively
+                // respected WITHOUT re-entering it — keep the window open
+                // and treat CE as held (that close is trivially on the
+                // zone's side of CE) so reacted/confirmClose can latch
+                // below. Any other no-contact bar neither confirms nor
+                // violates: reset the window so drift can't later confirm
+                // off a stale tap. (For a live zone this reset is nearly
+                // dead — a no-contact bar on the wrong side would have
+                // inverted/invalidated the zone first — it only guards the
+                // neither-confirms-nor-violates drift case.)
+                if f.dir == "bull" ? close > f.top : close < f.bottom
+                    f.ceHeld := true
+                else
+                    resetFvgEntryWindow(f)
             zoneMinutes = zoneMinutesSince(f.enteredMs)
             if f.entered and not f.confirmClose and zoneMinutes >= ENTRY_CHOP_MINUTES
                 f.chop15 := true
@@ -941,20 +1052,33 @@ if barstate.isconfirmed
                 b.mitigatedMs := time
         // Reaction: entered the zone, then a close cleared the push edge.
         ce = (b.top + b.bottom) / 2
-        if not b.wickTapped and high >= b.bottom and low <= b.top
+        zoneContact = high >= b.bottom and low <= b.top
+        if not b.wickTapped and zoneContact
             b.wickTapped := true
         inZone = meaningfulZoneTouch(b.top, b.bottom, ce)
-        if inZone
+        if zoneContact
+            // Same entry-confirmation lifecycle as FVGs above: the window
+            // opens on ANY wick contact (a shallow wick dip is the
+            // preferred tap); barsInZone keeps the stricter
+            // meaningfulZoneTouch bookkeeping.
             if not b.entered
                 b.enteredMs := time
-                b.ceHeld := true
             b.entered := true
-            b.barsInZone += 1
-            ceOk = b.dir == "bull" ? close >= ce : close <= ce
-            if not ceOk
-                b.ceHeld := false
+            if inZone
+                b.barsInZone += 1
+            // ceHeld is recomputed on EVERY contact bar — a close back
+            // through CE after a deep tap repairs it ("the respect is the
+            // confirmation", confirmation.md).
+            b.ceHeld := b.dir == "bull" ? close >= ce : close <= ce
         else if b.entered and not b.confirmClose and not b.chop15
-            resetBprEntryWindow(b)
+            // Close beyond the push edge without re-entering = explosively
+            // respected: keep the window open and treat CE as held so
+            // reacted/confirmClose can latch. Otherwise reset the window so
+            // drift can't confirm off a stale tap.
+            if b.dir == "bull" ? close > b.top : close < b.bottom
+                b.ceHeld := true
+            else
+                resetBprEntryWindow(b)
         zoneMinutes = zoneMinutesSince(b.enteredMs)
         if b.entered and not b.confirmClose and zoneMinutes >= ENTRY_CHOP_MINUTES
             b.chop15 := true
@@ -1031,10 +1155,14 @@ if barstate.isconfirmed
     trackTier(swingsExt, "swing", SWING_EXT_LEN, extTop, extBtm, SWING_EXT_MAX)
     trackTier(swingsInt, "internal", SWING_INT_LEN, intTop, intBtm, SWING_INT_MAX)
     // Latch the most recent confirmed internal swing for took_liq tagging.
+    // The Ms field records the pivot's OWN bar time (time[len] at the latch
+    // bar) so the tag can reject swings older than TOOK_LIQ_MAX_BARS.
     if not na(intTop)
         priorSwingHigh := intTop
+        priorSwingHighMs := time[SWING_INT_LEN]
     if not na(intBtm)
         priorSwingLow := intBtm
+        priorSwingLowMs := time[SWING_INT_LEN]
     // A swing is swept once a later bar trades through its price. Stamp the time
     // so consumers can find the MOST-RECENT opposing-side internal sweep (the
     // stop-anchoring grab that precedes a valid inversion).
@@ -1093,8 +1221,9 @@ var array<Structure> structuresInt = array.new<Structure>()
 
 // Watch one tier's swing levels for a close-based break. `topPx`/`btmPx` are
 // the new pivots this bar (na when none); they re-arm the watched level. A
-// single bar can take out both the prior high AND the prior low (volatile
-// CPI / FOMC bars), so both checks fire and we return up to two events.
+// single bar can wick beyond BOTH levels (volatile CPI / FOMC bars), but
+// detection is close-based and close can't sit above the prior high AND below
+// the prior low at once — so at most one event fires per bar.
 trackStructure(string tier, float topPx, float btmPx, int pivotMs, float atrBand) =>
     var float lastHigh = na
     var int lastHighMs = na
@@ -1301,8 +1430,11 @@ qRangeQuality = qTfCoarse or bar_index < qRangeBars or na(atr14) or atr14 <= 0 ?
 qDisplacement = bar_index < QUALITY_DISP_BARS ? "na" : qCleanRecent >= QUALITY_DISP_CLEAN ? "clean" : qCleanRecent >= QUALITY_DISP_ACCEPT ? "acceptable" : "weak"
 qCandle = qDojiWickRecent > 0 ? "doji_wick" : qEngulfing ? "engulfing" : "normal"
 
-// Regime — price is either displacing (tradable) or consolidating (stand aside).
-qRegime = (qDisplacement == "clean" or qDisplacement == "acceptable") and qRangeQuality == "good" ? "displacement" : "consolidation"
+// Regime — price is either displacing (tradable) or consolidating (stand
+// aside). Honest na: if either input is na (coarse TF where range_quality is
+// always na, or displacement warmup) the regime is na too — never a fake
+// "consolidation".
+qRegime = qRangeQuality == "na" or qDisplacement == "na" ? "na" : (qDisplacement == "clean" or qDisplacement == "acceptable") and qRangeQuality == "good" ? "displacement" : "consolidation"
 // Range vs normal — the 3h range in ATR units. Lanto judges range/gap size
 // against the instrument's own recent normal, not fixed points (PRICE 12:26).
 qRangeVsNormal = not qTfCoarse and atr14 > 0 ? qRange3h / atr14 : na
@@ -1323,7 +1455,7 @@ qCoherence = bar_index < qCohBars or qGross <= 0 ? na : math.abs(close - close[q
 // ── Emitters ─────────────────────────────────────────────────────────
 // Emit one `level` record and, when it has been swept, the matching `sweep`
 // record. Skips a level whose price is na. Returns the next free row.
-emitLevelAndSweep(int row, string name, float price, string state, int formedMs, bool isHighSide, bool swept, int sweptMs, bool rejected, bool rejectedRw) =>
+emitLevelAndSweep(int row, string name, float price, string state, int formedMs, bool isHighSide, bool swept, int sweptMs, int sweptLastMs, bool rejected, bool rejectedRw) =>
     int next = row
     if not na(price)
         levelPayload = "name=" + name +
@@ -1335,10 +1467,14 @@ emitLevelAndSweep(int row, string name, float price, string state, int formedMs,
         table.cell(evidence, 1, next, levelPayload)
         next := next + 1
         if swept
+            // swept_ms_last (rev 6, additive): most-recent wick-through time
+            // so the backend can read re-sweeps; swept_ms keeps first-sweep
+            // semantics. Older recordings simply lack the key.
             sweepPayload = "target=" + name +
                            "|price=" + str.tostring(price, format.mintick) +
                            "|side=" + (isHighSide ? "buy" : "sell") +
                            "|swept_ms=" + str.tostring(na(sweptMs) ? 0 : sweptMs) +
+                           "|swept_ms_last=" + str.tostring(na(sweptLastMs) ? 0 : sweptLastMs) +
                            "|rejected=" + (rejected ? "1" : "0") +
                            "|rejected_rw=" + (rejectedRw ? "1" : "0") +
                            "|significance=session_level"
@@ -1489,9 +1625,12 @@ emitQuality(int row) =>
               "|atr_17=" + str.tostring(atr17, format.mintick) +
               "|session=" + currentSession +
               "|overnight_dir=" + ovDir +
-              "|overnight_net=" + str.tostring(na(ovNet) ? 0 : ovNet, format.mintick) +
-              "|or_high=" + str.tostring(na(orHigh) ? 0 : orHigh, format.mintick) +
-              "|or_low=" + str.tostring(na(orLow) ? 0 : orLow, format.mintick) +
+              // Blank when na (I28: a blank cell is MISSING, not 0 — a real 0
+              // would be indistinguishable from "flat overnight"). Key stays
+              // present so the payload shape is type-stable.
+              "|overnight_net=" + (na(ovNet) ? "" : str.tostring(ovNet, format.mintick)) +
+              "|or_high=" + (na(orHigh) ? "" : str.tostring(orHigh, format.mintick)) +
+              "|or_low=" + (na(orLow) ? "" : str.tostring(orLow, format.mintick)) +
               "|or_swept=" + orSwept + legPart
     table.cell(evidence, 0, row, "quality")
     table.cell(evidence, 1, row, payload)
@@ -1520,18 +1659,18 @@ if barstate.islast
     // C18: clear the data region before rewriting so a shrink can't leave stale
     // tail rows from a prior larger emit for the parser to read.
     table.clear(evidence, 0, 1, 1, MAX_ROWS)
-    row := emitLevelAndSweep(row, "AS.H", asiaH, asiaState, asiaHMs, true, asiaHSwept, asiaHSweptMs, asiaHRej, asiaHRejRw)
-    row := emitLevelAndSweep(row, "AS.L", asiaL, asiaState, asiaLMs, false, asiaLSwept, asiaLSweptMs, asiaLRej, asiaLRejRw)
-    row := emitLevelAndSweep(row, "LO.H", lonH, lonState, lonHMs, true, lonHSwept, lonHSweptMs, lonHRej, lonHRejRw)
-    row := emitLevelAndSweep(row, "LO.L", lonL, lonState, lonLMs, false, lonLSwept, lonLSweptMs, lonLRej, lonLRejRw)
-    row := emitLevelAndSweep(row, "NYAM.H", nyamH, nyamState, nyamHMs, true, nyamHSwept, nyamHSweptMs, nyamHRej, nyamHRejRw)
-    row := emitLevelAndSweep(row, "NYAM.L", nyamL, nyamState, nyamLMs, false, nyamLSwept, nyamLSweptMs, nyamLRej, nyamLRejRw)
-    row := emitLevelAndSweep(row, "NYPM.H", nypmH, nypmState, nypmHMs, true, nypmHSwept, nypmHSweptMs, nypmHRej, nypmHRejRw)
-    row := emitLevelAndSweep(row, "NYPM.L", nypmL, nypmState, nypmLMs, false, nypmLSwept, nypmLSweptMs, nypmLRej, nypmLRejRw)
-    row := emitLevelAndSweep(row, "PDH", pdh, "complete", na, true, pdhSwept, pdhSweptMs, pdhRej, pdhRejRw)
-    row := emitLevelAndSweep(row, "PDL", pdl, "complete", na, false, pdlSwept, pdlSweptMs, pdlRej, pdlRejRw)
-    row := emitLevelAndSweep(row, "PWH", pwh, "complete", na, true, pwhSwept, pwhSweptMs, pwhRej, pwhRejRw)
-    row := emitLevelAndSweep(row, "PWL", pwl, "complete", na, false, pwlSwept, pwlSweptMs, pwlRej, pwlRejRw)
+    row := emitLevelAndSweep(row, "AS.H", asiaH, asiaState, asiaHMs, true, asiaHSwept, asiaHSweptMs, asiaHSweptLast, asiaHRej, asiaHRejRw)
+    row := emitLevelAndSweep(row, "AS.L", asiaL, asiaState, asiaLMs, false, asiaLSwept, asiaLSweptMs, asiaLSweptLast, asiaLRej, asiaLRejRw)
+    row := emitLevelAndSweep(row, "LO.H", lonH, lonState, lonHMs, true, lonHSwept, lonHSweptMs, lonHSweptLast, lonHRej, lonHRejRw)
+    row := emitLevelAndSweep(row, "LO.L", lonL, lonState, lonLMs, false, lonLSwept, lonLSweptMs, lonLSweptLast, lonLRej, lonLRejRw)
+    row := emitLevelAndSweep(row, "NYAM.H", nyamH, nyamState, nyamHMs, true, nyamHSwept, nyamHSweptMs, nyamHSweptLast, nyamHRej, nyamHRejRw)
+    row := emitLevelAndSweep(row, "NYAM.L", nyamL, nyamState, nyamLMs, false, nyamLSwept, nyamLSweptMs, nyamLSweptLast, nyamLRej, nyamLRejRw)
+    row := emitLevelAndSweep(row, "NYPM.H", nypmH, nypmState, nypmHMs, true, nypmHSwept, nypmHSweptMs, nypmHSweptLast, nypmHRej, nypmHRejRw)
+    row := emitLevelAndSweep(row, "NYPM.L", nypmL, nypmState, nypmLMs, false, nypmLSwept, nypmLSweptMs, nypmLSweptLast, nypmLRej, nypmLRejRw)
+    row := emitLevelAndSweep(row, "PDH", pdh, "complete", na, true, pdhSwept, pdhSweptMs, pdhSweptLast, pdhRej, pdhRejRw)
+    row := emitLevelAndSweep(row, "PDL", pdl, "complete", na, false, pdlSwept, pdlSweptMs, pdlSweptLast, pdlRej, pdlRejRw)
+    row := emitLevelAndSweep(row, "PWH", pwh, "complete", na, true, pwhSwept, pwhSweptMs, pwhSweptLast, pwhRej, pwhRejRw)
+    row := emitLevelAndSweep(row, "PWL", pwl, "complete", na, false, pwlSwept, pwlSweptMs, pwlSweptLast, pwlRej, pwlRejRw)
     for f in fvgs
         row := emitFvg(row, f)
     for b in bprs
@@ -1706,11 +1845,13 @@ drawLevel(float price, int formedMs, bool swept, int sweptMs, bool rejected, str
             vizLine(x1, price, sweptMs, price, faded, line.style_solid, 1)
             // Glyph only at the sweep point — the checklist's Liquidity row
             // names the level; repeating the name mid-chart is text noise.
-            vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
+            if showLevelText
+                vizLabel(sweptMs, price, rejected ? "◆" : "✕", color(na), fade(colNeutral, 25), label.style_label_center, size.tiny)
         else if forming
             x2 = time + RIGHT_PAD_MS * (1 + labelCol * 2)
             vizLine(x1, price, x2, price, colNeutral, line.style_dashed, 1)
-            vizLabel(x2, price, name, color(na), colNeutral, label.style_label_left, size.small)
+            if showLevelText
+                vizLabel(x2, price, name, color(na), colNeutral, label.style_label_left, size.small)
         // Completed unswept levels route through the merge pool. This sits
         // OUTSIDE the if/else above: Pine requires all if/else branches to
         // share a return type, and mergeLevel is void while the label
@@ -1744,7 +1885,8 @@ renderLevels() =>
             vizLine(array.get(lvlMs, i), price, x2, price, colNeutral, line.style_solid, 1)
             // Mixed clusters already name each member's own price — a single
             // trailing price would misattribute it to every member.
-            vizLabel(x2, price, array.get(lvlNm, i) + (array.get(lvlMixed, i) ? "" : "  " + str.tostring(price, format.mintick)), color(na), colNeutral, label.style_label_left, size.small)
+            if showLevelText
+                vizLabel(x2, price, array.get(lvlNm, i) + (array.get(lvlMixed, i) ? "" : "  " + str.tostring(price, format.mintick)), color(na), colNeutral, label.style_label_left, size.small)
 
 // The current leg's running extremes — quiet dotted guides for the live
 // structural invalidation anchors (strategy §6).
@@ -1817,14 +1959,18 @@ drawActiveZone(int leftMs, float top, float bottom, string dir, string tag, bool
     // zone carries a tag at all — a bare percentage floats meaninglessly).
     height = top - bottom
     frac = na(deepPx) or height <= 0 ? 0.0 : math.min(1.0, math.max(0.0, dir == "bull" ? (top - deepPx) / height : (deepPx - bottom) / height))
-    zTag = tag != "" and frac >= 0.05 and frac < 1.0 ? tag + " · " + str.tostring(int(math.round(frac * 100))) + "%" : tag
+    // showZoneTags kills the tag input itself, so the mitigation-% suffix
+    // (appended below only when the tag is non-empty) dies with it.
+    effTag = showZoneTags ? tag : ""
+    zTag = effTag != "" and frac >= 0.05 and frac < 1.0 ? effTag + " · " + str.tostring(int(math.round(frac * 100))) + "%" : effTag
     if frac >= 0.05 and frac < 0.98
         vizBox(leftMs, top, x2, bottom, color.new(accent, 95), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
         vizBox(leftMs, dir == "bull" ? deepPx : top, x2, dir == "bull" ? bottom : deepPx, zoneFill(accent, state), color.new(accent, 100), "", color(na), line.style_solid)
     else
         vizBox(leftMs, top, x2, bottom, zoneFill(accent, state), zoneBorder(accent), zTag, zoneText(accent), dashed ? line.style_dashed : line.style_solid)
-    vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
-    mk = entryMarkerText(confirmClose, chop15, entered, ceHeld)
+    if showZoneCe
+        vizLine(leftMs, ce, x2, ce, zoneCe(accent), line.style_dotted, 1)
+    mk = showEntryMarkers ? entryMarkerText(confirmClose, chop15, entered, ceHeld) : ""
     if mk != ""
         vizLabel(x2, ce, mk, color(na), entryMarkerColor(confirmClose, chop15, entered, ceHeld, accent), label.style_label_left, size.tiny)
 
@@ -1939,7 +2085,8 @@ drawStructure(Structure s, string suffix = "", int age = 0) =>
     // price-unit (ATR) offset is not, which is why it rendered wrong.
     // Balloon is transparent; only the text shows.
     vizLine(s.brokenSwingMs, s.level, s.confirmedMs, s.level, fade(accent, 38 + ageFade), lnStyle, s.displacement ? 2 : 1)
-    vizLabel(midMs, s.level, txt, color(na), fade(accent, 22 + ageFade), s.dir == "bull" ? label.style_label_down : label.style_label_up, s.event == "mss" ? size.small : size.tiny)
+    if showStructText
+        vizLabel(midMs, s.level, txt, color(na), fade(accent, 22 + ageFade), s.dir == "bull" ? label.style_label_down : label.style_label_up, s.event == "mss" ? size.small : size.tiny)
 
 renderStructures() =>
     // Consecutive same-direction BoS streak ending at the latest event —
@@ -2049,12 +2196,15 @@ renderChecklist() =>
         panelMerged := true
 
     // 1–3 · bias component votes (daily-bias.md §1 — counted, in order)
-    // HTF vote = HEATMAP MAJORITY across all four reads (15m / 1H / 4H / D).
-    // A side wins only on a real majority: with k non-`·` reads, require
-    // k-1 agreement (minimum 2) — so 4-up votes, but a 2v2 split is a
-    // non-vote (§2). This is the VOTE only; the heatmap display is unchanged.
-    htfBulls = (m15Lean > 0 ? 1 : 0) + (h1Lean > 0 ? 1 : 0) + (h4Lean > 0 ? 1 : 0) + (dLean > 0 ? 1 : 0)
-    htfBears = (m15Lean < 0 ? 1 : 0) + (h1Lean < 0 ? 1 : 0) + (h4Lean < 0 ? 1 : 0) + (dLean < 0 ? 1 : 0)
+    // HTF vote = MAJORITY across the three HTF reads (1H / 4H / D) only —
+    // daily-bias.md §2 defines HTF analysis as Daily → 4H → 1H, top-down,
+    // so the 15m read must not dilute the HTF component. A side wins only
+    // on a real majority: with k non-`·` reads, require k-1 agreement
+    // (minimum 2) — so k=3 needs 2, k=2 must be unanimous, k=1 can't vote
+    // (§2). This is the VOTE only; the heatmap display is unchanged (the
+    // 15m cell still shows below, for context).
+    htfBulls = (h1Lean > 0 ? 1 : 0) + (h4Lean > 0 ? 1 : 0) + (dLean > 0 ? 1 : 0)
+    htfBears = (h1Lean < 0 ? 1 : 0) + (h4Lean < 0 ? 1 : 0) + (dLean < 0 ? 1 : 0)
     htfK = htfBulls + htfBears
     htfNeed = math.max(htfK - 1, 2)
     htfVote = htfBulls >= htfNeed and htfBulls > htfBears ? 1 : htfBears >= htfNeed and htfBears > htfBulls ? -1 : 0
@@ -2072,7 +2222,7 @@ renderChecklist() =>
     orRxNm = array.from("AS.H", "AS.L", "LO.H", "LO.L", "NYAM.H", "NYAM.L")
     orRxPx = array.from(asiaH, asiaL, lonH, lonL, nyamH, nyamL)
     orRxSw = array.from(asiaHSwept, asiaLSwept, lonHSwept, lonLSwept, nyamHSwept, nyamLSwept)
-    orRxMs = array.from(asiaHSweptMs, asiaLSweptMs, lonHSweptMs, lonLSweptMs, nyamHSweptMs, nyamLSweptMs)
+    orRxMs = array.from(asiaHSweptLast, asiaLSweptLast, lonHSweptLast, lonLSweptLast, nyamHSweptLast, nyamLSweptLast)
     orRxRj = array.from(asiaHRej, asiaLRej, lonHRej, lonLRej, nyamHRej, nyamLRej)
     orRxHi = array.from(true, false, true, false, true, false)
     int orLvlVote = 0
@@ -2283,7 +2433,7 @@ renderChecklist() =>
     // reads as a valid vote (✔), not a fail against a side that isn't there.
     htfStat = mixed ? (htfVote != 0 ? 2 : 0) : voteStat(htfVote, side)
     pSet(0, 2, statGlyph(htfStat), statCol(htfStat))
-    pSet(1, 2, "HTF", color(na), color(na), "Array lean per TF — gap respected or inverted, recency-weighted (daily-bias.md §2). Heatmap fill is the state; the vote is a majority across all four reads (15m/1H/4H/D).")
+    pSet(1, 2, "HTF", color(na), color(na), "Array lean per TF — gap respected or inverted, recency-weighted (daily-bias.md §2). Heatmap fill is the state; the vote is a majority across the three HTF reads (1H/4H/D) — 15m is shown for context only.")
     heatCell(2, "15", m15Lean)
     heatCell(3, "1H", h1Lean)
     heatCell(4, "4H", h4Lean)
@@ -2306,7 +2456,7 @@ renderChecklist() =>
     // (the 10–15m rule made visible), since birth while waiting.
     candAge = candEntered and not na(candEnteredMs) ? " " + durTxt(candEnteredMs) : not na(candBornMs) ? " " + durTxt(candBornMs) : ""
     pRow(7, r6, "PD array", hasCand ? kindLbl + " " + sideArrow + (candEntered ? (candCeHeld ? " · CE held" : " · CE lost") : " · await tap") + candAge : side == 0 ? "—" : "none near", "Best NEAR live gap in-direction (within ~8 ATR — near price is the realistic draw, daily-bias.md §2): fresh > took-liq > displacement. Age = since tap when entered, since birth otherwise.")
-    pRow(8, r7, "Confirm", r7 == 2 ? "1m close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate 1m close through the zone in the trade direction (confirmation.md). Same-candle tap-and-close is valid — the hand-graded winners are same-candle. Dead if it fights >10–15m.")
+    pRow(8, r7, "Confirm", r7 == 2 ? timeframe.period + " close ✔" : candChop ? ">15m in zone" : r7 == 1 ? "await close" : hasCand and candKind == "ifvg" and not candEntered ? "viol close = aggr" : "—", "Deliberate close through the zone in the trade direction (confirmation.md). The engine confirms on the chart timeframe; the strategy requires the 1m close — read this row on 1m. Same-candle tap-and-close is valid — the hand-graded winners are same-candle. Dead if it fights >10–15m.")
     // SMT vs the sibling micro (Phase 3, display-only). Any live divergence
     // reads fail-red (side-independent, so both charts match); who = the symbol
     // holding the unconfirmed extreme. Age shows only past ~SMT_AGE_BARS bars.
@@ -2349,7 +2499,7 @@ renderChecklist() =>
     // Spotlight the tracked PD array — an accent outline + ◈ marker tie
     // the panel's PD-array row to the exact zone it means on the chart.
     // Everything else recedes; the one zone that matters pops.
-    if hasCand and showVisuals and not na(candBornMs)
+    if hasCand and showVisuals and showSpotlight and not na(candBornMs)
         vizBox(candBornMs, candTop, time + RIGHT_PAD_MS, candBot, color.new(accent, 100), fade(accent, 30), "", color(na), line.style_solid)
         vizLabel(time + RIGHT_PAD_MS, candTop, "◈", color(na), accent, label.style_label_left, size.tiny)
 

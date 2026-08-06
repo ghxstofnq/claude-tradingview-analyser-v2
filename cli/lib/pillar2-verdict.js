@@ -54,8 +54,11 @@ export function rowVerdict(q) {
   if (disp === 'weak') return 'poor';
   if (candle === 'doji_wick' && disp !== 'clean') return 'poor';
 
+  // 'na' regime (coarse TF where range_quality is always na, or displacement
+  // warmup) means "not measured" — fall through to the displacement/range read
+  // exactly like an absent regime field.
   const displacing = q.regime === 'displacement'
-    || (q.regime == null && (disp === 'clean' || disp === 'acceptable') && range === 'good');
+    || ((q.regime == null || q.regime === 'na') && (disp === 'clean' || disp === 'acceptable') && range === 'good');
   if (displacing && candle !== 'doji_wick') return 'good';
 
   return 'marginal';

@@ -23,7 +23,7 @@ export const CURRENT_SCHEMA = 4;
 // Deploy-drift guard: the Pine's CODE_REV const must equal this. Bumped in
 // lockstep with every pine/ict-engine.pine change; live-check blocks with
 // pine_code_rev_mismatch when the deployed indicator drifts from the repo.
-export const EXPECTED_CODE_REV = 5;
+export const EXPECTED_CODE_REV = 7;
 
 // Per-row-type field coercion. Keys not listed default to 'str', so unknown
 // future fields survive as strings rather than being dropped or mis-coerced.
@@ -46,7 +46,10 @@ const ROW_FIELD_TYPES = {
   level: { price: 'num', swept: 'bool', formed_ms: 'num' },
   // Dual-emit (gate corpus): rejected_rw = the reaction-window variant of the
   // rejection read, always emitted alongside the lever-selected `rejected`.
-  sweep: { price: 'num', swept_ms: 'num', rejected: 'bool', rejected_rw: 'bool' },
+  // swept_ms_last (rev 6, additive) = most-recent wick-through time so the
+  // backend can see re-sweeps; absent on pre-rev-6 recordings → undefined
+  // (same forward-compat convention as the smt `who` field above).
+  sweep: { price: 'num', swept_ms: 'num', swept_ms_last: 'num', rejected: 'bool', rejected_rw: 'bool' },
   // V2 (schema=2) added per-zone lifecycle fields (entered_ms..entry_state) on
   // both fvg and bpr. They're additive — V1 emits leave them absent and the
   // parser drops absent keys. String-typed enums (size_quality, confirm_dir,
